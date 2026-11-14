@@ -117,7 +117,10 @@ double Timeline::automationValue(const Lane& lane, double y) const {
 
 std::pair<std::string, std::string> Timeline::rangeLabels(const Automation& a) const {
     // (top, bottom): how the plugin shows the parameter at 1 and at 0, e.g. ("+30.0 dB", "-30.0 dB");
-    // "max" / "min" if it can't say. Worked out once per plugin.
+    // "max" / "min" if it can't say. Worked out once per plugin. A track's own Volume and Pan have no
+    // plugin: they say it themselves ("+6.0 dB" / "-inf dB", "100 R" / "100 L"), as automation.py's
+    // TrackParameter does.
+    if (a.slot && a.slot->isControls()) return {automation::controlText(a.param, 1.0), automation::controlText(a.param, 0.0)};
     auto plugin = aload(a.targetPlugin);
     const void* key = plugin.get();
     auto cached = rangeText_.find(&a);
@@ -136,6 +139,7 @@ std::pair<std::string, std::string> Timeline::rangeLabels(const Automation& a) c
 }
 
 std::string Timeline::valueText(const Automation& a, double value) const {
+    if (a.slot && a.slot->isControls()) return automation::controlText(a.param, value);  // (a track's own Volume / Pan)
     char buf[32];
     snprintf(buf, sizeof buf, "%.0f %%", value * 100);
     std::string text = buf;
@@ -160,7 +164,9 @@ void Timeline::paintAutomation(Painter& p, const Rect& r, const Lane& lane, bool
     Color line = c("automation_line");
     Color color = line;
     auto target = targetOf(a);
-    if (lane.owner->frozen || !target) color.a = 110;  // locked (frozen), or its plugin or parameter isn't there now
+    // a track's own Volume and Pan are always there (no plugin to load), and they work on frozen tracks too
+    bool controls = a.slot && a.slot->isControls();
+    if (!controls && (lane.owner->frozen || !target)) color.a = 110;  // locked (frozen), or its plugin or parameter isn't there now
     int top = (int)std::nearbyint(automationY(lane, 1.0)), bottom = (int)std::nearbyint(automationY(lane, 0.0));
     p.fillRect(Rect(r.left(), top, r.w, bottom - top + 1), line.withAlpha(14));
     Color guide = line.withAlpha(70);
@@ -221,11 +227,15 @@ void Timeline::paintAutomation(Painter& p, const Rect& r, const Lane& lane, bool
             if (r.left() - half <= xs[i] && xs[i] <= r.right() - 1 + half)
                 p.fillRect(RectF(xs[i] - half + 1, ys[i] - half + 1, 2 * half - 2, 2 * half - 2), color);
     } else {
-        if (target) {
+        if (target || controls) {
             double value = -1;
-            try {
-                value = target->getParam(a.targetParam);
-            } catch (...) {
+            if (controls) {
+                value = automation::controlValue(*lane.owner, a.param);  // (the fader's / knob's setting now)
+            } else {
+                try {
+                    value = target->getParam(a.targetParam);
+                } catch (...) {
+                }
             }
             if (value >= 0) {
                 float y = (float)automationY(lane, value);

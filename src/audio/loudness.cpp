@@ -38,8 +38,12 @@ std::array<Biquad, 2> kWeighting(double sr) {
     return {biquad(true, 4.0, 1 / std::sqrt(2.0), 1500.0, sr), biquad(false, 0.0, 0.5, 38.0, sr)};
 }
 
+// Below this mean power (-150 LUFS) the sound is silence: the K-weighting filters' state decays towards 0
+// after the sound stops without ever reaching it, which read as "-1853.2" instead of the "–" of silence.
+constexpr double SILENT_POWER = 1e-15;
+
 double toLufs(double power) {
-    return power > 0 ? -0.691 + 10 * std::log10(power) : -std::numeric_limits<double>::infinity();
+    return power > SILENT_POWER ? -0.691 + 10 * std::log10(power) : -std::numeric_limits<double>::infinity();
 }
 
 double integrated(const std::vector<double>& gates) {

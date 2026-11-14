@@ -76,6 +76,20 @@ static void testLufs() {
     none.addSilence(48000);
     none.read(m, s, i);
     CHECK(std::isinf(m) && std::isinf(i));
+    // zeros played after a sound (the track's clip ended): the K-weighting filters' state decays towards 0
+    // without reaching it; once the 3 s window holds only that, short-term is silence (-inf, shown "–"),
+    // not "-1853.2"
+    {
+        loudness::LoudnessMeter after(48000, 2);
+        auto tone = sine(997, 1, 48000, {0.1, 0.1});
+        after.add(tone.data(), (int)(tone.size() / 2));
+        std::vector<float> zeros(48000 * 2, 0.0f);
+        for (int k = 0; k < 4; k++) after.add(zeros.data(), 48000);
+        after.read(m, s, i);
+        CHECK(std::isinf(s) && s < 0);
+        CHECK(std::isinf(m) && m < 0);
+        CHECK(std::isfinite(i));  // (the tone is still in the integrated loudness)
+    }
     // gating: a long quiet part (> 10 LU below) doesn't pull the integrated loudness down
     loudness::LoudnessMeter g(48000, 2);
     auto loud = sine(997, 3, 48000, {0.1, 0.1});

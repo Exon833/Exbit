@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <string>
 
+#include "audio/automation.h"
 #include "audio/engine.h"
 #include "audio/file_io.h"
 #include "audio/sound_file.h"
@@ -1249,6 +1250,32 @@ void testMidiClipsAndExport() {
 
 }  // namespace
 
+
+// A track's own Volume and Pan lanes name their range as the fader and knob show it (not "max" / "min"),
+// and are drawn as present (no plugin to load): automation.py's TrackParameter texts.
+void testControlLaneLabels() {
+    Rig r;
+    auto track = r.project.addTrack(Kind::Audio);
+    auto volume = std::make_shared<Automation>();
+    volume->slot = track->controls;
+    volume->param = "Volume";
+    auto pan = std::make_shared<Automation>();
+    pan->slot = track->controls;
+    pan->param = "Pan";
+    track->automation = std::vector<AutomationPtr>{volume, pan};
+    automation::resolve(r.project);
+    auto v = r.tl->rangeLabels(*volume);
+    CHECK(v.first == "+6.0 dB");
+    CHECK(v.second == "-inf dB");
+    auto p = r.tl->rangeLabels(*pan);
+    CHECK(p.first == "100 R");
+    CHECK(p.second == "100 L");
+    CHECK(r.tl->valueText(*pan, 0.5) == "C");
+    CHECK(r.tl->valueText(*pan, 0.35) == "30 L");
+    CHECK(r.tl->valueText(*volume, 66.0 / 66.0) == "+6.0 dB");
+    CHECK(r.tl->valueText(*volume, 60.0 / 66.0) == "+0.0 dB");
+}
+
 int main() {
     ui::App::get().initHeadless();
     theme::setSkin();
@@ -1259,6 +1286,7 @@ int main() {
     testRangeEdits();
     testDrops();
     testMidiAndAutomation();
+    testControlLaneLabels();
     testLoop();
     testTileCache();
     paintSamples();
