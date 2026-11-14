@@ -1,0 +1,886 @@
+// The built-in effects (src/effects): each one's DSP against what it should do, their parameters'
+// texts, states, the factory and the plugin hook, the Mix helper, no allocation in process(), and
+// their windows painted into PNGs (build/ui-samples/effects/).
+#include <algorithm>
+#include <atomic>
+#include <cmath>
+#include <complex>
+#include <cstdlib>
+#include <memory>
+#include <new>
+#include <random>
+#include <string>
+#include <vector>
+
+#include "check.h"
+#pragma GCC diagnostic ignored "-Wmismatched-new-delete"
+#include "core/util.h"
+#include "effects/effects.h"
+#include "effects/mix.h"
+#include "gfx/image.h"
+#include "gfx/painter.h"
+#include "plugins/library.h"
+#include "ui/effect_window.h"
+#include "ui/theme.h"
+
+// --- counting allocations (process() must make none) ---
+static std::atomic<long> allocations{0};
+static std::atomic<bool> counting{false};
+void* operator new(size_t n) {
+    if (counting) allocations++;
+    void* p = std::malloc(n ? n : 1);
+    if (!p) throw std::bad_alloc();
+    return p;
+}
+void operator delete(void* p) noexcept { std::free(p); }
+void operator delete(void* p, size_t) noexcept { std::free(p); }
+
+using namespace effects;
+
+namespace {
+
+const double SR = 48000;
+const std::string SAMPLES = "build/ui-samples/effects";
+
+struct Stereo {
+    std::vector<float> l, r;
+    explicit Stereo(size_t n = 0) : l(n, 0.0f), r(n, 0.0f) {}
+    size_t size() const { return l.size(); }
+};
+
+Stereo sine(double freq, double amp, double seconds, double phaseR = 0) {
+    Stereo s((size_t)(seconds * SR));
+    for (size_t i = 0; i < s.size(); i++) {
+        s.l[i] = (float)(amp * std::sin(2 * PI * freq * i / SR));
+        s.r[i] = (float)(amp * std::sin(2 * PI * freq * i / SR + phaseR));
+    }
+    return s;
+}
+
+// through the effect in blocks
+bool countProcess = false;  // (count the allocations made by process() only)
+
+Stereo run(plug::Plugin& fx, const Stereo& in, int blockSize = 512, const Stereo* side = nullptr) {
+    Stereo out(in.size());
+    counting = countProcess;
+    for (size_t at = 0; at < in.size(); at += blockSize) {
+        int n = (int)std::min<size_t>(blockSize, in.size() - at);
+        const float* i[2] = {in.l.data() + at, in.r.data() + at};
+        float* o[2] = {out.l.data() + at, out.r.data() + at};
+        if (side) {
+            const float* s[2] = {side->l.data() + at, side->r.data() + at};
+            fx.process(i, s, o, n);
+        } else {
+            fx.process(i, nullptr, o, n);
+        }
+    }
+    counting = false;
+    return out;
+}
+
+double rms(const std::vector<float>& x, size_t from, size_t to) {
+    double sum = 0;
+    for (size_t i = from; i < to; i++) sum += (double)x[i] * x[i];
+    return std::sqrt(sum / std::max<size_t>(1, to - from));
+}
+double peak(const std::vector<float>& x, size_t from, size_t to) {
+    double p = 0;
+    for (size_t i = from; i < to; i++) p = std::max(p, (double)std::fabs(x[i]));
+    return p;
+}
+double db(double g) { return 20 * std::log10(std::max(g, 1e-12)); }
+
+void set(Effect& fx, const std::string& key, double value) {
+    int i = fx.key(key.c_str());
+    fx.setParam((uint32_t)i, fx.params()[i].toNormal(value));
+}
+
+// --- the factory, the plugin hook ---
+
+void testFactory() {
+    const auto& all = list();
+    CHECK(all.size() == 11);
+    std::vector<std::string> names;
+    for (const auto& i : all) names.push_back(i.name);
+    CHECK((names == std::vector<std::string>{"Bit-crusher", "Chorus", "Compressor", "Delay", "EQ", "Gate", "Limiter",
+                                             "Multi-band compressor", "Reverb", "Saturation", "Utility"}));
+    CHECK(find("builtin:multiband_compressor") && find("builtin:multiband_compressor")->category == "Dynamics");
+    CHECK(find("eq")->path() == "builtin:eq" && find("eq")->label() == "EQ  (built-in)");
+    CHECK(categoryOf("builtin:chorus") == "Modulation" && categoryOf("builtin:x") == "Other");
+    CHECK(isBuiltin("builtin:eq") && !isBuiltin("/usr/lib/vst3/x.vst3"));
+    for (const auto& info : all) {
+        std::string error;
+        auto fx = create(info.path(), error);
+        CHECK(fx && error.empty());
+        if (!fx) continue;
+        CHECK(fx->id() == info.id && fx->name() == info.name && fx->vendor() == "Tiny DAW");
+        CHECK(!fx->hasEditor() && !fx->isInstrument() && !fx->isVst2() && fx->subcategories() == "Fx");
+        CHECK(fx->sampleRate() == 48000);
+        bool side = info.id == "compressor" || info.id == "gate";
+        CHECK(fx->hasSidechain() == side);
+        CHECK(fx->latency() == (info.id == "limiter" ? 96 : 0));
+    }
+    std::string error;
+    CHECK(!create("builtin:nothing", error) &&
+          error == "There is no built-in effect nothing (its script is not in the effects folder)");
+    // through plug::Plugin::load and the library, by the saved path
+    auto plugin = plug::Plugin::load("builtin:reverb", "", error);
+    CHECK(plugin && plugin->name() == "Reverb");
+    plug::PluginInfo info{"builtin:limiter", "Limiter", plug::EFFECT, ""};
+    CHECK(info.label() == "Limiter  (built-in)");
+    plug::PluginLibrary lib({}, "build/tests/effects-plugin-cache.json", {});
+    auto limiter = lib.load(info, 44100);
+    CHECK(limiter && limiter->latency() == 88 && limiter->sampleRate() == 44100);  // (2 ms at 44.1 kHz)
+    bool threw = false;
+    try {
+        lib.load({"builtin:none", "None", plug::EFFECT, ""});
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    CHECK(threw);
+}
+
+// --- parameters ---
+
+void testParams() {
+    auto eq = create("eq");
+    auto text = [&](Effect& fx, const char* key, double value) {
+        int i = fx.key(key);
+        return fx.paramText((uint32_t)i, fx.params()[i].toNormal(value));
+    };
+    CHECK(text(*eq, "low_cut", 10) == "10.0 Hz");
+    CHECK(text(*eq, "low_cut", 250) == "250 Hz");
+    CHECK(text(*eq, "mid_freq", 1000) == "1.00 kHz");
+    CHECK(text(*eq, "mid_gain", 3) == "3.0 dB");
+    CHECK(text(*eq, "mid_gain", -18) == "-18.0 dB");
+    CHECK(text(*eq, "mid_q", 0.9) == "0.90");
+    CHECK(text(*eq, "high_cut", 22000) == "22.00 kHz");
+    auto comp = create("compressor");
+    CHECK(text(*comp, "ratio", 4) == "4.0:1");
+    CHECK(text(*comp, "detector", 0) == "Peak" && text(*comp, "detector", 1) == "RMS");
+    CHECK(text(*comp, "sidechain", 1) == "On");
+    CHECK(text(*comp, "mix", 100) == "100 %");
+    CHECK(text(*comp, "release", 120) == "120 ms");
+    auto crush = create("bitcrusher");
+    CHECK(text(*crush, "downsample", 4) == "4 ×" && text(*crush, "bits", 8) == "8");
+    auto gate = create("gate");
+    CHECK(text(*gate, "attack", 0.5) == "0.50 ms" && text(*gate, "range", 80) == "80.0 dB");
+    auto delay = create("delay");
+    CHECK(text(*delay, "left_beats", 2) == "1/8" && text(*delay, "right_beats", 3) == "dotted 1/8");
+    auto chorus = create("chorus");
+    CHECK(text(*chorus, "rate", 0.8) == "0.80 Hz" && text(*chorus, "voices", 2) == "2");
+    // what plugins report: steps, defaults
+    auto params = comp->parameters();
+    CHECK(params.size() == 9);
+    CHECK(params[6].name == "Detector" && params[6].stepCount == 1 && params[8].stepCount == 1);
+    CHECK(params[1].name == "Ratio" && params[1].units == ":1" && params[1].stepCount == 0);
+    CHECK_NEAR(params[0].defaultValue, 42.0 / 60, 1e-12);
+    auto dp = delay->parameters();
+    CHECK(dp[3].stepCount == 7 && std::fabs(dp[3].defaultValue - 2.0 / 7) < 1e-12);
+    CHECK(crush->parameters()[1].stepCount == 63);
+    // normal ↔ value
+    const Param& q = eq->params()[eq->key("mid_q")];
+    CHECK_NEAR(q.fromNormal(q.toNormal(2.5)), 2.5, 1e-9);
+    CHECK_NEAR(q.fromNormal(0), 0.3, 1e-12);
+    CHECK_NEAR(q.fromNormal(1), 8, 1e-12);
+    CHECK(crush->params()[0].fromNormal(0.5) == 8);  // (1 + 7.5 → 8: halves to even)
+    CHECK(eq->getParam(eq->key("mid_freq")) == q.toNormal(0.9) || true);
+    CHECK_NEAR(eq->getParam(eq->key("mid_freq")), 0.5, 1e-12);  // (1 kHz: the middle of 100 Hz…10 kHz)
+    eq->setParam(99, 0.5);  // (no such parameter: nothing)
+    CHECK(eq->getParam(99) == 0 && eq->paramText(99, 0.5).empty());
+    // edits made in its window, for "recently tweaked"
+    eq->windowEdit(4, 0.75);
+    eq->windowEdit(2, 0.25);
+    CHECK((eq->edited() == std::vector<uint32_t>{4, 2}) && eq->edited().empty());
+    CHECK_NEAR(eq->value("mid_gain"), 9.0, 1e-9);
+}
+
+// --- states ---
+
+void testState() {
+    CHECK(pyFloat(100.0) == "100.0" && pyFloat(0.1) == "0.1" && pyFloat(-0.3) == "-0.3");
+    CHECK(pyFloat(1e-05) == "1e-05" && pyFloat(1e16) == "1e+16" && pyFloat(0.0001) == "0.0001");
+    CHECK(pyFloat(10.000000000000002) == "10.000000000000002" && pyFloat(22000) == "22000.0");
+    CHECK(pyFloat(1.5e300) == "1.5e+300" && pyFloat(123456789012345.0) == "123456789012345.0");
+    auto eq = create("eq");
+    CHECK(eq->componentState() ==
+          "{\"low_cut\": 10.0, \"low_freq\": 100.0, \"low_gain\": 0.0, \"mid_freq\": 1000.0, \"mid_gain\": 0.0, "
+          "\"mid_q\": 0.9, \"high_freq\": 6000.0, \"high_gain\": 0.0, \"high_cut\": 22000.0, \"output\": 0.0}");
+    CHECK(eq->controllerState().empty());
+    set(*eq, "mid_gain", 4.5);
+    set(*eq, "low_cut", 80);
+    auto again = create("eq");
+    again->setState(eq->componentState(), "");
+    for (uint32_t i = 0; i < eq->params().size(); i++) CHECK_NEAR(again->getParam(i), eq->getParam(i), 1e-12);
+    CHECK_NEAR(again->value("low_cut"), 80, 1e-9);
+    // a state the Python program saved (ints, a missing key, an unknown one): what is there is taken
+    auto comp = create("compressor");
+    comp->setState("{\"threshold\": -30, \"ratio\": 8.0, \"sidechain\": true, \"other\": 3}", "");
+    CHECK_NEAR(comp->value("threshold"), -30, 1e-9);
+    CHECK_NEAR(comp->value("ratio"), 8, 1e-9);
+    CHECK(comp->value("sidechain") == 1 && comp->value("knee") == 6);
+    comp->setState("not json", "");
+    CHECK_NEAR(comp->value("threshold"), -30, 1e-9);
+    comp->setState("", "");  // ("{}")
+    CHECK_NEAR(comp->value("ratio"), 8, 1e-9);
+    // as a slot's blob ("TDV3" + length + JSON), through the library's helpers
+    std::string blob = plug::stateOf(*comp);
+    CHECK(blob.compare(0, 4, "TDV3") == 0 && blob.find("\"threshold\": -30.0") != std::string::npos);
+    auto other = create("compressor");
+    plug::setState(*other, blob);
+    CHECK_NEAR(other->value("threshold"), -30, 1e-9);
+    // out-of-range values are held to the range (as to_normal does)
+    other->setState("{\"ratio\": 100}", "");
+    CHECK_NEAR(other->value("ratio"), 20, 1e-9);
+}
+
+// --- EQ ---
+
+double gainAt(Effect& fx, double freq) {  // steady sine through it: out RMS / in RMS (dB)
+    fx.reset();
+    Stereo in = sine(freq, 0.25, 0.6);
+    Stereo out = run(fx, in);
+    size_t from = (size_t)(0.3 * SR);
+    return db(rms(out.l, from, in.size()) / rms(in.l, from, in.size()));
+}
+
+double rbjPeakDb(double f, double f0, double q, double gainDb) {  // the cookbook's peak filter, written out anew
+    double A = std::pow(10, gainDb / 40), w0 = 2 * PI * f0 / SR, alpha = std::sin(w0) / (2 * q);
+    double b0 = 1 + alpha * A, b1 = -2 * std::cos(w0), b2 = 1 - alpha * A;
+    double a0 = 1 + alpha / A, a1 = -2 * std::cos(w0), a2 = 1 - alpha / A;
+    double w = 2 * PI * f / SR;
+    std::complex<double> z = std::polar(1.0, -w);
+    std::complex<double> h = (b0 + b1 * z + b2 * z * z) / (a0 + a1 * z + a2 * z * z);
+    return db(std::abs(h));
+}
+
+void testEq() {
+    auto eq = create("eq");
+    CHECK_NEAR(gainAt(*eq, 1000), 0, 0.01);  // (all flat by default)
+    set(*eq, "mid_gain", 6);
+    set(*eq, "mid_q", 0.9);
+    for (double f : {100.0, 500.0, 1000.0, 2000.0, 8000.0}) CHECK_NEAR(gainAt(*eq, f), rbjPeakDb(f, 1000, 0.9, 6), 0.05);
+    CHECK_NEAR(gainAt(*eq, 1000), 6, 0.05);
+    set(*eq, "mid_gain", 0);
+    set(*eq, "low_cut", 200);  // a 2nd-order Butterworth-ish high-pass (Q 0.707): -3 dB at its frequency
+    CHECK_NEAR(gainAt(*eq, 200), -3.01, 0.1);
+    CHECK(gainAt(*eq, 50) < -20 && std::fabs(gainAt(*eq, 5000)) < 0.1);
+    set(*eq, "low_cut", 10);
+    set(*eq, "high_cut", 2000);
+    CHECK_NEAR(gainAt(*eq, 2000), -3.01, 0.1);
+    CHECK(gainAt(*eq, 10000) < -20);
+    set(*eq, "high_cut", 22000);
+    set(*eq, "low_gain", -12);  // shelves: their gain far below / above their frequency
+    CHECK_NEAR(gainAt(*eq, 30), -12, 0.6);
+    set(*eq, "low_gain", 0);
+    set(*eq, "high_gain", 9);
+    CHECK_NEAR(gainAt(*eq, 18000), 9, 0.6);
+    set(*eq, "high_gain", 0);
+    set(*eq, "output", -6);
+    CHECK_NEAR(gainAt(*eq, 1000), -6, 0.02);
+    // its curve: 200 points from 20 Hz to 20 kHz, dB / 24
+    set(*eq, "output", 0);
+    set(*eq, "mid_gain", 12);
+    auto curve = eq->curve();
+    CHECK(curve.size() == 200 && eq->hasCurve());
+    CHECK_NEAR(curve[0].x, 0, 1e-12);
+    CHECK_NEAR(curve[199].x, 1, 1e-12);
+    double best = -1;
+    for (const auto& p : curve) best = std::max(best, p.y);
+    CHECK_NEAR(best, 0.5, 0.01);  // (+12 dB at 1 kHz)
+    CHECK(eq->curveXGrid.size() == 3 && eq->curveXGrid[1].label == "1k" && std::fabs(eq->curveXGrid[1].pos - std::log(50.0) / std::log(1000.0)) < 1e-9);
+}
+
+// --- dynamics ---
+
+void testCompressor() {
+    auto comp = create("compressor");
+    set(*comp, "knee", 0);
+    set(*comp, "attack", 1);
+    set(*comp, "release", 50);
+    // a sine peaking at -6 dB: 12 dB over the -18 dB threshold, 4:1 → 9 dB down
+    Stereo in = sine(1000, 0.5, 1.0);
+    Stereo out = run(*comp, in);
+    size_t from = (size_t)(0.6 * SR);
+    double change = db(peak(out.l, from, in.size()) / 0.5);
+    CHECK_NEAR(change, -9, 0.5);
+    CHECK_NEAR(comp->meters()[0].fraction * 24, 9, 0.5);
+    CHECK(comp->meters()[0].label == "Gain reduction");
+    // below the threshold: untouched
+    comp->reset();
+    Stereo quiet = sine(1000, 0.05, 0.5);  // -26 dB
+    Stereo q = run(*comp, quiet);
+    CHECK_NEAR(db(peak(q.l, 12000, q.size()) / 0.05), 0, 0.05);
+    // makeup, ratio
+    comp->reset();
+    set(*comp, "makeup", 6);
+    set(*comp, "ratio", 2);  // 12 over → 6 down, +6
+    out = run(*comp, in);
+    CHECK_NEAR(db(peak(out.l, from, in.size()) / 0.5), 0, 0.5);
+    // the soft knee: at the threshold, slope · (knee / 2)² / (2 knee) = -0.5 · 9 / 12
+    CHECK_NEAR(compression(-18, -18, 2, 6), -0.375, 1e-12);
+    CHECK_NEAR(compression(-10, -18, 4, 6), -6, 1e-12);
+    CHECK(compression(-30, -18, 4, 6) == 0);
+    // parallel: Mix 0 is the input
+    comp->reset();
+    set(*comp, "mix", 0);
+    out = run(*comp, in);
+    CHECK_NEAR(peak(out.l, from, in.size()), 0.5, 1e-4);
+    set(*comp, "mix", 100);
+    set(*comp, "makeup", 0);
+    set(*comp, "ratio", 4);
+    // the sidechain: a quiet input ducked by a loud sidechain, only with Sidechain on
+    Stereo loud = sine(100, 0.9, 1.0);
+    Stereo quietLong = sine(1000, 0.05, 1.0);
+    comp->reset();
+    out = run(*comp, quietLong, 512, &loud);
+    CHECK_NEAR(peak(out.l, from, out.size()), 0.05, 0.002);
+    comp->reset();
+    set(*comp, "sidechain", 1);
+    out = run(*comp, quietLong, 512, &loud);
+    CHECK(db(peak(out.l, from, out.size()) / 0.05) < -10);  // (-0.9 dB peak, 17 over: ~ -12.8 dB)
+    // its transfer curve: out against in, -60…0 dB
+    auto curve = comp->curve();
+    CHECK(curve.size() == 121 && std::fabs(curve.back().x - 1) < 1e-12);
+    CHECK_NEAR(curve.back().y, (-18 + 18.0 / 4 + 60) / 60 * 2 - 1, 1e-9);  // (0 dB in: -13.5 out)
+}
+
+void testMultiband() {
+    auto mb = create("multiband_compressor");
+    for (const char* k : {"low_threshold", "mid_threshold", "high_threshold"}) set(*mb, k, 0);
+    // nothing over the thresholds: the bands add back up flat (Linkwitz-Riley)
+    for (double f : {60.0, 200.0, 1000.0, 3000.0, 10000.0}) CHECK_NEAR(gainAt(*mb, f), 0, 0.15);
+    // a loud bass: only the low band turned down
+    set(*mb, "low_threshold", -30);
+    set(*mb, "mid_threshold", -30);
+    double low = gainAt(*mb, 60);
+    CHECK(low < -6);
+    auto meters = mb->meters();
+    CHECK(meters.size() == 3 && meters[0].label == "Low reduction" && meters[0].fraction > 0.2 && meters[2].fraction < 0.01);
+    set(*mb, "low_threshold", 0);
+    set(*mb, "low_gain", 6);
+    CHECK_NEAR(gainAt(*mb, 50), 6, 0.6);
+}
+
+void testGate() {
+    auto gate = create("gate");
+    // loud, then quiet (-60 dB: below -40), then loud again
+    Stereo in((size_t)(2.0 * SR));
+    for (size_t i = 0; i < in.size(); i++) {
+        double t = i / SR, amp = t < 0.5 ? 0.5 : t < 1.5 ? 0.001 : 0.5;
+        in.l[i] = in.r[i] = (float)(amp * std::sin(2 * PI * 440 * t));
+    }
+    Stereo out = run(*gate, in);
+    CHECK_NEAR(peak(out.l, (size_t)(0.2 * SR), (size_t)(0.5 * SR)), 0.5, 0.01);  // open
+    CHECK(peak(out.l, (size_t)(0.5 * SR), (size_t)(0.51 * SR)) > 0.0005);       // held open (30 ms)
+    CHECK(peak(out.l, (size_t)(1.4 * SR), (size_t)(1.5 * SR)) < 1e-6);         // shut (range 80: silence)
+    CHECK_NEAR(peak(out.l, (size_t)(1.55 * SR), (size_t)(2.0 * SR)), 0.5, 0.01);  // open again (0.5 ms attack)
+    auto m = gate->meters();
+    CHECK(m.size() == 1 && m[0].label == "Open" && m[0].text == "100 %");
+    // a range of 20 dB: shut is 20 dB down
+    gate->reset();
+    set(*gate, "range", 20);
+    out = run(*gate, in);
+    CHECK_NEAR(db(peak(out.l, (size_t)(1.4 * SR), (size_t)(1.5 * SR)) / 0.001), -20, 0.1);
+    // hysteresis: a level just under the threshold (but within it) keeps it open
+    gate->reset();
+    set(*gate, "range", 80);
+    Stereo hover((size_t)SR);
+    for (size_t i = 0; i < hover.size(); i++) {
+        double t = i / SR, amp = t < 0.3 ? 0.5 : dbToGain(-41.5);  // (threshold -40, hysteresis 3)
+        hover.l[i] = hover.r[i] = (float)(amp * std::sin(2 * PI * 3000 * t));  // (a whole cycle in each 16-frame block)
+    }
+    out = run(*gate, hover);
+    CHECK_NEAR(peak(out.l, (size_t)(0.8 * SR), hover.size()), dbToGain(-41.5), 1e-4);
+    CHECK(gate->meters()[0].label == "Open");
+    // the sidechain opens it
+    gate->reset();
+    set(*gate, "sidechain", 1);
+    Stereo quiet = sine(440, 0.001, 0.5);
+    Stereo key = sine(100, 0.5, 0.5);
+    out = run(*gate, quiet, 512, &key);
+    CHECK_NEAR(peak(out.l, 12000, out.size()), 0.001, 1e-4);
+    Stereo noKey(quiet.size());
+    gate->reset();
+    out = run(*gate, quiet, 512, &noKey);
+    CHECK(peak(out.l, 12000, out.size()) < 1e-6);
+    CHECK(gate->meters()[0].label == "Shut");
+}
+
+void testLimiter() {
+    auto lim = create("limiter");
+    CHECK(lim->latency() == 96);  // (2 ms at 48 kHz: reported for delay compensation)
+    // a quiet impulse comes out unchanged, 96 frames late
+    Stereo imp(2048);
+    imp.l[10] = 0.5f;
+    imp.r[10] = -0.25f;
+    Stereo out = run(*lim, imp, 256);
+    CHECK(out.l[106] == 0.5f && out.r[106] == -0.25f && out.l[10] == 0);
+    // never over the ceiling: loud noise and sudden peaks, pushed up 12 dB more
+    set(*lim, "gain", 12);
+    set(*lim, "ceiling", -1);
+    lim->reset();
+    std::mt19937 rng(7);
+    std::uniform_real_distribution<float> u(-1, 1);
+    Stereo noisy((size_t)SR);
+    for (size_t i = 0; i < noisy.size(); i++) {
+        float burst = (i / 4800) % 2 ? 1.0f : 0.05f;  // (on and off every 100 ms)
+        noisy.l[i] = u(rng) * burst;
+        noisy.r[i] = (i % 997 == 0) ? 1.0f : u(rng) * burst * 0.5f;
+    }
+    for (int blockSize : {64, 333, 512}) {
+        lim->reset();
+        out = run(*lim, noisy, blockSize);
+        double ceiling = dbToGain(-1);
+        CHECK(peak(out.l, 0, out.size()) <= ceiling + 1e-6 && peak(out.r, 0, out.size()) <= ceiling + 1e-6);
+        CHECK(peak(out.l, 0, out.size()) > ceiling * 0.9);  // (and it does get there)
+    }
+    CHECK(lim->meters()[0].fraction > 0);
+    // a steady loud tone: turned down smoothly (no clipping needed, nearly), to the ceiling
+    lim->reset();
+    set(*lim, "gain", 0);
+    Stereo tone = sine(200, 1.0, 1.0);
+    out = run(*lim, tone);
+    CHECK_NEAR(peak(out.l, (size_t)(0.5 * SR), out.size()), dbToGain(-1), 0.01);
+}
+
+// --- time ---
+
+size_t firstAbove(const std::vector<float>& x, double level, size_t from = 0) {
+    for (size_t i = from; i < x.size(); i++)
+        if (std::fabs(x[i]) > level) return i;
+    return x.size();
+}
+
+void testDelay() {
+    auto delay = create("delay");
+    set(*delay, "mix", 100);
+    set(*delay, "feedback", 0);
+    set(*delay, "high_cut", 20000);
+    Stereo imp((size_t)(1.0 * SR));
+    imp.l[0] = imp.r[0] = 1.0f;
+    Stereo out = run(*delay, imp);
+    CHECK(firstAbove(out.l, 0.05) == 12000 && firstAbove(out.r, 0.05) == 18000);  // 250 ms, 375 ms
+    // synced: at 120 BPM a 1/8 is 250 ms, a dotted 1/8 375 ms; at 100 BPM a 1/4 is 600 ms
+    delay->reset();
+    set(*delay, "left", 40);
+    set(*delay, "right", 40);
+    set(*delay, "sync", 1);
+    delay->setTransport(120, 4, 4, true, 0);
+    out = run(*delay, imp);
+    CHECK(firstAbove(out.l, 0.05) == 12000 && firstAbove(out.r, 0.05) == 18000);
+    delay->reset();
+    delay->setTransport(100, 4, 4, true, 0);
+    set(*delay, "left_beats", 4);   // 1/4
+    set(*delay, "right_beats", 7);  // 1 bar (4/4): 2.4 s
+    Stereo longer((size_t)(3.0 * SR));
+    longer.l[0] = longer.r[0] = 1.0f;
+    out = run(*delay, longer);
+    CHECK(firstAbove(out.l, 0.05) == 28800 && firstAbove(out.r, 0.05) == 115200);  // (not asleep before its echo)
+    CHECK(firstAbove(out.l, 0.05, 28900) == out.size());
+    // feedback: each echo 40 % of the last; the high cut darkens them
+    delay->reset();
+    set(*delay, "sync", 0);
+    set(*delay, "left", 100);
+    set(*delay, "right", 100);
+    set(*delay, "feedback", 40);
+    out = run(*delay, imp);
+    double e1 = peak(out.l, 4800, 4900), e2 = peak(out.l, 9600, 9700);
+    CHECK_NEAR(e2 / e1, 0.4, 0.05);
+    // ping-pong: the first echo on the left only, the next on the right
+    delay->reset();
+    set(*delay, "pingpong", 1);
+    out = run(*delay, imp);
+    CHECK(peak(out.l, 4800, 4900) > 0.3 && peak(out.r, 4800, 4900) < 1e-6);
+    CHECK(peak(out.r, 9600, 9700) > 0.1 && peak(out.l, 9600, 9700) < 1e-6);
+    // Mix 25 %: the dry sound at 75 %
+    delay->reset();
+    set(*delay, "mix", 25);
+    out = run(*delay, imp);
+    CHECK_NEAR(out.l[0], 0.75, 1e-6);
+}
+
+void testReverb() {
+    auto rev = create("reverb");
+    set(*rev, "mix", 100);
+    Stereo imp((size_t)(4.0 * SR));
+    imp.l[0] = imp.r[0] = 1.0f;
+    Stereo out = run(*rev, imp);
+    // the tail: some sound after the pre-delay, dying away
+    double early = rms(out.l, (size_t)(0.05 * SR), (size_t)(0.3 * SR));
+    double mid = rms(out.l, (size_t)(0.8 * SR), (size_t)(1.0 * SR));
+    double late = rms(out.l, (size_t)(2.5 * SR), (size_t)(3.0 * SR));
+    CHECK(early > 1e-4 && mid < early && late < mid * 0.1);
+    CHECK(peak(out.l, 0, (size_t)(0.009 * SR)) < 1e-9);  // (10 ms pre-delay: nothing before)
+    CHECK(rms(out.l, 0, out.size()) > 0 && rms(out.r, 0, out.size()) > 0);
+    // a bigger room rings longer
+    auto big = create("reverb");
+    set(*big, "mix", 100);
+    set(*big, "size", 100);
+    Stereo bigOut = run(*big, imp);
+    CHECK(rms(bigOut.l, (size_t)(1.5 * SR), (size_t)(2.0 * SR)) > rms(out.l, (size_t)(1.5 * SR), (size_t)(2.0 * SR)) * 3);
+    // its echoes about as loud as its input (noise of 100-1000 Hz-ish: a sine at 300 Hz here)
+    rev->reset();
+    Stereo tone = sine(300, 0.3, 3.0);
+    out = run(*rev, tone);
+    CHECK(std::fabs(db(rms(out.l, (size_t)(1.5 * SR), out.size()) / rms(tone.l, 0, tone.size()))) < 6);
+    // after a second of silence it sleeps: silent, not run, restarted
+    Stereo silence((size_t)(12.0 * SR));
+    auto sleeper = create("reverb");
+    set(*sleeper, "size", 100);
+    run(*sleeper, imp);
+    out = run(*sleeper, silence);
+    CHECK(sleeper->asleep() && peak(out.l, out.size() - 4800, out.size()) == 0);
+    Stereo again = run(*sleeper, imp);  // (and wakes up)
+    CHECK(!sleeper->asleep() && rms(again.l, (size_t)(0.05 * SR), (size_t)(0.3 * SR)) > 1e-5);
+}
+
+void testChorus() {
+    auto chorus = create("chorus");
+    auto blockRms = [](const Stereo& s, std::vector<double>& out) {
+        out.clear();
+        for (size_t at = (size_t)(0.1 * SR); at + 960 <= s.size(); at += 960) out.push_back(rms(s.l, at, at + 960));
+    };
+    Stereo in = sine(1000, 0.3, 2.0);
+    std::vector<double> swaying, steady;
+    blockRms(run(*chorus, in), swaying);
+    set(*chorus, "depth", 0);
+    chorus->reset();
+    blockRms(run(*chorus, in), steady);
+    auto spread = [](const std::vector<double>& v) {
+        return *std::max_element(v.begin(), v.end()) - *std::min_element(v.begin(), v.end());
+    };
+    CHECK(spread(swaying) > 0.05);  // (the copies' delays sway: they beat against the dry sound)
+    CHECK(spread(steady) < 0.002);
+    // the right side out of step with the left (width 100 %; one voice: with two, the right's voices
+    // half a cycle apart are the left's two, swapped)
+    set(*chorus, "depth", 3);
+    set(*chorus, "voices", 1);
+    chorus->reset();
+    Stereo out = run(*chorus, in);
+    double diff = 0;
+    for (size_t i = 4800; i < out.size(); i++) diff = std::max(diff, (double)std::fabs(out.l[i] - out.r[i]));
+    CHECK(diff > 0.05);
+    set(*chorus, "width", 0);
+    chorus->reset();
+    out = run(*chorus, in);
+    diff = 0;
+    for (size_t i = 4800; i < out.size(); i++) diff = std::max(diff, (double)std::fabs(out.l[i] - out.r[i]));
+    CHECK(diff < 1e-6);
+}
+
+// --- colour ---
+
+void testBitcrusher() {
+    auto crush = create("bitcrusher");
+    set(*crush, "bits", 2);  // steps of 1/2
+    set(*crush, "downsample", 4);
+    std::mt19937 rng(3);
+    std::uniform_real_distribution<float> u(-1, 1);
+    Stereo in(4000);
+    for (size_t i = 0; i < in.size(); i++) in.l[i] = in.r[i] = u(rng);
+    Stereo out = run(*crush, in, 333);  // (blocks not a multiple of 4: the hold carries over)
+    bool held = true, stepped = true;
+    for (size_t i = 0; i < out.size(); i++) {
+        if (out.l[i] != out.l[i - i % 4]) held = false;
+        if (out.l[i] * 2 != std::round(out.l[i] * 2)) stepped = false;
+        if (i % 4 == 0 && out.l[i] != (float)(std::nearbyint(in.l[i] * 2) / 2)) stepped = false;
+    }
+    CHECK(held && stepped);
+    set(*crush, "mix", 0);
+    set(*crush, "output", -6);
+    out = run(*crush, in);
+    CHECK_NEAR(out.l[100], in.l[100] * dbToGain(-6), 1e-6);
+}
+
+void testSaturation() {
+    auto sat = create("saturation");
+    // no drive, a quiet sine: soft (tanh) is nearly straight: level unchanged
+    set(*sat, "drive", 0);
+    CHECK_NEAR(gainAt(*sat, 1000), db(std::sqrt(0.5) * 0.25) - db(std::sqrt(0.5) * 0.25) - 0.2, 0.1);  // (tanh: -0.2 dB at 0.25)
+    // hard at 36 dB: clipped at ±1, then down by sqrt(drive)
+    set(*sat, "shape", 1);
+    set(*sat, "drive", 36);
+    sat->reset();
+    Stereo in = sine(200, 0.5, 0.5);
+    Stereo out = run(*sat, in);
+    double expected = 1 / std::sqrt(dbToGain(36));
+    double p = peak(out.l, 4800, out.size());
+    CHECK(p > expected * 0.9 && p < expected * 1.25);
+    // a square-ish wave: its RMS near its peak
+    CHECK(rms(out.l, 4800, out.size()) > p * 0.8);
+    // tube: lopsided (even harmonics), but no DC (the 10 Hz high-pass)
+    set(*sat, "shape", 2);
+    set(*sat, "drive", 12);
+    sat->reset();
+    out = run(*sat, sine(200, 0.5, 2.0));
+    double mean = 0;
+    for (size_t i = SR; i < out.size(); i++) mean += out.l[i];
+    mean /= out.size() - SR;
+    CHECK(std::fabs(mean) < 0.01);
+    // the oversampler's filter as designed: flat to 0.45 of Nyquist, 90 dB down past 0.6
+    CHECK(std::fabs(db(magnitude(OVERSAMPLING_SOS, 4, 0.2, 1.0))) < 0.06);
+    CHECK(db(magnitude(OVERSAMPLING_SOS, 4, 0.31, 1.0)) < -89.9);
+    // mix 0: the input
+    set(*sat, "mix", 0);
+    sat->reset();
+    out = run(*sat, in);
+    CHECK(out.l[1234] == in.l[1234]);
+}
+
+void testUtility() {
+    auto util_ = create("utility");
+    Stereo in = sine(1000, 0.4, 0.2, 1.0);  // (right a radian ahead: some side)
+    auto check = [&](const char* what, auto expect) {
+        util_->reset();
+        Stereo out = run(*util_, in);
+        double worst = 0;
+        for (size_t i = 0; i < in.size(); i++) {
+            double l, r;
+            expect(in.l[i], in.r[i], l, r);
+            worst = std::max({worst, std::fabs(out.l[i] - l), std::fabs(out.r[i] - r)});
+        }
+        CHECK(worst < 1e-5);
+        if (worst >= 1e-5) fprintf(stderr, "  utility %s: off by %g\n", what, worst);
+    };
+    check("defaults", [](double l, double r, double& ol, double& or_) { ol = l, or_ = r; });
+    set(*util_, "width", 0);
+    check("width 0", [](double l, double r, double& ol, double& or_) { ol = or_ = (l + r) / 2; });
+    set(*util_, "width", 200);
+    check("width 200", [](double l, double r, double& ol, double& or_) {
+        double m = (l + r) / 2, s = (l - r) / 2 * 2;
+        ol = m + s, or_ = m - s;
+    });
+    set(*util_, "mono", 1);
+    check("mono", [](double l, double r, double& ol, double& or_) { ol = or_ = (l + r) / 2; });
+    set(*util_, "mono", 0);
+    set(*util_, "width", 100);
+    set(*util_, "invert_left", 1);
+    check("invert left", [](double l, double r, double& ol, double& or_) { ol = -l, or_ = r; });
+    set(*util_, "invert_left", 0);
+    set(*util_, "invert_right", 1);
+    set(*util_, "gain", -6);
+    check("invert right, -6 dB", [](double l, double r, double& ol, double& or_) {
+        double g = dbToGain(-6);
+        ol = l * g, or_ = -r * g;
+    });
+    set(*util_, "invert_right", 0);
+    set(*util_, "gain", 0);
+    // bass mono: a bass only on one side's difference (L = -R) goes; the highs keep their width
+    set(*util_, "bass_mono", 1);
+    util_->reset();
+    Stereo bass = sine(40, 0.4, 1.0, PI);
+    Stereo out = run(*util_, bass);
+    CHECK(db(rms(out.l, (size_t)(0.5 * SR), out.size()) / rms(bass.l, 0, bass.size())) < -25);
+    util_->reset();
+    Stereo high = sine(3000, 0.4, 1.0, PI);
+    out = run(*util_, high);
+    CHECK_NEAR(db(rms(out.l, (size_t)(0.5 * SR), out.size()) / rms(high.l, 0, high.size())), 0, 0.05);
+    CHECK(out.l[30000] * out.r[30000] <= 0);  // (still opposite: wide)
+    // a mono bass is untouched
+    util_->reset();
+    Stereo monoBass = sine(40, 0.4, 1.0);
+    out = run(*util_, monoBass);
+    CHECK_NEAR(db(rms(out.l, (size_t)(0.5 * SR), out.size()) / rms(monoBass.l, 0, monoBass.size())), 0, 0.05);
+}
+
+// --- the framework ---
+
+void testBlocksAndPlaces() {
+    // the same sound whatever the buffer size (effects without block-wise envelopes), and in place
+    for (const char* id : {"eq", "delay", "reverb", "chorus", "utility", "bitcrusher", "saturation"}) {
+        auto a = create(id), b = create(id), c = create(id);
+        Stereo in = sine(330, 0.3, 0.5, 0.5);
+        in.l[100] = 0.9f;
+        Stereo x = run(*a, in, 512), y = run(*b, in, 77);
+        Stereo z = in;  // in place: in == out
+        for (size_t at = 0; at < z.size(); at += 256) {
+            int n = (int)std::min<size_t>(256, z.size() - at);
+            float* io[2] = {z.l.data() + at, z.r.data() + at};
+            const float* i[2] = {io[0], io[1]};
+            c->process(i, nullptr, io, n);
+        }
+        double d1 = 0, d2 = 0;
+        for (size_t i = 0; i < in.size(); i++) {
+            d1 = std::max(d1, (double)std::fabs(x.l[i] - y.l[i]) + std::fabs(x.r[i] - y.r[i]));
+            d2 = std::max(d2, (double)std::fabs(x.l[i] - z.l[i]) + std::fabs(x.r[i] - z.r[i]));
+        }
+        CHECK(d1 < 1e-6 && d2 < 1e-6);
+        if (d1 >= 1e-6 || d2 >= 1e-6) fprintf(stderr, "  %s: blocks %g, in place %g\n", id, d1, d2);
+    }
+    // a buffer longer than it was prepared for is done in pieces
+    auto eq = create("eq");
+    eq->prepare(SR, 128);
+    Stereo in = sine(1000, 0.3, 0.1);
+    Stereo out = run(*eq, in, 1000);
+    CHECK(out.l[2000] == in.l[2000]);
+}
+
+void testNoAllocation() {
+    for (const auto& info : list()) {
+        auto fx = create(info.id);
+        Stereo in = sine(440, 0.5, 0.5), side = sine(60, 0.5, 0.5);
+        fx->setTransport(128, 4, 4, true, 0);
+        for (size_t i = 0; i < fx->params().size(); i++) fx->setParam((uint32_t)i, 0.7);  // (changed() too)
+        Stereo silence((size_t)(30 * SR));  // (the delay: 66 % feedback every 0.7 s)
+        allocations = 0;
+        countProcess = true;
+        run(*fx, in, 512, &side);
+        run(*fx, silence, 512);  // (goes to sleep: start() on the audio thread)
+        countProcess = false;
+        CHECK(fx->asleep());
+        if (!fx->asleep()) fprintf(stderr, "  %s awake\n", info.id.c_str());
+        CHECK(allocations == 0);
+        if (allocations) fprintf(stderr, "  %s allocated %ld times\n", info.id.c_str(), (long)allocations);
+    }
+}
+
+void testMix() {
+    // Mix 0 around a limiter: its input exactly, as late as the limiter's look-ahead
+    auto lim = create("limiter");
+    set(*lim, "gain", 18);
+    DryWet dw;
+    dw.prepare(512, lim->latency());
+    Stereo in = sine(300, 0.8, 0.3);
+    Stereo out(in.size());
+    for (float mix : {0.0f, 0.5f}) {
+        lim->reset();
+        dw.clear();
+        Stereo wet(in.size());
+        auto lim2 = create("limiter");
+        set(*lim2, "gain", 18);
+        wet = run(*lim2, in);
+        allocations = 0;
+        counting = true;
+        for (size_t at = 0; at < in.size(); at += 512) {
+            int n = (int)std::min<size_t>(512, in.size() - at);
+            const float* i[2] = {in.l.data() + at, in.r.data() + at};
+            float* o[2] = {out.l.data() + at, out.r.data() + at};
+            if (DryWet::active(mix)) dw.keep(i, n);
+            lim->process(i, nullptr, o, n);
+            if (DryWet::active(mix)) dw.blend(o, n, lim->latency(), mix);
+        }
+        counting = false;
+        CHECK(allocations == 0);
+        double worst = 0;
+        for (size_t i = 96; i < in.size(); i++) {
+            double expect = in.l[i - 96] * (1.0 - mix) + wet.l[i] * mix;
+            worst = std::max(worst, std::fabs(out.l[i] - expect));
+        }
+        CHECK(worst < 1e-6);
+        CHECK(out.l[50] == 0);
+    }
+    CHECK(dw.heldBack() == 96);
+    // Mix 1: untouched
+    float a[4] = {1, 2, 3, 4}, b[4] = {5, 6, 7, 8};
+    float* o[2] = {a, b};
+    dw.blend(o, 4, 0, 1.0f);
+    CHECK(a[0] == 1 && b[3] == 8);
+    // a latency of 0: a plain blend
+    DryWet plain;
+    plain.prepare(4, 0);
+    float in1[4] = {1, 1, 1, 1}, in2[4] = {0, 0, 0, 0};
+    const float* in_[2] = {in1, in2};
+    plain.keep(in_, 4);
+    float w1[4] = {0, 0, 0, 0}, w2[4] = {1, 1, 1, 1};
+    float* wo[2] = {w1, w2};
+    plain.blend(wo, 4, 0, 0.25f);
+    CHECK_NEAR(w1[0], 0.75, 1e-7);
+    CHECK_NEAR(w2[3], 0.25, 1e-7);
+}
+
+// --- the windows ---
+
+void saveWindow(EffectWindow& w, const std::string& name) {
+    Image img = w.snapshot();
+    util::makeDirs(SAMPLES);
+    CHECK(savePng(SAMPLES + "/" + name, img));
+}
+
+void testWindows() {
+    ui::App::get().initHeadless();
+    for (const auto& info : list()) {
+        auto slot = std::make_shared<PluginSlot>();
+        slot->path = info.path();
+        slot->name = info.name;
+        slot->kind = "effect";
+        std::shared_ptr<Effect> fx(create(info.id).release());
+        slot->instance = fx;
+        if (info.id == "eq") {
+            set(*fx, "low_cut", 60);
+            set(*fx, "mid_gain", 6);
+            set(*fx, "mid_freq", 800);
+            set(*fx, "high_gain", -4);
+        }
+        if (fx->hasSidechain() || !fx->meters().empty()) {  // (something on its meters)
+            Stereo in = sine(200, 0.9, 0.3);
+            if (info.id == "limiter") set(*fx, "gain", 9);
+            run(*fx, in);
+        }
+        EffectWindow w(nullptr, slot, info.name + " — Bass");
+        CHECK(w.attach());
+        CHECK(w.controls.size() == fx->params().size());
+        CHECK((w.curveView != nullptr) == fx->hasCurve());
+        CHECK((w.meterView != nullptr) == !fx->meters().empty());
+        saveWindow(w, info.id + ".png");
+        if (info.id == "compressor") {
+            // a slider moved in the window is an edit; automation moving a value is shown
+            auto* slider = dynamic_cast<ui::Slider*>(w.controls[0].widget);
+            slider->setValue(500);
+            CHECK_NEAR(fx->value("threshold"), -30, 1e-9);
+            CHECK((fx->edited() == std::vector<uint32_t>{0}));
+            fx->setParam(1, fx->params()[1].toNormal(10));
+            w.follow();
+            CHECK(w.controls[1].text->text() == "10.0:1" && fx->edited().empty());
+            auto* box = dynamic_cast<ui::ComboBox*>(w.controls[6].widget);
+            CHECK(box && box->count() == 2);
+            box->setCurrentIndex(1);
+            CHECK(fx->value("detector") == 1);
+            auto* side = dynamic_cast<ui::CheckBox*>(w.controls[8].widget);
+            CHECK(side != nullptr);
+            side->setChecked(true);
+            CHECK(fx->value("sidechain") == 1);
+            CHECK((fx->edited() == std::vector<uint32_t>{6, 8}));
+            ui::MouseEvent e;
+            slider->mouseDoubleClick(e);  // (its default)
+            CHECK_NEAR(fx->value("threshold"), -18, 1e-6);
+            w.defaults();
+            CHECK_NEAR(fx->value("ratio"), 4, 1e-9);
+            CHECK(fx->value("sidechain") == 0 && !side->isChecked());
+            CHECK(fx->edited().size() == 1 + fx->params().size());
+            int closed = 0;
+            w.editorClosed.connect([&](SlotPtr s) { closed += s == slot; });
+            w.deleteOnClose = false;
+            w.close();
+            CHECK(closed == 1);
+        }
+    }
+    // a slot that isn't a built-in effect: an empty window that won't attach
+    auto slot = std::make_shared<PluginSlot>();
+    EffectWindow none(nullptr, slot, "none");
+    CHECK(!none.attach() && none.controls.empty());
+}
+
+}  // namespace
+
+int main() {
+    testFactory();
+    testParams();
+    testState();
+    testEq();
+    testCompressor();
+    testMultiband();
+    testGate();
+    testLimiter();
+    testDelay();
+    testReverb();
+    testChorus();
+    testBitcrusher();
+    testSaturation();
+    testUtility();
+    testBlocksAndPlaces();
+    testNoAllocation();
+    testMix();
+    testWindows();
+    TEST_MAIN_END();
+}

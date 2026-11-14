@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Capture: what was just played becomes a clip (capture.py) -->
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <path fill="#000" d="M224 64h64v200h80L256 384 144 264h80z"/>
+  <path fill="#000" d="M64 336h56v64h272v-64h56v120H64z"/>
+</svg>

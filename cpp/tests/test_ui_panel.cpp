@@ -1,0 +1,890 @@
+// The track panel and the top bar, headless: level meter dB mapping, decay and bars; output pairs;
+// LUFS text; the CPU monitor; version comparison and the update check (with a fake GitHub); the
+// update notice; the master strip's settings; the transport bar (tap tempo through its shortcut,
+// play/pause, timing); the lane panel's rows, meters, outputs and menus. Paints the panel, the
+// master strip, the transport bar and the CPU monitor into PNGs in build/ui-samples/panel/.
+#include <algorithm>
+#include <cstdio>
+#include <functional>
+#include <string>
+
+#include "audio/engine.h"
+#include "check.h"
+#include "core/util.h"
+#include "gfx/image.h"
+#include "model/timing.h"
+#include "ui/cpu_monitor.h"
+#include "ui/lane_panel.h"
+#include "ui/level_meter.h"
+#include "ui/loudness_display.h"
+#include "ui/master_strip.h"
+#include "ui/theme.h"
+#include "ui/timeline.h"
+#include "ui/toolkit/menu.h"
+#include "ui/transport_bar.h"
+#include "ui/update_notice.h"
+#include "ui/widgets.h"
+#include "ui/formatting.h"
+#include "ui/track_dialogs.h"
+#include "update_check.h"
+
+#include "ui/automation_dialog.h"
+
+// (a stand-in while automation_dialog.cpp is being written: weak, so the real one wins)
+__attribute__((weak)) ParameterDialog::ParameterDialog(ui::Window* parent, const TrackPtr& track) : ui::Dialog(parent) {}
+
+namespace {
+
+std::string outDir() {
+    std::string d = "build/ui-samples/panel";
+    util::makeDirs(d);
+    return d;
+}
+
+std::string outDir2() {  // (the successor's features)
+    std::string d = "build/ui-samples/panel2";
+    util::makeDirs(d);
+    return d;
+}
+
+template <class T>
+std::vector<T*> findAll(ui::Widget* root) {
+    std::vector<T*> out;
+    std::function<void(ui::Widget*)> walk = [&](ui::Widget* w) {
+        for (auto& c : w->children()) {
+            if (auto* t = dynamic_cast<T*>(c.get())) out.push_back(t);
+            walk(c.get());
+        }
+    };
+    walk(root);
+    return out;
+}
+
+ui::Button* buttonText(ui::Widget* root, const std::string& text) {
+    for (auto* b : findAll<ui::Button>(root))
+        if (b->text() == text) return b;
+    return nullptr;
+}
+
+ui::Action* actionStarting(const ui::Menu& m, const std::string& prefix) {
+    for (auto& a : m.actions())
+        if (a->text.compare(0, prefix.size(), prefix) == 0) return a.get();
+    return nullptr;
+}
+
+Image paintWidget(ui::Widget* w, Color bg = theme::c("window")) {
+    ui::App::get().doLayouts();
+    Image img(std::max(1, w->width()), std::max(1, w->height()), bg);
+    Painter p(img);
+    w->paintTree(p, w->rect());
+    return img;
+}
+
+void save(ui::Widget* w, const std::string& name, Color bg = theme::c("window")) {
+    savePng(outDir() + "/" + name + ".png", paintWidget(w, bg));
+}
+
+std::vector<std::string> menuTexts(const ui::Menu& m) {
+    std::vector<std::string> out;
+    for (auto& a : m.actions()) out.push_back(a->separator ? "---" : a->text);
+    return out;
+}
+
+bool hasText(const std::vector<std::string>& v, const std::string& s) {
+    for (auto& x : v)
+        if (x == s) return true;
+    return false;
+}
+
+}  // namespace
+
+static void testMeterLogic() {
+    using namespace level_meter;
+    CHECK_NEAR(dbFraction(-60), 0, 1e-12);
+    CHECK_NEAR(dbFraction(0), 1, 1e-12);
+    CHECK_NEAR(dbFraction(-30), 0.5, 1e-12);
+    CHECK_NEAR(dbFraction(-90), 0, 1e-12);
+    CHECK_NEAR(dbFraction(6), 1, 1e-12);
+    CHECK(outputLabel({4, 5}) == "outputs 5 and 6");
+    CHECK(outputLabel({0}) == "output 1");
+    CHECK(outputLabel({0, 1, 2}) == "outputs 1, 2 and 3");
+    std::vector<float> a{0.2f, 0.1f}, b{0.1f, 0.5f, 0.3f};
+    auto l = loudest({&a, nullptr, &b});
+    CHECK(l.size() == 3 && l[0] == 0.2f && l[1] == 0.5f && l[2] == 0.3f);
+    CHECK(loudest({}).empty());
+
+    LevelMeter m(2);
+    CHECK(m.shown() == std::vector<int>({0, 1}));
+    CHECK(m.toolTip() == "Peak level of outputs 1 and 2, top to bottom (the thin line: the last peak).\n"
+                         "Loudest since Play: nothing yet. Click to clear it.");
+    m.showChannels({4, 5});  // the device lacks them: output 1
+    CHECK(m.shown() == std::vector<int>({0}));
+    m.setChannels(8);  // a bigger device: the outputs asked for come back
+    CHECK(m.shown() == std::vector<int>({4, 5}));
+    std::vector<float> peaks{0, 0, 0, 0, 1.0f, 0.5f};
+    m.push(peaks);
+    CHECK_NEAR(m.levels()[0], 1.0, 1e-6);
+    CHECK_NEAR(m.levels()[1], 0.5, 1e-6);
+    m.push(nullptr);  // silence: falls back slowly
+    CHECK_NEAR(m.levels()[0], 0.85, 1e-6);
+    std::vector<float> small{0, 0, 0, 0, 0.9f};  // (shorter than the outputs: the rest are 0)
+    m.push(small);
+    CHECK_NEAR(m.levels()[0], 0.9, 1e-6);
+    CHECK_NEAR(m.levels()[1], 0.5 * 0.85 * 0.85, 1e-6);
+    for (int i = 0; i < 80; ++i) m.push(nullptr);
+    CHECK(m.levels()[0] == 0.0 && m.levels()[1] == 0.0);  // settled
+
+    m.resize(200, 20);
+    auto r = m.barRects();  // 2 bars: 1 px apart, at most a tenth of the width thick
+    CHECK(r.size() == 2 && r[0] == std::make_pair(0, 9) && r[1] == std::make_pair(10, 9));
+    m.resize(50, 40);  // thickness limited to 5 px, centred
+    r = m.barRects();
+    CHECK(r[0] == std::make_pair(14, 5) && r[1] == std::make_pair(20, 5));
+    LevelMeter many(16);
+    many.showChannels({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15});
+    many.resize(200, 10);  // no room for gaps or even 1 px each: spread over the height
+    r = many.barRects();
+    CHECK(r.size() == 16 && r[0].first == 0 && r[15].first == 9 && r[15].second == 1);
+}
+
+static void testMeterHolds() {
+    // held peaks (HOLD_S), the loudest since Play, the clip light and its clearing
+    using namespace level_meter;
+    testNow = 100.0;
+    LevelMeter m(2);
+    m.resize(200, 20);
+    std::vector<float> peak{0.5f, 0.25f};
+    m.push(peak);
+    CHECK_NEAR(m.held()[0], 0.5, 1e-6);
+    CHECK_NEAR(m.loudest(), 0.5, 1e-6);
+    CHECK(!m.clipped());
+    CHECK(m.toolTip().find("Loudest since Play: -6.0 dBFS. Click") != std::string::npos);
+    testNow = 101.0;  // within HOLD_S: the held line stays while the bar falls
+    m.push(nullptr);
+    CHECK_NEAR(m.held()[0], 0.5, 1e-6);
+    CHECK_NEAR(m.levels()[0], 0.5 * config::METER_DECAY, 1e-6);
+    testNow = 101.6;  // past HOLD_S: it falls too
+    m.push(nullptr);
+    CHECK_NEAR(m.held()[0], 0.5 * config::METER_DECAY, 1e-6);
+    CHECK_NEAR(m.loudest(), 0.5, 1e-6);  // (the loudest stays until Play or a click)
+    // a track clips over 0 dB, the master from -0.1 dB
+    std::vector<float> full{1.0f, 0.2f}, over{1.05f, 0.2f};
+    m.push(full);
+    CHECK(!m.clipped());
+    m.push(over);
+    CHECK(m.clipped() && m.toolTip().find("clipping") != std::string::npos);
+    m.push(nullptr);
+    CHECK(m.clipped());  // (stays lit)
+    LevelMeter master(2, MASTER_CLIP_DB);
+    master.push(full);
+    CHECK(master.clipped());
+    // the number at the right end, when there is room
+    CHECK(m.barsW() == 200 - NUMBER_W);
+    m.resize(80, 20);
+    CHECK(m.barsW() == 80);
+    m.resize(200, 20);
+    savePng(outDir() + "/meter-clipped.png", paintWidget(&m));
+    // a click clears it
+    ui::MouseEvent e;
+    e.button = plat::LeftButton;
+    m.mousePress(e);
+    CHECK(!m.clipped() && m.loudest() == 0.0);
+    // a rebuilt row's meter goes on from the old one
+    m.push(over);
+    LevelMeter next(2);
+    next.takeOver(m);
+    CHECK(next.clipped() && next.loudest() > 1.0 && next.levels() == m.levels());
+    savePng(outDir() + "/meter-held.png", paintWidget(&m));
+    testNow = -1;
+}
+
+static void testSmallPieces() {
+    auto pairs = widgets::outputPairs(5);
+    CHECK(pairs.size() == 3 && pairs[0].second == "1/2" && pairs[1].first == 2 && pairs[1].second == "3/4" &&
+          pairs[2].second == "5");
+    CHECK(widgets::outputPairs(2).size() == 1);
+    CHECK(loudness_display::fmtLufs(-INFINITY) == "–");
+    CHECK(loudness_display::fmtLufs(-23.44) == "-23.4");
+    CHECK(loudness_display::text(-9.05, -INFINITY) == "S  -9.1\nI     –" ||
+          loudness_display::text(-9.05, -INFINITY) == "S  -9.0\nI     –");
+    LoudnessDisplay d;
+    d.showValues(-14.2, -18.0, -20.5);
+    CHECK(d.text() == "S -18.0\nI -20.5");
+    CHECK(d.toolTip().find("momentary, last 0.4 s: -14.2") != std::string::npos);
+    CHECK(widgets::effectsSummary({}) == "No effects yet: click to add some");
+    auto s1 = std::make_shared<PluginSlot>();
+    s1->name = "EQ";
+    auto s2 = std::make_shared<PluginSlot>();
+    s2->name = "Reverb";
+    s2->bypass = true;
+    CHECK(widgets::effectsSummary({s1, s2}) == "Effects: EQ, Reverb (bypassed)");
+
+    CHECK(cpu_monitor::loadColor(0.9) == theme::c("meter_hot"));
+    CHECK(cpu_monitor::loadColor(0.5) == theme::c("meter_warn"));
+    CHECK(cpu_monitor::loadColor(0.2) == theme::c("meter_ok"));
+    CpuMonitor cpu;
+    CHECK(cpu.width() == config::PANEL_W && cpu.height() == config::RULER_H);
+    save(&cpu, "cpu-idle");
+    cpu.showLoad(std::make_pair(0.32, 0.25));
+    save(&cpu, "cpu-normal");
+    cpu.showLoad(std::make_pair(0.92, 0.61), 3);
+    CHECK(cpu.toolTip().find("likely clicks): 3") != std::string::npos);
+    CHECK(cpu.toolTip().find("avg = rolling ~5 s") != std::string::npos);
+    save(&cpu, "cpu-late");
+
+    // the volume slider and its reading
+    ui::Widget holder;
+    double set = 99;
+    auto* slider = holder.add<VolumeSlider>(-6.5, [&](double db) { set = db; });
+    CHECK(slider->value() == -6 && set == 99);  // (round half to even; no call while building)
+    auto* reading = holder.add<DbReading>(slider);
+    CHECK(reading->text() == "-6 dB");
+    slider->setValue(3);
+    CHECK(set == 3 && reading->text() == "+3 dB");
+    CHECK(slider->toolTip() == "Volume +3 dB (double-click: 0 dB)");
+    slider->doubleClicked.emit();
+    CHECK(set == 0 && slider->value() == 0);
+    slider->setValue(config::MIN_DB);
+    CHECK(reading->text() == "-inf dB");
+}
+
+
+static Json fakeCompare(const std::string& url, const std::string& answer, int status) {
+    CHECK(url.find("/compare/") != std::string::npos && url.size() > 7 && url.substr(url.size() - 7) == "...main");
+    if (status) throw update_check::FetchError("HTTP Error " + std::to_string(status) + ": Forbidden", status);
+    return Json::parse(answer);
+}
+
+static void testUpdateCheck() {
+    using namespace update_check;
+    CHECK(parse("v0.2.1") == std::vector<int>({0, 2, 1}));  // (the numbered releases' helpers, still there)
+    CHECK(isNewer("0.4.1", "0.4") && !isNewer("junk", "0.4"));
+    CHECK(API == "https://api.github.com/repos/ExonSounds/Tiny-DAW-Linux");
+    CHECK(PAGE == "https://github.com/ExonSounds/Tiny-DAW-Linux");
+    const std::string commit = "0123456789abcdef0123456789abcdef01234567";
+    // the build's commit: a full id, or nothing (built outside a git checkout)
+    std::string built = builtFrom();
+    CHECK(built.empty() || built.size() == 40);
+    // no commit known: off
+    Result r = update_check::check([](const std::string& u) -> Json { throw FetchError("should not be asked"); }, "");
+    CHECK(r.state == "off" && r.url == PAGE);
+    // the main branch is ahead: updates waiting
+    r = update_check::check([](const std::string& u) { return fakeCompare(u, R"({"status": "ahead", "ahead_by": 3})", 0); }, commit);
+    CHECK(r.state == "waiting" && r.count == 3 && r.value == "3" && r.url == PAGE + "/commits/main");
+    r = update_check::check([](const std::string& u) { return fakeCompare(u, R"({"status": "diverged", "ahead_by": 1})", 0); }, commit);
+    CHECK(r.state == "waiting" && r.count == 1);
+    // the same commit, or one ahead of main: up to date
+    r = update_check::check([](const std::string& u) { return fakeCompare(u, R"({"status": "identical", "ahead_by": 0})", 0); }, commit);
+    CHECK(r.state == "current" && r.url == PAGE);
+    r = update_check::check([](const std::string& u) { return fakeCompare(u, R"({"status": "behind", "ahead_by": 0, "behind_by": 2})", 0); },
+              commit);
+    CHECK(r.state == "current");
+    // a commit GitHub doesn't know: off
+    r = update_check::check([](const std::string& u) { return fakeCompare(u, "", 404); }, commit);
+    CHECK(r.state == "off");
+    r = update_check::check([](const std::string& u) { return fakeCompare(u, "", 422); }, commit);
+    CHECK(r.state == "off");
+    // GitHub refuses, can't be reached, or answers strangely
+    r = update_check::check([](const std::string& u) { return fakeCompare(u, "", 403); }, commit);
+    CHECK(r.state == "failed" && r.value == "HTTP Error 403: Forbidden" && r.url == PAGE);
+    r = update_check::check([](const std::string& u) -> Json { throw FetchError("could not resolve api.github.com (no network?)"); }, commit);
+    CHECK(r.state == "failed" && r.value == "could not resolve api.github.com (no network?)");
+    r = update_check::check([](const std::string& u) { return fakeCompare(u, "[1, 2]", 0); }, commit);
+    CHECK(r.state == "failed" && r.value == "GitHub answered strangely");
+    r = update_check::check([](const std::string& u) { return fakeCompare(u, R"({"status": "ahead", "ahead_by": "x"})", 0); }, commit);
+    CHECK(r.state == "failed");
+
+    // the notice's text
+    auto t = update_notice::noticeText(nullptr);
+    CHECK(t.plain() == "Checking for updates…" && t.link.empty());
+    Result waiting{"waiting", "3", PAGE + "/commits/main", 3};
+    t = update_notice::noticeText(&waiting);
+    CHECK(t.before.empty() && t.link == "3 updates" && t.after == " ready · rebuild to get them" &&
+          t.url == PAGE + "/commits/main");
+    Result one{"waiting", "1", PAGE + "/commits/main", 1};
+    CHECK(update_notice::noticeText(&one).plain() == "1 update ready · rebuild to get it");
+    Result current{"current", "", PAGE};
+    CHECK(update_notice::noticeText(&current).plain() == "Up to date · Tiny-DAW-Linux");
+    Result off{"off", "", PAGE};
+    CHECK(update_notice::noticeText(&off).plain() == "Updates off here · Tiny-DAW-Linux");
+    Result failed{"failed", "timeout", PAGE};
+    CHECK(update_notice::noticeText(&failed).plain() == "Couldn't check · Tiny-DAW-Linux");
+    CHECK(update_notice::noticeTip(&failed) == "Couldn't check GitHub for updates when the program started (timeout)");
+    CHECK(update_notice::noticeTip(&waiting).find("git pull") != std::string::npos);
+
+    // the checker runs on a thread and answers on the GUI thread (with this build's own commit)
+    UpdateChecker checker;
+    checker.fetchFn = [](const std::string& u) { return fakeCompare(u, R"({"status": "ahead", "ahead_by": 7})", 0); };
+    std::optional<Result> got;
+    checker.done.connect([&](const Result& res) { got = res; });
+    checker.start();
+    double until = plat::now() + 5;
+    while (!got && plat::now() < until) plat::processEvents(20);  // (headless: run the posted work)
+    CHECK(got && (built.empty() ? got->state == "off" : got->state == "waiting" && got->count == 7));
+}
+
+static void testTransportBar() {
+    ui::Window win(plat::WindowOptions{});
+    win.resizeWindow(1280, 40);
+    auto* bar = win.add<TransportBar>();
+    Point hint = bar->sizeHint();
+    bar->setGeometry(0, 0, 1280, hint.y);
+    win.showWindow();
+    ui::App::get().doLayouts();
+    CHECK(hint.y >= config::TRANSPORT_BUTTON_PX + 4);
+    CHECK(bar->middleButtons.size() == 7);
+    CHECK(bar->middleButtons[5]->iconName() == "keyboard" && bar->middleButtons[6]->iconName() == "capture");
+    CHECK(bar->addReturnTrackAction->button->text() == "+ Return" && bar->addReturnTrackAction->text == "Return track");
+    CHECK(bar->playButton == bar->middleButtons[0]);
+    CHECK(bar->recordButton->iconName() == "record");
+    CHECK(bar->followAction->isChecked());
+    // the playback buttons sit in the middle of the bar (when the sides fit beside them)
+    bar->setGeometry(0, 0, 1800, hint.y);
+    ui::App::get().doLayouts();
+    int mid = bar->middleButtons.front()->mapTo(bar, Point(0, 0)).x;
+    int end = bar->middleButtons.back()->mapTo(bar, Point(0, 0)).x + config::TRANSPORT_BUTTON_PX;
+    CHECK(std::abs((mid + end) / 2 - 900) <= 2);
+    bar->setGeometry(0, 0, 1280, hint.y);
+    ui::App::get().doLayouts();
+    // icons from the data folder: Loop has none
+    CHECK(!transport_bar::tinted("play", Color(255, 255, 255), 14).empty());
+    CHECK(!transport_bar::tinted("keyboard", Color(255, 255, 255), 14).empty());
+    CHECK(!transport_bar::tinted("capture", Color(255, 255, 255), 14).empty());
+    CHECK(transport_bar::tinted("no-such-icon", Color(255, 255, 255), 14).empty());
+
+    bar->setPlaying(true);
+    CHECK(bar->playButton->iconName() == "pause" && bar->playAction->text == "Pause");
+    CHECK(bar->playAction->toolTip() == "Pause (Space)");
+    save(bar, "transport-playing");
+    bar->setPlaying(false);
+    CHECK(bar->playButton->iconName() == "play");
+
+    // tap tempo: the T key presses Tap
+    TapTempo tap;
+    double clock = 10;
+    double bpm = 0;
+    int taps = 0;
+    bar->tapButton->pressed.connect([&] {
+        ++taps;
+        bpm = tap.tap(clock);
+        clock += 0.5;
+    });
+    ui::KeyEvent k;
+    k.key = 'T';
+    k.text = "t";
+    for (int i = 0; i < 3; ++i) ui::App::get().triggerShortcut(&win, k);
+    CHECK(taps == 3);
+    CHECK_NEAR(bpm, 120, 1e-6);
+
+    // timing shown without signals
+    int bpmChanges = 0, beatsToggles = 0;
+    bar->bpmBox->valueChanged.connect([&](double) { ++bpmChanges; });
+    bar->beatsAction->toggled.connect([&](bool) { ++beatsToggles; });
+    Timing t;
+    t.bpm = 96.5;
+    t.beatsPerBar = 3;
+    t.beats = false;
+    bar->showTiming(t);
+    CHECK(bpmChanges == 0 && beatsToggles == 0);
+    CHECK_NEAR(bar->bpmBox->value(), 96.5, 1e-9);
+    CHECK(bar->signatureBox->intValue() == 3);
+    CHECK(!bar->beatsAction->isChecked() && !bar->thirdsAction->isEnabled());
+    bar->setTime(75.5, t);
+    CHECK(bar->timeLabel->text() == "1:15.500");
+    t.beats = true;
+    bar->setTime(0, t);
+    CHECK(bar->timeLabel->text() == "1.1.1   0:00.000");
+    // B toggles bars and beats, Ctrl+M the metronome
+    ui::KeyEvent b;
+    b.key = 'B';
+    ui::App::get().triggerShortcut(&win, b);
+    CHECK(beatsToggles == 1 && bar->beatsAction->isChecked());
+    ui::KeyEvent m;
+    m.key = 'M';
+    m.mods = plat::ModCtrl;
+    bool metronome = false;
+    bar->metronomeButton->toggled.connect([&](bool on) { metronome = on; });
+    ui::App::get().triggerShortcut(&win, m);
+    CHECK(metronome && bar->metronomeButton->isChecked());
+    bar->setRecording(true);
+    CHECK(bar->recordButton->isChecked());
+    t.bpm = 120;
+    t.beatsPerBar = 4;
+    t.looping = true;
+    bar->showTiming(t);
+    bar->setTime(12.25, t);
+    save(bar, "transport");
+    bar->setRecording(false);
+    CHECK(!bar->recordButton->isChecked() && !bar->recordButton->isCheckable());
+    bar->setGeometry(0, 0, 900, hint.y);  // narrower than everything: nothing overlaps
+    ui::App::get().doLayouts();
+    save(bar, "transport-narrow");
+    win.hideWindow();
+}
+
+static TrackPtr addTrack(Project& p, Kind kind, const std::string& name);
+
+static void testTransportFitting() {
+    ui::Window win(plat::WindowOptions{});
+    win.resizeWindow(1800, 40);
+    auto* bar = win.add<TransportBar>();
+    Point hint = bar->sizeHint();
+    win.showWindow();
+    Timing timing;
+    timing.grid = 0.25;
+    bar->showTiming(timing);
+    int lastLevel = -1;
+    for (int w : {1800, 1400, 1200, 1000, 900, 760, 600, 480, 360, 240, 120}) {
+        bar->setGeometry(0, 0, w, hint.y);
+        ui::App::get().doLayouts();
+        CHECK(bar->level >= lastLevel);  // narrower: as many steps taken, or more
+        lastLevel = bar->level;
+        if (bar->level < bar->stepCount()) CHECK(bar->needed() <= w - 4);
+        // nothing overlaps: the shown controls of each part, and the parts
+        std::vector<std::pair<int, int>> spans;
+        for (ui::Widget* part : bar->children().size() >= 3 ? std::vector<ui::Widget*>{bar->children()[0].get(),
+                                                                                        bar->children()[1].get(),
+                                                                                        bar->children()[2].get()}
+                                                            : std::vector<ui::Widget*>{})
+            for (auto& c : part->children())
+                if (c->isVisible()) {
+                    int x = c->mapTo(bar, Point(0, 0)).x;
+                    spans.push_back({x, x + c->width()});
+                }
+        std::sort(spans.begin(), spans.end());
+        bool overlap = false;
+        for (size_t i = 1; i < spans.size(); ++i)
+            if (spans[i].first < spans[i - 1].second) overlap = true;
+        CHECK(!overlap);
+        CHECK(bar->moreButton->isVisible() == (bar->level > TransportBar::LOSSLESS));
+        savePng(outDir2() + "/transport-" + std::to_string(w) + ".png", paintWidget(bar));
+    }
+    // wide: everything as it is; the narrowest with every control: short labels, one Add button
+    bar->setGeometry(0, 0, 1800, hint.y);
+    ui::App::get().doLayouts();
+    CHECK(bar->level == 0 && !bar->addButton->isVisible() && bar->addButtons[0]->isVisible());
+    CHECK(bar->beatsButton->text() == "♩ Beats" && bar->gridButton->text() == "Grid 1/16 ▾");
+    int narrowest = bar->narrowestWidth();
+    CHECK(bar->minimumSizeHint().x == narrowest + 4);
+    bar->setGeometry(0, 0, narrowest + 4, hint.y);
+    ui::App::get().doLayouts();
+    CHECK(bar->level == TransportBar::LOSSLESS);
+    CHECK(bar->addButton->isVisible() && !bar->addButtons[0]->isVisible() && !bar->moreButton->isVisible());
+    CHECK(bar->beatsButton->text() == "♩" && bar->thirdsButton->text() == "⅓" && bar->metronomeButton->text() == "Metro");
+    CHECK(bar->gridButton->text() == "1/16 ▾");
+    savePng(outDir2() + "/transport-narrowest.png", paintWidget(bar));
+    // narrower: into the » menu, which has what is hidden
+    bar->setGeometry(0, 0, narrowest - 120, hint.y);
+    ui::App::get().doLayouts();
+    CHECK(bar->level > TransportBar::LOSSLESS && bar->moreButton->isVisible());
+    CHECK(!bar->middleButtons[6]->isVisible());  // (Capture goes first)
+    ui::Menu more;
+    bar->fillMoreMenu(more);
+    CHECK(actionStarting(more, "Capture") != nullptr);
+    // the shortcuts of hidden controls still work
+    bar->setGeometry(0, 0, 120, hint.y);  // (Play and Rec stay longest)
+    ui::App::get().doLayouts();
+    CHECK(bar->middleButtons[0]->isVisible() && bar->middleButtons[1]->isVisible() && !bar->middleButtons[2]->isVisible());
+    bar->setGeometry(0, 0, 40, hint.y);
+    ui::App::get().doLayouts();
+    CHECK(bar->level == bar->stepCount());
+    CHECK(!bar->middleButtons[5]->isVisible() && !bar->middleButtons[0]->isVisible());
+    ui::KeyEvent k;
+    k.key = 'K';
+    k.mods = plat::ModCtrl;
+    CHECK(ui::App::get().triggerShortcut(&win, k) && bar->keysAction->isChecked());
+    ui::Menu all;
+    bar->fillMoreMenu(all);
+    auto texts = menuTexts(all);
+    CHECK(hasText(texts, "Add file…") && hasText(texts, "Return track") && hasText(texts, "Play") &&
+          hasText(texts, "Recording settings…") && hasText(texts, "Tap tempo") && hasText(texts, "Metronome sounds…") &&
+          hasText(texts, "♩ Beats") && hasText(texts, "Grid: 1/16"));
+    CHECK(actionStarting(all, "Tempo: 120.00 BPM") && actionStarting(all, "Time signature: 4 / 4"));
+    bool settings = false;
+    bar->recordButton->rightClicked.connect([&](ui::MouseEvent&) { settings = true; });
+    ui::Menu::activate(actionStarting(all, "Recording settings…"));
+    CHECK(settings);
+    // the grid: its name, snapping off, triplets
+    timing.snapOn = false;
+    bar->showTiming(timing);
+    CHECK(bar->gridName.empty());
+    bar->setGeometry(0, 0, 1800, hint.y);
+    ui::App::get().doLayouts();
+    CHECK(bar->gridButton->text() == "No snap ▾");
+    timing.snapOn = true;
+    timing.grid = 0;
+    bar->showTiming(timing);
+    CHECK(bar->gridButton->text() == "Grid auto ▾");
+    timing.thirds = true;
+    timing.grid = Frac(1, 6).value();
+    bar->showTiming(timing);
+    CHECK(bar->gridButton->text().find("T ▾") != std::string::npos);
+    timing.beats = false;
+    bar->showTiming(timing);
+    CHECK(!bar->gridButton->isEnabled());
+    // the grid's keys and menu
+    int finer = 0;
+    bar->gridActions["finer"]->triggered.connect([&] { ++finer; });
+    ui::KeyEvent one;
+    one.key = '1';
+    one.mods = plat::ModCtrl;
+    ui::App::get().triggerShortcut(&win, one);
+    CHECK(finer == 1);
+    Timing grid;
+    grid.grid = 0.25;
+    ui::Menu gm;
+    std::vector<GridChange> chosen;
+    transport_bar::fillGridMenu(gm, grid, [&](const GridChange& c) { chosen.push_back(c); });
+    texts = menuTexts(gm);
+    CHECK(texts.front() == "Follows the zoom" && hasText(texts, "Snap to the grid") && hasText(texts, "Finer") &&
+          hasText(texts, "Coarser") && hasText(texts, grid.gridName()));
+    for (auto& a : gm.actions())
+        if (a->text == grid.gridName()) CHECK(a->checked);
+    ui::Menu::activate(actionStarting(gm, "Snap to the grid"));
+    ui::Menu::activate(actionStarting(gm, "Follows the zoom"));
+    CHECK(chosen.size() == 2 && chosen[0].what == GridChange::Snap && !chosen[0].snap && chosen[1].what == GridChange::Grid &&
+          chosen[1].grid == 0);
+    win.hideWindow();
+}
+
+static void testPanel2() {
+    // the successor's rows: pan, sends, returns, takes, a track's delay, automation shown on the fader
+    CHECK(fmt::pan(-0.3) == "30 L" && fmt::pan(0) == "C" && fmt::pan(1) == "100 R");
+    Project project;
+    audio::Engine engine(project);
+    TrackPtr drums = addTrack(project, Kind::Audio, "Drums");
+    TrackPtr keys = addTrack(project, Kind::Midi, "Keys");
+    keys->needsInstrument = false;
+    TrackPtr reverb = project.addTrack(Kind::Return);
+    reverb->name = "Reverb";
+    drums->sends = std::vector<Send>{Send{reverb, -6}};
+    drums->delayMs = 12;
+    drums->pan = -0.25;
+    auto take = makeAudioClip("Take 1", std::make_shared<AudioBuffer>(), engine.sr, engine.sr);
+    auto samples = std::make_shared<AudioBuffer>();
+    samples->samples.assign((size_t)engine.sr * 2 * 2, 0.1f);
+    take = makeAudioClip("Take 1", samples, engine.sr, engine.sr);
+    drums->takes = std::vector<ClipPtr>{take};
+    drums->showTakes = true;
+    auto vol = std::make_shared<Automation>();
+    vol->slot = drums->controls;
+    vol->param = "Volume";
+    vol->setPoints({{0.0, 1.0}, {10.0, 0.0}});
+    drums->automation = std::vector<AutomationPtr>{vol};
+
+    ui::Window win(plat::WindowOptions{});
+    win.resizeWindow(1000, 700);
+    auto* scroll = win.add<ui::ScrollArea>();
+    scroll->setGeometry(0, 0, 700, 700);
+    auto* timeline = scroll->makeContent<Timeline>(project, engine, scroll);
+    MasterStrip master(engine, [] {});
+    auto* panel = win.add<LanePanel>(project, *timeline, master, engine.channels, [](const TrackPtr&) {});
+    std::vector<TrackPtr> fxOpened;
+    panel->openMidiEffects = [&](const TrackPtr& t) { fxOpened.push_back(t); };
+    panel->rebuild();
+    win.showWindow();
+    ui::App::get().doLayouts();
+    ui::App::get().collectGarbage();
+    CHECK(panel->frames.size() == 3 && panel->takeFrames.size() == 1 && panel->frames.count(reverb));
+    // a return's row: no solo, no sends button; the others: pan left of M, → when there are returns
+    CHECK(!buttonText(panel->frames[reverb], "S") && buttonText(panel->frames[reverb], "M"));
+    CHECK(buttonText(panel->frames[drums], "S") && findAll<PanKnob>(panel->frames[drums]).size() == 1);
+    CHECK(findAll<SendsButton>(panel->frames[reverb]).empty());
+    auto sends = findAll<SendsButton>(panel->frames[drums]);
+    CHECK(sends.size() == 1);
+    CHECK(sends[0]->property("lit") == "true");
+    CHECK(sends[0]->toolTip() == "Sends to the return tracks: Reverb -6 dB (click to set them)");
+    CHECK(buttonText(panel->frames[drums], "Auto")->width() == 36 && buttonText(panel->frames[reverb], "Auto")->width() == 58);
+    // the delay after the name; the take's row
+    bool named = false;
+    for (auto* l : findAll<ui::Label>(panel->frames[drums]))
+        if (l->text() == "Drums  (+12 ms)") named = true;
+    CHECK(named);
+    bool takeNamed = false;
+    for (auto* l : findAll<ui::Label>(panel->takeFrames[take]))
+        if (l->text() == "Take 1  (2.0 s)") takeNamed = true;
+    CHECK(takeNamed && buttonText(panel->takeFrames[take], "Use"));
+    // the sends' window content: a slider per return
+    SendsPanel sp(drums, {reverb}, [&](const TrackPtr& t, double db) { sends[0]->setLevel(t, db); });
+    sp.resize(sp.sizeHint().x, sp.sizeHint().y);
+    CHECK(sp.sliders.size() == 1 && sp.sliders[0]->value() == -6);
+    savePng(outDir2() + "/sends.png", paintWidget(&sp));
+    sp.sliders[0]->setValue(-3);
+    CHECK(drums->sends.size() == 1 && drums->sends[0].db == -3);
+    sends[0]->setLevel(reverb, config::MIN_DB);
+    CHECK(drums->sends.empty() && sends[0]->property("lit").empty());
+    // the pan knob: drag up or right turns it right, Shift finer, double-click centres
+    PanKnob* knob = findAll<PanKnob>(panel->frames[drums])[0];
+    CHECK_NEAR(knob->pan, -0.25, 1e-9);
+    ui::MouseEvent e;
+    e.button = plat::LeftButton;
+    e.pos = Point(10, 10);
+    knob->mousePress(e);
+    e.pos = Point(20, 0);  // (10 right and 10 up: 20 px)
+    knob->mouseMove(e);
+    CHECK_NEAR(drums->pan, -0.05, 1e-9);
+    e.mods = plat::ModShift;
+    e.pos = Point(60, 10);  // (50 right: Shift, a fifth as much)
+    knob->mouseMove(e);
+    CHECK_NEAR(drums->pan, -0.15, 1e-9);
+    CHECK(knob->toolTip() == "Pan 15 L (drag up/down; double-click: centre)");
+    knob->mouseRelease(e);
+    knob->setPan(0.6);
+    savePng(outDir2() + "/pan-knob.png", paintWidget(knob));
+    knob->mouseDoubleClick(e);
+    CHECK(drums->pan == 0.0);
+    // automation shown on the fader while playing, the track's own when stopped
+    drums->volumeDb = -12;
+    drums->pan = 0.5;
+    panel->showMixerValues((int64_t)(5.0 * engine.sr), engine.sr);
+    CHECK(panel->mixers[drums].slider->value() == (int)std::nearbyint(config::MIN_DB + 0.5 * (config::MAX_DB - config::MIN_DB)));
+    CHECK(drums->volumeDb == -12);  // (shown only)
+    panel->showMixerValues(std::nullopt, engine.sr);
+    CHECK(panel->mixers[drums].slider->value() == -12 && panel->mixers[drums].reading->text() == "-12 dB");
+    CHECK_NEAR(panel->mixers[drums].pan->pan, 0.5, 1e-9);
+    // menus: delay, takes, MIDI effects; a return's has no groups
+    ui::Menu m1;
+    panel->fillTrackMenu(m1, drums);
+    auto texts = menuTexts(m1);
+    CHECK(hasText(texts, "Track delay… (+12 ms)") && hasText(texts, "Hide takes") && hasText(texts, "Group tracks…"));
+    CHECK(!actionStarting(m1, "MIDI effects"));
+    ui::Menu m2;
+    panel->fillTrackMenu(m2, reverb);
+    texts = menuTexts(m2);
+    CHECK(hasText(texts, "Track delay…") && !hasText(texts, "Group tracks…"));
+    keys->midiEffects = std::vector<MidiEffect>{MidiEffect{"Chord", {}}};
+    ui::Menu m3;
+    panel->fillTrackMenu(m3, keys);
+    ui::Action* fx = actionStarting(m3, "MIDI effects… (1)");
+    CHECK(fx != nullptr);
+    if (fx) ui::Menu::activate(fx);
+    CHECK(fxOpened.size() == 1 && fxOpened[0] == keys);
+    // Track delay… asks (the dialog answered by the test)
+    track_dialogs::answer = [](const std::string& title, std::string& value) {
+        CHECK(title == "Track delay" && value == "12.0");
+        value = "-20.04";
+        return true;
+    };
+    panel->setDelay(drums);
+    track_dialogs::answer = nullptr;
+    CHECK_NEAR(drums->delayMs, -20.0, 1e-9);
+    ui::App::get().collectGarbage();
+    // Hide takes
+    panel->toggleTakes(drums);
+    ui::App::get().collectGarbage();
+    CHECK(!drums->showTakes && panel->takeFrames.empty());
+    panel->toggleTakes(drums);
+    ui::App::get().doLayouts();
+    save(panel, "../panel2/panel");
+    // meters go on across rebuilds
+    std::vector<float> over{1.2f, 0.4f};
+    panel->meters[drums]->push(over);
+    CHECK(panel->meters[drums]->clipped());
+    panel->rebuild();
+    CHECK(panel->meters[drums]->clipped());
+    ui::App::get().collectGarbage();
+    win.hideWindow();
+}
+
+static TrackPtr addTrack(Project& p, Kind kind, const std::string& name) {
+    TrackPtr t = p.addTrack(kind);
+    t->name = name;
+    return t;
+}
+
+static void testPanel() {
+    Project project;
+    audio::Engine engine(project);
+    engine.channels = 4;
+    TrackPtr drums = addTrack(project, Kind::Audio, "Drums");
+    TrackPtr bass = addTrack(project, Kind::Audio, "Bass");
+    TrackPtr keys = addTrack(project, Kind::Midi, "Keys");
+    TrackPtr lead = addTrack(project, Kind::Midi, "Lead synth");
+    TrackPtr fresh = addTrack(project, Kind::Midi, "MIDI 3");
+    TrackPtr vox = addTrack(project, Kind::Audio, "Vocals");
+    lead->needsInstrument = false;
+    keys->needsInstrument = false;
+    fresh->needsInstrument = true;
+    auto eq = std::make_shared<PluginSlot>();
+    eq->name = "Tiny EQ";
+    eq->kind = "effect";
+    vox->effects = std::vector<SlotPtr>{eq};
+    auto a = std::make_shared<Automation>();
+    a->slot = eq;
+    a->param = "Low gain";
+    vox->automation = std::vector<AutomationPtr>{a};
+    vox->showAutomation = true;
+    vox->color = "#a03050";
+    vox->output = 2;
+    bass->muted = true;
+    keys->soloed = true;
+    GroupPtr group = project.groupTracks({drums, bass});
+    group->name = "Rhythm";
+    group->color = "#3070c0";
+
+    ui::Window win(plat::WindowOptions{});
+    win.resizeWindow(1000, 900);
+    auto* scroll = win.add<ui::ScrollArea>();
+    scroll->setGeometry(0, 0, 700, 900);
+    auto* timeline = scroll->makeContent<Timeline>(project, engine, scroll);
+    MasterStrip master(engine, [] {});
+    int fxOpened = 0;
+    auto* panel = win.add<LanePanel>(project, *timeline, master, engine.channels,
+                                     [&](const TrackPtr&) { ++fxOpened; },
+                                     [](ui::Menu& menu, const TrackPtr&) { menu.addAction("Freeze track"); },
+                                     LanePanel::Instruments{[](ui::Menu& m, const TrackPtr&) { m.addAction("Built-in synth"); },
+                                                            [](const TrackPtr&) {}});
+    win.showWindow();
+    ui::App::get().doLayouts();
+    // rows: group header, its two tracks, the other tracks, the automation lane under Vocals
+    CHECK(panel->frames.size() == 6);
+    CHECK(panel->groupMeters.size() == 1);
+    CHECK(panel->automationFrames.size() == 1);
+    CHECK(panel->meters.size() == 5 && !panel->meters.count(fresh));  // (waiting for its instrument: no meter)
+    int expectH = lanes::layout(project).back().bottom() + theme::SCROLLBAR_W;
+    CHECK(panel->height() == expectH);
+    CHECK(panel->width() == config::PANEL_W);
+    CHECK(panel->frames[drums]->height() == drums->height);
+    // outputs: the master meter shows every output in use, a group meter its tracks'
+    CHECK(master.meter->shown() == std::vector<int>({0, 1, 2, 3}));
+    CHECK(panel->groupMeters[group]->shown() == std::vector<int>({0, 1}));
+    CHECK(panel->meters[vox]->shown() == std::vector<int>({2, 3}));
+    // the selected track's row is outlined
+    timeline->setCurrentTrack(keys);
+    CHECK(panel->frames[keys]->isCurrent() && !panel->frames[drums]->isCurrent());
+    // a coloured row's labels take its text colour
+    CHECK(panel->frames[vox]->textColor().has_value());
+
+    // the row's own controls
+    panel->frames[bass]->onPress();
+    CHECK(timeline->currentTrack == bass && panel->frames[bass]->isCurrent());
+    ui::Button* muteDrums = nullptr;
+    for (auto& c : panel->frames[drums]->children())
+        if (auto* b = dynamic_cast<ui::Button*>(c.get()); b && b->text() == "M") muteDrums = b;
+    CHECK(muteDrums && !drums->muted);
+    if (muteDrums) muteDrums->click();
+    CHECK(drums->muted);
+    if (muteDrums) muteDrums->click();
+    CHECK(!drums->muted);
+    timeline->setCurrentTrack(keys);
+    // menus
+    ui::Menu menu;
+    panel->fillTrackMenu(menu, vox);
+    auto texts = menuTexts(menu);
+    CHECK(texts.size() >= 7 && texts[0] == "Rename track…" && texts[1] == "Track colour…");
+    CHECK(hasText(texts, "Automate a parameter…") && hasText(texts, "Hide automation"));
+    CHECK(hasText(texts, "Group tracks…") && hasText(texts, "Add to group") && hasText(texts, "Freeze track"));
+    CHECK(!hasText(texts, "Remove from Rhythm"));
+    ui::Menu menu2;
+    panel->fillTrackMenu(menu2, drums);
+    texts = menuTexts(menu2);
+    CHECK(hasText(texts, "Remove from Rhythm") && !hasText(texts, "Add to group") && !hasText(texts, "Show automation"));
+    ui::Menu menu3;
+    panel->fillGroupMenu(menu3, group);
+    CHECK(menuTexts(menu3) == std::vector<std::string>({"Rename group…", "Group colour…", "Fold its tracks away", "---",
+                                                        "Ungroup (the tracks stay)"}));
+
+    // meters at various levels, LUFS readouts
+    std::vector<float> quiet{0.03f, 0.02f}, loud{0.5f, 0.8f}, hot{1.0f, 0.97f}, out34{0, 0, 0.25f, 0.6f};
+    panel->meters[drums]->push(hot);
+    panel->meters[bass]->push(quiet);
+    panel->meters[keys]->push(loud);
+    panel->meters[vox]->push(out34);
+    panel->groupMeters[group]->push(level_meter::loudest({&hot, &quiet}));
+    panel->loudness[drums]->showValues(-8, -9.4, -11.2);
+    panel->loudness[keys]->showValues(-20, -18.3, -21.0);
+    std::vector<float> all{0.7f, 0.9f, 0.25f, 0.6f};
+    master.meter->push(all);
+    master.loudness->showValues(-10, -11.5, -12.8);
+    master.showUpdate({"waiting", "2", update_check::PAGE + "/commits/main", 2});
+    save(panel, "panel");
+
+    // the master strip on its own
+    ui::Widget holder;
+    holder.adopt(master.releaseFrame());
+    master.frame->setGeometry(0, 0, config::PANEL_W, config::MASTER_H);
+    save(master.frame, "master");
+    master.refreshFx({eq});
+    CHECK(master.fx->property("lit") == "true");
+    CHECK(master.fx->toolTip() == "Effects: Tiny EQ\nMaster effects work on outputs 1/2.");
+    master.apply({-6, true});
+    CHECK_NEAR(engine.masterGain.load(), std::pow(10.0, -6 / 20.0), 1e-9);
+    CHECK(engine.masterMute.load());
+    auto st = master.settings();
+    CHECK(st.volumeDb == -6 && st.mute);
+    master.apply({});
+    CHECK(engine.masterGain.load() == 1.0 && !engine.masterMute.load());
+    master.showUpdate({"failed", "HTTP Error 403", update_check::PAGE});
+    CHECK(master.notice->toolTip() == "Couldn't check GitHub for updates when the program started (HTTP Error 403)");
+    CHECK(master.notice->notice().plain() == "Couldn't check · Tiny-DAW-Linux" && !master.versionLabel);
+    save(master.frame, "master-fx");
+
+    // hiding the meters and LUFS (Options)
+    panel->setMetersVisible(false, false);
+    CHECK(!panel->meters[drums]->isVisible() && !master.meter->isVisible() && !master.loudness->isVisible());
+    panel->setMetersVisible(true, true);
+
+    // a device with fewer outputs: tracks on outputs it lacks go back to 1/2
+    panel->setChannels(2);
+    ui::App::get().collectGarbage();
+    CHECK(vox->output == 0);
+    CHECK(master.meter->shown() == std::vector<int>({0, 1}));
+    // resizing a track by its row's bottom edge
+    keys->height = 120;
+    timeline->heightsChanged.emit();
+    ui::App::get().doLayouts();
+    CHECK(panel->frames[keys]->height() == 120);
+    // folding the group: its tracks' rows go
+    group->folded = true;
+    panel->rebuild();
+    ui::App::get().collectGarbage();
+    CHECK(panel->frames.size() == 4 && panel->groupMeters.size() == 1);
+    save(panel, "panel-folded");
+    win.hideWindow();
+}
+
+static void testPinToBottom() {
+    ui::Window win(plat::WindowOptions{});
+    win.resizeWindow(300, 400);
+    auto* scroll = win.add<ui::ScrollArea>();
+    scroll->setGeometry(0, 0, 300, 400);
+    auto* content = scroll->makeContent<ui::Widget>();
+    content->setFixedHeight(1000);
+    auto pinned = std::make_unique<ui::Widget>();
+    ui::Widget* raw = pinned.get();
+    PinToBottom pin(std::move(pinned), scroll->viewport(), 100, theme::SCROLLBAR_W);
+    win.showWindow();
+    ui::App::get().doLayouts();
+    pin.place();
+    int vh = scroll->viewport()->height(), vw = scroll->viewport()->width();
+    CHECK(raw->geometry() == Rect(0, vh - theme::SCROLLBAR_W - 100, vw, 100));
+    CHECK(pin.cover()->geometry() == Rect(0, vh - theme::SCROLLBAR_W, vw, theme::SCROLLBAR_W));
+    CHECK(scroll->viewport()->children().back().get() == pin.cover());
+    // the viewport is resized: it follows
+    scroll->setGeometry(0, 0, 250, 300);
+    ui::App::get().doLayouts();
+    CHECK(raw->geometry().bottom() == scroll->viewport()->height() - theme::SCROLLBAR_W);
+    CHECK(raw->width() == scroll->viewport()->width());
+    // contents added later don't cover it (checked every frame)
+    scroll->viewport()->add<ui::Widget>();
+    ui::App::get().tick();
+    CHECK(scroll->viewport()->children().back().get() == pin.cover());
+    win.hideWindow();
+}
+
+int main() {
+    ui::App::get().initHeadless();
+    settings::setPath("build/ui-samples/panel/settings.json");
+    theme::setSkin();
+    transport_bar::iconFolder = "data/icons";  // (the program finds them next to itself)
+    testMeterLogic();
+    testMeterHolds();
+    testSmallPieces();
+    testUpdateCheck();
+    testTransportBar();
+    testTransportFitting();
+    testPanel();
+    testPanel2();
+    testPinToBottom();
+    TEST_MAIN_END();
+}

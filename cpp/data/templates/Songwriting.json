@@ -1,0 +1,242 @@
+{
+  "format": "tinydaw-project",
+  "version": 1,
+  "master": {},
+  "tracks_made": {
+    "audio": 1,
+    "midi": 3,
+    "return": 1,
+    "group": 0
+  },
+  "timing": {
+    "bpm": 100.0,
+    "beats_per_bar": 4,
+    "beats": true,
+    "thirds": false,
+    "loop_start": 0.0,
+    "loop_end": 0.0,
+    "looping": false,
+    "changes": [],
+    "key": 0,
+    "scale": ""
+  },
+  "markers": [
+    [
+      0.0,
+      "Intro"
+    ],
+    [
+      19.2,
+      "Verse"
+    ],
+    [
+      38.4,
+      "Chorus"
+    ]
+  ],
+  "groups": [],
+  "tracks": [
+    {
+      "name": "Chords",
+      "kind": "midi",
+      "muted": false,
+      "soloed": false,
+      "output": 0,
+      "volume_db": 0.0,
+      "pan": 0.0,
+      "delay_ms": 0.0,
+      "height": 72,
+      "color": "#8f6bd9",
+      "tone": null,
+      "needs_instrument": false,
+      "show_automation": false,
+      "uses_rack": false,
+      "group": null,
+      "frozen": null,
+      "instrument": null,
+      "effects": [],
+      "cables": [
+        [
+          "in",
+          "out"
+        ]
+      ],
+      "rack": [],
+      "rack_cables": [],
+      "automation": [],
+      "sends": [
+        [
+          4,
+          -14.0
+        ]
+      ],
+      "sampler": null,
+      "midi_effects": [],
+      "takes": [],
+      "show_takes": false
+    },
+    {
+      "name": "Bass",
+      "kind": "midi",
+      "muted": false,
+      "soloed": false,
+      "output": 0,
+      "volume_db": 0.0,
+      "pan": 0.0,
+      "delay_ms": 0.0,
+      "height": 72,
+      "color": "#7fae5b",
+      "tone": null,
+      "needs_instrument": false,
+      "show_automation": false,
+      "uses_rack": false,
+      "group": null,
+      "frozen": null,
+      "instrument": null,
+      "effects": [],
+      "cables": [
+        [
+          "in",
+          "out"
+        ]
+      ],
+      "rack": [],
+      "rack_cables": [],
+      "automation": [],
+      "sends": [],
+      "sampler": null,
+      "midi_effects": [],
+      "takes": [],
+      "show_takes": false
+    },
+    {
+      "name": "Melody",
+      "kind": "midi",
+      "muted": false,
+      "soloed": false,
+      "output": 0,
+      "volume_db": 0.0,
+      "pan": 0.0,
+      "delay_ms": 0.0,
+      "height": 72,
+      "color": "#d9705b",
+      "tone": null,
+      "needs_instrument": false,
+      "show_automation": false,
+      "uses_rack": false,
+      "group": null,
+      "frozen": null,
+      "instrument": null,
+      "effects": [],
+      "cables": [
+        [
+          "in",
+          "out"
+        ]
+      ],
+      "rack": [],
+      "rack_cables": [],
+      "automation": [],
+      "sends": [
+        [
+          4,
+          -12.0
+        ]
+      ],
+      "sampler": null,
+      "midi_effects": [],
+      "takes": [],
+      "show_takes": false
+    },
+    {
+      "name": "Drums",
+      "kind": "audio",
+      "muted": false,
+      "soloed": false,
+      "output": 0,
+      "volume_db": 0.0,
+      "pan": 0.0,
+      "delay_ms": 0.0,
+      "height": 72,
+      "color": "#d9a75b",
+      "tone": null,
+      "needs_instrument": false,
+      "show_automation": false,
+      "uses_rack": false,
+      "group": null,
+      "frozen": null,
+      "instrument": null,
+      "effects": [],
+      "cables": [
+        [
+          "in",
+          "out"
+        ]
+      ],
+      "rack": [],
+      "rack_cables": [],
+      "automation": [],
+      "sends": [],
+      "sampler": null,
+      "midi_effects": [],
+      "takes": [],
+      "show_takes": false
+    },
+    {
+      "name": "Reverb",
+      "kind": "return",
+      "muted": false,
+      "soloed": false,
+      "output": 0,
+      "volume_db": 0.0,
+      "pan": 0.0,
+      "delay_ms": 0.0,
+      "height": 72,
+      "color": null,
+      "tone": null,
+      "needs_instrument": false,
+      "show_automation": false,
+      "uses_rack": false,
+      "group": null,
+      "frozen": null,
+      "instrument": null,
+      "effects": [
+        {
+          "path": "builtin:reverb",
+          "name": "Reverb",
+          "kind": "effect",
+          "plugin_name": null,
+          "bypass": false,
+          "volume_db": 0.0,
+          "state": null
+        }
+      ],
+      "cables": [
+        [
+          "in",
+          0
+        ],
+        [
+          0,
+          "out"
+        ]
+      ],
+      "rack": [],
+      "rack_cables": [],
+      "automation": [],
+      "sends": [],
+      "sampler": null,
+      "midi_effects": [],
+      "takes": [],
+      "show_takes": false
+    }
+  ],
+  "clips": [],
+  "master_effects": [],
+  "master_cables": [
+    [
+      "in",
+      "out"
+    ]
+  ]
+}

@@ -1,0 +1,179 @@
+// Small building blocks shared by the panel widgets (widgets.py).
+#pragma once
+#include <functional>
+#include <memory>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "config.h"
+#include "model/model.h"
+#include "ui/toolkit/controls.h"
+#include "ui/toolkit/menu.h"
+
+// A frame exactly one lane tall, coloured like the timeline lane next to it (or the track's colour)
+// (lane_frame / lane_style, the stylesheet "#lane"). `accent` draws a 3 px stripe down the left
+// edge (the track kind's colour), else a 1 px frame_edge line; `text` colours every Label in it.
+// A selected track's row (setCurrent) has a 1 px accent edge at its top, right and bottom; an
+// automation row a line above it (topLine). Its layout fills the inside of those edges.
+class LaneFrame : public ui::Widget {
+public:
+    LaneFrame(Color color, std::optional<Color> accent = std::nullopt, int height = config::TRACK_H,
+              std::optional<Color> text = std::nullopt);
+    // new colours (a skin change; lane_style): repainted, labels recoloured
+    void setColors(Color color, std::optional<Color> accent = std::nullopt, std::optional<Color> text = std::nullopt);
+    void setCurrent(bool on);              // the property "current"
+    bool isCurrent() const { return current_; }
+    void setTopLine(std::optional<Color> c);
+    void applyTextColor();                 // give the labels inside it the text colour (after adding some)
+    Color color() const { return color_; }
+    std::optional<Color> accent() const { return accent_; }
+    std::optional<Color> textColor() const { return text_; }
+    Rect contentsRect() const override;
+    void paint(Painter& p) override;
+    void paintOver(Painter& p) override;
+    // right-click menu (with_menu): filled by fillMenu each time
+    std::function<void(ui::Menu&)> fillMenu;
+    std::function<void()> onPress;         // any mouse button pressed on the row itself (selects the track)
+    bool mousePress(ui::MouseEvent& e) override;
+    bool contextMenu(ui::MouseEvent& e) override;
+
+private:
+    Color color_;
+    std::optional<Color> accent_, text_, topLine_;
+    bool current_ = false;
+};
+
+// Keeps `widget` across the bottom of `viewport` (a scroll area's), `margin` px above its bottom
+// edge and on top of the scrolled contents, whatever the scroll position or size. The margin
+// below it is covered too (in the window colour), or the scrolled contents would show through.
+class PinToBottom {
+public:
+    // the widget is moved into the viewport (released from its parent, which must exist)
+    PinToBottom(ui::Widget* widget, ui::Widget* viewport, int height, int margin = 0);
+    // the same for a widget not in the tree yet
+    PinToBottom(std::unique_ptr<ui::Widget> widget, ui::Widget* viewport, int height, int margin = 0);
+    ~PinToBottom();
+    PinToBottom(const PinToBottom&) = delete;
+    PinToBottom& operator=(const PinToBottom&) = delete;
+    void place();
+    ui::Widget* widget() const { return widget_; }
+    ui::Widget* cover() const { return cover_; }
+
+private:
+    void init(int height, int margin);
+    ui::Widget* widget_;
+    ui::Widget* viewport_;
+    ui::Widget* cover_ = nullptr;
+    int height_ = 0, margin_ = 0, frame_ = -1;
+    std::function<bool(ui::Widget*, const char*)> previousFilter_;
+    std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
+};
+
+// widgets.py's PinBelowView keeps a widget under a scroll area's view (its viewport made that much
+// shorter) instead of over it, so Qt can move what is drawn when scrolling. The toolkit's scroll
+// area repaints its view when the contents move either way, so PinToBottom serves for both here;
+// a timeline whose master lane is pinned over its view counts that lane's place in its height
+// (Timeline::masterBelowView = false).
+
+// A track's or group's name; double-click it to rename (its doubleClicked signal). bold: a group's.
+class NameLabel : public ui::Label {
+public:
+    explicit NameLabel(const std::string& text = "", bool bold = false);
+};
+
+// A track's volume in dB (MIN_DB = silent … MAX_DB); double-click for 0 dB. Ignores the mouse
+// wheel, so scrolling the panel never changes a volume by accident.
+class VolumeSlider : public ui::Slider {
+public:
+    VolumeSlider(double db, std::function<void(double)> slot);
+    void showTip();
+};
+
+// A volume slider's setting in dB, shown next to it; double-click it for 0 dB.
+class DbReading : public ui::Label {
+public:
+    explicit DbReading(ui::Slider* slider);
+    void showValue(int db);
+    ui::Slider* slider;
+};
+
+// A track's pan (-1 left … 1 right) as a small knob: drag up or right to turn it right, down or left
+// to turn it left (Shift: finer); double-click to centre it. Ignores the mouse wheel, as the volume
+// slider does. slot(pan) when the user turns it (rounded to 0.01).
+class PanKnob : public ui::Widget {
+public:
+    static constexpr int PIXELS = 100;  // of dragging, from the centre to one side
+    PanKnob(double pan, std::function<void(double)> slot);
+    double pan;
+    void showValue(double pan);         // show `pan` without changing the track (automation moving it)
+    void setPan(double pan);            // as the user turning it: clamped, rounded, slot called
+    void showTip();
+    void paint(Painter& p) override;
+    bool mousePress(ui::MouseEvent& e) override;
+    bool mouseMove(ui::MouseEvent& e) override;
+    bool mouseRelease(ui::MouseEvent& e) override;
+    bool mouseDoubleClick(ui::MouseEvent& e) override;
+    bool wheel(ui::WheelEvent& e) override { return false; }
+
+private:
+    std::function<void(double)> slot_;
+    bool dragging_ = false;
+    Point start_;
+    double startPan_ = 0;
+};
+
+// The sliders of SendsButton's small window: "<track> sends to", then a row per return track
+// (its name, a volume slider, its dB). Paintable without a window (tests).
+class SendsPanel : public ui::Widget {
+public:
+    SendsPanel(TrackPtr track, std::vector<TrackPtr> returns, std::function<void(const TrackPtr&, double)> setLevel);
+    std::vector<VolumeSlider*> sliders;  // one per return, in order
+    void paint(Painter& p) override;
+};
+
+// → on a track's row: how much of its sound (after its fader) goes to each return track, as sliders
+// in a small window that opens under it (−inf: none); lit while any send is up.
+class SendsButton : public ui::Button {
+public:
+    SendsButton(TrackPtr track, std::vector<TrackPtr> returns, std::function<void()> changed);
+    ~SendsButton() override;
+    double level(const TrackPtr& target) const;   // dB sent to it (MIN_DB: none)
+    void setLevel(const TrackPtr& target, double db);  // (the mixer reads the track's sends every buffer)
+    void showState();                             // lit, and the tooltip listing the sends that are up
+    void showSends();                             // opens the window under it
+    TrackPtr track;
+    std::vector<TrackPtr> returns;
+    std::function<void()> changed;
+
+private:
+    std::unique_ptr<ui::Window> popup_;
+    std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
+    void closePopup();
+};
+
+namespace widgets {
+// Small checkable button (M / S) that lights up in the skin's "mute" or "solo" colour (`role`) when on.
+ui::Button* toggleButton(ui::Widget* parent, const std::string& text, const std::string& role, bool checked,
+                         std::function<void(bool)> slot, const std::string& tooltip = "");
+// [(first output index, label)]: (0, "1/2"), (2, "3/4"), ...; an odd last output stands alone
+std::vector<std::pair<int, std::string>> outputPairs(int channels);
+// Combo box of the device's output pairs (ignores the wheel); calls slot(first output index) on change.
+ui::ComboBox* outputSelector(ui::Widget* parent, int channels, int current, std::function<void(int)> slot);
+// Tooltip text listing a track's (or the master's) effects.
+std::string effectsSummary(const std::vector<SlotPtr>& effects);
+// 'FX' button opening the effects window; lit while there are effects.
+ui::Button* fxButton(ui::Widget* parent, const std::vector<SlotPtr>& effects, std::function<void()> slot);
+// A MIDI track's instrument button (🎹): clicking it calls edit() (the instrument's window, or the
+// instrument patch panel when it plays one: rack = how many instruments it holds, -1 = none), or,
+// with the built-in synth (no settings), shows the menu; its ▾ shows the menu, which fillMenu(menu)
+// fills each time it opens (the instruments to choose from). The menu is owned by the button.
+// sampler: the track's built-in sampler when it plays one (no instrument plugin): click opens its window
+ui::Button* instrumentButton(ui::Widget* parent, const SlotPtr& instrument, std::function<void()> edit,
+                             std::function<void(ui::Menu&)> fillMenu, int rack = -1, SamplerPtr sampler = nullptr);
+ui::Button* iconButton(ui::Widget* parent, const std::string& text, std::function<void()> slot,
+                       const std::string& tooltip = "");
+// a menu owned by a widget (deleted with it): for buttons' setMenu
+ui::Menu* ownedMenu(ui::Widget* owner);
+}  // namespace widgets

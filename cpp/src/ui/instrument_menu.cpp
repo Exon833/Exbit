@@ -1,0 +1,178 @@
+// Choosing a MIDI track's instrument, and opening its window (instrument_menu.py).
+#include "ui/instrument_menu.h"
+
+#include "audio/patch.h"
+#include "audio/plugin_audio.h"
+#include "ui/plugin_dialog.h"
+#include "ui/plugin_host.h"
+#include "ui/sampler_dialog.h"
+#include "ui/toolkit/dialogs.h"
+
+namespace instrument_menu {
+
+bool samePlugin(const plug::PluginInfo& info, const PluginSlot* slot) {
+    return slot && info.path == slot->path && info.pluginName == slot->pluginName;
+}
+
+namespace {
+ui::Action* checkable(ui::Menu* menu, const std::string& text, bool checked, std::function<void()> fn) {
+    ui::Action* a = menu->addAction(text, std::move(fn));
+    a->checkable = true;
+    a->checked = checked;
+    return a;
+}
+}  // namespace
+
+ui::Menu* fillInstrumentMenu(ui::Menu* menu, ui::Window* parent, PluginHost& host, const TrackPtr& track,
+                             std::function<void()> chosen, OpenPanel openPanel) {
+    menu->clear();
+    if (aload(track->frozen)) {
+        menu->addAction(track->name + " is frozen: unfreeze it to change its instrument")->setEnabled(false);
+        return menu;
+    }
+    SlotPtr current = track->needsInstrument || track->usesRack ? nullptr : aload(track->instrument);
+    if (current) {
+        menu->addAction("Open the " + current->name + " window", [parent, &host, track, openPanel] {
+                editInstrument(parent, host, track, openPanel);
+            })->setEnabled(plugin_audio::usable(current));
+        menu->addSeparator();
+    }
+    checkable(menu, BUILTIN, !current && !track->needsInstrument && !track->usesRack && !track->sampler,
+              [parent, &host, track, chosen] { setInstrument(parent, host, track, nullptr, chosen); });
+    SamplerPtr sampler = std::atomic_load(&track->sampler);
+    ui::Action* sampled = checkable(
+        menu, sampler && sampler->sample ? "Built-in sampler: " + sampler->sample->name + "\xe2\x80\xa6" : std::string(SAMPLER),
+        track->playsSampler() && !track->needsInstrument,
+        [parent, &host, track, chosen] { useSampler(parent, host, track, chosen); });
+    sampled->tooltip = "Play one sample across the keyboard, tuned to each key (asks for the sample the first time)";
+    int count = (int)track->rack.size();
+    ui::Action* rack =
+        checkable(menu, count ? "Instrument patch panel (" + std::to_string(count) + " instrument" + (count == 1 ? "" : "s") + ")…"
+                              : std::string(RACK),
+                  track->usesRack && !track->needsInstrument,
+                  [parent, &host, track, chosen, openPanel] { useRack(parent, host, track, chosen, openPanel); });
+    rack->tooltip = "Several instruments on this track at once, each with its own volume";
+    menu->addSeparator();
+    std::vector<plug::PluginInfo> found = host.library().ofKind(plug::INSTRUMENT);
+    if (current) {
+        bool listed = false;
+        for (auto& info : found)
+            if (samePlugin(info, current.get())) listed = true;
+        if (!listed)  // e.g. not installed any more
+            checkable(menu, plugin_dialog::slotLabel(*current), true, nullptr)->setEnabled(false);
+    }
+    std::vector<plug::PluginInfo> known, untried;  // (never loaded, so they may be effects)
+    for (auto& info : found) (info.kind.empty() ? untried : known).push_back(info);
+    addEntries(menu, known, parent, host, track, current, chosen);
+    if (!known.empty() && !untried.empty())  // out of the way, in a submenu
+        addEntries(menu->addMenu("Not loaded before (" + std::to_string(untried.size()) + ")"), untried, parent, host,
+                   track, current, chosen, false);
+    else
+        addEntries(menu, untried, parent, host, track, current, chosen);
+    if (found.empty()) menu->addAction("(no VST3 instruments found)")->setEnabled(false);
+    return menu;
+}
+
+void addEntries(ui::Menu* menu, const std::vector<plug::PluginInfo>& infos, ui::Window* parent, PluginHost& host,
+                const TrackPtr& track, const SlotPtr& current, std::function<void()> chosen, bool labels) {
+    for (const auto& info : infos)
+        checkable(menu, labels ? info.label() : info.name, samePlugin(info, current.get()),
+                  [parent, &host, track, info, chosen] { setInstrument(parent, host, track, &info, chosen); });
+}
+
+bool setInstrument(ui::Window* parent, PluginHost& host, const TrackPtr& track, const plug::PluginInfo* info,
+                   std::function<void()> chosen) {
+    SlotPtr old = track->needsInstrument ? nullptr : aload(track->instrument);
+    SlotPtr slot;
+    if (!info) {
+        slot = nullptr;
+    } else if (samePlugin(*info, old.get()) && aload(old->instance)) {
+        slot = old;  // the one it has already
+    } else {
+        plug::PluginInfo wanted = *info;  // (a copy: the menu holding `info` may go away meanwhile)
+        slot = host.load(wanted);
+        if (!slot) return false;
+        if (slot->kind != plug::INSTRUMENT) {
+            ui::msg::information(parent, "Not an instrument",
+                                 slot->name + " is an effect. Add it with the track's FX button instead.");
+            host.project.retire(aload(slot->instance));
+            return false;
+        }
+    }
+    if (old && slot != old) host.closeEditor({old});
+    std::atomic_store(&track->instrument, slot);  // loaded already, so the audio thread can use it at once
+    track->needsInstrument = false;
+    if (!info) std::atomic_store(&track->sampler, SamplerPtr());  // (the built-in synth, rather than the sampler)
+    if (track->usesRack) {  // (its instrument patch panel stays as it is, not heard)
+        track->usesRack = false;
+        host.closeEditor(track->rack.copy());
+    }
+    if (old && slot != old && !track->rack.contains(old))
+        host.project.retire(aload(old->instance));  // (let go of on this thread, never the audio thread's)
+    sampler_dialog::renderTrackClips(track);  // (the built-in synth's or sampler's rendering, as it now plays)
+    if (chosen) chosen();
+    return true;
+}
+
+bool useSampler(ui::Window* parent, PluginHost& host, const TrackPtr& track, std::function<void()> chosen) {
+    if (!track->sampler) {
+        ClipPtr sample = sampler_dialog::chooseSample(parent);
+        if (!sample) return false;
+        std::atomic_store(&track->sampler, sampler_dialog::newSettings(sample));
+    }
+    SlotPtr old = aload(track->instrument);
+    if (old) host.closeEditor({old});
+    if (track->usesRack) host.closeEditor(track->rack.copy());
+    std::atomic_store(&track->instrument, SlotPtr());
+    track->usesRack = false;
+    track->needsInstrument = false;
+    if (old && !track->rack.contains(old)) host.project.retire(aload(old->instance));
+    sampler_dialog::renderTrackClips(track);
+    if (chosen) chosen();
+    sampler_dialog::openSampler(track);
+    return true;
+}
+
+void useRack(ui::Window* parent, PluginHost& host, const TrackPtr& track, std::function<void()> chosen,
+             OpenPanel openPanel) {
+    if (!track->usesRack || track->needsInstrument) {
+        SlotPtr single = track->needsInstrument ? nullptr : aload(track->instrument);
+        if (track->rack.empty() && single) {
+            single->placed = false;
+            track->rackCables = std::vector<Cable>{Cable(End::in(), End::of(single.get())),
+                                                   Cable(End::of(single.get()), End::out())};
+            track->rack = std::vector<SlotPtr>{single};
+            patch::ensureStates(host.project);
+        }
+        track->usesRack = true;  // (the panel is ready first: the audio thread never finds half of it)
+        track->needsInstrument = false;
+        SlotPtr now = aload(track->instrument);
+        if (now && track->rack.contains(now)) std::atomic_store(&track->instrument, SlotPtr());
+        if (chosen) chosen();
+    }
+    if (openPanel) openPanel(track);
+}
+
+void editInstrument(ui::Window* parent, PluginHost& host, const TrackPtr& track, OpenPanel openPanel) {
+    SlotPtr slot = aload(track->instrument);
+    if (aload(track->frozen)) {
+        ui::msg::information(parent, "Track frozen",
+                             track->name + " is frozen: it plays its rendering, so changes to its instrument wouldn't "
+                                           "be heard.\nUnfreeze it first (right-click its row).");
+    } else if (track->usesRack && !track->needsInstrument) {
+        if (openPanel) openPanel(track);
+    } else if (track->playsSampler() && !track->needsInstrument) {
+        sampler_dialog::openSampler(track);
+    } else if (!slot || track->needsInstrument) {
+        ui::msg::information(parent, "Built-in synth",
+                             track->name + " plays the built-in synth, which has no settings. Choose a VST3 instrument "
+                                           "with ▾ next to 🎹 to configure one.");
+    } else if (!plugin_audio::usable(slot)) {
+        ui::msg::information(parent, "Instrument not loaded",
+                             slot->name + " isn't loaded, so its window can't open. Choose it again with ▾ next to 🎹.");
+    } else {
+        host.edit(slot, track->name);
+    }
+}
+
+}  // namespace instrument_menu

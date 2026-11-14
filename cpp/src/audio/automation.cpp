@@ -1,0 +1,204 @@
+#include "audio/automation.h"
+
+#include <algorithm>
+#include <atomic>
+#include <cmath>
+#include <cstdio>
+
+#include "config.h"
+
+using plugin_audio::Parameter;
+using plugin_audio::usable;
+
+namespace automation {
+
+bool isPlaceholder(const std::string& name) {
+    if (name.compare(0, 7, "MIDI CC") == 0) return true;
+    if (name.size() == 4 && name[0] == 'P') {
+        for (int i = 1; i < 4; i++)
+            if (name[i] < '0' || name[i] > '9') return false;
+        return true;
+    }
+    return false;
+}
+
+const std::vector<std::string>& controlNames() {
+    static const std::vector<std::string> names = {VOLUME, PAN};
+    return names;
+}
+
+double volumeOf(double value) { return config::MIN_DB + value * (config::MAX_DB - config::MIN_DB); }
+
+double panOf(double value) { return value * 2 - 1; }
+
+double controlValue(const Track& track, const std::string& name) {
+    if (name == VOLUME) return (track.volumeDb - config::MIN_DB) / (double)(config::MAX_DB - config::MIN_DB);
+    return (track.pan + 1) / 2;
+}
+
+std::string controlText(const std::string& name, double value) {
+    char buf[32];
+    if (name == VOLUME) {
+        double db = volumeOf(value);
+        if (db <= config::MIN_DB) return "-inf dB";
+        snprintf(buf, sizeof buf, "%+.1f dB", db);
+        return buf;
+    }
+    int amount = (int)std::nearbyint(std::fabs(panOf(value)) * 100);
+    if (amount == 0) return "C";
+    snprintf(buf, sizeof buf, "%d %s", amount, value < 0.5 ? "L" : "R");
+    return buf;
+}
+
+void mixerValues(const Track& track, bool hasStart, int64_t start, int sr, double& volumeDb, double& pan) {
+    volumeDb = track.volumeDb;
+    pan = track.pan;
+    if (!hasStart) return;
+    auto lanes = track.automation.get();
+    if (lanes->empty()) return;
+    const PluginSlot* controls = track.controls.get();
+    for (auto& lane : *lanes) {
+        if (lane->slot.get() != controls) continue;
+        auto points = lane->points.get();
+        if (points->empty()) continue;
+        double value = valueAt(*points, (double)start / sr);
+        if (lane->param == VOLUME)
+            volumeDb = volumeOf(value);
+        else if (lane->param == PAN)
+            pan = panOf(value);
+    }
+}
+
+bool controlAutomated(const Track& track, const std::string& name) {
+    for (auto& lane : track.automation)
+        if (lane->slot == track.controls && lane->param == name && !lane->points.empty()) return true;
+    return false;
+}
+
+std::vector<SlotPtr> pluginsOf(const Track& track) {
+    std::vector<SlotPtr> out{track.controls};
+    for (auto& s : track.instruments()) out.push_back(s);
+    for (auto& s : track.effects) out.push_back(s);
+    return out;
+}
+
+std::vector<Parameter> parameters(const PluginSlot& slot) {
+    std::vector<Parameter> out;
+    if (!usable(&slot)) return out;
+    auto inst = aload(slot.instance);
+    for (auto& info : inst->parameters())
+        if (info.automatable && !info.readOnly && !info.hidden && !isPlaceholder(info.name))
+            out.emplace_back(inst, info);
+    return out;
+}
+
+TweakWatcher::TweakWatcher(SlotPtr s, Project& project) : slot(std::move(s)), project_(project) {
+    for (auto& p : parameters(*slot)) names_.emplace_back(p.id, p.name);
+    if (usable(slot)) aload(slot->instance)->edited();  // (forget changes from before)
+}
+
+std::set<std::string> TweakWatcher::automated() const {
+    std::set<std::string> out;
+    for (auto& t : project_.tracks)
+        for (auto& a : t->automation)
+            if (a->slot == slot && !a->points.empty()) out.insert(a->param);
+    return out;
+}
+
+void TweakWatcher::poll() {
+    if (!usable(slot)) return;
+    std::vector<uint32_t> edited = aload(slot->instance)->edited();
+    std::vector<std::string> changed;  // latest first, each once
+    for (auto it = edited.rbegin(); it != edited.rend(); ++it)
+        for (auto& n : names_)
+            if (n.first == *it) {
+                if (std::find(changed.begin(), changed.end(), n.second) == changed.end()) changed.push_back(n.second);
+                break;
+            }
+    std::set<std::string> moving = automated();
+    changed.erase(std::remove_if(changed.begin(), changed.end(), [&](const std::string& s) { return moving.count(s) > 0; }),
+                  changed.end());
+    if (!changed.empty() && (int)changed.size() <= PRESET_CHANGE) {
+        std::vector<std::string> recent;
+        for (auto* list : {&changed, &slot->recent})
+            for (auto& s : *list)
+                if (std::find(recent.begin(), recent.end(), s) == recent.end()) recent.push_back(s);
+        if ((int)recent.size() > RECENT) recent.resize(RECENT);
+        slot->recent = recent;
+    }
+}
+
+bool prune(Track& track) {
+    std::vector<SlotPtr> slots{track.controls};
+    if (track.instrument) slots.push_back(track.instrument);
+    for (auto& s : track.rack) slots.push_back(s);
+    for (auto& s : track.effects) slots.push_back(s);
+    std::vector<AutomationPtr> kept;
+    for (auto& a : track.automation)
+        if (std::find(slots.begin(), slots.end(), a->slot) != slots.end()) kept.push_back(a);
+    if (kept.size() == track.automation.size()) return false;
+    track.automation = kept;
+    return true;
+}
+
+void resolve(Project& project) {
+    for (auto& track : project.tracks)
+        for (auto& lane : track->automation) {
+            if (!lane->slot || lane->slot->isControls()) continue;  // (the mixer applies volume and pan)
+            auto instance = aload(lane->slot->instance);
+            auto target = aload(lane->targetPlugin);
+            if (instance && (!target || target != instance)) {
+                // (the audio thread uses the fields below only while targetPlugin is its slot's instance)
+                std::atomic_store(&lane->targetPlugin, std::shared_ptr<plug::Plugin>());
+                lane->hasTarget = false;
+                for (auto& p : parameters(*lane->slot))
+                    if (p.name == lane->param) {  // (none: the plugin has no such parameter now)
+                        lane->targetParam = p.id;
+                        lane->targetSteps = p.steps;
+                        lane->hasTarget = true;
+                        break;
+                    }
+                lane->last = -1;
+                std::atomic_store(&lane->targetPlugin, instance);
+            }
+        }
+}
+
+int stepsOf(const Automation& lane) {
+    return aload(lane.targetPlugin) && lane.hasTarget ? lane.targetSteps : 0;
+}
+
+double snap(double value, int steps) { return steps > 0 ? std::nearbyint(value * steps) / steps : value; }
+
+double valueAt(const std::vector<AutoPoint>& points, double seconds, int steps) {
+    if (points.empty()) return 0;
+    size_t i = std::upper_bound(points.begin(), points.end(), seconds,
+                                [](double s, const AutoPoint& p) { return s < p.t; }) - points.begin();
+    if (i == 0) return snap(points[0].v, steps);
+    if (i == points.size() || steps > 0) return snap(points[i - 1].v, steps);
+    const AutoPoint &a = points[i - 1], &b = points[i];
+    return b.t > a.t ? a.v + (b.v - a.v) * (seconds - a.t) / (b.t - a.t) : b.v;
+}
+
+void apply(Track& track, int64_t start, int sr) {
+    double seconds = (double)start / sr;
+    auto lanes = track.automation.get();
+    for (auto& lane : *lanes) {
+        if (lane->slot && lane->slot->isControls()) continue;  // (the mixer applies volume and pan: mixerValues())
+        auto points = lane->points.get();
+        auto target = aload(lane->targetPlugin);
+        if (points->empty() || !target || !lane->slot || !lane->hasTarget || target != aload(lane->slot->instance))
+            continue;
+        double value = valueAt(*points, seconds, lane->targetSteps);
+        if (lane->last < 0 || std::fabs(value - lane->last) > 1e-6) {
+            try {
+                target->setParam(lane->targetParam, value);
+                lane->last = value;
+            } catch (...) {
+                lane->hasTarget = false;  // (a parameter that refuses: leave it alone from now on)
+            }
+        }
+    }
+}
+
+}  // namespace automation

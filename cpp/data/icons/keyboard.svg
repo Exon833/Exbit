@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A piano keyboard: the computer keyboard plays notes (computer_keyboard.py) -->
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <path fill="#000" fill-rule="evenodd" d="M40 112h432a24 24 0 0 1 24 24v240a24 24 0 0 1-24 24H40a24 24 0 0 1-24-24V136a24 24 0 0 1 24-24z
+    M56 152v208h58V296h-14V152z M146 152v144h-14v64h58v-64h-14V152z M222 152v144h-14v64h58V152z
+    M298 152v208h58v-64h-14V152z M374 152v144h-14v64h58v-64h-14V152z M450 152v144h-14v64h20V152z"/>
+</svg>
