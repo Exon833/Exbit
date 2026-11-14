@@ -34,6 +34,8 @@
 #include "ui/overview.h"
 #include "ui/plugin_dialog.h"
 #include "ui/plugin_folders_dialog.h"
+#include "ui/wine_prefixes_dialog.h"
+#include "plugins/wine.h"
 #include "ui/plugin_host.h"
 #include "ui/recording.h"
 #include "ui/skin_dialog.h"
@@ -135,10 +137,12 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     transport = add<TransportBar>();
     scroll = add<ui::ScrollArea>();
     timeline = scroll->makeContent<Timeline>(project, engine, scroll);
+    wine::setPrefixes(prefs.wineList());  // (Windows plugins: the prefixes they're found in)
     plugins = std::make_unique<PluginHost>(this, project, engine, [this] { return prefs.vst2List(); });
     // (hidden, for testing: more VST3 folders, separated by ':')
     if (const char* extra = getenv("TINYDAW_VST3_PATH")) {
         plugins->folders = plug::defaultFolders();
+        for (auto& f : wine::vst3Folders(wine::prefixes())) plugins->folders.push_back(f);
         for (auto& f : util::split(extra, ':'))
             if (!f.empty()) plugins->folders.push_back(f);
     }
@@ -529,6 +533,7 @@ void MainWindow::buildOptionsMenu() {
     ui::Menu* starts = menu->addMenu("&New projects start from");  // (an empty project, or a template: templates.h)
     starts->aboutToShow = [this](ui::Menu* m) { templates::fillDefaultMenu(m, *this); };
     menu->addAction("&VST2 plugin folders…", [this] { chooseVst2Folders(); });
+    menu->addAction("&Wine prefixes…", [this] { chooseWinePrefixes(); });
     menu->addSeparator();
 
     ui::Menu* refresh = menu->addMenu("Screen &refresh");
@@ -710,6 +715,23 @@ void MainWindow::chooseVst2Folders() {
     for (auto& p : plugins->rescan().plugins)
         if (plug::isVst2Path(p.path)) ++found;
     showStatus(std::to_string(found) + " VST2 plugin" + (found == 1 ? "" : "s") + " found", 5000);
+}
+
+void MainWindow::chooseWinePrefixes() {
+    // Options → Wine prefixes: where Windows plugins are looked for (remembered)
+    std::vector<std::string> chosen;
+    {
+        WinePrefixesDialog d(this, prefs.wineList());
+        if (!d.exec()) return;
+        chosen = d.prefixes();
+    }
+    prefs.setWineList(chosen);
+    prefs.save();
+    wine::setPrefixes(prefs.wineList());
+    int found = 0;
+    for (auto& p : plugins->rescan().plugins)
+        if (p.looksWindows()) ++found;
+    showStatus(std::to_string(found) + " Windows plugin" + (found == 1 ? "" : "s") + " found", 5000);
 }
 
 void MainWindow::showAudioProperties() {

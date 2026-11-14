@@ -35,6 +35,10 @@
 #include "core/util.h"
 #include "plugins/plugin.h"
 #include "plugins/vst2.h"
+#include "plugins/winlib.h"
+#ifndef _WIN32
+#include "plugins/wine.h"
+#endif
 
 namespace plug {
 
@@ -48,19 +52,7 @@ const char CHUNK_MAGIC[] = "VST2CHNK", PARAMS_MAGIC[] = "VST2PARM";  // (state: 
 
 #ifdef _WIN32
 using Library = HMODULE;
-std::wstring wide(const std::string& utf8) {
-    int n = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, nullptr, 0);
-    std::wstring w(n > 0 ? n - 1 : 0, L'\0');
-    if (n > 1)
-        MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, &w[0], n);
-    return w;
-}
-Library openLibrary(const std::string& path, std::string& error) {
-    HMODULE h = LoadLibraryW(wide(path).c_str());
-    if (!h)
-        error = "Cannot load " + path + " (error " + std::to_string((unsigned)GetLastError()) + ")";
-    return h;
-}
+Library openLibrary(const std::string& path, std::string& error) { return loadWindowsLibrary(path, error); }
 void* symbol(Library lib, const char* name) { return (void*)GetProcAddress(lib, name); }
 #else
 using Library = void*;
@@ -87,7 +79,7 @@ thread_local bool on_audio_thread = false;  // (for the plugins asking which thr
 class Vst2Plugin;
 thread_local Vst2Plugin* being_made = nullptr;  // (a plugin calls the host before it knows it)
 
-vst2::intptr host_callback(vst2::Effect* effect, int32_t opcode, int32_t index, vst2::intptr value, void* ptr, float opt);
+vst2::intptr VST2_CALL host_callback(vst2::Effect* effect, int32_t opcode, int32_t index, vst2::intptr value, void* ptr, float opt);
 
 class Vst2Plugin final : public Plugin {
 public:
@@ -524,7 +516,7 @@ private:
     std::atomic<bool> resize_wanted{false};
 };
 
-vst2::intptr host_callback(vst2::Effect* effect, int32_t opcode, int32_t index, vst2::intptr value, void* ptr, float) {
+vst2::intptr VST2_CALL host_callback(vst2::Effect* effect, int32_t opcode, int32_t index, vst2::intptr value, void* ptr, float) {
     Vst2Plugin* plugin = effect && effect->host_reserved[0] ? (Vst2Plugin*)effect->host_reserved[0] : being_made;
     auto copy = [&](const char* text) {
         if (ptr)
@@ -731,9 +723,12 @@ bool peExportsVst2(const std::string& path) {
 
 bool isVst2File(const std::string& path) {
 #ifdef _WIN32
+    (void)elfExportsVst2;
     return peExportsVst2(path);
 #else
-    (void)peExportsVst2;
+    int machine = 0;
+    if (wine::isWindowsBinary(path, &machine))  // (a Windows plugin, run through Wine: 64-bit ones only)
+        return machine == 0x8664 && peExportsVst2(path);
     return elfExportsVst2(path);
 #endif
 }
@@ -748,6 +743,10 @@ std::unique_ptr<Plugin> loadVst2(const std::string& path, std::string& error) {
 }
 
 std::vector<ClassInfo> vst2Classes(const std::string& path, std::string& error) {
+#ifndef _WIN32
+    if (wine::isWindowsPlugin(path))  // (a Windows plugin: asked through Wine)
+        return bridgedClasses(path, error);
+#endif
     std::vector<ClassInfo> result;
     Vst2Plugin* plugin = nullptr;
     try {

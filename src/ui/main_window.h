@@ -201,6 +201,7 @@ public:
     void exportSkin();
     void openSkinsFolder();
     void chooseVst2Folders();
+    void chooseWinePrefixes();
     void showAudioProperties();
     void setAudioDevice(const std::string& driverType, const std::string& device, int bufferSize, bool exclusive = false);
     void setBufferSize(int frames);

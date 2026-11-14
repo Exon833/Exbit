@@ -5,6 +5,7 @@
 
 #include "core/util.h"
 #include "plugins/library.h"
+#include "plugins/wine.h"
 #include "ui/toolkit/layout.h"
 
 PluginFoldersDialog::PluginFoldersDialog(ui::Window* parent, const std::vector<std::string>& folders_)
@@ -24,15 +25,17 @@ PluginFoldersDialog::PluginFoldersDialog(ui::Window* parent, const std::vector<s
     removeButton->clicked.connect([this] { removeFolder(); });
     usual = Widget::add<ui::Button>("Add the usual folders");
     std::string tip = "Adds those of these that are on this computer:";
-    for (auto& f : plug::vst2UsualFolders()) tip += "\n" + f;
+    for (auto& f : usualCandidates()) tip += "\n" + f;
     usual->setToolTip(tip);
     usual->clicked.connect([this] { addUsual(); });
     for (ui::Button* b : {addB, removeButton, usual}) row->addWidget(b);
     row->addStretch(1);
     lay->addLayout(std::move(row));
-    auto* hint = Widget::add<ui::Label>("VST3 plugins are always found in ~/.vst3, /usr/lib/vst3 and /usr/local/lib/vst3. Only "
-                                "64-bit VST2 plugins can be used; plugins that hold several (shells, such as Waves) "
-                                "aren't supported yet.");
+    auto* hint = Widget::add<ui::Label>("VST3 plugins are always found in ~/.vst3, /usr/lib/vst3 and /usr/local/lib/vst3, and "
+                                "in the VST3 folder of each Wine prefix (Options → Wine prefixes). Folders may hold "
+                                "Linux plugins (.so) and Windows ones (.dll, run through Wine). Only 64-bit VST2 "
+                                "plugins can be used; plugins that hold several (shells, such as Waves) aren't "
+                                "supported yet.");
     hint->setProperty("hint", "true");
     hint->setWordWrap(true);
     lay->addWidget(hint);
@@ -71,9 +74,15 @@ void PluginFoldersDialog::add(const std::string& folder) {
     updateButtons();
 }
 
+std::vector<std::string> PluginFoldersDialog::usualCandidates() {
+    auto f = plug::vst2UsualFolders();
+    for (auto& w : wine::vst2UsualFolders(wine::prefixes())) f.push_back(w);  // (Windows plugins, through Wine)
+    return f;
+}
+
 void PluginFoldersDialog::addFolder() {
     std::string start;
-    for (auto& f : plug::vst2UsualFolders())
+    for (auto& f : usualCandidates())
         if (util::isDir(f)) {
             start = f;
             break;
@@ -95,7 +104,7 @@ void PluginFoldersDialog::addUsual() {
 std::vector<std::string> PluginFoldersDialog::usualFolders() const {
     auto now = folders();
     std::vector<std::string> out;
-    for (auto& f : plug::vst2UsualFolders())
+    for (auto& f : usualCandidates())
         if (util::isDir(f) && std::find(now.begin(), now.end(), normPath(f)) == now.end()) out.push_back(f);
     return out;
 }

@@ -1,5 +1,6 @@
 // Options → VST2 plugin folders (plugin_folders_dialog.py): where the program looks for VST2
-// plugins (.so files), as well as the standard VST3 folders. Subfolders are searched too.
+// plugins (.so files, and Windows .dll files run through Wine: plugins/wine.h), as well as the
+// standard VST3 folders. Subfolders are searched too.
 // Remembered between runs (Preferences::vst2Folders). VST2 plugins then appear wherever plugins
 // are chosen, named "… (VST2)".
 //
@@ -22,6 +23,7 @@ public:
     void removeFolder();
     void addUsual();
     std::vector<std::string> usualFolders() const;  // the usual VST2 folders on this computer not listed yet
+    static std::vector<std::string> usualCandidates();  // Linux's usual folders, and those in the Wine prefixes
     void updateButtons();
     static std::string normPath(const std::string& path);  // os.path.normpath
 

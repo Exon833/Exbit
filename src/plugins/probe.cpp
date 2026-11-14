@@ -12,7 +12,9 @@
 #include "core/util.h"
 #include "platform/platform.h"
 
-#ifndef _WIN32
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
@@ -107,6 +109,7 @@ int runProbe(const std::string& listFile) {
 #endif
 }
 
+#ifndef TINYDAW_WINE_HOST  // (the Wine host only probes: src/winehost)
 // ===================================================================================== the finder
 
 static double secondsNow() {
@@ -398,5 +401,7 @@ void KindFinder::cancel() {
     util::removeFile(listFile);
     done_ = true;
 }
+
+#endif  // TINYDAW_WINE_HOST
 
 }  // namespace plug

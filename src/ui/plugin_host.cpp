@@ -8,6 +8,7 @@
 #include "audio/plugin_audio.h"
 #include "core/util.h"
 #include "effects/effects.h"
+#include "plugins/wine.h"
 #include "ui/effect_window.h"
 #include "ui/plugin_editor.h"
 #include "ui/plugin_pictures.h"
@@ -26,9 +27,16 @@ PluginHost::~PluginHost() {
     stopFindingKinds();
 }
 
+// the VST3 folders: Linux's, and those of the Wine prefixes chosen (Options → Wine prefixes)
+static std::vector<std::string> standardFolders() {
+    auto f = plug::defaultFolders();
+    for (auto& w : wine::vst3Folders(wine::prefixes())) f.push_back(w);
+    return f;
+}
+
 plug::PluginLibrary& PluginHost::library() {
     if (!library_)  // listing the plugin folders is quick, but only done when needed
-        library_ = std::make_unique<plug::PluginLibrary>(folders.empty() ? plug::defaultFolders() : folders, cachePath,
+        library_ = std::make_unique<plug::PluginLibrary>(folders.empty() ? standardFolders() : folders, cachePath,
                                                          vst2Folders ? vst2Folders() : std::vector<std::string>{});
     return *library_;
 }

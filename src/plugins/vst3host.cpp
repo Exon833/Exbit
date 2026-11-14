@@ -42,6 +42,11 @@
 #include "platform/platform.h"
 #include "plugins/plugin.h"
 #include "plugins/vst3_api.h"
+#include "plugins/winlib.h"
+#ifndef _WIN32
+#include "plugins/library.h"
+#include "plugins/wine.h"
+#endif
 
 namespace plug {
 
@@ -582,15 +587,6 @@ void readClasses(Module& m) {
     }
 }
 
-#ifdef _WIN32
-std::wstring wide(const std::string& s) {
-    int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
-    std::wstring w(n > 0 ? n - 1 : 0, L'\0');
-    if (n > 1)
-        MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &w[0], n);
-    return w;
-}
-#endif
 
 std::shared_ptr<Module> loadModule(const std::string& given, std::string& error) {
     std::string path = vst3Binary(given);
@@ -602,11 +598,9 @@ std::shared_ptr<Module> loadModule(const std::string& given, std::string& error)
     auto m = std::make_shared<Module>();
     m->path = path;
 #ifdef _WIN32
-    m->handle = LoadLibraryW(wide(path).c_str());
-    if (!m->handle) {
-        error = "Cannot load " + path + " (error " + std::to_string((unsigned)GetLastError()) + ")";
+    m->handle = loadWindowsLibrary(path, error);
+    if (!m->handle)
         return nullptr;
-    }
     using InitProc = bool(PLUGIN_API*)();
     if (auto init = (InitProc)m->symbol("InitDll"))
         if (!init()) {
@@ -827,11 +821,16 @@ struct Change {
     ParamValue value;
 };
 
-// A short list guarded by a mutex: the audio thread only ever try_locks it (never waits).
+// A short list guarded by a mutex, held only for a moment: the audio thread takes it with try_lock,
+// and adds to it (automation, output parameters) without allocating. take() copies the changes out
+// and clears the list in place, so the list keeps its room: swapping it away (as before) left it
+// empty-handed after every idle(), and the audio thread's next add() allocated, a frame at a time for
+// every automated parameter and every meter a plugin reports.
 struct ChangeQueue {
+    static constexpr size_t ROOM = 512;  // (more distinct parameters at once than this: the list grows, rarely)
     std::mutex lock;
     std::vector<Change> changes;
-    ChangeQueue() { changes.reserve(64); }
+    ChangeQueue() { changes.reserve(ROOM); }
     void add(ParamID id, ParamValue value) {
         std::lock_guard<std::mutex> hold(lock);
         for (auto& c : changes)
@@ -856,8 +855,8 @@ struct ChangeQueue {
             hold.lock();
         else if (!hold.try_lock())
             return false;
-        into.swap(changes);
-        changes.clear();
+        into.assign(changes.begin(), changes.end());  // (into keeps its own room: no allocation once it has some)
+        changes.clear();                              // (keeps its room)
         return true;
     }
 };
@@ -939,7 +938,7 @@ public:
         inputChanges.setMaxParameters(params + 8);
         outputChanges.setMaxParameters(params + 8);
         pendingNotes.reserve(MAX_EVENTS);
-        changesNow.reserve(64);
+        changesNow.reserve(ChangeQueue::ROOM);  // (the audio thread copies the changes into it: room enough to never allocate)
         std::memset(&context, 0, sizeof(context));
         setTransport(120.0, 4, 4, false, 0);
         prepare(48000.0, 4096);
@@ -1546,6 +1545,10 @@ std::string vst3Binary(const std::string& bundle) {
 }
 
 std::vector<ClassInfo> vst3Classes(const std::string& path, std::string& error) {
+#ifndef _WIN32
+    if (wine::isWindowsPlugin(loadableFile(path)))  // (a Windows plugin: asked through Wine)
+        return bridgedClasses(loadableFile(path), error);
+#endif
     std::vector<ClassInfo> result;
     auto module = loadModule(path, error);
     if (!module)

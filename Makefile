@@ -9,6 +9,10 @@
 # PulseAudio (sound), libdl and pthreads (plugins, threads). Everything else (the GUI toolkit,
 # font rendering, SVG and PNG, WAV/AIFF/FLAC/MP3/Ogg Vorbis, MIDI files, JSON, VST2 and VST3
 # hosting) is Tiny DAW's own code in src/.
+#
+# With Wine's winegcc installed, it also builds tinydaw-wine-host.exe (src/winehost: the host
+# that runs Windows plugins under Wine, plugins/bridge.h), on Tiny DAW's own Win32 declarations
+# (src/winehost/include); without it, Windows plugins say they need it. WINEGCC=... picks another.
 
 CXX      ?= g++
 TARGET   := tinydaw
@@ -29,7 +33,7 @@ CXXFLAGS += -std=c++17 $(OPT) -Wall -Wextra -Wno-unused-parameter -Wno-missing-f
             -MMD -MP -Isrc -pthread -DTINYDAW_COMMIT='"$(shell git rev-parse HEAD 2>/dev/null)"'
 LDLIBS   := -lX11 -lXext -lXrandr -lXcursor -lXi -lasound -lpulse-simple -lpulse -ldl -pthread -lm
 
-SRCS  := $(shell find src -name '*.cpp' | sort)
+SRCS  := $(shell find src -name '*.cpp' -not -path 'src/winehost/*' | sort)
 OBJS  := $(SRCS:%.cpp=$(BUILD)/%.o)
 LIB_OBJS := $(filter-out $(BUILD)/src/main.o,$(OBJS))
 
@@ -40,8 +44,32 @@ TEST_BINS := $(TEST_SRCS:tests/%.cpp=$(BUILD)/tests/%)
 TEST_PLUGINS := $(BUILD)/test-plugins/TinyTestSynth.so \
                 $(BUILD)/test-plugins/TinyTestFx.vst3/Contents/x86_64-linux/TinyTestFx.so
 
-.PHONY: all clean test plugins
-all: $(TARGET)
+# --- the Wine host (Linux code inside Wine: built with $(CXX) for Windows' calling convention,
+# linked by winegcc against Wine's DLLs) ---
+WINEGCC  ?= $(shell command -v winegcc 2>/dev/null)
+WINE_HOST := tinydaw-wine-host.exe
+WINE_SRCS := src/winehost/host.cpp src/winehost/platform.cpp src/plugins/vst3host.cpp src/plugins/vst2host.cpp \
+             src/plugins/plugin.cpp src/plugins/probe.cpp src/core/util.cpp src/core/json.cpp
+WINE_OBJS := $(WINE_SRCS:%.cpp=build/winehost/%.o)  # (one host for both builds, always optimized)
+WINE_FLAGS := -std=c++17 -O2 -g1 -DNDEBUG -fPIC -Wall -Wextra \
+              -Wno-unused-parameter -Wno-missing-field-initializers -MMD -MP -Isrc/winehost/include -Isrc \
+              -D_WIN32 -D_WIN64 -DTINYDAW_WINE_HOST '-D__stdcall=__attribute__((ms_abi))' \
+              '-D__cdecl=__attribute__((ms_abi))'
+ifneq ($(WINEGCC),)
+  ALL_WINE := $(WINE_HOST)
+endif
+
+.PHONY: all clean test plugins winehost
+all: $(TARGET) $(ALL_WINE)
+
+winehost: $(WINE_HOST)
+
+$(WINE_HOST): $(WINE_OBJS)
+	$(WINEGCC) -mconsole -o $@ $^ -lstdc++ -lm -lpthread -lole32 -luser32 -lkernel32 -Wl,-z,defs
+
+build/winehost/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(WINE_FLAGS) -c $< -o $@
 
 $(TARGET): $(OBJS)
 	$(CXX) $(LDOPT) -o $@ $^ $(LDLIBS)
@@ -65,10 +93,10 @@ $(BUILD)/test-plugins/TinyTestFx.vst3/Contents/x86_64-linux/TinyTestFx.so: tests
 	$(CXX) -std=c++17 -O2 -fPIC -shared -Isrc -o $@ $< -lX11
 	cp tests/plugins/TinyTestFx.moduleinfo.json $(BUILD)/test-plugins/TinyTestFx.vst3/Contents/Resources/moduleinfo.json
 
-test: $(TEST_BINS) $(TEST_PLUGINS)
+test: $(TEST_BINS) $(TEST_PLUGINS) $(ALL_WINE)
 	@set -e; for t in $(TEST_BINS); do echo "== $$t"; TINYDAW_TEST_PLUGINS=$(BUILD)/test-plugins $$t; done
 
 clean:
-	rm -rf build build-debug tinydaw tinydaw-debug
+	rm -rf build build-debug tinydaw tinydaw-debug $(WINE_HOST) $(WINE_HOST).so
 
--include $(OBJS:.o=.d) $(TEST_BINS:%=%.d)
+-include $(OBJS:.o=.d) $(TEST_BINS:%=%.d) $(WINE_OBJS:.o=.d)

@@ -11,6 +11,9 @@
 
 #include "core/util.h"
 #include "platform/platform.h"
+#ifndef _WIN32
+#include "plugins/wine.h"
+#endif
 
 namespace plug {
 
@@ -34,6 +37,14 @@ std::vector<std::string> vst2UsualFolders() {
 #endif
 }
 
+bool PluginInfo::looksWindows() const {
+#ifdef _WIN32
+    return false;
+#else
+    return wine::looksWindows(path);
+#endif
+}
+
 std::string defaultCachePath() { return util::joinPath(plat::configDir(), "plugin_cache.json"); }
 
 PluginChoiceNeeded::PluginChoiceNeeded(std::vector<std::string> n)
@@ -50,6 +61,11 @@ std::string loadableFile(const std::string& path) {
     std::string inner = util::joinPath(util::joinPath(path, "Contents\\x86_64-win"), util::baseName(path));
 #else
     std::string inner = vst3Binary(path);
+    if (util::isDir(path) && !util::fileExists(inner)) {  // (a Windows bundle, run through Wine)
+        std::string windows = util::joinPath(util::joinPath(path, "Contents/x86_64-win"), util::baseName(path));
+        if (util::fileExists(windows))
+            inner = windows;
+    }
 #endif
     return util::isDir(path) && util::fileExists(inner) && !util::isDir(inner) ? inner : path;
 }
@@ -213,12 +229,18 @@ std::vector<PluginInfo> PluginLibrary::scanVst2() {
     std::vector<PluginInfo> found;
     bool changed = false;
 #ifdef _WIN32
-    const std::string suffix = ".dll";
+    const std::vector<std::string> suffixes = {".dll", ".DLL"};
 #else
-    const std::string suffix = ".so";
+    const std::vector<std::string> suffixes = {".so", ".dll", ".DLL"};  // (.dll: Windows plugins, through Wine)
 #endif
-    for (const auto& folder : vst2Folders) {
-        for (const auto& path : globAll(folder, suffix)) {
+    std::vector<std::string> files;
+    for (const auto& folder : vst2Folders)
+        for (const auto& suffix : suffixes)
+            for (const auto& path : globAll(folder, suffix))
+                if (std::find(files.begin(), files.end(), path) == files.end())
+                    files.push_back(path);
+    {
+        for (const auto& path : files) {
             if (util::isDir(path) || isVst3Path(path))
                 continue;
             double mtime = util::fileMtime(path);

@@ -2,3 +2,5 @@ build/
 build-debug/
 tinydaw
 tinydaw-debug
+tinydaw-wine-host.exe
+tinydaw-wine-host.exe.so

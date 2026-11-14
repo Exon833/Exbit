@@ -48,8 +48,11 @@ struct PluginInfo {
     std::string label() const {
         if (isBuiltinPath(path))
             return name + "  (built-in)";
-        return kind.empty() ? name + "  (type not known yet)" : name;
+        std::string windows = looksWindows() ? "  (Windows)" : "";
+        return kind.empty() ? name + windows + "  (type not known yet)" : name + windows;
     }
+    // a Windows plugin, run through Wine (from the path: inside a Wine prefix, or a .dll)
+    bool looksWindows() const;
     bool operator==(const PluginInfo& o) const {
         return path == o.path && name == o.name && kind == o.kind && pluginName == o.pluginName;
     }

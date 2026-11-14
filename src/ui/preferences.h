@@ -36,6 +36,8 @@ struct Preferences {
     std::string recordInput = "1";          // "1" (mono) or "1/2" (a pair)
     int countInBars = 0;
     std::string vst2Folders;                // separated by "|"
+    std::string winePrefixes;               // the Wine prefixes Windows plugins are found in, separated by "|"
+                                            // (not set yet: the default prefix, ~/.wine, if there is one)
     std::string midiInput;                  // the MIDI keyboard played into the selected MIDI track; "" = none
     bool computerKeyboard = false;          // the computer keyboard plays the selected MIDI track
     int keyboardOctave = 4;                 // …its A key plays C of this octave (C4 = MIDI note 60)
@@ -53,6 +55,8 @@ struct Preferences {
 
     std::vector<std::string> vst2List() const;
     void setVst2List(const std::vector<std::string>& folders);
+    std::vector<std::string> wineList() const;
+    void setWineList(const std::vector<std::string>& prefixes);
     static Preferences load();
     void save() const;  // (writes only the values changed since load() or the last save())
 

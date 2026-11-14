@@ -11,12 +11,20 @@ namespace vst2 {
 using intptr = std::intptr_t;
 struct Effect;
 
+// the calling convention of every function passed each way: Windows plugins use __cdecl, which on
+// 64-bit Windows is Microsoft's x64 convention (Tiny DAW's Wine host, Linux code, must say so)
+#ifdef _WIN32
+#define VST2_CALL __cdecl
+#else
+#define VST2_CALL
+#endif
+
 // host <- plugin, and plugin <- host: (effect, command, index, value, pointer, float)
-using Callback = intptr (*)(Effect*, int32_t, int32_t, intptr, void*, float);
-using ProcessFunction = void (*)(Effect*, float** inputs, float** outputs, int32_t frames);
-using SetParameterFunction = void (*)(Effect*, int32_t index, float value);
-using GetParameterFunction = float (*)(Effect*, int32_t index);
-using EntryPoint = Effect* (*)(Callback host);  // the DLL's "VSTPluginMain" (or, older, "main")
+using Callback = intptr(VST2_CALL*)(Effect*, int32_t, int32_t, intptr, void*, float);
+using ProcessFunction = void(VST2_CALL*)(Effect*, float** inputs, float** outputs, int32_t frames);
+using SetParameterFunction = void(VST2_CALL*)(Effect*, int32_t index, float value);
+using GetParameterFunction = float(VST2_CALL*)(Effect*, int32_t index);
+using EntryPoint = Effect*(VST2_CALL*)(Callback host);  // the DLL's "VSTPluginMain" (or, older, "main")
 
 constexpr int32_t MAGIC = 0x56737450;  // 'VstP'
 

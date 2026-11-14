@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "core/util.h"
+#include "plugins/wine.h"
 
 namespace prefs {
 const std::vector<int>& bufferSizes() {
@@ -33,6 +34,22 @@ void Preferences::setVst2List(const std::vector<std::string>& folders) {
     std::string joined;
     for (size_t i = 0; i < seen.size(); i++) joined += (i ? "|" : "") + seen[i];
     vst2Folders = joined;
+}
+
+std::vector<std::string> Preferences::wineList() const {
+    std::vector<std::string> out;
+    for (auto& f : util::split(winePrefixes, '|'))
+        if (!f.empty()) out.push_back(f);
+    return out;
+}
+
+void Preferences::setWineList(const std::vector<std::string>& prefixes) {
+    std::vector<std::string> seen;
+    for (auto& f : prefixes)
+        if (!f.empty() && std::find(seen.begin(), seen.end(), f) == seen.end()) seen.push_back(f);
+    std::string joined;
+    for (size_t i = 0; i < seen.size(); i++) joined += (i ? "|" : "") + seen[i];
+    winePrefixes = joined;
 }
 
 namespace {
@@ -83,6 +100,7 @@ Preferences Preferences::load() {
     p.recordInput = getStr("record_input", p.recordInput);
     p.countInBars = getInt("count_in_bars", p.countInBars);
     p.vst2Folders = getStr("vst2_folders", p.vst2Folders);
+    p.winePrefixes = getStr("wine_prefixes", wine::defaultPrefix());
     p.midiInput = getStr("midi_input", p.midiInput);
     p.computerKeyboard = getBool("computer_keyboard", p.computerKeyboard);
     p.keyboardOctave = getInt("keyboard_octave", p.keyboardOctave);
@@ -117,6 +135,7 @@ Preferences Preferences::load() {
     p.known_["record_input"] = Json(p.recordInput);
     p.known_["count_in_bars"] = Json(p.countInBars);
     p.known_["vst2_folders"] = Json(p.vst2Folders);
+    p.known_["wine_prefixes"] = Json(p.winePrefixes);  // (so the default prefix is only written once changed)
     p.known_["midi_input"] = Json(p.midiInput);
     p.known_["computer_keyboard"] = Json(p.computerKeyboard);
     p.known_["keyboard_octave"] = Json(p.keyboardOctave);
@@ -159,6 +178,7 @@ void Preferences::save() const {
     put("record_input", recordInput);
     put("count_in_bars", countInBars);
     put("vst2_folders", vst2Folders);
+    put("wine_prefixes", winePrefixes);
     put("midi_input", midiInput);
     put("computer_keyboard", computerKeyboard);
     put("keyboard_octave", keyboardOctave);

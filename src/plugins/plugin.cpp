@@ -6,6 +6,9 @@
 
 #include "core/util.h"
 #include "plugins/library.h"
+#ifndef _WIN32
+#include "plugins/wine.h"
+#endif
 
 namespace plug {
 
@@ -34,6 +37,10 @@ std::unique_ptr<Plugin> Plugin::load(const std::string& path, const std::string&
         error = "There is no built-in effect " + path.substr(8) + " (its script is not in the effects folder)";
         return nullptr;
     }
+#ifndef _WIN32
+    if (wine::isWindowsPlugin(path))  // (a Windows plugin: through Wine, in a host of its own)
+        return loadBridged(path, name, error);
+#endif
     if (isVst3Path(path))
         return loadVst3(path, name, error);
     return loadVst2(path, error);
