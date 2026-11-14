@@ -78,7 +78,9 @@ Their windows are drawn by the graphics card through OpenGL's GLX: before the fi
 a prefix, Tiny DAW sets `UseEGL=N` in that prefix's settings for `tinydaw-wine-host.exe` only
 (`HKCU\Software\Wine\AppDefaults\tinydaw-wine-host.exe[.so]\X11 Driver`), as Wine 11's default,
 EGL, falls back to drawing on the processor with NVIDIA's drivers before 560 under XWayland
-(`TINYDAW_WINE_EGL=1` leaves the setting alone). For plugins drawn with Direct2D (Serum 2, Quanta
+(`TINYDAW_WINE_EGL=1` leaves the setting alone). Where the graphics card has a Vulkan driver,
+Wine's Direct3D is told to draw with Vulkan (`WINE_D3D_CONFIG=renderer=vulkan`: Direct2D plugins
+redraw faster with it), unless `WINE_D3D_CONFIG` or the prefix already chooses a renderer. For plugins drawn with Direct2D (Serum 2, Quanta
 2) the host fills in what Wine's Direct2D and DXGI lack (`src/winehost/d2dfix.cpp`;
 `TINYDAW_WINE_D2D_AS_IS=1` leaves them as they are): gradients with see-through colours (drawn too
 bright and solid), layers (clipping to shapes and masks: Quanta 2's red rectangles) and waiting for

@@ -167,8 +167,8 @@ std::string className(HWND h) {
 LRESULT WINAPI traceHook(int code, WPARAM wp, LPARAM lp) {
     const MSG* m = (const MSG*)lp;
     if (code >= 0 && m && (m->message == WM_KEYDOWN || m->message == WM_KEYUP || m->message == WM_CHAR ||
-                           m->message == WM_LBUTTONDOWN))
-        fprintf(stderr, "tinydaw-wine-host: msg %04x to %p (%s), focus %p (%s), foreground %p\n", m->message,
+                           m->message == WM_LBUTTONDOWN || m->message == WM_LBUTTONUP))
+        fprintf(stderr, "tinydaw-wine-host: [%.3f] msg %04x to %p (%s), focus %p (%s), foreground %p\n", traceNow(), m->message,
                 (void*)m->hwnd, className(m->hwnd).c_str(), (void*)GetFocus(), className(GetFocus()).c_str(),
                 (void*)GetForegroundWindow());
     return CallNextHookEx(nullptr, code, wp, lp);
@@ -263,6 +263,7 @@ void load(const Incoming& in) {
     if (plugin) {
         fixWineDirect2D();  // (before it draws anything)
         fixWineDxgi();
+        fixWineDirectWrite();
         try {
             plugin->prepare(sampleRate);
         } catch (const std::exception&) {
@@ -376,6 +377,7 @@ void serve(const Incoming& in) {
             sx = sy = 0;
         fixWineDirect2D();  // (if the plugin loaded them only now)
         fixWineDxgi();
+        fixWineDirectWrite();
         closeEditor();
         // a borderless popup, not shown, where Tiny DAW's window is (plugins look at where their
         // window is when they make it: JUCE 8 picks the screen it repaints with then, once)

@@ -5,3 +5,5 @@
 void fixWineDirect2D();
 // gives Wine's DXGI a WaitForVBlank (see d2dfix.cpp); likewise, if dxgi is loaded
 void fixWineDxgi();
+// remembers DirectWrite's font family lookups (see d2dfix.cpp); likewise, if dwrite is loaded
+void fixWineDirectWrite();

@@ -257,10 +257,61 @@ void preferGlx(const std::string& prefix) {
     }
 }
 
+namespace {
+
+// is there a graphics card here with a Vulkan driver for it? (a card's PCI vendor, and its
+// vendor's Vulkan driver among the installed ones)
+bool hardwareVulkan() {
+    static int known = -1;
+    if (known >= 0)
+        return known == 1;
+    known = 0;
+    std::vector<std::string> icds;
+    for (const char* dir : {"/usr/share/vulkan/icd.d", "/etc/vulkan/icd.d"})
+        for (const auto& e : util::listDir(dir))
+            icds.push_back(util::lower(e.name));
+    auto have = [&](const char* start) {
+        for (const auto& i : icds)
+            if (util::startsWith(i, start))
+                return true;
+        return false;
+    };
+    for (const auto& card : util::listDir("/sys/class/drm")) {
+        std::string vendor;
+        if (!util::startsWith(card.name, "card") || card.name.find('-') != std::string::npos ||
+            !util::readFile("/sys/class/drm/" + card.name + "/device/vendor", vendor))
+            continue;
+        vendor = util::trim(vendor);
+        if ((vendor == "0x10de" && have("nvidia")) || (vendor == "0x1002" && (have("radeon") || have("amd"))) ||
+            (vendor == "0x8086" && have("intel_icd")))
+            known = 1;
+    }
+    return known == 1;
+}
+
+// does the prefix choose Wine's Direct3D renderer itself (HKCU\Software\Wine\Direct3D: renderer)?
+bool prefixChoosesRenderer(const std::string& prefix) {
+    std::string reg;
+    util::readFile(util::joinPath(prefix, "user.reg"), reg);
+    size_t at = reg.find("[Software\\\\Wine\\\\Direct3D]");
+    if (at == std::string::npos)
+        return false;
+    size_t end = reg.find("\n[", at + 1);
+    return reg.substr(at, end == std::string::npos ? std::string::npos : end - at).find("\"renderer\"") !=
+           std::string::npos;
+}
+
+}  // namespace
+
 int spawnHost(const std::string& prefix, const std::vector<std::string>& args, int outFd, std::string& why) {
     if (!available(why))
         return -1;
     preferGlx(prefix);
+    // Wine's Direct3D draws on Vulkan where there is a graphics card with a Vulkan driver (it has no
+    // way back to OpenGL if Vulkan fails, so only then): Direct2D plugins redraw faster with it
+    // (Serum 2's OSC tab: 185 -> 150 ms) and use less processor. Not if WINE_D3D_CONFIG or the
+    // prefix chooses a renderer.
+    bool vulkan = !getenv("WINE_D3D_CONFIG") && hardwareVulkan() && !prefixChoosesRenderer(prefix);
     std::string wine = winePath(), host = hostPath();
     std::vector<std::string> env;
     std::string overrides = "winedbg.exe=d";  // (a crashing plugin ends its host, with no Wine crash dialog)
@@ -279,6 +330,8 @@ int spawnHost(const std::string& prefix, const std::vector<std::string>& args, i
     env.push_back("WINEDLLOVERRIDES=" + overrides);
     if (!getenv("WINEDEBUG"))
         env.push_back("WINEDEBUG=-all");
+    if (vulkan)
+        env.push_back("WINE_D3D_CONFIG=renderer=vulkan");
     std::vector<std::string> argv = {wine, host};
     argv.insert(argv.end(), args.begin(), args.end());
     std::vector<char*> a, e;

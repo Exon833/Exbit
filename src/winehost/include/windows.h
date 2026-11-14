@@ -192,6 +192,7 @@ WINAPI LRESULT CallNextHookEx(HHOOK hook, int code, WPARAM wp, LPARAM lp);
 #define WM_CHAR 0x0102u
 #define WM_SYSKEYDOWN 0x0104u
 #define WM_LBUTTONDOWN 0x0201u
+#define WM_LBUTTONUP 0x0202u
 #define MA_ACTIVATE 1
 #define WM_USER 0x0400u
 #define WM_APP 0x8000u

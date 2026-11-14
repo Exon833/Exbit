@@ -8,7 +8,10 @@
 //       $(find build/src -name '*.o' ! -path '*/src/main.o') -o build/wine_fps_check \
 //       -lX11 -lXext -lXrandr -lXcursor -lXi -lasound -lpulse-simple -lpulse -ldl -lm
 //   build/wine_fps_check "<plugin file>" <x> <y> [seconds]       (x, y: a knob in its window)
-//   FLOAT=1 …   the plugin's window as a window of its own (not inside ours), for comparison
+//   SHOT=<file.png>   a picture of the window first; CLICK="x y": a click there before it
+//   TABS="x y,x y,…"  instead: clicks each place in turn (a plugin's tabs) and times how long the
+//                     window takes to change and settle (PATCH="x y": the 64x64 patch watched)
+// It moves the real mouse pointer (XTest): don't use the computer meanwhile.
 #include <dlfcn.h>
 #include <unistd.h>
 
@@ -108,6 +111,65 @@ int main(int argc, char** argv) {
         }
     };
     frames(2.5);
+    // TABS="x y,x y,…": clicks each place in turn (tabs, say) and times how long the window takes to
+    // change after the click, and to settle (nothing changing for 300 ms); then ends
+    if (const char* tabs = getenv("TABS")) {
+        auto picture = [&] {
+            std::vector<char> data;
+            // (a small patch, PATCH="x y" (default 150 150): photographing the whole window often
+            // loads the X server enough to slow the plugin)
+            int px = 150, py = 150;
+            if (const char* patch = getenv("PATCH"))
+                sscanf(patch, "%d %d", &px, &py);
+            if (XImage* img = XGetImage(shots, ours, px, py, 64, 64, AllPlanes, ZPixmap)) {
+                data.assign(img->data, img->data + (size_t)img->bytes_per_line * img->height);
+                XDestroyImage(img);
+            }
+            return data;
+        };
+        for (const auto& spot : util::split(tabs, ',')) {
+            int cx = 0, cy = 0, crx = 0, cry = 0;
+            Window c;
+            if (sscanf(spot.c_str(), "%d %d", &cx, &cy) != 2)
+                continue;
+            XTranslateCoordinates(dpy, ours, DefaultRootWindow(dpy), cx, cy, &crx, &cry, &c);
+            auto before = picture();
+            double cpuBefore = cpuSeconds(bridgedHostPid(*p));
+            fakeMotion(dpy, -1, crx, cry, 0);
+            fakeButton(dpy, 1, 1, 0);
+            fakeButton(dpy, 1, 0, 0);
+            XFlush(dpy);
+            double t0 = now(), firstChange = -1, lastChange = -1;
+            auto last = before;
+            while (now() - t0 < 6) {
+                p->idle();
+                while (XPending(dpy)) {
+                    XEvent e;
+                    XNextEvent(dpy, &e);
+                }
+                auto pic = picture();
+                double t = now() - t0;
+                if (pic != last) {
+                    if (firstChange < 0)
+                        firstChange = t;
+                    lastChange = t;
+                    last.swap(pic);
+                }
+                if (lastChange >= 0 && t - lastChange > 0.3)
+                    break;
+                usleep(4000);
+            }
+            printf("click at %d,%d [%.3f]: first change after %.0f ms, settled after %.0f ms, host CPU %.0f ms\n", cx,
+                   cy, t0, firstChange * 1000, lastChange * 1000,
+                   1000 * (cpuSeconds(bridgedHostPid(*p)) - cpuBefore));
+            fflush(stdout);
+            frames(0.5);
+        }
+        running = false;
+        audio.join();
+        p->closeEditor();
+        return 0;
+    }
     if (const char* click = getenv("CLICK")) {  // CLICK="x y": a click there first (and a second's frames)
         int cx = 0, cy = 0, crx = 0, cry = 0;
         Window c;

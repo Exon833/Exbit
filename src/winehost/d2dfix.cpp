@@ -21,6 +21,11 @@
 // back): lines shot out of the waveforms that plugins draw from many points. Such paths are given to
 // Wine flattened, with those points merged (or the path split where it turns back).
 //
+// And DirectWrite: finding a font family by name (IDWriteFontCollection::FindFamilyName), which
+// every text layout does, reads the names of every family Wine knows, and Wine knows every font on
+// the Linux system (thousands): Serum 2 spent most of a tab change there. The answers are kept: a
+// collection's families don't change.
+//
 // How: Wine's device contexts share one table of methods. One is made here (on a Direct3D 11
 // device) to find that table, and its two CreateGradientStopCollection entries (Direct2D 1.0's and
 // 1.1's) are pointed at wrappers that premultiply the stops and call Wine's own. Wine's hwnd and
@@ -35,6 +40,7 @@
 #include <cstdio>
 #include <ctime>
 #include <map>
+#include <string>
 #include <cstdlib>
 #include <cstring>
 #include <vector>
@@ -488,6 +494,51 @@ void WINAPI drawGeometry(void* dc, void* geometry, void* brush, float width, voi
     release(factory);
 }
 
+
+// --- finding font families ---
+
+constexpr int COLLECTION_FAMILY_COUNT = 3, COLLECTION_FIND_FAMILY = 5, DWRITE_FACTORY_SYSTEM_COLLECTION = 3;
+const Guid IID_IDWriteFactory = {0xb859ee5a, 0xd838, 0x4b5b, {0xa2, 0xe8, 0x1a, 0xdc, 0x7d, 0x93, 0xdb, 0x48}};
+using FindFamilyFn = LONG(WINAPI*)(void* collection, const char16_t* name, UINT* index, BOOL* exists);
+FindFamilyFn wineFindFamily = nullptr;
+
+struct FamilyKey {
+    void* collection;
+    UINT count;
+    std::u16string name;
+    bool operator<(const FamilyKey& o) const {
+        return collection != o.collection ? collection < o.collection
+               : count != o.count         ? count < o.count
+                                          : name < o.name;
+    }
+};
+CRITICAL_SECTION_* familiesLock = nullptr;
+std::map<FamilyKey, std::pair<UINT, BOOL>>* families = nullptr;
+
+LONG WINAPI findFamily(void* collection, const char16_t* name, UINT* index, BOOL* exists) {
+    if (!collection || !name || !index || !exists)
+        return wineFindFamily(collection, name, index, exists);
+    UINT count = method<UINT(WINAPI*)(void*)>(collection, COLLECTION_FAMILY_COUNT)(collection);
+    FamilyKey key{collection, count, name};
+    EnterCriticalSection_(familiesLock);
+    auto found = families->find(key);
+    bool known = found != families->end();
+    if (known)
+        *index = found->second.first, *exists = found->second.second;
+    LeaveCriticalSection_(familiesLock);
+    if (known)
+        return 0;
+    LONG hr = wineFindFamily(collection, name, index, exists);
+    if (hr >= 0) {
+        EnterCriticalSection_(familiesLock);
+        if (families->size() > 4096)
+            families->clear();
+        (*families)[key] = {*index, *exists};
+        LeaveCriticalSection_(familiesLock);
+    }
+    return hr;
+}
+
 }  // namespace
 
 void fixWineDirect2D() {
@@ -601,5 +652,38 @@ void fixWineDxgi() {
     }
     release(output);
     release(adapter);
+    release(factory);
+}
+
+void fixWineDirectWrite() {
+    static bool tried = false;
+    if (tried)
+        return;
+    HMODULE dwrite = GetModuleHandleW(u"dwrite.dll");
+    if (!dwrite)
+        return;
+    tried = true;
+    bool trace = getenv("TINYDAW_WINE_TRACE") != nullptr;
+    if (getenv("TINYDAW_WINE_D2D_AS_IS") || !wineBuiltin(dwrite))
+        return;
+    using CreateFactory = LONG(WINAPI*)(int type, const Guid* iid, void** factory);
+    auto create = (CreateFactory)GetProcAddress(dwrite, "DWriteCreateFactory");
+    void *factory = nullptr, *collection = nullptr;
+    bool ok = create && create(0, &IID_IDWriteFactory, &factory) >= 0 && factory;
+    ok = ok && method<LONG(WINAPI*)(void*, void**, BOOL)>(factory, DWRITE_FACTORY_SYSTEM_COLLECTION)(factory, &collection,
+                                                                                                    FALSE) >= 0;
+    if (ok && collection) {
+        void** table = *(void***)collection;
+        if (inside(dwrite, table[COLLECTION_FIND_FAMILY])) {
+            static CRITICAL_SECTION_ lock;
+            InitializeCriticalSection_(&lock);
+            familiesLock = &lock;
+            families = new std::map<FamilyKey, std::pair<UINT, BOOL>>();
+            patch(table, COLLECTION_FIND_FAMILY, (void*)findFamily, (void**)&wineFindFamily);
+            if (trace)
+                fprintf(stderr, "tinydaw-wine-host: DirectWrite family lookups remembered\n");
+        }
+    }
+    release(collection);
     release(factory);
 }
