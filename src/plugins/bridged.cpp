@@ -9,9 +9,9 @@
 // them, so asking for them costs nothing.
 //
 // The plugin's window: the host makes a Win32 window and gives the plugin its view in it; Tiny DAW
-// puts that window's X11 window (Wine's) inside its own plugin window, and tells the host where on
-// the screen it really is (Wine works out the mouse's place in the window from that). Wine may move
-// its X11 window when it is told; it is put back at the window's corner every frame.
+// puts that window's X11 window (Wine's) inside its own plugin window, embedded by XEmbed, and tells
+// the host where on the screen it really is (for the plugin's sums with the mouse); embedded, Wine
+// takes that without moving its X11 window. (Should it move or leave anyway, it is put back.)
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
@@ -342,6 +342,7 @@ public:
         editorKnown = 1;
         XReparentWindow(dpy, wineWindow, parentWindow, 0, 0);
         XMapWindow(dpy, wineWindow);
+        embed();
         XSync(dpy, False);
         post(SHOW_EDITOR, Writer());
         placedX = placedY = INT32_MIN;
@@ -357,11 +358,14 @@ public:
         Window going = wineWindow;
         wineWindow = 0;
         std::string answer;
-        // (Wine's window leaves ours first: if ours went first, it would take Wine's with it)
-        XUnmapWindow(dpy, going);
-        XReparentWindow(dpy, going, DefaultRootWindow(dpy), -32000, -32000);
-        XSync(dpy, False);
-        call(CLOSE_EDITOR, Writer(), answer, CALL_SECONDS);
+        // the host closes the plugin's view and its window (gone from ours when this returns); if
+        // it doesn't answer, Wine's window leaves ours anyway (if ours went first, it would take
+        // Wine's with it)
+        if (!call(CLOSE_EDITOR, Writer(), answer, CALL_SECONDS) && dpy) {
+            XUnmapWindow(dpy, going);
+            XReparentWindow(dpy, going, DefaultRootWindow(dpy), -32000, -32000);
+            XSync(dpy, False);
+        }
         resizeWanted = false;
     }
 
@@ -405,6 +409,16 @@ public:
         if (r.ok() && nw > 0 && nh > 0)
             w = nw, h = nh;
         keepEditorInPlace();
+    }
+
+    // (tests) where Wine believes the window is on the screen
+    bool windowRect(int& left, int& top, int& right, int& bottom) {
+        std::string answer;
+        if (!call(WINDOW_RECT, Writer(), answer, CALL_SECONDS))
+            return false;
+        Reader r(answer);
+        left = r.i32(), top = r.i32(), right = r.i32(), bottom = r.i32();
+        return r.ok();
     }
 
     bool hostAlive() const { return !dead; }
@@ -764,10 +778,30 @@ private:
         return true;
     }
 
+    // XEmbed: Wine's window is told it is embedded in ours (XEMBED_EMBEDDED_NOTIFY). Wine then
+    // follows ours as its parent, and a change of place only changes where Windows thinks the
+    // window is: its X11 window stays at our corner (else Wine moved it, to its screen place inside
+    // ours, every frame while ours was being moved: flashes of the plugin inside itself).
+    void embed() {
+        XEvent e{};
+        e.xclient.type = ClientMessage;
+        e.xclient.window = wineWindow;
+        e.xclient.message_type = XInternAtom(dpy, "_XEMBED", False);
+        e.xclient.format = 32;
+        e.xclient.data.l[0] = CurrentTime;
+        e.xclient.data.l[1] = 0;  // (XEMBED_EMBEDDED_NOTIFY)
+        e.xclient.data.l[2] = 0;
+        e.xclient.data.l[3] = (long)parentWindow;
+        e.xclient.data.l[4] = 0;  // (protocol version)
+        XSendEvent(dpy, wineWindow, False, NoEventMask, &e);
+    }
+
     void keepEditorInPlace() {
         if (!wineWindow || !dpy)
             return;
-        // where our window's inside is on the screen: the host tells Wine (for the plugin's sums)
+        // where our window's inside is on the screen: the host tells Wine (for the plugin's sums with
+        // the mouse: GetCursorPos against its window's place). Its window being XEmbed-embedded in
+        // ours, Wine takes the place without moving its X11 window.
         Window child;
         int x = 0, y = 0;
         if (XTranslateCoordinates(dpy, parentWindow, DefaultRootWindow(dpy), 0, 0, &x, &y, &child) &&
@@ -784,6 +818,7 @@ private:
             if (parent != parentWindow) {
                 XReparentWindow(dpy, wineWindow, parentWindow, 0, 0);
                 XMapWindow(dpy, wineWindow);
+                embed();
             } else {
                 int wx, wy;
                 unsigned ww, wh, border, depth;
@@ -813,6 +848,11 @@ bool settleBridged(Plugin& plugin, double seconds) {
         return false;
     b->settle(seconds);
     return true;
+}
+
+bool bridgedWindowRect(Plugin& plugin, int& left, int& top, int& right, int& bottom) {
+    auto* b = dynamic_cast<BridgedPlugin*>(&plugin);
+    return b && b->windowRect(left, top, right, bottom);
 }
 
 int bridgedHostPid(Plugin& plugin) {

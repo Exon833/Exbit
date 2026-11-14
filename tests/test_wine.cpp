@@ -284,12 +284,53 @@ void testEditor(Plugin& p, const std::string& label) {
     printf("   window: %dx%d, opened in %.2f s, drawn after %.2f s, inside ours %s, mapped %s, at the corner %s, %d "
            "colours seen\n", w, h, openSeconds, drawnSeconds, inside ? "yes" : "NO", mapped ? "yes" : "NO",
            corner ? "yes" : "NO", distinct);
+    // our window moved about: Wine's stays at our corner all the while (no flashes of it elsewhere),
+    // and Wine knows where it really is on the screen (for the mouse)
+    if (wineWindow) {
+        int offCorner = 0, looks = 0, wrong = 0;
+        const int places[3][2] = {{300, 200}, {80, 360}, {520, 120}};
+        for (const auto& place : places) {
+            XMoveWindow(dpy, ours, place[0], place[1]);
+            XFlush(dpy);
+            double moveUntil = secondsNow() + 0.6;
+            while (secondsNow() < moveUntil) {
+                p.idle();
+                while (XPending(dpy)) {
+                    XEvent e;
+                    XNextEvent(dpy, &e);
+                }
+                Window r2;
+                int wx = 0, wy = 0;
+                unsigned ww, wh, wb, wd;
+                if (XGetGeometry(dpy, wineWindow, &r2, &wx, &wy, &ww, &wh, &wb, &wd)) {
+                    looks++;
+                    if (wx != 0 || wy != 0)
+                        offCorner++;
+                }
+                usleep(4000);
+            }
+            Window c;
+            int rx = 0, ry = 0, l = 0, t = 0, rr = 0, b = 0;
+            XTranslateCoordinates(dpy, ours, DefaultRootWindow(dpy), 0, 0, &rx, &ry, &c);
+            if (!bridgedWindowRect(p, l, t, rr, b) || std::abs(l - rx) > 2 || std::abs(t - ry) > 2) {
+                wrong++;
+                printf("   moved: ours at %d,%d on the screen, Wine believes %d,%d\n", rx, ry, l, t);
+            }
+        }
+        CHECK(offCorner == 0);
+        CHECK(wrong == 0);
+        printf("   moved 3 times: Wine's window off our corner in %d of %d looks; Wine's idea of where it is %s\n",
+               offCorner, looks, wrong ? "WRONG" : "right");
+    }
     if (p.editorResizable()) {
         int nw = w + 100, nh = h + 60;
         XResizeWindow(dpy, ours, (unsigned)nw, (unsigned)nh);
         p.editorResized(nw, nh);
         CHECK(nw > 0 && nh > 0);
         printf("   window: resizable, asked %dx%d, took %dx%d\n", w + 100, h + 60, nw, nh);
+        int bw = w, bh = h;  // (and back: plugins remember their window's size, FabFilter's in the registry)
+        XResizeWindow(dpy, ours, (unsigned)bw, (unsigned)bh);
+        p.editorResized(bw, bh);
     }
     p.closeEditor();
     CHECK(!p.editorOpen());

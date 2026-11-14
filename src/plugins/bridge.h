@@ -35,7 +35,7 @@
 
 namespace bridge {
 
-constexpr uint32_t VERSION = 2;
+constexpr uint32_t VERSION = 3;
 constexpr int MAX_FRAMES = 8192;       // the longest buffer (prepare()'s maxBlock is capped to it)
 constexpr int MAX_NOTES = 1024;        // notes per buffer
 constexpr int MAX_PARAM_CHANGES = 1024;  // parameter changes per buffer (more wait for the next)
@@ -59,8 +59,10 @@ enum Op : uint32_t {
     CLOSE_EDITOR,      // -> (nothing)
     EDITOR_RESIZED,    // w, h -> w, h
     EDITOR_PLACE,      // screen x, y (no answer): where the window really is, for the plugin's sums
+                       // (its X11 window, XEmbed-embedded in Tiny DAW's, stays where it is)
     NOTES_OFF,         // (no answer)
     QUIT,              // (no answer) the host ends
+    WINDOW_RECT,       // -> where Wine believes the window is on the screen: left, top, right, bottom (tests)
 };
 
 // --- messages: a header (op, number, size) then the payload, written and read with Writer/Reader ---

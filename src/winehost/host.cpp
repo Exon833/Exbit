@@ -174,7 +174,13 @@ LRESULT WINAPI traceHook(int code, WPARAM wp, LPARAM lp) {
     return CallNextHookEx(nullptr, code, wp, lp);
 }
 
-LRESULT WINAPI editorProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) { return DefWindowProcW(hwnd, msg, wp, lp); }
+LRESULT WINAPI editorProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    // (Wine sends an embedded window WM_CLOSE when it is taken out of its embedder: the window goes
+    // only when Tiny DAW closes the plugin's view, CLOSE_EDITOR, never under the plugin's feet)
+    if (msg == WM_CLOSE)
+        return 0;
+    return DefWindowProcW(hwnd, msg, wp, lp);
+}
 
 uint64_t x11Window(HWND hwnd) { return (uint64_t)(uintptr_t)GetPropA(hwnd, "__wine_x11_whole_window"); }
 
@@ -440,6 +446,13 @@ void serve(const Incoming& in) {
     case NOTES_OFF:
         plugin->notesOff();
         break;
+    case WINDOW_RECT: {
+        RECT rect{0, 0, 0, 0};
+        if (editorWindow)
+            GetWindowRect(editorWindow, &rect);
+        reply(in, w.i32(rect.left).i32(rect.top).i32(rect.right).i32(rect.bottom));
+        break;
+    }
     default:
         reply(in, w);
     }

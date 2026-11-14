@@ -66,6 +66,8 @@ std::vector<ClassInfo> bridgedClasses(const std::string& path, std::string& erro
 bool settleBridged(Plugin& plugin, double seconds = 5);
 // (tests, the CPU monitor) buffers the host was too late for
 int bridgedLateBuffers(Plugin& plugin);
+// (tests) where Wine believes the plugin's window is on the screen
+bool bridgedWindowRect(Plugin& plugin, int& left, int& top, int& right, int& bottom);
 // (tests) the host's process id (-1: not a Windows plugin)
 int bridgedHostPid(Plugin& plugin);
 
