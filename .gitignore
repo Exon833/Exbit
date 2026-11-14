@@ -1,7 +1,4 @@
-__pycache__/
-*.pyc
-native/build/
-cpp/build/
-cpp/build-debug/
-cpp/tinydaw
-cpp/tinydaw-debug
+build/
+build-debug/
+tinydaw
+tinydaw-debug
