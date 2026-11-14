@@ -74,6 +74,17 @@ their settings are saved with the project. Each runs in a process of its own,
 program; audio through shared memory, `src/plugins/bridge.h`), so a Windows plugin that crashes
 falls silent instead of taking the program with it.
 
+Their windows are drawn by the graphics card through OpenGL's GLX: before the first host starts in
+a prefix, Tiny DAW sets `UseEGL=N` in that prefix's settings for `tinydaw-wine-host.exe` only
+(`HKCU\Software\Wine\AppDefaults\tinydaw-wine-host.exe[.so]\X11 Driver`), as Wine 11's default,
+EGL, falls back to drawing on the processor with NVIDIA's drivers before 560 under XWayland
+(`TINYDAW_WINE_EGL=1` leaves the setting alone). For plugins drawn with Direct2D (Serum 2, Quanta
+2) the host fills in what Wine's Direct2D and DXGI lack (`src/winehost/d2dfix.cpp`;
+`TINYDAW_WINE_D2D_AS_IS=1` leaves them as they are): gradients with see-through colours (drawn too
+bright and solid), layers (clipping to shapes and masks: Quanta 2's red rectangles) and waiting for
+the screen's refresh (JUCE 8 plugins repaint only after it: their windows stood still). The edges of
+their shapes aren't smoothed as on Windows (Wine's Direct2D doesn't do that yet).
+
 ## Test
 
     TINYDAW_NO_WINDOWS=1 make -j16 test
@@ -91,7 +102,9 @@ Testing aids of the running program (hidden; see `src/ui/test_script.h`):
 | `TINYDAW_VST3_PATH=<dir>[:<dir>…]` | more VST3 folders besides the standard ones (e.g. `build/test-plugins`) |
 | `TINYDAW_NO_UPDATE_CHECK=1` | doesn't ask GitHub whether there are newer commits |
 | `TINYDAW_WINE=<wine>`, `TINYDAW_WINE_HOST=<…/tinydaw-wine-host.exe>` | another Wine, another Wine host |
-| `TINYDAW_WINE_TRACE=1` | the Wine host prints which window gets the keys and clicks |
+| `TINYDAW_WINE_TRACE=1` | the Wine host prints which window gets the keys and clicks, slow audio buffers, its corrections |
+| `TINYDAW_WINE_EGL=1` | doesn't switch the Wine host's OpenGL to GLX |
+| `TINYDAW_WINE_D2D_AS_IS=1` | doesn't fill in Wine's Direct2D gradients, layers and vertical blank |
 | `XDG_CONFIG_HOME=<dir>`, `XDG_DATA_HOME=<dir>` | settings and data elsewhere, to leave your own alone |
 
 ## Folder layout
@@ -119,7 +132,7 @@ Testing aids of the running program (hidden; see `src/ui/test_script.h`):
     src/ui/          every window and panel (main_window, timeline, lane_panel, midi_editor, …)
     tests/           unit tests (tests/check.h) and tests/plugins/ (the test plugins' sources)
     tools/           manual checks (toolkit demo, platform check, plugin editor check, the mouse
-                     in Windows plugins' windows)
+                     in Windows plugins' windows and how quickly they redraw)
 
 ## License
 

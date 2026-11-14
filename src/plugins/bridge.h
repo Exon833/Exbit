@@ -35,7 +35,7 @@
 
 namespace bridge {
 
-constexpr uint32_t VERSION = 1;
+constexpr uint32_t VERSION = 2;
 constexpr int MAX_FRAMES = 8192;       // the longest buffer (prepare()'s maxBlock is capped to it)
 constexpr int MAX_NOTES = 1024;        // notes per buffer
 constexpr int MAX_PARAM_CHANGES = 1024;  // parameter changes per buffer (more wait for the next)
@@ -54,7 +54,7 @@ enum Op : uint32_t {
     GET_STATE,         // -> component, controller
     SET_STATE,         // component, controller -> latency
     HAS_EDITOR,        // -> bool, resizable
-    OPEN_EDITOR,       // scale -> ok, X11 window, w, h, resizable
+    OPEN_EDITOR,       // scale, screen x, y -> ok, X11 window, w, h, resizable
     SHOW_EDITOR,       // (no answer) shows the window (after Tiny DAW put it in its own)
     CLOSE_EDITOR,      // -> (nothing)
     EDITOR_RESIZED,    // w, h -> w, h

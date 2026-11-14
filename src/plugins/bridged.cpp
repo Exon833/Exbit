@@ -323,7 +323,10 @@ public:
         if (!display || !parent)
             return false;
         std::string answer;
-        if (!call(OPEN_EDITOR, Writer().f64(scale), answer, CALL_SECONDS))
+        Window child;
+        int sx = 0, sy = 0;  // (where our window is on the screen: the plugin's is made there)
+        XTranslateCoordinates((Display*)display, (Window)parent, DefaultRootWindow((Display*)display), 0, 0, &sx, &sy, &child);
+        if (!call(OPEN_EDITOR, Writer().f64(scale).i32(sx).i32(sy), answer, CALL_SECONDS))
             return false;
         Reader r(answer);
         bool ok = r.b();

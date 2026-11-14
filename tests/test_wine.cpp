@@ -70,6 +70,35 @@ void testPrefixes() {
     CHECK(!wine::looksWindows("/usr/lib/vst3/X.vst3"));
 }
 
+std::string fakePe(uint16_t machine);
+
+// a whole prefix chosen as a VST2 folder: the scan stays inside it (Wine's links lead to "/" and to
+// the home folders) and leaves Windows' own DLLs alone
+void testPrefixAsVst2Folder() {
+    std::string prefix = util::joinPath(tempRoot, "prefix2");
+    std::string outside = util::joinPath(tempRoot, "outside");
+    util::makeDirs(util::joinPath(prefix, "drive_c/Program Files/VstPlugins"));
+    util::makeDirs(util::joinPath(prefix, "drive_c/windows/system32"));
+    util::makeDirs(util::joinPath(prefix, "drive_c/users/me"));
+    util::makeDirs(util::joinPath(prefix, "dosdevices"));
+    util::makeDirs(outside);
+    util::writeFile(util::joinPath(prefix, "system.reg"), "WINE REGISTRY Version 2\n");
+    util::writeFile(util::joinPath(prefix, "drive_c/Program Files/VstPlugins/Plug.dll"), fakePe(0x8664));
+    util::writeFile(util::joinPath(prefix, "drive_c/windows/system32/kernel32.dll"), fakePe(0x8664));
+    util::writeFile(util::joinPath(outside, "Elsewhere.dll"), fakePe(0x8664));
+    CHECK(symlink("/", util::joinPath(prefix, "dosdevices/z:").c_str()) == 0);
+    CHECK(symlink("../drive_c", util::joinPath(prefix, "dosdevices/c:").c_str()) == 0);
+    CHECK(symlink(outside.c_str(), util::joinPath(prefix, "drive_c/users/me/Desktop").c_str()) == 0);
+    double t0 = secondsNow();
+    PluginLibrary library({}, util::joinPath(tempRoot, "cache2.json"), {prefix});
+    CHECK(secondsNow() - t0 < 5);
+    std::vector<std::string> looked;
+    for (const auto& member : library.cache.members())
+        if (member.first != LOAD_TIMES)
+            looked.push_back(member.first);
+    CHECK(looked.size() == 1 && util::endsWith(looked[0], "VstPlugins/Plug.dll"));
+}
+
 // a minimal PE file: "MZ", the PE header's place at 60, "PE\0\0" and the machine
 std::string fakePe(uint16_t machine) {
     std::string f(256, '\0');
@@ -405,7 +434,14 @@ void testPlugin(PluginLibrary& library, const PluginInfo& info, bool windows) {
 // and asking it things gives defaults
 void testCrash(PluginLibrary& library, const PluginInfo& info) {
     printf("== a crash: %s\n", info.name.c_str());
-    auto p = library.load(info, 48000);
+    std::unique_ptr<Plugin> p;
+    try {
+        p = library.load(info, 48000);
+    } catch (const std::exception& e) {
+        printf("   load FAILED: %s\n", e.what());
+        CHECK(false);
+        return;
+    }
     int pid = bridgedHostPid(*p);
     CHECK(pid > 0);
     kill(pid, SIGKILL);
@@ -515,6 +551,7 @@ int main() {
     tempRoot = mkdtemp(tmpl);
     testPrefixes();
     testFiles();
+    testPrefixAsVst2Folder();
     testInstalled();
     run("rm -rf '" + tempRoot + "'");
     TEST_MAIN_END();

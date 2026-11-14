@@ -35,6 +35,7 @@
 #include "plugins/bridge.h"
 #include "plugins/plugin.h"
 #include "plugins/probe.h"
+#include "winehost/d2dfix.h"
 
 using namespace bridge;
 
@@ -90,16 +91,37 @@ void realtime() {
     }
 }
 
+bool tracing = getenv("TINYDAW_WINE_TRACE") != nullptr;
+
+double traceNow() {
+    timespec t{};
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return t.tv_sec + t.tv_nsec * 1e-9;
+}
+
 DWORD WINAPI audioMain(LPVOID) {
     realtime();
+    if (tracing)
+        fprintf(stderr, "tinydaw-wine-host: audio thread started\n");
     std::vector<plug::NoteMessage> notes;
     notes.reserve(MAX_NOTES);
-    uint32_t seen = block->request.load(std::memory_order_acquire);
+    // (from the last buffer done, not the last asked for: a buffer may be asked for before this
+    // thread first looks, and it must still be done)
+    uint32_t seen = block->done.load(std::memory_order_acquire);
     for (;;) {
-        waitChange(&block->request, seen, -1);
+        if (tracing) {
+            while (!waitChange(&block->request, seen, 1.0))
+                fprintf(stderr, "tinydaw-wine-host: waiting: request %u, done %u, seen %u, block %p\n",
+                        block->request.load(), block->done.load(), seen, (void*)block);
+        } else {
+            waitChange(&block->request, seen, -1);
+        }
         if (block->quit.load())
             return 0;
         seen = block->request.load(std::memory_order_acquire);
+        double started = tracing ? traceNow() : 0;
+        if (tracing && seen < 4)
+            fprintf(stderr, "tinydaw-wine-host: buffer %u begins\n", seen);
         int frames = std::max(0, std::min(block->frames, MAX_FRAMES));
         int count = std::max(0, std::min(block->paramCount, MAX_PARAM_CHANGES));
         for (int i = 0; i < count; i++)
@@ -125,14 +147,14 @@ DWORD WINAPI audioMain(LPVOID) {
         }
         block->holding = plugin->holding() ? 1 : 0;
         block->latency = plugin->latency();
+        if (tracing && (seen < 4 || traceNow() - started > 0.005))
+            fprintf(stderr, "tinydaw-wine-host: buffer %u took %.1f ms\n", seen, 1000 * (traceNow() - started));
         block->done.store(seen, std::memory_order_release);
         wake(&block->done);
     }
 }
 
 // --- the window ---
-
-bool tracing = getenv("TINYDAW_WINE_TRACE") != nullptr;
 
 std::string className(HWND h) {
     char name[128] = {0};
@@ -239,6 +261,8 @@ void load(const Incoming& in) {
         error = e.what();
     }
     if (plugin) {
+        fixWineDirect2D();  // (before it draws anything)
+        fixWineDxgi();
         try {
             plugin->prepare(sampleRate);
         } catch (const std::exception&) {
@@ -347,11 +371,16 @@ void serve(const Incoming& in) {
     }
     case OPEN_EDITOR: {
         double scale = r.f64();
+        int sx = r.i32(), sy = r.i32();  // where Tiny DAW's window is on the screen
+        if (!r.ok())
+            sx = sy = 0;
+        fixWineDirect2D();  // (if the plugin loaded them only now)
+        fixWineDxgi();
         closeEditor();
-        // a borderless popup far off every screen (until Tiny DAW has it in its own window, then
-        // EDITOR_PLACE tells where it really is)
+        // a borderless popup, not shown, where Tiny DAW's window is (plugins look at where their
+        // window is when they make it: JUCE 8 picks the screen it repaints with then, once)
         editorWindow = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, (LPCWSTR)EDITOR_CLASS, u"Tiny DAW plugin",
-                                       WS_POPUP | WS_CLIPCHILDREN, -32000, -32000, 640, 400, nullptr, nullptr,
+                                       WS_POPUP | WS_CLIPCHILDREN, sx, sy, 640, 400, nullptr, nullptr,
                                        GetModuleHandleW(nullptr), nullptr);
         int pw = 0, ph = 0;
         bool ok = editorWindow && plugin->openEditor((uintptr_t)editorWindow, nullptr, scale, pw, ph);
@@ -362,7 +391,8 @@ void serve(const Incoming& in) {
         }
         resizeEditorWindow(pw, ph);
         uint64_t xid = x11Window(editorWindow);
-        if (!xid) {  // (Wine makes the X11 window when it is first shown)
+        if (!xid) {  // (Wine makes the X11 window when it is first shown: shown off every screen, not to be seen)
+            SetWindowPos(editorWindow, nullptr, -32000, -32000, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
             ShowWindow(editorWindow, SW_SHOWNA);
             for (int i = 0; i < 200 && !(xid = x11Window(editorWindow)); i++) {
                 MSG m;
@@ -400,6 +430,9 @@ void serve(const Incoming& in) {
         int x = r.i32(), y = r.i32();
         if (editorWindow)
             SetWindowPos(editorWindow, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+        if (tracing && editorWindow)
+            fprintf(stderr, "tinydaw-wine-host: the window is at %d,%d, on monitor %p\n", x, y,
+                    (void*)MonitorFromWindow(editorWindow, MONITOR_DEFAULTTONULL));
         break;
     }
     case NOTES_OFF:

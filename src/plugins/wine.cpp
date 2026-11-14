@@ -11,6 +11,7 @@
 #include <signal.h>
 #include <spawn.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include "core/util.h"
@@ -183,9 +184,83 @@ bool available(std::string& why) {
     return true;
 }
 
+namespace {
+
+// runs `wine <args>` in a prefix and waits for it (up to `seconds`); true if it ended well
+bool runWine(const std::string& prefix, const std::vector<std::string>& args, double seconds) {
+    std::string wine = winePath();
+    if (wine.empty())
+        return false;
+    std::vector<std::string> env;
+    for (char** e = environ; *e; e++)
+        if (!util::startsWith(*e, "WINEPREFIX=") && !util::startsWith(*e, "WINEDEBUG="))
+            env.push_back(*e);
+    env.push_back("WINEPREFIX=" + prefix);
+    env.push_back("WINEDEBUG=-all");
+    std::vector<std::string> argv = {wine};
+    argv.insert(argv.end(), args.begin(), args.end());
+    std::vector<char*> a, e;
+    for (auto& s : argv)
+        a.push_back(&s[0]);
+    a.push_back(nullptr);
+    for (auto& s : env)
+        e.push_back(&s[0]);
+    e.push_back(nullptr);
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0);
+    posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_WRONLY, 0);
+    posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_WRONLY, 0);
+    pid_t pid = -1;
+    int r = posix_spawn(&pid, wine.c_str(), &actions, nullptr, a.data(), e.data());
+    posix_spawn_file_actions_destroy(&actions);
+    if (r != 0)
+        return false;
+    for (int waited = 0; waited < (int)(seconds * 100); waited++) {
+        int status;
+        if (waitpid(pid, &status, WNOHANG) == pid)
+            return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+        usleep(10000);
+    }
+    kill(pid, SIGKILL);
+    int status;
+    waitpid(pid, &status, 0);
+    return false;
+}
+
+}  // namespace
+
+// OpenGL through GLX, not EGL, for the host: its own settings in the prefix
+// (HKCU\Software\Wine\AppDefaults\tinydaw-wine-host.exe[.so]\X11 Driver: UseEGL = N; the rest of
+// the prefix keeps its own). Wine 11 starts OpenGL through EGL, which NVIDIA's drivers before 560
+// can't give X11 windows under XWayland: every plugin's drawing (OpenGL, and Direct3D and Direct2D
+// on top of it) then falls back to Mesa's software rasterizer, llvmpipe, at several CPU cores and a
+// fraction of the frame rate. Through GLX it is the graphics card's, with any driver. Set before
+// the first host starts in a prefix (Wine reads it as a program starts), once; a value already
+// there (the user's) is left alone; TINYDAW_WINE_EGL=1: not set.
+void preferGlx(const std::string& prefix) {
+    static std::mutex once;
+    static std::vector<std::string> done;
+    std::lock_guard<std::mutex> hold(once);
+    if (prefix.empty() || getenv("TINYDAW_WINE_EGL") || std::find(done.begin(), done.end(), prefix) != done.end())
+        return;
+    done.push_back(prefix);
+    std::string reg;
+    util::readFile(util::joinPath(prefix, "user.reg"), reg);
+    for (const char* app : {"tinydaw-wine-host.exe", "tinydaw-wine-host.exe.so"}) {
+        std::string key = std::string("AppDefaults\\\\") + app + "\\\\X11 Driver]";
+        if (reg.find(key) != std::string::npos)
+            continue;
+        runWine(prefix, {"reg", "add", std::string("HKCU\\Software\\Wine\\AppDefaults\\") + app + "\\X11 Driver", "/v",
+                         "UseEGL", "/d", "N", "/f"},
+                20);
+    }
+}
+
 int spawnHost(const std::string& prefix, const std::vector<std::string>& args, int outFd, std::string& why) {
     if (!available(why))
         return -1;
+    preferGlx(prefix);
     std::string wine = winePath(), host = hostPath();
     std::vector<std::string> env;
     std::string overrides = "winedbg.exe=d";  // (a crashing plugin ends its host, with no Wine crash dialog)

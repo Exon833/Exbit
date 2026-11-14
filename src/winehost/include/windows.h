@@ -20,6 +20,7 @@ typedef int BOOL;
 typedef unsigned char BYTE;
 typedef uint16_t WORD;
 typedef uint32_t DWORD;
+typedef uint32_t ULONG;
 typedef uint32_t UINT;
 typedef int32_t LONG;
 typedef uint64_t UINT_PTR, ULONG_PTR, WPARAM, SIZE_T;
@@ -105,6 +106,21 @@ WINAPI DWORD GetCurrentThreadId(void);
 WINAPI BOOL SetThreadPriority(HANDLE thread, int priority);
 WINAPI HANDLE GetProcessHeap(void);
 WINAPI BOOL HeapFree(HANDLE heap, DWORD flags, void* memory);
+// (a critical section, as an opaque block of its real size: 40 bytes on 64-bit Windows)
+typedef struct {
+    void* debug;
+    LONG lockCount, recursionCount;
+    HANDLE owner, semaphore;
+    ULONG_PTR spin;
+} CRITICAL_SECTION_;
+WINAPI void InitializeCriticalSection(CRITICAL_SECTION_* section);
+WINAPI void EnterCriticalSection(CRITICAL_SECTION_* section);
+WINAPI void LeaveCriticalSection(CRITICAL_SECTION_* section);
+#define InitializeCriticalSection_ InitializeCriticalSection
+#define EnterCriticalSection_ EnterCriticalSection
+#define LeaveCriticalSection_ LeaveCriticalSection
+WINAPI BOOL VirtualProtect(void* address, SIZE_T size, DWORD protect, DWORD* old);
+#define PAGE_READWRITE 0x04u
 #define THREAD_PRIORITY_TIME_CRITICAL 15
 
 // Wine's own (kernel32): a Unix path's DOS name ("Z:\…", "C:\…"), allocated on the process heap
@@ -134,6 +150,9 @@ WINAPI HCURSOR LoadCursorW(HINSTANCE instance, LPCWSTR name);
 WINAPI HWND SetFocus(HWND hwnd);
 WINAPI HWND GetWindow(HWND hwnd, UINT cmd);
 WINAPI BOOL SetProcessDPIAware(void);
+typedef struct HMONITOR__* HMONITOR;
+WINAPI HMONITOR MonitorFromWindow(HWND hwnd, DWORD flags);
+#define MONITOR_DEFAULTTONULL 0u
 WINAPI HWND GetFocus(void);
 WINAPI HWND GetForegroundWindow(void);
 WINAPI HWND GetParent(HWND hwnd);
@@ -178,6 +197,19 @@ WINAPI LRESULT CallNextHookEx(HHOOK hook, int code, WPARAM wp, LPARAM lp);
 #define WM_APP 0x8000u
 #define IDC_ARROW MAKEINTRESOURCEW(32512)
 #define GW_CHILD 5
+
+// --- advapi32 (the registry) ---
+typedef struct HKEY__* HKEY;
+#define HKEY_CURRENT_USER ((HKEY)(ULONG_PTR)0x80000001)
+#define KEY_QUERY_VALUE 0x0001u
+#define KEY_SET_VALUE 0x0002u
+#define REG_SZ 1u
+#define ERROR_SUCCESS 0L
+WINAPI LONG RegCreateKeyExW(HKEY key, LPCWSTR subKey, DWORD reserved, LPWSTR cls, DWORD options, DWORD access,
+                            void* security, HKEY* result, DWORD* disposition);
+WINAPI LONG RegQueryValueExW(HKEY key, LPCWSTR name, DWORD* reserved, DWORD* type, BYTE* data, DWORD* size);
+WINAPI LONG RegSetValueExW(HKEY key, LPCWSTR name, DWORD reserved, DWORD type, const BYTE* data, DWORD size);
+WINAPI LONG RegCloseKey(HKEY key);
 
 // --- ole32 ---
 WINAPI LONG OleInitialize(LPVOID reserved);

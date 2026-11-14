@@ -130,27 +130,58 @@ void sortByName(std::vector<PluginInfo>& list) {
 }
 
 // glob(os.path.join(folder, "**", "*" + suffix), recursive=True): files and folders (hidden ones
-// left out, as glob does), sorted
-void findNamed(const std::string& folder, const std::string& suffix, std::vector<std::string>& out,
-               std::set<std::pair<dev_t, ino_t>>& seen, int depth = 0) {
+// left out, as glob does), sorted. Inside a Wine prefix (a folder chosen may be one, or hold one) no
+// symlinked folder is followed: Wine's all lead out of it (dosdevices/z: to "/", the users' folders
+// to their home folders), and following them walked the whole disk; nor are dosdevices and
+// drive_c/windows (Windows' own DLLs, no plugins) looked through. Never more than MAX_FOLDERS folders.
+constexpr int MAX_FOLDERS = 50000;
+
+struct Walk {
+    std::set<std::pair<dev_t, ino_t>> seen;
+    int folders = 0;
+};
+
+bool isWinePrefix(const std::string& folder) {
+#ifdef _WIN32
+    (void)folder;
+    return false;
+#else
+    return wine::isPrefix(folder);
+#endif
+}
+
+void findNamed(const std::string& folder, const std::string& suffix, std::vector<std::string>& out, Walk& walk,
+               bool inWine = false, int depth = 0) {
     struct stat st;
-    if (depth > 32 || stat(folder.c_str(), &st) != 0 || !seen.insert({st.st_dev, st.st_ino}).second)
+    if (depth > 32 || ++walk.folders > MAX_FOLDERS || stat(folder.c_str(), &st) != 0 ||
+        !walk.seen.insert({st.st_dev, st.st_ino}).second)
         return;
+    bool prefix = !inWine && isWinePrefix(folder);
+    inWine = inWine || prefix;
     for (const auto& e : util::listDir(folder)) {
         if (e.name.empty() || e.name[0] == '.')
             continue;
         std::string path = util::joinPath(folder, e.name);
         if (util::endsWith(e.name, suffix))
             out.push_back(path);
-        if (e.isDir)
-            findNamed(path, suffix, out, seen, depth + 1);
+        if (!e.isDir)
+            continue;
+        if (inWine) {
+            struct stat link;
+            if (lstat(path.c_str(), &link) == 0 && S_ISLNK(link.st_mode))
+                continue;  // (a link out of the prefix)
+            if ((prefix && e.name == "dosdevices") ||
+                (util::baseName(folder) == "drive_c" && util::lower(e.name) == "windows"))
+                continue;
+        }
+        findNamed(path, suffix, out, walk, inWine, depth + 1);
     }
 }
 
 std::vector<std::string> globAll(const std::string& folder, const std::string& suffix) {
     std::vector<std::string> out;
-    std::set<std::pair<dev_t, ino_t>> seen;
-    findNamed(folder, suffix, out, seen);
+    Walk walk;
+    findNamed(folder, suffix, out, walk);
     std::sort(out.begin(), out.end());
     return out;
 }

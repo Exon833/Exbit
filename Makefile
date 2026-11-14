@@ -48,7 +48,7 @@ TEST_PLUGINS := $(BUILD)/test-plugins/TinyTestSynth.so \
 # linked by winegcc against Wine's DLLs) ---
 WINEGCC  ?= $(shell command -v winegcc 2>/dev/null)
 WINE_HOST := tinydaw-wine-host.exe
-WINE_SRCS := src/winehost/host.cpp src/winehost/platform.cpp src/plugins/vst3host.cpp src/plugins/vst2host.cpp \
+WINE_SRCS := src/winehost/host.cpp src/winehost/platform.cpp src/winehost/d2dfix.cpp src/plugins/vst3host.cpp src/plugins/vst2host.cpp \
              src/plugins/plugin.cpp src/plugins/probe.cpp src/core/util.cpp src/core/json.cpp
 WINE_OBJS := $(WINE_SRCS:%.cpp=build/winehost/%.o)  # (one host for both builds, always optimized)
 WINE_FLAGS := -std=c++17 -O2 -g1 -DNDEBUG -fPIC -Wall -Wextra \
@@ -65,7 +65,7 @@ all: $(TARGET) $(ALL_WINE)
 winehost: $(WINE_HOST)
 
 $(WINE_HOST): $(WINE_OBJS)
-	$(WINEGCC) -mconsole -o $@ $^ -lstdc++ -lm -lpthread -lole32 -luser32 -lkernel32 -Wl,-z,defs
+	$(WINEGCC) -mconsole -o $@ $^ -lstdc++ -lm -lpthread -lole32 -luser32 -ladvapi32 -lkernel32 -Wl,-z,defs
 
 build/winehost/%.o: %.cpp
 	@mkdir -p $(dir $@)
