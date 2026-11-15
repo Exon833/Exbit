@@ -35,6 +35,7 @@
 #include "ui/plugin_dialog.h"
 #include "ui/plugin_folders_dialog.h"
 #include "ui/wine_prefixes_dialog.h"
+#include "ui/wine_setup.h"
 #include "plugins/wine.h"
 #include "ui/plugin_host.h"
 #include "ui/recording.h"
@@ -535,6 +536,7 @@ void MainWindow::buildOptionsMenu() {
     starts->aboutToShow = [this](ui::Menu* m) { templates::fillDefaultMenu(m, *this); };
     menu->addAction("&VST2 plugin folders…", [this] { chooseVst2Folders(); });
     menu->addAction("&Wine prefixes…", [this] { chooseWinePrefixes(); });
+    menu->addAction("&Install Windows plugin…", [this] { installWindowsPlugin(); });
     menu->addSeparator();
 
     ui::Menu* refresh = menu->addMenu("Screen &refresh");
@@ -740,6 +742,50 @@ void MainWindow::chooseWinePrefixes() {
     for (auto& p : plugins->rescan().plugins)
         if (p.looksWindows()) ++found;
     showStatus(std::to_string(found) + " Windows plugin" + (found == 1 ? "" : "s") + " found", 5000);
+}
+
+void MainWindow::installWindowsPlugin() {
+    // Options → Install Windows plugin…: an installer run in a Wine prefix, then what it added looked for
+    const std::string title = "Install Windows plugin";
+    std::vector<std::string> prefixes = wine::prefixes();
+    std::set<std::string> known, before = wine_setup::vst2Dlls(prefixes);
+    for (auto& p : plugins->library().plugins) known.insert(p.path);
+    std::string used, made;
+    if (!wine_setup::installPlugin(this, prefixes, used, made)) return;
+    if (!made.empty()) {  // (a prefix made for it: from now on searched)
+        auto list = prefs.wineList();
+        list.push_back(made);
+        prefs.setWineList(list);
+        prefs.save();
+        wine::setPrefixes(prefs.wineList());
+    }
+    // VST2 plugins land wherever the installer chose: those in a usual folder not searched yet are offered
+    auto folders = wine_setup::newVst2Folders(before, wine_setup::vst2Dlls({used}), prefs.vst2List());
+    if (!folders.empty()) {
+        std::string text = "The installer put VST2 plugins (.dll) in folders Tiny DAW doesn't look in yet:\n";
+        for (auto& f : folders) text += "\n" + f;
+        if (ui::msg::question(this, title, text + "\n\nAdd them to Options → VST2 plugin folders?") == ui::msg::Yes) {
+            auto v = prefs.vst2List();
+            v.insert(v.end(), folders.begin(), folders.end());
+            prefs.setVst2List(v);
+            prefs.save();
+        }
+    }
+    std::vector<std::string> added;
+    for (auto& p : plugins->rescan().plugins)
+        if (p.looksWindows() && !known.count(p.path) && std::find(added.begin(), added.end(), p.name) == added.end())
+            added.push_back(p.name);
+    if (added.empty()) {
+        ui::msg::information(this, title,
+                             "No new Windows plugins were found in " + used + ".\n\nIf the installer is still open, "
+                             "finish it, then look again (Options → Wine prefixes → OK). VST2 plugins installed "
+                             "elsewhere are found once their folder is in Options → VST2 plugin folders.");
+        return;
+    }
+    std::string names;
+    for (auto& n : added) names += "\n" + n;
+    showStatus(std::to_string(added.size()) + " new Windows plugin" + (added.size() == 1 ? "" : "s"), 5000);
+    ui::msg::information(this, title, "New in " + used + ":\n" + names);
 }
 
 void MainWindow::showAudioProperties() {

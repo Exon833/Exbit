@@ -202,6 +202,7 @@ public:
     void openSkinsFolder();
     void chooseVst2Folders();
     void chooseWinePrefixes();
+    void installWindowsPlugin();  // Options → Install Windows plugin… (wine_setup.h)
     void showAudioProperties();
     void setAudioDevice(const std::string& driverType, const std::string& device, int bufferSize, bool exclusive = false);
     void setBufferSize(int frames);

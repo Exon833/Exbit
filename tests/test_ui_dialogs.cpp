@@ -3,6 +3,7 @@
 // properties, recording helpers (input choices, count-in, take placement), freezing / bouncing
 // and rendering the mix to a file. Pictures of every dialog go to build/ui-samples/dialogs/.
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include <cmath>
 #include <cstdio>
@@ -27,6 +28,7 @@
 #include "ui/track_render.h"
 #include "ui/toolkit/menu.h"
 #include "ui/wine_prefixes_dialog.h"
+#include "ui/wine_setup.h"
 
 using namespace ui;
 
@@ -1053,6 +1055,18 @@ void testWinePrefixesDialog() {
     CHECK(d.prefixes().size() == 1 && d.programs().empty());
     CHECK(d.add(p32) && d.prefixes().size() == 2 && d.list->currentRow() == 1);  // (added: selected)
     CHECK(!d.add(dir + "/bin"));                                                 // (not a prefix)
+    // New prefix… and Install Windows plugin… wait for their Wine process with a progress window
+    for (int want : {0, 3}) {
+        int pid = fork();
+        if (pid == 0) {
+            usleep(300000);
+            _exit(want);
+        }
+        int code = -5;
+        double t0 = App::get().now();
+        CHECK(wine_setup::waitFor(nullptr, pid, "Waiting", "A process…", code));
+        CHECK(code == want && App::get().now() - t0 < 5);
+    }
 }
 
 int main() {

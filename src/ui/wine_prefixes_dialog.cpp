@@ -7,6 +7,7 @@
 #include "plugins/wine.h"
 #include "ui/plugin_folders_dialog.h"
 #include "ui/toolkit/layout.h"
+#include "ui/wine_setup.h"
 
 WinePrefixesDialog::WinePrefixesDialog(ui::Window* parent, const std::vector<std::string>& prefixes_,
                                        const std::map<std::string, std::string>& programs_)
@@ -24,13 +25,16 @@ WinePrefixesDialog::WinePrefixesDialog(ui::Window* parent, const std::vector<std
     row->spacing = 6;
     auto* addB = Widget::add<ui::Button>("Add prefix…");
     addB->clicked.connect([this] { addPrefix(); });
+    auto* newB = Widget::add<ui::Button>("New prefix…");
+    newB->setToolTip("Make a new 64-bit Wine prefix for Windows plugins (in " + wine_setup::prefixesHome() + ")");
+    newB->clicked.connect([this] { newPrefix(); });
     removeButton = Widget::add<ui::Button>("Remove");
     removeButton->clicked.connect([this] { removePrefix(); });
     defaultButton = Widget::add<ui::Button>("Add the default prefix");
     std::string d = wine::defaultPrefix();
     defaultButton->setToolTip(d.empty() ? "There is no default Wine prefix (~/.wine) on this computer" : d);
     defaultButton->clicked.connect([this] { addDefault(); });
-    for (ui::Button* b : {addB, removeButton, defaultButton}) row->addWidget(b);
+    for (ui::Button* b : {addB, newB, removeButton, defaultButton}) row->addWidget(b);
     row->addStretch(1);
     lay->addLayout(std::move(row));
     // the selected prefix: its facts, and which Wine runs its plugins
@@ -111,6 +115,11 @@ void WinePrefixesDialog::addPrefix() {
         ui::msg::warning(this, "Wine prefixes",
                              folder + " isn't a Wine prefix: a prefix is a folder holding drive_c and system.reg "
                                       "(for example ~/.wine).");
+}
+
+void WinePrefixesDialog::newPrefix() {
+    std::string made = wine_setup::newPrefix(window());
+    if (!made.empty()) add(made);
 }
 
 void WinePrefixesDialog::removePrefix() {

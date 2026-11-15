@@ -495,6 +495,143 @@ bool runWine(const std::string& prefix, const std::vector<std::string>& args, do
 
 }  // namespace
 
+// --- setting up ---
+
+namespace {
+
+// the wineserver of this wine program: beside it, else on the PATH ("" none)
+std::string wineserverFor(const std::string& wine) {
+    std::string sibling = util::joinPath(util::dirName(wine), "wineserver");
+    if (executable(sibling))
+        return sibling;
+    if (const char* path = getenv("PATH"))
+        for (const auto& dir : util::split(path, ':'))
+            if (!dir.empty() && executable(util::joinPath(dir, "wineserver")))
+                return util::joinPath(dir, "wineserver");
+    return "";
+}
+
+// starts `program args` with WINEPREFIX=prefix and `extra` in its environment, in `dir` ("" here);
+// its stdin and stdout /dev/null, its stderr this process's (Wine's own messages)
+int spawnIn(const std::string& prefix, const std::string& program, const std::vector<std::string>& args,
+            const std::vector<std::string>& extra, const std::string& dir, std::string& why) {
+    std::vector<std::string> env;
+    for (char** e = environ; *e; e++) {
+        std::string s = *e;
+        bool replaced = util::startsWith(s, "WINEPREFIX=");
+        for (const auto& x : extra)
+            replaced = replaced || util::startsWith(s, x.substr(0, x.find('=') + 1));
+        if (!replaced)
+            env.push_back(s);
+    }
+    env.push_back("WINEPREFIX=" + prefix);
+    env.insert(env.end(), extra.begin(), extra.end());
+    std::vector<std::string> argv = {program};
+    argv.insert(argv.end(), args.begin(), args.end());
+    std::vector<char*> a, e;
+    for (auto& s : argv)
+        a.push_back(&s[0]);
+    a.push_back(nullptr);
+    for (auto& s : env)
+        e.push_back(&s[0]);
+    e.push_back(nullptr);
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0);
+    posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_WRONLY, 0);
+    if (!dir.empty())
+        posix_spawn_file_actions_addchdir_np(&actions, dir.c_str());
+    posix_spawnattr_t attr;
+    posix_spawnattr_init(&attr);
+    posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSIGMASK);
+    sigset_t none;
+    sigemptyset(&none);
+    posix_spawnattr_setsigmask(&attr, &none);
+    pid_t pid = -1;
+    int r = posix_spawn(&pid, program.c_str(), &actions, &attr, a.data(), e.data());
+    posix_spawn_file_actions_destroy(&actions);
+    posix_spawnattr_destroy(&attr);
+    if (r != 0) {
+        why = "Cannot start " + program + ": " + strerror(r);
+        return -1;
+    }
+    return pid;
+}
+
+}  // namespace
+
+int startPrefix(const std::string& dir, const std::string& wine, std::string& why) {
+    if (!executable(wine)) {
+        why = wine.empty() ? "Wine isn't installed (or set TINYDAW_WINE to the wine program)" : wine + " can't be run";
+        return -1;
+    }
+    if (dir.empty() || dir[0] != '/') {
+        why = "A new prefix needs a full path";
+        return -1;
+    }
+    if (util::fileExists(dir) && (!util::isDir(dir) || !util::listDir(dir).empty())) {
+        why = dir + " already exists and isn't empty";
+        return -1;
+    }
+    if (!util::makeDirs(util::dirName(dir))) {
+        why = "Cannot make " + util::dirName(dir);
+        return -1;
+    }
+    return spawnIn(dir, wine, {"wineboot", "-u"}, {"WINEARCH=win64"}, "", why);
+}
+
+int startServerWait(const std::string& prefix, const std::string& wine, std::string& why) {
+    std::string server = wineserverFor(wine);
+    if (server.empty()) {
+        why = "Wine's wineserver can't be found beside " + wine;
+        return -1;
+    }
+    return spawnIn(prefix, server, {"-w"}, {}, "", why);
+}
+
+int startInstaller(const std::string& prefix, const std::string& installer, std::string& why) {
+    std::string wine = winePathFor(prefix);
+    if (wine.empty()) {
+        availableIn(prefix, why);
+        return -1;
+    }
+    if (!isPrefix(prefix)) {
+        why = prefix + " isn't a Wine prefix (a folder holding drive_c and system.reg)";
+        return -1;
+    }
+    std::string ext = util::extension(installer);
+    if (!util::fileExists(installer) || util::isDir(installer)) {
+        why = installer + " doesn't exist";
+        return -1;
+    }
+    std::vector<std::string> args;
+    if (ext == ".msi")
+        args = {"msiexec", "/i", installer};
+    else if (ext == ".exe" && isWindowsBinary(installer))
+        args = {installer};
+    else {
+        why = util::baseName(installer) + " isn't a Windows installer (an .exe or .msi file)";
+        return -1;
+    }
+    return spawnIn(prefix, wine, args, {}, util::dirName(util::absolutePath(installer)), why);
+}
+
+bool finished(int pid, int& code) {
+    int status = 0;
+    pid_t r = waitpid(pid, &status, WNOHANG);
+    if (r == 0)
+        return false;
+    code = r == pid && WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    return true;
+}
+
+void stop(int pid) {
+    if (pid <= 0)
+        return;
+    kill(pid, SIGKILL);
+    waitpid(pid, nullptr, 0);
+}
+
 // OpenGL through GLX, not EGL, for the host: its own settings in the prefix
 // (HKCU\Software\Wine\AppDefaults\tinydaw-wine-host.exe[.so]\X11 Driver: UseEGL = N; the rest of
 // the prefix keeps its own). Wine 11 starts OpenGL through EGL, which NVIDIA's drivers before 560

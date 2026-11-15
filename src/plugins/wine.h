@@ -72,6 +72,21 @@ std::string hostPath();   // tinydaw-wine-host.exe: $TINYDAW_WINE_HOST, else nex
 bool available(std::string& why);
 // …and in this prefix (its Wine there, a 64-bit prefix)? if not, why
 bool availableIn(const std::string& prefix, std::string& why);
+// --- setting up (Options → Wine prefixes → New prefix…, Options → Install Windows plugin…) ---
+// Each starts a Wine process and returns its pid at once (-1 and why if it can't); wait with
+// finished() (the main thread stays free: a progress window polls it), stop() gives up.
+// a new 64-bit prefix in `dir` (missing or empty; its parent is made) with this wine program:
+// wineboot -u, WINEARCH=win64. Its registry is written when its wineserver ends: startServerWait.
+int startPrefix(const std::string& dir, const std::string& wine, std::string& why);
+// waits for the prefix's wineserver to end (`wineserver -w`, the one beside `wine`): not where Tiny
+// DAW's own plugin hosts run, which keep it going
+int startServerWait(const std::string& prefix, const std::string& wine, std::string& why);
+// an installer (.exe; .msi through msiexec /i) in a prefix with its Wine, started in its own folder
+int startInstaller(const std::string& prefix, const std::string& installer, std::string& why);
+// has this child ended? `code`: its exit status (-1: killed by a signal)
+bool finished(int pid, int& code);
+void stop(int pid);  // kills it and waits for it
+
 // starts the host under Wine in `prefix` with these arguments; its stdout goes to outFd (-1: this
 // process's), its stdin comes from inFd (-1: nothing); returns its pid, or -1 (and why)
 int spawnHost(const std::string& prefix, const std::vector<std::string>& args, int outFd, std::string& why,

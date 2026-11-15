@@ -74,6 +74,13 @@ their settings are saved with the project. Each runs in a process of its own,
 program; audio through shared memory, `src/plugins/bridge.h`), so a Windows plugin that crashes
 falls silent instead of taking the program with it.
 
+No Terminal is needed to set them up: Options → Wine prefixes → **New prefix…** makes a 64-bit
+prefix (named by you, in `~/.local/share/wineprefixes`, as winetricks does; about half a minute) and
+adds it, and Options → **Install Windows plugin…** runs a plugin's installer (`.exe`, or `.msi`
+through `msiexec`) in a prefix (asked when there are several; with none, it offers to make one),
+waits for it, then lists the new plugins it finds. An installer that put VST2 plugins in a usual
+folder that isn't searched yet gets that folder offered for Options → VST2 plugin folders.
+
 Each prefix's plugins run with that prefix's own Wine: a Bottles bottle's runner (from its
 `bottle.yml`), the Wine version of the Lutris game whose prefix it is, or one chosen in Options →
 Wine prefixes (select the prefix, Wine program…; Automatic goes back). The dialog shows, for the

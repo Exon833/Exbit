@@ -33,6 +33,7 @@
 #include "plugins/plugin.h"
 #include "plugins/probe.h"
 #include "plugins/wine.h"
+#include "ui/wine_setup.h"
 #include "model/model.h"
 #include "ui/plugin_editor.h"
 #include "ui/toolkit/widget.h"
@@ -190,6 +191,103 @@ void testWinePrograms() {
 }
 
 std::string fakePe(uint16_t machine);
+
+// Install Windows plugin…'s bookkeeping (no Wine): names of new prefixes, the VST2 folders an installer
+// filled that aren't searched yet
+void testSetupWithoutWine() {
+    CHECK(wine_setup::validName("Plugins") && wine_setup::validName("Plugins 2"));
+    CHECK(!wine_setup::validName("") && !wine_setup::validName(".hidden") && !wine_setup::validName("a/b"));
+    CHECK(!wine_setup::validName(" padded") && !wine_setup::validName(".."));
+    std::string p = fakePrefix(util::joinPath(tempRoot, "setup/p"), "win64");
+    std::string usual = util::joinPath(p, "drive_c/Program Files/VstPlugins");
+    std::string other = util::joinPath(p, "drive_c/Program Files/Steinberg/VstPlugins");
+    util::makeDirs(usual);
+    util::writeFile(util::joinPath(usual, "Old.dll"), fakePe(0x8664));
+    auto before = wine_setup::vst2Dlls({p});
+    CHECK(before.size() == 1);
+    // the installer adds one beside it (in a vendor's subfolder) and one in another usual folder
+    util::makeDirs(util::joinPath(usual, "Vendor"));
+    util::writeFile(util::joinPath(usual, "Vendor/New.dll"), fakePe(0x8664));
+    util::writeFile(util::joinPath(usual, "Vendor/readme.txt"), "not a plugin");
+    util::makeDirs(other);
+    util::writeFile(util::joinPath(other, "Also.dll"), fakePe(0x8664));
+    auto after = wine_setup::vst2Dlls({p});
+    CHECK(after.size() == 3);
+    auto folders = wine_setup::newVst2Folders(before, after, {});
+    CHECK(folders.size() == 2 && std::find(folders.begin(), folders.end(), usual) != folders.end() &&
+          std::find(folders.begin(), folders.end(), other) != folders.end());
+    folders = wine_setup::newVst2Folders(before, after, {usual});  // (one is searched already)
+    CHECK(folders.size() == 1 && folders[0] == other);
+    CHECK(wine_setup::newVst2Folders(after, after, {}).empty());
+    std::string oldData = getenv("XDG_DATA_HOME") ? getenv("XDG_DATA_HOME") : "";
+    setenv("XDG_DATA_HOME", "/data/here", 1);
+    CHECK(wine_setup::prefixesHome() == "/data/here/wineprefixes");
+    if (oldData.empty()) unsetenv("XDG_DATA_HOME");
+    else setenv("XDG_DATA_HOME", oldData.c_str(), 1);
+}
+
+// New prefix… and Install Windows plugin… with Wine: a real prefix made (wineboot), its registry
+// written once its wineserver ends; an "installer" (a program of the prefix's own) run and waited for;
+// what they refuse
+void testSetupWithWine() {
+    std::string wine = wine::winePath(), why;
+    std::string dir = util::joinPath(tempRoot, "made/Plugins");
+    // refused: not a full path, not empty
+    CHECK(wine::startPrefix("relative/p", wine, why) < 0 && !why.empty());
+    util::makeDirs(util::joinPath(tempRoot, "full"));
+    util::writeFile(util::joinPath(tempRoot, "full/x"), "x");
+    CHECK(wine::startPrefix(util::joinPath(tempRoot, "full"), wine, why) < 0 && why.find("isn't empty") != std::string::npos);
+    CHECK(wine::startPrefix(dir, "/nonexistent/wine", why) < 0);
+    // stop(): a process given up on
+    int sleeper = fork();
+    if (sleeper == 0) {
+        execlp("sleep", "sleep", "30", (char*)nullptr);
+        _exit(1);
+    }
+    int code = 0;
+    CHECK(!wine::finished(sleeper, code));
+    double t0 = secondsNow();
+    wine::stop(sleeper);
+    CHECK(secondsNow() - t0 < 5);
+    // a new prefix (no Mono or Gecko asked for: a test)
+    setenv("WINEDLLOVERRIDES", "mscoree,mshtml=", 1);
+    t0 = secondsNow();
+    int pid = wine::startPrefix(dir, wine, why);
+    CHECK(pid > 0);
+    if (pid <= 0) {
+        printf("  (no new prefix: %s)\n", why.c_str());
+        unsetenv("WINEDLLOVERRIDES");
+        return;
+    }
+    while (!wine::finished(pid, code) && secondsNow() - t0 < 240) usleep(50000);
+    CHECK(code == 0);
+    int server = wine::startServerWait(dir, wine, why);
+    CHECK(server > 0);
+    while (server > 0 && !wine::finished(server, code) && secondsNow() - t0 < 300) usleep(50000);
+    unsetenv("WINEDLLOVERRIDES");
+    printf("  a new prefix made in %.1f s\n", secondsNow() - t0);
+    CHECK(wine::isPrefix(dir));
+    CHECK(wine::prefixArch(dir) == "win64");
+    // an installer: run in the prefix, from its own folder, waited for (hostname.exe, one of Wine's)
+    std::string exe = util::joinPath(dir, "drive_c/windows/system32/hostname.exe");
+    CHECK(wine::isWindowsBinary(exe));
+    pid = wine::startInstaller(dir, exe, why);
+    CHECK(pid > 0);
+    t0 = secondsNow();
+    code = -2;
+    while (pid > 0 && !wine::finished(pid, code) && secondsNow() - t0 < 120) usleep(50000);
+    CHECK(code == 0);
+    // refused: not an installer, missing, not a prefix
+    std::string text = util::joinPath(tempRoot, "notes.exe");
+    util::writeFile(text, "just text");
+    CHECK(wine::startInstaller(dir, text, why) < 0 && why.find("isn't a Windows installer") != std::string::npos);
+    CHECK(wine::startInstaller(dir, util::joinPath(tempRoot, "missing.msi"), why) < 0);
+    CHECK(wine::startInstaller(util::joinPath(tempRoot, "full"), exe, why) < 0);
+    // its wineserver ends by itself (nothing of ours runs there)
+    server = wine::startServerWait(dir, wine, why);
+    t0 = secondsNow();
+    while (server > 0 && !wine::finished(server, code) && secondsNow() - t0 < 120) usleep(50000);
+}
 
 // a whole prefix chosen as a VST2 folder: the scan stays inside it (Wine's links lead to "/" and to
 // the home folders) and leaves Windows' own DLLs alone
@@ -2800,6 +2898,8 @@ int main() {
     testPrefixes();
     testPrefixArch();
     testWinePrograms();
+    testSetupWithoutWine();
+    if (!getenv("TINYDAW_NO_WINE") && !wine::winePath().empty()) testSetupWithWine();
     testFiles();
     testPrefixAsVst2Folder();
     if (stressWanted("focus") && !getenv("TINYDAW_NO_WINDOWS") && getenv("DISPLAY"))

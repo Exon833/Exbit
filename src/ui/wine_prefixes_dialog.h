@@ -26,6 +26,7 @@ public:
     // adds a prefix; false (and nothing added) if the folder isn't one
     bool add(const std::string& prefix);
     void addPrefix();
+    void newPrefix();  // makes one (wine_setup::newPrefix) and adds it
     void removePrefix();
     void addDefault();
     // the selected prefix's wine program: chosen (a file), or automatic again ("")
