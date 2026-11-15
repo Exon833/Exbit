@@ -12,6 +12,12 @@
 // crashed) makes process() and render() fail, so the program shows the plugin stopped. Parameter
 // values are kept here as the host last told them, so asking for them costs nothing.
 //
+// Its settings as last known are kept too: what it last gave (a save, an autosave) or was given
+// (setState), refreshed without waiting (asked in idle(), the answer read with the news) when its
+// window closes and a little after changes (KEEP_STATE_SECONDS after the last). Once the host has
+// ended (or doesn't answer), componentState() / controllerState() give those, so a project saved
+// after a crash keeps the plugin's settings, and a reload (ui/plugin_host.h) starts it with them.
+//
 // The plugin's window: the host makes a Win32 window and gives the plugin its view in it; Tiny DAW
 // puts that window's X11 window (Wine's) inside its own plugin window, embedded by XEmbed, and tells
 // the host where on the screen it really is (for the plugin's sums with the mouse); embedded, Wine
@@ -66,6 +72,7 @@ constexpr double SEND_SECONDS = 2;      // a message the host takes nothing of f
 constexpr double BURST_SECONDS = 0.002;  // parameter changes this close to the last sent: sent together, later
 constexpr double CLOSE_SECONDS = 3;     // its window closing (on our main thread: the desktop thinks a
                                         // program that long unanswering hangs, and may end it)
+constexpr double KEEP_STATE_SECONDS = 2;  // its settings are asked for (to keep) this long after the last change
 
 double secondsNow() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -296,6 +303,7 @@ public:
     void setParam(uint32_t id, double value) override {
         if (plat::isMainThread()) {
             values[id] = value;
+            stateDue = secondsNow() + KEEP_STATE_SECONDS;  // (its settings changed: kept a little later)
             {
                 // (the plugin and its window, even when nothing plays; held while the host is hung). A
                 // change by itself goes at once (the processor has it with the next buffers); one of
@@ -339,6 +347,15 @@ public:
         readWaiting(0);
         ready();        // (what waited for a hung host goes, if it answers again)
         flushParams();  // (this frame's parameter changes)
+        // (its settings, a while after they last changed: asked without waiting, the answer kept
+        // when it comes with the news)
+        if (stateDue > 0 && !stateSeq && !hung && !dead && secondsNow() >= stateDue) {
+            stateSeq = ++seq;
+            if (send(GET_STATE, stateSeq, "", SEND_SECONDS))
+                stateDue = 0;
+            else
+                stateSeq = 0;  // (hung or gone: asked again once it answers)
+        }
         // (its idle not answered: is its main thread still there? Its window would stay frozen while
         // its sound plays on, nothing asked of it noticing; twice a second)
         if (idleSeq && !dead && secondsNow() - mainThreadLooked > 0.5) {
@@ -367,18 +384,26 @@ public:
 
     // --- state ---
 
-    // (no answer: an error, not an empty state, so that a project saved meanwhile keeps the one it had)
+    // (no answer: the settings last known; none known, an error, not an empty state, so that a
+    // project saved meanwhile keeps the one it had)
     std::string componentState() override {
         std::string answer;
         stateFetched = false;
-        if (!call(GET_STATE, Writer(), answer, STATE_SECONDS))
+        if (!call(GET_STATE, Writer(), answer, STATE_SECONDS)) {
+            if (stateKnown) {
+                fetchedController = knownController;
+                stateFetched = true;
+                return knownComponent;
+            }
             throw std::runtime_error(name_ + " didn't give its settings (its Wine host doesn't answer)");
+        }
         Reader r(answer);
         std::string component = r.str();
         fetchedController = r.str();
         stateFetched = r.ok();
         if (!r.ok())
             throw std::runtime_error(name_ + " didn't give its settings");
+        keepState(component, fetchedController);
         return component;
     }
 
@@ -405,6 +430,8 @@ public:
         paramsKnown = false;  // (values, maybe names, are new)
         if (r.ok() && !ok)
             throw std::invalid_argument(error.empty() ? "unknown plugin state" : error);
+        if (r.ok())
+            keepState(component, controller);
     }
 
     // --- the window ---
@@ -458,6 +485,8 @@ public:
             XSync(dpy, False);
         }
         resizeWanted = false;
+        if (!dead)
+            stateDue = secondsNow();  // (what was changed in it: kept with the next idle())
     }
 
     bool editorOpen() const override { return wineWindow != 0; }
@@ -513,6 +542,14 @@ public:
     }
 
     bool hostAlive() const { return !dead; }
+    bool stateIsKnown() const { return stateKnown; }
+    // its host ended now (a plugin stopped for a host that is late or hung, about to be started
+    // afresh: asked nothing more, its settings are those kept)
+    void endHost() {
+        std::lock_guard<std::recursive_mutex> hold(callLock);
+        if (!dead)
+            crashed();
+    }
     int hostPid() const { return pid; }
     int lateBuffers() const { return late_.load(); }
 
@@ -549,6 +586,18 @@ private:
     std::vector<uint32_t> editedIds;
     std::string fetchedController;
     bool stateFetched = false;
+
+    // --- its settings as last known (main thread): what it last gave or was given ---
+    bool stateKnown = false;
+    std::string knownComponent, knownController;
+    double stateDue = 0;    // (when to ask for them again, without waiting; 0: not wanted)
+    uint32_t stateSeq = 0;  // (that request, while unanswered)
+
+    void keepState(const std::string& component, const std::string& controller) {
+        knownComponent = component;
+        knownController = controller;
+        stateKnown = true;
+    }
 
     // --- audio thread ---
     SpinLock changesLock;
@@ -872,13 +921,24 @@ private:
         }
     }
 
-    // an answer nobody waits for: IDLE's news (others are late answers, dropped)
+    // an answer nobody waits for: IDLE's news, or the settings asked for in idle() (others are late
+    // answers, dropped)
     void news(const Header& h, const std::string& payload) {
+        if (h.op == GET_STATE && stateSeq && h.seq == stateSeq) {
+            stateSeq = 0;
+            Reader r(payload);
+            std::string component = r.str(), controller = r.str();
+            if (r.ok())
+                keepState(component, controller);
+            return;
+        }
         if (h.op != IDLE || h.seq != idleSeq)
             return;
         idleSeq = 0;
         Reader r(payload);
         uint32_t n = r.u32();
+        if (n > 0)
+            stateDue = secondsNow() + KEEP_STATE_SECONDS;  // (changed in its window: kept a little later)
         for (uint32_t i = 0; i < n && r.ok(); i++) {
             uint32_t id = r.u32();
             double v = r.f64();
@@ -1160,6 +1220,23 @@ bool bridgedWindowRect(Plugin& plugin, int& left, int& top, int& right, int& bot
 int bridgedHostPid(Plugin& plugin) {
     auto* b = dynamic_cast<BridgedPlugin*>(&plugin);
     return b ? b->hostPid() : -1;
+}
+
+bool isBridged(const Plugin& plugin) { return dynamic_cast<const BridgedPlugin*>(&plugin) != nullptr; }
+
+bool bridgedHostEnded(const Plugin& plugin) {
+    auto* b = dynamic_cast<const BridgedPlugin*>(&plugin);
+    return b && !b->hostAlive();
+}
+
+void endBridgedHost(Plugin& plugin) {
+    if (auto* b = dynamic_cast<BridgedPlugin*>(&plugin))
+        b->endHost();
+}
+
+bool bridgedStateKnown(const Plugin& plugin) {
+    auto* b = dynamic_cast<const BridgedPlugin*>(&plugin);
+    return b && b->stateIsKnown();
 }
 
 int bridgedLateBuffers(Plugin& plugin) {

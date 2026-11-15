@@ -17,6 +17,16 @@
 
 using namespace plugin_host;
 
+namespace {
+// (a plugin being loaded: its "please wait" window lets frames run, which mustn't reload others meanwhile)
+struct Loading {
+    bool& flag;
+    bool was;
+    explicit Loading(bool& f) : flag(f), was(f) { flag = true; }
+    ~Loading() { flag = was; }
+};
+}  // namespace
+
 PluginHost::PluginHost(ui::Window* window_, Project& project_, audio::Engine& engine_,
                        std::function<std::vector<std::string>()> vst2Folders_)
     : window(window_), project(project_), engine(engine_), vst2Folders(std::move(vst2Folders_)) {}
@@ -100,6 +110,7 @@ std::string PluginHost::expected(const plug::PluginInfo& info) {
 }
 
 SlotPtr PluginHost::load(const plug::PluginInfo& info) {
+    Loading loading(loading_);
     auto dialog = busy("Loading " + info.name + "…\n" + expected(info));
     std::unique_ptr<plug::Plugin> instance;
     try {
@@ -133,6 +144,7 @@ SlotPtr PluginHost::load(const plug::PluginInfo& info) {
 
 std::vector<std::string> PluginHost::restore(const std::vector<SlotPtr>& slots) {
     std::vector<std::string> failed;
+    Loading loading(loading_);
     auto dialog = busy("Loading plugins of the project…");
     int i = 0;
     for (const SlotPtr& slot : slots) {
@@ -161,6 +173,137 @@ void PluginHost::idle(const std::vector<SlotPtr>& slots) {
         auto instance = aload(slot->instance);
         if (instance && !editors.count(slot.get())) instance->idle();
     }
+    if (!loading_) noticeStopped(slots);
+}
+
+// --- stopped Windows plugins ---
+
+bool PluginHost::canReload(const SlotPtr& slot) const {
+    auto instance = slot ? aload(slot->instance) : nullptr;
+    if (!instance || !slot->failed.load(std::memory_order_acquire)) return false;
+    return reloadable ? reloadable(*instance) : plug::isBridged(*instance);
+}
+
+std::string PluginHost::whereOf(const SlotPtr& slot) const {
+    for (const TrackPtr& t : project.tracks)
+        if (aload(t->instrument) == slot || t->rack.contains(slot) || t->effects.contains(slot)) return t->name;
+    return project.masterEffects.contains(slot) ? "Master" : "";
+}
+
+void PluginHost::noticeStopped(const std::vector<SlotPtr>& slots) {
+    // (said once a stop; forgotten once it plays again, or its slot is gone)
+    stopped_.erase(std::remove_if(stopped_.begin(), stopped_.end(),
+                                  [](const std::weak_ptr<PluginSlot>& w) {
+                                      SlotPtr s = w.lock();
+                                      return !s || !s->failed.load();
+                                  }),
+                   stopped_.end());
+    for (const SlotPtr& slot : slots) {
+        auto instance = aload(slot->instance);
+        if (!instance || !slot->failed.load(std::memory_order_acquire)) continue;
+        bool known = false;
+        for (auto& w : stopped_) known = known || w.lock() == slot;
+        if (known) continue;
+        bool canBe = canReload(slot);
+        bool crashed = canBe && (reloadable || plug::bridgedHostEnded(*instance));  // (tests: any stop)
+        // (not by itself while a modal window is up, an export or a question: once it has gone)
+        if (autoReload && crashed && ui::App::get().modalWindow()) continue;
+        stopped_.push_back(slot);
+        slotChanged.emit(slot);
+        if (!canBe) {
+            status(slot->name + " stopped after an error: " + slot->error, 8000);
+        } else if (!autoReload || !crashed) {
+            status(slot->name + (plug::bridgedHostEnded(*instance) ? " stopped: its Wine host crashed"
+                                                                   : " stopped (" + slot->error + ")") +
+                       ". Reload it from its effects window or its menu.",
+                   8000);
+        } else if (!autoReloadAllowed(slot, ui::App::get().now())) {
+            status(util::format("%s crashed again: it stays stopped (it was reloaded %d times within a minute). "
+                                "Reload it from its effects window or its menu.",
+                                slot->name.c_str(), AUTO_RELOADS),
+                   10000);
+        } else {
+            std::string why;
+            if (!reload(slot, why)) status("Cannot reload " + slot->name + ": " + why, 10000);
+        }
+    }
+}
+
+bool PluginHost::autoReloadAllowed(const SlotPtr& slot, double now) {
+    autoReloads_.erase(std::remove_if(autoReloads_.begin(), autoReloads_.end(),
+                                      [](const auto& e) { return e.first.expired(); }),
+                       autoReloads_.end());
+    std::vector<double>* times = nullptr;
+    for (auto& [weak, list] : autoReloads_)
+        if (weak.lock() == slot) times = &list;
+    if (!times) {
+        autoReloads_.push_back({slot, {}});
+        times = &autoReloads_.back().second;
+    }
+    times->erase(std::remove_if(times->begin(), times->end(), [now](double t) { return now - t >= AUTO_RELOAD_SECONDS; }),
+                 times->end());
+    if ((int)times->size() >= AUTO_RELOADS) return false;
+    times->push_back(now);
+    return true;
+}
+
+bool PluginHost::reload(const SlotPtr& slot, std::string& why) {
+    if (!canReload(slot)) {
+        why = slot ? slot->name + " hasn't stopped, or isn't a Windows plugin (only those can be started afresh)"
+                   : "no plugin";
+        return false;
+    }
+    if (loading_) {
+        why = "another plugin is being loaded";
+        return false;
+    }
+    Loading loading(loading_);
+    auto old = aload(slot->instance);
+    bool crashed = plug::bridgedHostEnded(*old);
+    std::string stoppedBy = slot->error;
+    // (one stopped while its host lives on, late or hung: that host ends first, so nothing waits
+    // for it. A Windows plugin that has stopped gives the settings it last gave, or was given:
+    // bridged.cpp)
+    if (!crashed) plug::endBridgedHost(*old);
+    std::string state = slot->currentState();
+    plug::PluginInfo info{slot->path, slot->name, slot->kind, slot->pluginName};
+    std::unique_ptr<plug::Plugin> loaded;
+    {
+        auto dialog = busy("Reloading " + slot->name + "…\n" + expected(info));
+        try {
+            loaded = library().load(info, engine.sr);
+            if (!loaded) throw std::runtime_error("it didn't load");
+            if (!state.empty()) plug::setState(*loaded, state);
+        } catch (const std::exception& e) {
+            why = e.what();
+            loaded.reset();
+        }
+    }
+    if (!loaded) return false;  // (its window, if open, still says it stopped)
+    // (its stopped window goes, to open again on the new instance below)
+    bool wasOpen = editors.count(slot.get()) > 0;
+    if (wasOpen) closeEditor({slot});
+    std::shared_ptr<plug::Plugin> fresh(std::move(loaded));
+    // (the audio thread skips the slot while `failed`: it takes the new instance once that is
+    // cleared, and never the old one again; the error goes first, as fail() sets it first)
+    std::atomic_store(&slot->instance, fresh);
+    slot->error.clear();
+    slot->failed.store(false, std::memory_order_release);
+    project.retire(old);           // (destroyed on this thread, once the audio thread let go of it)
+    automation::resolve(project);  // (the slot's automation lanes find the new instance)
+    stopped_.erase(std::remove_if(stopped_.begin(), stopped_.end(),
+                                  [&](const std::weak_ptr<PluginSlot>& w) { return w.lock() == slot; }),
+                   stopped_.end());
+    slotChanged.emit(slot);
+    status("Reloaded " + slot->name + (crashed ? " (its Wine host had crashed)" : " (it had stopped: " + stoppedBy + ")"),
+           6000);
+    if (wasOpen) edit(slot, whereOf(slot));
+    return true;
+}
+
+void PluginHost::reloadStopped(const SlotPtr& slot) {
+    std::string why;
+    if (slot && !reload(slot, why)) ui::msg::warning(window, "Cannot reload plugin", slot->name + "\n\n" + why);
 }
 
 // --- windows ---
@@ -224,7 +367,16 @@ void PluginHost::edit(const SlotPtr& slot, const std::string& where) {
         opened = w;
     };
     if (effects::isBuiltin(slot->path)) setUp(new EffectWindow(window, slot, title));
-    else setUp(new EditorWindow(window, slot, title));
+    else {
+        auto* e = new EditorWindow(window, slot, title);
+        auto instance = aload(slot->instance);
+        e->reloadable = instance && (reloadable ? reloadable(*instance) : plug::isBridged(*instance));
+        auto alive = alive_;
+        e->reloadRequested.connect([this, alive](SlotPtr s) {
+            if (*alive) reloadStopped(s);
+        });
+        setUp(e);
+    }
     if (!opened) return;
     opened->showWindow();
     opened->raiseWindow();

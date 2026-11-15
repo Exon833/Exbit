@@ -115,6 +115,7 @@ Preferences Preferences::load() {
     p.interfaceScale = prefs::interfaceScale();
     p.nativeWayland = getBool("native_wayland", p.nativeWayland);
     p.ghostNotes = getStr("ghost_notes", p.ghostNotes);
+    p.reloadCrashedPlugins = getBool("reload_crashed_plugins", p.reloadCrashedPlugins);
     auto& sizes = prefs::bufferSizes();
     if (std::find(sizes.begin(), sizes.end(), p.bufferSize) == sizes.end()) p.bufferSize = 0;
     auto& rates = prefs::refreshRates();
@@ -150,6 +151,7 @@ Preferences Preferences::load() {
     p.known_["interface_scale"] = Json(p.interfaceScale);
     p.known_["native_wayland"] = Json(p.nativeWayland);
     p.known_["ghost_notes"] = Json(p.ghostNotes);
+    p.known_["reload_crashed_plugins"] = Json(p.reloadCrashedPlugins);
     return p;
 }
 
@@ -193,4 +195,5 @@ void Preferences::save() const {
     put("interface_scale", interfaceScale);
     put("native_wayland", nativeWayland);
     put("ghost_notes", ghostNotes);
+    put("reload_crashed_plugins", reloadCrashedPlugins);
 }

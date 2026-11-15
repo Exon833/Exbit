@@ -185,6 +185,9 @@ PluginsDialog::PluginsDialog(ui::Window* parent, PluginHost& host_, const std::s
     panel->menuRequested.connect([this](int i, Point where_) { unitMenu(i, where_); });
     panel->spaceMenuRequested.connect([this](Point pos, Point where_) { spaceMenu(pos, where_); });
     panel->volumeChanged.connect([this](int i, double db) { volumeChanged(i, db); });
+    panel->reloadRequested.connect([this](int i) {
+        if (i >= 0 && i < (int)effects().size()) reloadUnit(effects()[i]);
+    });
 
     {
         auto buttons = std::make_unique<ui::HBox>();
@@ -213,6 +216,9 @@ PluginsDialog::PluginsDialog(ui::Window* parent, PluginHost& host_, const std::s
                 break;
             }
     });
+    changedConn_ = host.slotChanged.connect([this](SlotPtr slot) {  // (stopped, or reloaded)
+        if (effects().contains(slot)) refresh(panel->current);
+    });
     resizeWindow(2 * END_W + 3 * (CARD_W + GAP) + GAP + 40, panel->cardH * 2 + 260);
     refresh();
     auto alive = alive_;
@@ -224,6 +230,7 @@ PluginsDialog::PluginsDialog(ui::Window* parent, PluginHost& host_, const std::s
 PluginsDialog::~PluginsDialog() {
     *alive_ = false;
     host.pictureTaken.disconnect(pictureConn_);
+    host.slotChanged.disconnect(changedConn_);
 }
 
 void PluginsDialog::resized() {
@@ -322,6 +329,10 @@ void PluginsDialog::refresh(std::optional<int> current) {
         }
         if (heard.count(s.get())) fed = fedHeard[s.get()];
         units.push_back(unitOf(*s, heard.count(s.get()) > 0, fed, side, INSTRUMENTS));
+        if (host.canReload(s)) {
+            units.back().reload = true;
+            units.back().tooltip += "\nClick Reload to start it again, with the settings it last had.";
+        }
     }
     bool nonePlaced = std::all_of(units.begin(), units.end(), [](const PanelUnit& u) { return !u.pos; });
     if (nonePlaced)  // (none placed yet, e.g. from an older project: in a row, as they were wired)
@@ -485,8 +496,22 @@ void PluginsDialog::toggleBypass(int row) {
     if (onChange) onChange();
 }
 
+void PluginsDialog::reloadUnit(const SlotPtr& slot) {
+    // (after the click or the menu that asked has returned: reloading shows a "please wait" window)
+    auto alive = alive_;
+    ui::App::get().singleShot(0, [this, alive, slot] {
+        if (!*alive || !effects().contains(slot)) return;
+        host.reloadStopped(slot);
+        if (*alive) refresh(panel->current);
+    });
+}
+
 void PluginsDialog::fillUnitMenu(ui::Menu& menu, int row) {
     SlotPtr slot = effects()[row];
+    if (host.canReload(slot)) {
+        menu.addAction("Reload (it stopped)", [this, slot] { reloadUnit(slot); });
+        menu.addSeparator();
+    }
     menu.addAction("Open its window", [this, slot] { openWindow(slot); })->setEnabled(plugin_audio::usable(slot));
     menu.addCheckable(BYPASS, slot->bypass, [this, row](bool) { toggleBypass(row); });
     auto alive = alive_;

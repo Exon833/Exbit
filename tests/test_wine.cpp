@@ -25,6 +25,9 @@
 #include <thread>
 #include <vector>
 
+#include "audio/automation.h"
+#include "audio/engine.h"
+#include "audio/plugin_audio.h"
 #include "check.h"
 #include "core/util.h"
 #include "platform/platform.h"
@@ -34,6 +37,7 @@
 #include "plugins/wine.h"
 #include "model/model.h"
 #include "ui/plugin_editor.h"
+#include "ui/plugin_host.h"
 #include "ui/toolkit/widget.h"
 
 #define Font XFontId  // (X11's Font against Tiny DAW's)
@@ -495,6 +499,30 @@ void testCrash(PluginLibrary& library, const PluginInfo& info) {
         CHECK(false);
         return;
     }
+    // (with a display: its window opened and closed, after which its settings are kept, without
+    // being asked, with the next idle(); a save after the crash then gets them)
+    bool kept = false;
+    Display* dpy = getenv("TINYDAW_NO_WINDOWS") ? nullptr : XOpenDisplay(nullptr);
+    if (dpy) {
+        CHECK(!bridgedStateKnown(*p));
+        Window ours = XCreateSimpleWindow(dpy, DefaultRootWindow(dpy), 40, 40, 400, 300, 0, 0, 0);
+        XMapWindow(dpy, ours);
+        XSync(dpy, False);
+        int w = 0, h = 0;
+        if (p->hasEditor() && p->openEditor((uintptr_t)ours, dpy, 1.0, w, h)) {
+            p->closeEditor();
+            double t0 = secondsNow();
+            while (!bridgedStateKnown(*p) && secondsNow() - t0 < 5) {
+                p->idle();
+                usleep(20000);
+            }
+            kept = bridgedStateKnown(*p);
+            CHECK(kept && secondsNow() - t0 < 1.5);
+            printf("   its settings kept %.2f s after its window closed\n", secondsNow() - t0);
+        }
+        XDestroyWindow(dpy, ours);
+        XCloseDisplay(dpy);
+    }
     int pid = bridgedHostPid(*p);
     CHECK(pid > 0);
     kill(pid, SIGKILL);
@@ -519,15 +547,160 @@ void testCrash(PluginLibrary& library, const PluginInfo& info) {
     CHECK(p->paramText(0, 0.5).size() > 0);  // (a default text)
     bool stateThrew = false;
     try {
-        stateOf(*p);
+        CHECK(stateOf(*p).size() > 8);  // (kept: the settings it last gave)
     } catch (const std::exception&) {
-        stateThrew = true;  // (a save keeps the project's last state rather than an empty one)
+        stateThrew = true;  // (none known: a save keeps the project's last state rather than an empty one)
     }
-    CHECK(stateThrew);
+    CHECK(stateThrew == !kept);
     p->getParam(0);
     CHECK(secondsNow() - t0 < 1.0);
     p.reset();
     printf("   the plugin fell silent; nothing hung\n");
+}
+
+// one buffer of the slot on a thread of its own (as the audio thread); true if it played
+bool audioThreadBuffer(PluginSlot& slot) {
+    const int N = 512;
+    Stereo in(N, 0.3f), out(N);
+    bool played = false;
+    std::thread([&] { played = plugin_audio::processEffect(slot, in.in(), nullptr, out.out(), N, 48000, {}); }).join();
+    return played;
+}
+
+// a crashed plugin reloaded (ui/plugin_host.h): its settings changed before the crash kept (asked for
+// a little after the change, without waiting: bridged.cpp), a project saved meanwhile keeping them,
+// back in a new host with them, automation following it, playing again; by itself (Options) at
+// most AUTO_RELOADS times a minute
+void testReload(const std::vector<std::string>& folders, const PluginInfo& info) {
+    printf("== a crash, then a reload: %s\n", info.name.c_str());
+    ui::App::get().initHeadless();
+    Project project;
+    audio::Engine engine(project);
+    engine.sr = 48000;
+    ui::Window main;
+    PluginHost host(&main, project, engine);
+    host.folders = folders;
+    host.cachePath = util::joinPath(tempRoot, "reload-cache.json");
+    std::vector<std::string> statuses;
+    host.showStatus = [&](const std::string& t, int) { statuses.push_back(t); };
+    double t0 = secondsNow();
+    SlotPtr slot = host.load(info);
+    CHECK(slot && slot->instance);
+    if (!slot || !slot->instance)
+        return;
+    printf("   loaded in %.2f s\n", secondsNow() - t0);
+    TrackPtr track = project.addTrack(Kind::Audio);
+    track->effects = std::vector<SlotPtr>{slot};
+    track->cables = chain({slot});
+    const ParamInfo* probe = nullptr;
+    auto params = slot->instance->parameters();
+    for (const auto& q : params)
+        if (q.automatable && !q.readOnly && !q.hidden && !q.isBypass && !q.isProgramChange && q.stepCount == 0) {
+            probe = &q;
+            break;
+        }
+    CHECK(probe != nullptr);
+    if (!probe)
+        return;
+    auto lane = std::make_shared<Automation>();
+    lane->slot = slot;
+    lane->param = probe->name;
+    track->automation = std::vector<AutomationPtr>{lane};
+    automation::resolve(project);
+    CHECK(aload(lane->targetPlugin) == aload(slot->instance) && lane->hasTarget);
+    // a change; its settings are kept a little later (idle(), every frame), without being asked
+    double to = slot->instance->getParam(probe->id) < 0.5 ? 0.8 : 0.2;
+    t0 = secondsNow();
+    slot->instance->setParam(probe->id, to);
+    for (int i = 0; i < 10; i++) {  // (its processor has it with the next buffers, as when playing)
+        plugin_audio::syncState(*slot, 48000);
+        usleep(10000);
+    }
+    CHECK(!bridgedStateKnown(*slot->instance));
+    while (!bridgedStateKnown(*slot->instance) && secondsNow() - t0 < 10) {
+        host.idle({slot});
+        usleep(20000);
+    }
+    double kept = secondsNow() - t0;
+    CHECK(bridgedStateKnown(*slot->instance) && kept >= 1.9);
+    printf("   its settings kept %.2f s after the change\n", kept);
+    CHECK(audioThreadBuffer(*slot) || !slot->failed);
+    // the crash
+    int pid = bridgedHostPid(*slot->instance);
+    CHECK(pid > 0);
+    kill(pid, SIGKILL);
+    usleep(300000);
+    for (int i = 0; i < 4 && !slot->failed; i++)
+        audioThreadBuffer(*slot);
+    CHECK(slot->failed && bridgedHostEnded(*slot->instance) && host.canReload(slot));
+    // saved meanwhile: the settings it last gave (never read before: its kept ones)
+    CHECK(slot->lastRead.empty() && slot->state.empty());
+    std::string saved = slot->currentState();
+    CHECK(!saved.empty());
+    if (!saved.empty()) {
+        std::string component, controller;
+        CHECK(unpackState(saved, component, controller));
+    }
+    host.idle({slot});
+    CHECK(!statuses.empty() && statuses.back().find(info.name.substr(0, 4)) != std::string::npos &&
+          statuses.back().find("Reload it") != std::string::npos);
+    // reloaded by hand: a new host, its settings back, automation following, playing again
+    t0 = secondsNow();
+    std::string why;
+    bool reloaded = host.reload(slot, why);
+    printf("   reloaded in %.2f s%s%s\n", secondsNow() - t0, reloaded ? "" : ": FAILED ", why.c_str());
+    CHECK(reloaded);
+    if (!reloaded)
+        return;
+    CHECK(!slot->failed && slot->error.empty());
+    int pid2 = bridgedHostPid(*slot->instance);
+    CHECK(pid2 > 0 && pid2 != pid);
+    printf("   \"%s\" was %.3f before the crash, %.3f after the reload (%zu bytes of settings kept)\n",
+           probe->name.c_str(), to, slot->instance->getParam(probe->id), saved.size());
+    CHECK(std::fabs(slot->instance->getParam(probe->id) - to) < 0.02);
+    CHECK(!statuses.empty() && statuses.back() == "Reloaded " + slot->name + " (its Wine host had crashed)");
+    CHECK(aload(lane->targetPlugin) == aload(slot->instance) && lane->hasTarget);
+    {
+        const int N = 512;
+        Stereo in(N, 0.3f), out(N);
+        CHECK(plugin_audio::processEffect(*slot, in.in(), nullptr, out.out(), N, 48000, {}));  // (main thread: waits)
+        CHECK(!slot->failed);
+    }
+    // by itself: AUTO_RELOADS times within a minute, then it stays stopped
+    host.autoReload = true;
+    int automatic = 0;
+    for (int i = 0; i < plugin_host::AUTO_RELOADS + 1; i++) {
+        int now = bridgedHostPid(*slot->instance);
+        kill(now, SIGKILL);
+        usleep(300000);
+        for (int k = 0; k < 4 && !slot->failed; k++)
+            audioThreadBuffer(*slot);
+        CHECK(slot->failed);
+        host.idle({slot});
+        if (!slot->failed && bridgedHostPid(*slot->instance) != now) {
+            automatic++;
+            CHECK(std::fabs(slot->instance->getParam(probe->id) - to) < 0.02);
+        }
+    }
+    CHECK(automatic == plugin_host::AUTO_RELOADS && slot->failed);
+    CHECK(!statuses.empty() && statuses.back().find("crashed again: it stays stopped") != std::string::npos);
+    printf("   reloaded by itself %d times, then left stopped\n", automatic);
+    host.autoReload = false;
+    // stopped while its host lives on (late offline, or hung): that host is ended first, nothing waits
+    CHECK(host.reload(slot, why) && !slot->failed);
+    int alive = bridgedHostPid(*slot->instance);
+    plugin_audio::fail(*slot, "it didn't finish a buffer in time");
+    CHECK(host.canReload(slot) && !bridgedHostEnded(*slot->instance));
+    t0 = secondsNow();
+    CHECK(host.reload(slot, why) && !slot->failed);
+    double took = secondsNow() - t0;
+    printf("   stopped with its host alive: reloaded in %.2f s\n", took);
+    CHECK(took < 15);
+    CHECK(bridgedHostPid(*slot->instance) != alive);
+    CHECK(!statuses.empty() && statuses.back() == "Reloaded " + slot->name + " (it had stopped: it didn't finish a buffer in time)");
+    CHECK(std::fabs(slot->instance->getParam(probe->id) - to) < 0.02);
+    track->automation = std::vector<AutomationPtr>{};
+    project.retire(aload(slot->instance));
 }
 
 // --- stress (TINYDAW_WINE_STRESS=all, or a list of: many, kill, stop, buffers, state, rate,
@@ -2662,6 +2835,7 @@ void testInstalled() {
     for (const auto& p : windows)
         if (p.kind == EFFECT && (!only || util::containsNoCase(p.name, only))) {
             testCrash(library, p);
+            testReload(folders, p);
             break;
         }
 }

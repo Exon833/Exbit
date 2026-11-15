@@ -14,8 +14,18 @@
 // are instruments or effects (in a process of its own, one plugin after the other); the menus and
 // lists show what it found as soon as they open again. The status bar says how it goes.
 //
+// A Windows plugin whose Wine host crashed is shown stopped (the status bar says so once); reload()
+// starts it afresh in a new host, at the engine's rate, with the settings it last gave
+// (plugins/bridged.cpp keeps them), swapped in for the stopped one as instances always are
+// (std::atomic_store, the old one retired); its window opens again if it was open, and automation
+// finds the new instance (automation::resolve). The effects windows' Reload button, their units'
+// menus, the instrument menu, a stopped plugin's own window and the track's menu offer it. With
+// `autoReload` (Options → Reload crashed Windows plugins automatically) idle() reloads them by
+// itself, at most AUTO_RELOADS times a slot within AUTO_RELOAD_SECONDS; after that it stays stopped.
+// (Plugins of Linux run in the program's own process: they can't be started afresh.)
+//
 // THE MAIN WINDOW: makes one PluginHost(this, project, engine, [prefs] { return prefs.vst2List(); }),
-// sets `statusBar`, calls idle(project.pluginSlots()) every frame, findKinds() 1.5 s after start,
+// sets `statusBar` and `autoReload` (Options), calls idle(project.pluginSlots()) every frame, findKinds() 1.5 s after start,
 // closeEditor() / stopFindingKinds() when closing, restore(slots) after opening a project,
 // and reads / clears `edited` for its unsaved-changes check.
 #pragma once
@@ -43,6 +53,8 @@ constexpr double PHOTO_EVERY_S = 1.5;  // how often an open window is photograph
 constexpr double PHOTO_WAIT_S = 0.8;   // photograph(): how long the invisible window gets to draw itself
 constexpr double PHOTO_GIVE_UP_S = 4;  // …and how long to keep trying while it shows nothing yet
 constexpr int PHOTO_TRY_MS = 100;
+constexpr int AUTO_RELOADS = 3;              // automatic reloads of a slot at most…
+constexpr double AUTO_RELOAD_SECONDS = 60;   // …within this long
 }  // namespace plugin_host
 
 class PluginHost {
@@ -67,6 +79,9 @@ public:
     plug::KindFinder::Spawner spawner;            // (tests: how the probe process is started; empty = this program)
     std::string cachePath;                        // (tests: the library's cache file; "" = the default)
     std::vector<std::string> folders;             // (tests: the VST3 folders; empty = plug::defaultFolders())
+    bool autoReload = false;                      // Options → Reload crashed Windows plugins automatically
+    ui::Signal<SlotPtr> slotChanged;              // a plugin stopped, or was reloaded (the effects windows show it)
+    std::function<bool(const plug::Plugin&)> reloadable;  // (tests: which can be reloaded; empty = plug::isBridged)
 
     // the plugins on this computer (listing the folders is quick, but only done when needed)
     plug::PluginLibrary& library();
@@ -84,8 +99,18 @@ public:
     // that could not be loaded (they keep their settings, so saving again loses nothing)
     std::vector<std::string> restore(const std::vector<SlotPtr>& slots);
     // give loaded plugins time on the main thread (call every frame); those with a window open get
-    // it from there
+    // it from there. Notices those that stopped (and reloads them, with autoReload).
     void idle(const std::vector<SlotPtr>& slots);
+
+    // --- stopped Windows plugins (see the top) ---
+    // has the slot's plugin stopped, and can it be started afresh (a Windows plugin)?
+    bool canReload(const SlotPtr& slot) const;
+    // start it afresh with the settings it last gave; false (and why) if it couldn't: it stays stopped
+    bool reload(const SlotPtr& slot, std::string& why);
+    // (buttons and menus) reload(), or a message saying why it couldn't
+    void reloadStopped(const SlotPtr& slot);
+    // the track (its name) or "Master" holding this slot, for its window's title ("" if none)
+    std::string whereOf(const SlotPtr& slot) const;
 
     // --- windows ---
     // open the plugin's own window (`where`: the track's name, for its title), or bring it forward
@@ -109,6 +134,11 @@ private:
     std::unique_ptr<plug::PluginLibrary> library_;
     std::vector<std::pair<std::weak_ptr<PluginSlot>, Point>> positions_;
     std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
+    bool loading_ = false;  // (a plugin is being loaded or reloaded: its "please wait" window lets frames run)
+    std::vector<std::weak_ptr<PluginSlot>> stopped_;  // stopped slots already noticed (said once)
+    std::vector<std::pair<std::weak_ptr<PluginSlot>, std::vector<double>>> autoReloads_;  // when each was reloaded by itself
+    void noticeStopped(const std::vector<SlotPtr>& slots);
+    bool autoReloadAllowed(const SlotPtr& slot, double now);
     void notePosition(const SlotPtr& slot, Point pos);
     void watch(ui::Window* w);
     void editorClosed(const SlotPtr& slot);

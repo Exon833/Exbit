@@ -1,6 +1,8 @@
 // The hidden testing aid of test_script.h.
 #include "ui/test_script.h"
 
+#include <signal.h>
+
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -10,6 +12,7 @@
 
 #include "core/util.h"
 #include "gfx/image.h"
+#include "plugins/wine.h"
 #include "ui/autosave.h"
 #include "ui/instrument_menu.h"
 #include "ui/main_window.h"
@@ -227,6 +230,14 @@ struct Runner {
             TrackPtr t = track(rest);
             if (!t) return say("no such track");
             main->editInstrument(t);
+        } else if (what == "crashPlugins") {  // (every Windows plugin's Wine host killed, as a crash)
+            int killed = 0;
+            for (const SlotPtr& s : main->project.pluginSlots()) {
+                auto instance = std::atomic_load(&s->instance);
+                int pid = instance ? plug::bridgedHostPid(*instance) : -1;
+                if (pid > 0 && kill(pid, SIGKILL) == 0) ++killed;
+            }
+            say("crashed " + std::to_string(killed) + " Windows plugin" + (killed == 1 ? "" : "s"));
         } else if (what == "undo") main->undo();
         else if (what == "redo") main->redo();
         else if (what == "autosave") {  // write the recovery file now (and wait for its audio)

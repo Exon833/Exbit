@@ -7,6 +7,10 @@
 // window and is named after the plugin and its track. The plugin gets idle() every frame (values
 // from playback, size changes both ways: the window's new size is passed to it there, once a frame).
 //
+// A Windows plugin that stops while its window is open (its Wine host crashed: its view went with
+// it) leaves the window saying so, with a Reload button (`reloadable`: PluginHost sets it for
+// Windows plugins; the button emits reloadRequested).
+//
 // invisible=true: the window is mapped offscreen (WindowOptions::offscreen), off the taskbar and
 // without taking the focus, for a picture of it (PluginHost::photograph).
 #pragma once
@@ -46,6 +50,11 @@ public:
     Point position() const;
 
     ui::Signal<SlotPtr> editorClosed;  // the slot, once the window is closed (Python: closed)
+    ui::Signal<SlotPtr> reloadRequested;  // its Reload button (the plugin stopped)
+    bool reloadable = false;           // a stopped plugin offers Reload (a Windows plugin)
+    // the plugin stopped: say so in the window (idle() does once it sees the slot failed)
+    void showStopped();
+    bool stoppedShown() const { return stoppedShown_; }
 
     // kept by PluginHost while it is open
     std::unique_ptr<automation::TweakWatcher> watcher;
@@ -56,6 +65,7 @@ public:
 private:
     int frameId_ = -1;
     bool closing_ = false;
+    bool stoppedShown_ = false;
     bool sizeChanged_ = false;  // (resized by the user: the plugin is told in idle())
     static plat::WindowOptions options(ui::Window* parent, const std::string& title, bool invisible);
 };

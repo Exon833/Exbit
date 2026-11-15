@@ -74,6 +74,16 @@ their settings are saved with the project. Each runs in a process of its own,
 program; audio through shared memory, `src/plugins/bridge.h`), so a Windows plugin that crashes
 falls silent instead of taking the program with it.
 
+A Windows plugin that crashed shows "Stopped" (the status bar says so) and can be **reloaded** without
+reopening the project: the Reload button on its picture in the effects window (or instrument patch
+panel), Reload in its right-click menu there, in the instrument menu (▾ next to 🎹) and the track's
+right-click menu, or the Reload button in its own window if that was open. It starts again in a new
+Wine host with the settings it last had, its window opens again if it was open, and its automation
+goes on. Options → Reload crashed Windows plugins automatically does this by itself, at most 3 times
+a minute for a plugin (then it stays stopped, and the status bar says why). The settings it last had
+are kept as you go: whenever it gives them (saving, autosave), 2 s after you change something in it,
+and when its window closes; a project saved while a plugin is crashed keeps them too.
+
 Their windows are drawn by the graphics card through OpenGL's GLX: before the first host starts in
 a prefix, Tiny DAW sets `UseEGL=N` in that prefix's settings for `tinydaw-wine-host.exe` only
 (`HKCU\Software\Wine\AppDefaults\tinydaw-wine-host.exe[.so]\X11 Driver`), as Wine 11's default,
@@ -88,7 +98,7 @@ the screen's refresh (JUCE 8 plugins repaint only after it: their windows stood 
 filled with a bounded stack: Wine's Direct2D can recurse without end on some (Serum 2's wavetable
 view, its WT POS knob turned), and such a shape is left unfilled instead of the plugin crashing
 (`TINYDAW_WINE_PATHS_AS_IS=1` leaves that as it is). A plugin that crashes anyway ends its host at
-once, and Tiny DAW shows it as crashed. The edges of their shapes aren't smoothed as on Windows
+once, and Tiny DAW shows it as stopped, ready to be reloaded (above). The edges of their shapes aren't smoothed as on Windows
 (Wine's Direct2D doesn't do that yet).
 
 ## Test

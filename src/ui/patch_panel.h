@@ -7,7 +7,7 @@
 // input jack (left), its sidechain jack ("SC", next to the input) if the plugin has a sidechain
 // input, its output jack (right), and a light: green = on and wired, amber = placed but not wired
 // in (its sound isn't heard), dark = bypassed (click the light), red = not loaded or stopped after
-// an error. Patch cables run from outputs (IN, a unit's right jack) to inputs (a unit's input or
+// an error (a stopped Windows plugin has a Reload button on its picture). Patch cables run from outputs (IN, a unit's right jack) to inputs (a unit's input or
 // sidechain jack, OUT); an output can feed several inputs and an input adds up all its cables
 // (audio/patch.h). What goes into a sidechain only steers the effect (a compressor or limiter
 // listening to it): it isn't heard itself. Along the bottom, above the rail, every other track has
@@ -107,6 +107,7 @@ struct PanelUnit {
     bool bypass = false;
     std::string status = "On";     // shown next to the light
     bool problem = false;          // not loaded or stopped: the light is red
+    bool reload = false;           // stopped, and can be started afresh: a Reload button on its picture
     bool idle = false;             // not wired in (its sound isn't heard): the light is amber
     bool sidechain = false;        // it has a sidechain input (a jack next to its input)
     std::string tooltip;
@@ -129,6 +130,7 @@ public:
     ui::Signal<std::optional<PanelCable>, std::optional<PanelCable>> patched;
     ui::Signal<std::optional<Point>> addRequested;  // place an effect: at this top-left, or none: a free spot
     ui::Signal<int> removeRequested;
+    ui::Signal<int> reloadRequested;                // a stopped unit's Reload button (its index)
     ui::Signal<int, Point> menuRequested;           // right-click on a unit (global position)
     ui::Signal<Point, Point> spaceMenuRequested;    // right-click on an empty spot (there, global position)
     // a unit's fader moved (its index, dB for an instrument, 0…1 for a Mix)
@@ -166,6 +168,7 @@ public:
     std::vector<Jack> jacks() const;
     std::optional<Jack> jackAt(Point pos) const;
     Rect ledRect(int index) const;   // the light and its word (click to bypass)
+    std::optional<Rect> reloadRect(int index) const;  // a stopped unit's Reload button, on its picture (none: no button)
     std::optional<Rect> volumeRect(int index) const;  // a unit's fader (volume or Mix), with its value
     std::pair<double, double> groove(int index) const;  // left and right end (x) of a fader's travel
     int valueWidth() const;  // px right of a fader for its value: its widest text, clear of the knob
@@ -199,7 +202,7 @@ public:
     void startWiring(const Jack& jack, PointF pos);
     // what the mouse is over
     struct Hover {
-        enum Kind { None, Unit, Led, Volume, JackHit };
+        enum Kind { None, Unit, Led, Volume, JackHit, Reload };
         Kind kind = None;
         int index = -1;
         Jack jack;

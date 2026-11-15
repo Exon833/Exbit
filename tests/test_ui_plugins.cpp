@@ -629,6 +629,135 @@ void testHost() {
     if (restored->instance) CHECK_NEAR(restored->instance->getParam(restored->instance->parameters()[0].id), 0.25, 1e-6);
     host.idle({restored, missing, fx});
 
+    // a stopped plugin started afresh (as a Windows plugin whose Wine host crashed is: the test effect
+    // stands for one), with its settings, found again by its automation; by itself (Options) at most
+    // AUTO_RELOADS times a minute, then it stays stopped
+    {
+        uint32_t pid = fx->instance->parameters()[0].id;
+        host.reloadable = [](const plug::Plugin&) { return true; };
+        std::string why;
+        CHECK(!host.canReload(fx) && !host.reload(fx, why) && !why.empty());  // (it plays)
+        fx->instance->setParam(pid, 0.4);
+        plugin_audio::syncState(*fx, engine.sr);
+        TrackPtr keys = project.addTrack(Kind::Audio);
+        keys->name = "Keys";
+        keys->effects = std::vector<SlotPtr>{fx};
+        keys->cables = chain({fx});
+        auto lane = std::make_shared<Automation>();
+        lane->slot = fx;
+        lane->param = fx->instance->parameters()[0].name;
+        keys->automation = std::vector<AutomationPtr>{lane};
+        automation::resolve(project);
+        auto before = aload(fx->instance);
+        CHECK(aload(lane->targetPlugin) == before && lane->hasTarget);
+        plugin_audio::fail(*fx, "boom");
+        CHECK(host.canReload(fx) && host.whereOf(fx) == "Keys");
+        statuses.clear();
+        host.idle({fx});
+        host.idle({fx});  // (said once)
+        CHECK(statuses.size() == 1 &&
+              statuses[0].first == "Tiny Test Fx stopped (boom). Reload it from its effects window or its menu.");
+        CHECK(fx->failed);  // (not by itself: the option is off)
+        {
+            // its effects window: Reload on its picture, and in its menu; a click reloads it
+            int changed = 0;
+            int conn = host.slotChanged.connect([&](SlotPtr s) { changed += s == fx; });
+            PluginsDialog d(&main, host, "Effects: Keys", project, keys, nullptr);
+            CHECK(d.panel->units().size() == 1 && d.panel->units()[0].reload && d.panel->reloadRect(0).has_value());
+            CHECK(d.panel->units()[0].status == "Stopped");
+            d.resizeWindow(700, 420);
+            saveWidget(d.panel, "stopped_unit.png");
+            ui::Menu menu;
+            d.fillUnitMenu(menu, 0);
+            CHECK(!menu.actions().empty() && menu.actions()[0]->text == "Reload (it stopped)");
+            if (auto r = d.panel->reloadRect(0)) {
+                CHECK(d.panel->toolTipAt(r->center()).find("Reload Tiny Test Fx") == 0);
+                ui::MouseEvent e = mouse(r->center());
+                d.panel->mousePress(e);
+                d.panel->mouseRelease(e);
+            }
+            for (int i = 0; i < 20 && fx->failed; ++i) ui::App::get().advanceTimers(0.01);  // (after the click)
+            CHECK(!fx->failed && fx->error.empty() && aload(fx->instance) != before);
+            CHECK(!d.panel->units()[0].reload && d.panel->units()[0].status == "On");
+            CHECK(!d.panel->reloadRect(0).has_value());
+            CHECK(changed >= 1);
+            host.slotChanged.disconnect(conn);
+        }
+        CHECK(!statuses.empty() && statuses.back().first == "Reloaded Tiny Test Fx (it had stopped: boom)");
+        CHECK_NEAR(fx->instance->getParam(pid), 0.4, 1e-6);  // (its settings came back)
+        CHECK(aload(lane->targetPlugin) == aload(fx->instance) && lane->hasTarget);  // (automation follows)
+        // by itself: AUTO_RELOADS times, then it stays stopped (said once)
+        host.autoReload = true;
+        int reloaded = 0;
+        for (int i = 0; i < plugin_host::AUTO_RELOADS + 1; ++i) {
+            auto was = aload(fx->instance);
+            plugin_audio::fail(*fx, "boom again");
+            host.idle({fx});
+            if (!fx->failed && aload(fx->instance) != was) ++reloaded;
+        }
+        CHECK(reloaded == plugin_host::AUTO_RELOADS && fx->failed);
+        CHECK(!statuses.empty() && statuses.back().first.find("crashed again: it stays stopped") != std::string::npos);
+        size_t said = statuses.size();
+        host.idle({fx});
+        CHECK(statuses.size() == said);
+        CHECK_NEAR(fx->instance->getParam(pid), 0.4, 1e-6);
+        // by hand it still can
+        CHECK(host.reload(fx, why) && !fx->failed);
+        CHECK_NEAR(fx->instance->getParam(pid), 0.4, 1e-6);
+        host.autoReload = false;
+        // a plugin of Linux can't: it runs in the program's own process
+        host.reloadable = nullptr;
+        plugin_audio::fail(*fx, "boom");
+        CHECK(!host.canReload(fx) && !host.reload(fx, why));
+        statuses.clear();
+        host.idle({fx});
+        CHECK(statuses.size() == 1 && statuses[0].first == "Tiny Test Fx stopped after an error: boom");
+        fx->error.clear();
+        fx->failed = false;
+        keys->automation = std::vector<AutomationPtr>{};
+        keys->effects = std::vector<SlotPtr>{};
+        keys->cables = straight();
+        project.removeTrack(keys);
+    }
+    // an instrument in an instrument patch panel, and a track's one instrument, alike
+    if (synth) {
+        host.reloadable = [](const plug::Plugin&) { return true; };
+        TrackPtr piano = project.addTrack(Kind::Midi);
+        piano->name = "Piano";
+        piano->usesRack = true;
+        piano->needsInstrument = false;
+        piano->rack = std::vector<SlotPtr>{synth};
+        piano->rackCables = std::vector<Cable>{Cable(End::in(), End::of(synth.get())), Cable(End::of(synth.get()), End::out())};
+        CHECK(host.whereOf(synth) == "Piano");
+        auto before = aload(synth->instance);
+        plugin_audio::fail(*synth, "boom");
+        {
+            InstrumentPanelDialog d(&main, host, "Instruments: Piano", project, piano, nullptr);
+            CHECK(d.panel->units().size() == 1 && d.panel->units()[0].reload);
+            ui::Menu menu;
+            d.fillUnitMenu(menu, 0);
+            CHECK(!menu.actions().empty() && menu.actions()[0]->text == "Reload (it stopped)");
+            std::string why;
+            CHECK(host.reload(synth, why));
+            CHECK(!d.panel->units()[0].reload && d.panel->units()[0].status != "Stopped");  // (shown at once)
+        }
+        CHECK(!synth->failed && aload(synth->instance) != before && synth->kind == plug::INSTRUMENT);
+        // the track's one instrument: its menus offer Reload
+        piano->usesRack = false;
+        piano->rack = std::vector<SlotPtr>{};
+        piano->rackCables = std::vector<Cable>{};
+        std::atomic_store(&piano->instrument, synth);
+        plugin_audio::fail(*synth, "boom");
+        ui::Menu menu;
+        instrument_menu::fillInstrumentMenu(&menu, &main, host, piano, nullptr, nullptr);
+        CHECK(!menu.actions().empty() && menu.actions()[0]->text == "Reload " + synth->name + " (it stopped)");
+        std::string why;
+        CHECK(host.reload(synth, why) && !synth->failed);
+        host.reloadable = nullptr;
+        std::atomic_store(&piano->instrument, SlotPtr());
+        project.removeTrack(piano);
+    }
+
     // the parameter chooser: the track's plugins, the parameters, the recently tweaked first
     TrackPtr t = project.addTrack(Kind::Audio);
     t->name = "Drums";
@@ -1108,6 +1237,32 @@ int displayTests() {
         ui::Window* w = host.editors.begin()->second;
         CHECK(w->title() == "Tiny Test Fx — Bass");
         ui::App::get().processEvents();
+    }
+    // stopped while open (as a Windows plugin whose host crashed: the test effect stands for one): its
+    // window says so, with Reload, which opens it again on the plugin started afresh
+    host.reloadable = [](const plug::Plugin&) { return true; };
+    host.closeEditor({fx});
+    ui::App::get().processEvents();
+    host.edit(fx, "Bass");
+    if (auto* w = host.editorOf(fx)) {
+        CHECK(w->reloadable);
+        auto before = aload(fx->instance);
+        plugin_audio::fail(*fx, "its Wine host has ended");
+        w->idle();
+        CHECK(w->stoppedShown());
+        saveWidget(w, "stopped_window.png", true);
+        int asked = 0;
+        w->reloadRequested.connect([&](SlotPtr) { ++asked; });
+        w->reloadRequested.emit(fx);  // (as its Reload button does)
+        CHECK(asked == 1);
+        ui::App::get().processEvents();
+        CHECK(!fx->failed && aload(fx->instance) != before);
+        EditorWindow* again = host.editorOf(fx);
+        CHECK(again != nullptr && again != w);
+        CHECK(again && !again->stoppedShown() && again->title() == "Tiny Test Fx");  // (in no track here)
+        project.retire(before);
+    } else {
+        CHECK(false);
     }
     host.closeEditor({fx});
     CHECK(host.editors.empty() && host.windowPosition(fx).has_value());

@@ -51,6 +51,7 @@ struct Preferences {
     std::string recordOffsets;              // Options → Recording offset: JSON {"driver|device": ms}
     int interfaceScale = 100;               // % the whole interface is drawn at (from the next start: main.cpp)
     bool nativeWayland = true;              // (the Python program's Qt-on-Wayland choice; kept for its settings)
+    bool reloadCrashedPlugins = false;      // a Windows plugin whose Wine host crashed is started afresh by itself
     std::string ghostNotes = "all";         // the MIDI editor shows other clips' notes: "all" tracks, this "track", or "off"
 
     std::vector<std::string> vst2List() const;
