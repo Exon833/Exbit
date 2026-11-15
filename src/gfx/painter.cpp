@@ -568,8 +568,6 @@ void Painter::blendPixel(int x, int y, uint32_t premulColor, int coverage) {
 
 // --- the rasterizer ---
 
-void Painter::rasterize(const std::vector<Path::Poly>& polys, Color c) { rasterize(polys, c, false); }
-
 void Painter::rasterize(const std::vector<Path::Poly>& polys, Color c, bool evenOdd) {
     uint32_t p = premulWith(c, opacity_);
     if (!(p >> 24) || polys.empty()) return;

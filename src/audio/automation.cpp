@@ -22,11 +22,6 @@ bool isPlaceholder(const std::string& name) {
     return false;
 }
 
-const std::vector<std::string>& controlNames() {
-    static const std::vector<std::string> names = {VOLUME, PAN};
-    return names;
-}
-
 double volumeOf(double value) { return config::MIN_DB + value * (config::MAX_DB - config::MIN_DB); }
 
 double panOf(double value) { return value * 2 - 1; }

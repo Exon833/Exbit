@@ -262,8 +262,8 @@ void Timeline::rerenderMoved(const std::map<ClipPtr, TrackPtr>& tracksBefore,
     for (auto& [clip, track] : tracksBefore) {
         if (clip->kind != Kind::Midi) continue;
         auto it = startsBefore.find(clip);
-        std::optional<int64_t> before = it != startsBefore.end() ? it->second : std::nullopt;
-        if (clip->track != track || (!clip->track->midiEffects.empty() && (!before || clip->start != *before)))
+        bool moved = it == startsBefore.end() || !it->second || clip->start != *it->second;  // (no start known: moved)
+        if (clip->track != track || (!clip->track->midiEffects.empty() && moved))
             prepareLive(clip);
     }
 }

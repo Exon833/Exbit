@@ -46,7 +46,6 @@ bool isPlaceholder(const std::string& name);  // placeholders some plugins expos
 // --- a track's own Volume and Pan (Track::controls) ---
 constexpr const char* VOLUME = "Volume";
 constexpr const char* PAN = "Pan";
-const std::vector<std::string>& controlNames();       // {"Volume", "Pan"}: the parameters of a `controls` slot
 double volumeOf(double value);                         // a Volume lane's value (0…1) in dB: MIN_DB … MAX_DB
 double panOf(double value);                            // a Pan lane's value (0…1): -1 … 1
 double controlValue(const Track& track, const std::string& name);  // the fader's / knob's value now, as 0…1
@@ -61,7 +60,7 @@ bool controlAutomated(const Track& track, const std::string& name);
 // of its panel), then its effects
 std::vector<SlotPtr> pluginsOf(const Track& track);
 // the parameters a plugin can automate, in its own order (GUI thread); Parameter::name is the name. A
-// `controls` slot has none here: its parameters are controlNames().
+// `controls` slot has none here: its parameters are VOLUME and PAN.
 std::vector<plugin_audio::Parameter> parameters(const PluginSlot& slot);
 
 // Asks a plugin now and then (poll(), GUI thread) which parameters were changed in its window, and

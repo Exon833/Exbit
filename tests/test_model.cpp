@@ -855,7 +855,8 @@ static void testRecovery() {
     std::string folder = util::absolutePath(kDir + "/recovery"), error;
     Json data = project_io::describeRecovery(p, SR, master, folder, written, toWrite);
     CHECK(toWrite.size() == 1 && written.size() == 1);
-    CHECK(data["clips"][size_t(0)]["file"].toString() == folder + "/rec.wav");
+    const Json& clips = data["clips"];  // (const: a non-const Json's [size_t] is ambiguous)
+    CHECK(clips[size_t(0)]["file"].toString() == folder + "/rec.wav");
     CHECK(project_io::writeRecovery(folder + "/project.json", data, toWrite, error));
     // a second look: nothing more to write
     std::vector<project_io::PendingAudio> more;

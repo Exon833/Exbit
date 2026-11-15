@@ -38,6 +38,5 @@ AudioPtr process(const AudioPtr& src, double factor, double semitones, bool reve
 // the same, kept (the last CACHE renderings) for the same audio and settings: split pieces of a clip
 // share their rendering. Thread-safe.
 AudioPtr stretched(const AudioPtr& src, double factor, double semitones, bool reverse = false);
-void clearCache();
 
 }  // namespace stretch

@@ -295,7 +295,8 @@ static void testApplyAndLive() {
     c->prepare(SR);
     CHECK(c->played && c->played->size() == 1 && (*c->played)[0].pitch == 65 && (*c->events)[0].pitch == 65);
     // the dialog's parameters
-    auto& ps = midi_effects::params("Arpeggiator");
+    const std::string arp = "Arpeggiator";  // (a named string: GCC warns of a dangling reference for a temporary)
+    auto& ps = midi_effects::params(arp);
     CHECK(ps.size() == 4 && ps[1].key == "rate" && ps[1].choices.size() == 6 && ps[1].defaultValue == 3 && ps[1].steps() == 5);
     CHECK(midi_effects::params("Velocity")[1].steps() == 254);
     CHECK(midi_effects::params("Nope").empty() && midi_effects::kinds().size() == 7);

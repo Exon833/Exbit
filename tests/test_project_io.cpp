@@ -162,7 +162,7 @@ static void build(Built& b) {
     for (auto& c : {b.c1, b.c2, b.c3, b.c4, b.mc}) p.addClip(c);
 
     b.C->frozen = makeAudioClip("Audio 5 (frozen)", tone(9600, 0.2, 0.1), SR, SR);
-    b.C->frozen->track = b.C;
+    // (no frozen->track, as the program does it: the track owns its rendering, a back pointer is a cycle)
     b.C->frozen->start = 1000;
 
     p.timing.bpm = 133.5;

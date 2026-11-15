@@ -32,8 +32,14 @@ void* operator new(size_t n) {
     if (!p) throw std::bad_alloc();
     return p;
 }
+// (the nothrow forms too, e.g. std::stable_sort's buffer: else they pair the sanitizers' new with our free)
+void* operator new(size_t n, const std::nothrow_t&) noexcept {
+    if (counting) allocations++;
+    return std::malloc(n ? n : 1);
+}
 void operator delete(void* p) noexcept { std::free(p); }
 void operator delete(void* p, size_t) noexcept { std::free(p); }
+void operator delete(void* p, const std::nothrow_t&) noexcept { std::free(p); }
 
 using namespace effects;
 

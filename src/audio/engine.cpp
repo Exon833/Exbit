@@ -437,11 +437,6 @@ std::string Engine::lastError() const {
     return lastError_;
 }
 
-void Engine::clearLastError() {
-    std::lock_guard<std::mutex> g(errorLock_);
-    lastError_.clear();
-}
-
 void Engine::setError(const char* what) {
     if (errorLock_.try_lock()) {  // (never waits: the GUI holds it for a moment at most)
         try {

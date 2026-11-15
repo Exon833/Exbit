@@ -38,8 +38,6 @@ const Color& c(const std::string& name);
 // put a skin on: colours {name: "#rrggbb[aa]"} (missing/invalid: the default) and fonts
 void setSkin(const std::vector<std::pair<std::string, std::string>>& colors = {}, const Fonts& fonts = Fonts());
 const Fonts& fonts();
-// every colour of the current skin, as "#rrggbb[aa]" by name (skin editor, export)
-std::vector<std::pair<std::string, std::string>> currentColors();
 
 // Options → Rounded corners
 extern bool rounded;

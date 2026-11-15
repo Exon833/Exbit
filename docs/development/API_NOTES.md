@@ -52,4 +52,4 @@ Read the headers for details; this is the map.
   `WindowOptions::offscreen` for invisible photographs.
 
 ## Platform additions
-- `plat::hasDisplay()`, `plat::setNativeEventFilter()`, `plat::callLater()`; `audio::Stream::lost`.
+- `plat::hasDisplay()`, `plat::callLater()`; `audio::Stream::lost`.

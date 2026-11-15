@@ -128,8 +128,6 @@ void walkFiles(const std::string& root, const std::function<bool(const std::stri
     walk(root, fn, seen);
 }
 
-char pathSep() { return '/'; }
-
 std::string joinPath(const std::string& a, const std::string& b) {
     if (a.empty()) return b;
     if (b.empty()) return a;

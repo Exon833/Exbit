@@ -12,8 +12,8 @@
 //   own XGetImage fails, capture() asks the Composite extension (raw protocol: NameWindowPixmap)
 //   for the window's pixmap and reads that.
 // - Plugins may embed their editors as child windows (nativeHandle()/nativeDisplay()), on our
-//   Display or their own connections. Events for windows we don't know go to the native event
-//   filter (setNativeEventFilter) or are ignored. X errors are logged, never fatal.
+//   Display or their own connections. Events for windows we don't know are ignored. X errors
+//   are logged, never fatal.
 #include "platform/platform.h"
 #include "gfx/svg.h"
 
@@ -145,7 +145,6 @@ struct State {
     int trapDepth = 0;
     int trappedError = 0;
     int loggedErrors = 0;
-    std::function<bool(void*)> nativeFilter;
 
     // screens (cached a moment: XRRGetMonitors is a round trip)
     std::vector<Rect> monitors;
@@ -1838,10 +1837,7 @@ void handleXEvent(XEvent& ev) {
         return;
     }
     auto it = s.windows.find(ev.xany.window);
-    if (it == s.windows.end()) {
-        if (s.nativeFilter) s.nativeFilter(&ev);
-        return;
-    }
+    if (it == s.windows.end()) return;
     it->second->handle(ev);
 }
 
@@ -2183,8 +2179,6 @@ void shutdown() {
 
 bool hasDisplay() { return S().dpy != nullptr; }
 
-void setNativeEventFilter(std::function<bool(void*)> fn) { S().nativeFilter = std::move(fn); }
-
 void processEvents(int timeoutMs) {
     State& s = S();
     if (s.wakeFd < 0) s.wakeFd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
@@ -2267,8 +2261,6 @@ void quit() {
 }
 
 bool quitting() { return S().quit; }
-
-int loopDepth() { return std::max(0, S().processDepth - 1); }
 
 int addTimer(int intervalMs, std::function<void()> fn, bool repeat) {
     return addTimerMs((double)intervalMs, std::move(fn), repeat);

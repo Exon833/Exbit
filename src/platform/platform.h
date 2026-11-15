@@ -131,8 +131,6 @@ void processEvents(int timeoutMs);
 void run();
 void quit();
 bool quitting();
-// how many nested loops are running inside run() (dialogs' exec()); 0 when only run() runs
-int loopDepth();
 
 int addTimer(int intervalMs, std::function<void()> fn, bool repeat = true);  // returns an id
 // the same with a fractional interval (a frame of a 60 Hz screen is 16.67 ms, not 16)
@@ -174,9 +172,6 @@ void beep();
 // --- additions (platform/x11.cpp) ---
 // false when init() could not connect to a display (no windows then; timers and posted work still run)
 bool hasDisplay();
-// events for windows this layer does not know (e.g. windows a plugin made on our own Display):
-// `fn` gets the native event (X11: XEvent*) and returns true if it handled it
-void setNativeEventFilter(std::function<bool(void* nativeEvent)> fn);
 // runs fn on the main thread at the next loop iteration (from the main thread: after the current event)
 inline void callLater(std::function<void()> fn) { postToMain(std::move(fn)); }
 

@@ -121,11 +121,6 @@ std::pair<TrackPtr, AutomationPtr> Timeline::laneEdgeAt(double y) const {
     return {};
 }
 
-Rect Timeline::visibleRect() const {
-    ui::Widget* vp = scroll->viewport();
-    return Rect(scroll->horizontalScrollBar()->value(), scroll->verticalScrollBar()->value(), vp->width(), vp->height());
-}
-
 std::optional<RectF> Timeline::clipRect(const Clip& clip, const std::map<const Track*, int>& tops) const {
     auto it = tops.find(clip.track.get());
     if (it == tops.end()) return std::nullopt;

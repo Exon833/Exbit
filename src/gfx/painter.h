@@ -134,6 +134,5 @@ private:
     Rect clip_;
     float opacity_ = 1;
     std::vector<State> stack_;
-    void rasterize(const std::vector<Path::Poly>& polys, Color c);  // device coordinates
-    void rasterize(const std::vector<Path::Poly>& polys, Color c, bool evenOdd);
+    void rasterize(const std::vector<Path::Poly>& polys, Color c, bool evenOdd);  // device coordinates
 };

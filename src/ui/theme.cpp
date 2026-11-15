@@ -129,13 +129,6 @@ const Fonts& fonts() {
     return currentFonts;
 }
 
-std::vector<std::pair<std::string, std::string>> currentColors() {
-    if (current.empty()) setSkin();
-    std::vector<std::pair<std::string, std::string>> out;
-    for (auto& info : colors()) out.emplace_back(info.name, current[info.name].hex());
-    return out;
-}
-
 const Shades& shades() {
     if (current.empty()) setSkin();
     return currentShades;

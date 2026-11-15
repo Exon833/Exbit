@@ -218,9 +218,4 @@ AudioPtr stretched(const AudioPtr& src, double factor, double semitones, bool re
     return result;
 }
 
-void clearCache() {
-    std::lock_guard<std::mutex> lock(g_mutex);
-    g_cache.clear();
-}
-
 }  // namespace stretch

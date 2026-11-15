@@ -235,7 +235,6 @@ public:
     TrackPtr trackAt(double y) const;                   // the track whose lane is under y, or null
     // the track or automation lane whose bottom edge is within LANE_EDGE_GRAB_PX of y (both null: none)
     std::pair<TrackPtr, AutomationPtr> laneEdgeAt(double y) const;
-    Rect visibleRect() const;                           // the part shown in the scroll area
     // the clip's box (its time span, inset 2 px in its lane); none while its track is folded away
     std::optional<RectF> clipRect(const Clip& clip, const std::map<const Track*, int>& tops) const;
     std::pair<ClipPtr, ClipZone> hit(PointF pos) const;    // later clips are on top

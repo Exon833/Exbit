@@ -31,7 +31,6 @@ std::string stem(const std::string& path);       // "a/b/c.wav" -> "c"
 std::string extension(const std::string& path);  // "a/b/c.WAV" -> ".wav" (lower case)
 std::string absolutePath(const std::string& path);
 std::string expandUser(const std::string& path); // "~/x" -> "/home/me/x"
-char pathSep();
 
 // --- strings ---
 std::string lower(const std::string& s);

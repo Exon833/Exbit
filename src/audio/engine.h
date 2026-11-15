@@ -208,7 +208,6 @@ public:
 
     // the latest error inside the audio callback, if any (it then played silence); "" = none
     std::string lastError() const;
-    void clearLastError();
 
     void idle();  // GUI thread, now and then (see the top)
 
