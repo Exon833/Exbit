@@ -26,6 +26,7 @@
 
 #include <cerrno>
 #include <climits>
+#include <cstddef>
 #include <ctime>
 #include <linux/futex.h>
 #include <poll.h>
@@ -269,13 +270,13 @@ struct AudioBlock {
     // transport (setTransport)
     int32_t transportSet;
     int32_t numerator, denominator, playing;
-    double tempo;
-    int64_t position;
+    alignas(8) double tempo;  // (alignas: the same layout for the 32-bit host, whose ABI aligns these to 4)
+    alignas(8) int64_t position;
     // a new sample rate, asked for on the audio thread (prepare() there is no request: the host's
     // audio thread prepares the plugin before this buffer)
     int32_t prepareSet;
     int32_t maxBlock;
-    double sampleRate;
+    alignas(8) double sampleRate;
     // in
     int32_t noteCount;
     int32_t paramCount;
@@ -288,6 +289,13 @@ struct AudioBlock {
     float sidechain[2][MAX_FRAMES];
     float out[2][MAX_FRAMES];
 };
+
+// (the same layout in Tiny DAW, the 64-bit host and the 32-bit one, which share it)
+static_assert(sizeof(ParamChange) == 16 && offsetof(ParamChange, value) == 8, "ParamChange");
+static_assert(offsetof(AudioBlock, tempo) == 48 && offsetof(AudioBlock, position) == 56, "AudioBlock");
+static_assert(offsetof(AudioBlock, sampleRate) == 72 && offsetof(AudioBlock, notes) == 88, "AudioBlock");
+static_assert(offsetof(AudioBlock, params) == 20568 && offsetof(AudioBlock, in) == 36960, "AudioBlock");
+static_assert(sizeof(AudioBlock) == 233568, "AudioBlock");
 
 inline long futex(std::atomic<uint32_t>* word, int op, uint32_t value, const timespec* timeout = nullptr) {
     static_assert(sizeof(std::atomic<uint32_t>) == 4, "a futex is 32 bits");

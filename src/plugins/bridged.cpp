@@ -603,7 +603,7 @@ private:
         }
         const std::string& socketName = socketPath;
         std::string why;
-        launcher = wine::spawnHost(wine::prefixFor(path), {"--serve", socketName}, -1, why);
+        launcher = wine::spawnHost(wine::prefixFor(path), {"--serve", socketName}, -1, why, -1, wine::is32BitPlugin(path));
         if (launcher < 0) {
             close(listener);
             throw std::runtime_error(why);
@@ -1192,7 +1192,8 @@ std::vector<ClassInfo> bridgedClasses(const std::string& path, std::string& erro
         error = "Cannot start the Wine host";
         return result;
     }
-    int pid = wine::spawnHost(wine::prefixFor(path), {"--classes", list}, fds[1], error, life[0]);
+    int pid = wine::spawnHost(wine::prefixFor(path), {"--classes", list}, fds[1], error, life[0],
+                              wine::is32BitPlugin(path));
     close(fds[1]);
     close(life[0]);
     std::string output;

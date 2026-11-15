@@ -5,6 +5,10 @@
 //       x86_64-win\TinyTestFx.vst3 and Resources\moduleinfo.json, a VST3 bundle
 //   TinyTestSynth.dll → %ProgramFiles%\VstPlugins\Tiny Test\TinyTestSynth.dll (a VST2 plugin in a
 //       vendor's folder inside a usual VST2 folder)
+// and, where they were built (make win-plugins with MinGW's i686 compiler), the 32-bit ones where a
+// 32-bit installer puts them: TinyTestFx32.vst3 → %CommonProgramFiles(x86)%\VST3\TinyTestFx32.vst3 (its
+// Contents\x86-win; no moduleinfo: the 32-bit host is asked), TinyTestSynth32.dll → %ProgramFiles(x86)%
+// VstPlugins\Tiny Test.
 // Exit status 0 when all is in place, else 1 (and why, on stderr).
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -57,5 +61,13 @@ int main() {
     bool ok = install(here + L"\\TinyTestFx.vst3", bundle + L"\\x86_64-win", L"TinyTestFx.vst3") &&
               install(here + L"\\TinyTestFx.moduleinfo.json", bundle + L"\\Resources", L"moduleinfo.json") &&
               install(here + L"\\TinyTestSynth.dll", programs + L"\\VstPlugins\\Tiny Test", L"TinyTestSynth.dll");
+    // the 32-bit ones, if built
+    std::wstring common32 = env(L"CommonProgramFiles(x86)"), programs32 = env(L"ProgramFiles(x86)");
+    if (ok && GetFileAttributesW((here + L"\\TinyTestFx32.vst3").c_str()) != INVALID_FILE_ATTRIBUTES)
+        ok = !common32.empty() && install(here + L"\\TinyTestFx32.vst3",
+                                          common32 + L"\\VST3\\TinyTestFx32.vst3\\Contents\\x86-win", L"TinyTestFx32.vst3");
+    if (ok && GetFileAttributesW((here + L"\\TinyTestSynth32.dll").c_str()) != INVALID_FILE_ATTRIBUTES)
+        ok = !programs32.empty() &&
+             install(here + L"\\TinyTestSynth32.dll", programs32 + L"\\VstPlugins\\Tiny Test", L"TinyTestSynth32.dll");
     return ok ? 0 : 1;
 }

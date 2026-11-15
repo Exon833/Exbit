@@ -664,7 +664,8 @@ bool elfExportsVst2(const std::string& path) {
     return false;
 }
 
-// a 64-bit Windows DLL exporting VSTPluginMain or main (read from its headers and export table)
+// a Windows DLL exporting VSTPluginMain or main (read from its headers and export table): 64-bit
+// (PE32+), or 32-bit (PE32, for the 32-bit Wine host)
 bool peExportsVst2(const std::string& path) {
     FileReader r(path);
     if (!r.f)
@@ -678,13 +679,14 @@ bool peExportsVst2(const std::string& path) {
     if (!ok || !r.at(pe, sig, 4) || std::memcmp(sig, "PE\0\0", 4) != 0)
         return false;
     uint16_t machine = r.get<uint16_t>(pe + 4, ok), count = r.get<uint16_t>(pe + 6, ok);
-    if (!ok || machine != 0x8664)  // (32-bit plugins can't run in this 64-bit program)
+    if (!ok || (machine != 0x8664 && machine != 0x14c))
         return false;
     uint16_t optionalSize = r.get<uint16_t>(pe + 20, ok);
     uint32_t optional = pe + 24;
-    if (!ok || r.get<uint16_t>(optional, ok) != 0x20B)
+    uint16_t magic = r.get<uint16_t>(optional, ok);  // (0x20B: PE32+, 64-bit; 0x10B: PE32, 32-bit)
+    if (!ok || (magic != 0x20B && magic != 0x10B) || (magic == 0x20B) != (machine == 0x8664))
         return false;
-    uint32_t exportRva = r.get<uint32_t>(optional + 112, ok);
+    uint32_t exportRva = r.get<uint32_t>(optional + (magic == 0x20B ? 112 : 96), ok);  // (the data directories' first)
     if (!ok || !exportRva)
         return false;
     struct Section { uint32_t vsize, vaddr, rawSize, rawPtr; };
@@ -731,8 +733,8 @@ bool isVst2File(const std::string& path) {
     return peExportsVst2(path);
 #else
     int machine = 0;
-    if (wine::isWindowsBinary(path, &machine))  // (a Windows plugin, run through Wine: 64-bit ones only)
-        return machine == 0x8664 && peExportsVst2(path);
+    if (wine::isWindowsBinary(path, &machine))  // (a Windows plugin, run through Wine: 64- or 32-bit)
+        return (machine == 0x8664 || machine == 0x14c) && peExportsVst2(path);
     return elfExportsVst2(path);
 #endif
 }

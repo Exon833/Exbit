@@ -13,6 +13,7 @@
 # With Wine's winegcc installed, it also builds tinydaw-wine-host.exe (src/winehost: the host
 # that runs Windows plugins under Wine, plugins/bridge.h), on Tiny DAW's own Win32 declarations
 # (src/winehost/include); without it, Windows plugins say they need it. WINEGCC=... picks another.
+# With 32-bit build support (gcc-multilib, g++-multilib), also tinydaw-wine-host-32.exe, for 32-bit plugins.
 
 CXX      ?= g++
 TARGET   := tinydaw
@@ -51,31 +52,48 @@ WINE_HOST := tinydaw-wine-host.exe
 WINE_SRCS := src/winehost/host.cpp src/winehost/platform.cpp src/winehost/d2dfix.cpp src/plugins/vst3host.cpp src/plugins/vst2host.cpp \
              src/plugins/plugin.cpp src/plugins/probe.cpp src/core/util.cpp src/core/json.cpp
 WINE_OBJS := $(WINE_SRCS:%.cpp=build/winehost/%.o)  # (one host for both builds, always optimized)
-WINE_FLAGS := -std=c++17 -O2 -g1 -DNDEBUG -fPIC -Wall -Wextra \
-              -Wno-unused-parameter -Wno-missing-field-initializers -MMD -MP -Isrc/winehost/include -Isrc \
-              -D_WIN32 -D_WIN64 -DTINYDAW_WINE_HOST '-D__stdcall=__attribute__((ms_abi))' \
-              '-D__cdecl=__attribute__((ms_abi))'
+WINE_BASE := -std=c++17 -O2 -g1 -DNDEBUG -fPIC -Wall -Wextra \
+             -Wno-unused-parameter -Wno-missing-field-initializers -MMD -MP -Isrc/winehost/include -Isrc \
+             -D_WIN32 -DTINYDAW_WINE_HOST
+WINE_FLAGS := $(WINE_BASE) -D_WIN64 '-D__stdcall=__attribute__((ms_abi))' '-D__cdecl=__attribute__((ms_abi))'
+# the 32-bit host, for 32-bit plugins (winegcc -m32: needs gcc-multilib/g++-multilib and Wine's i386 part;
+# the same sources, Windows' 32-bit calling conventions)
+WINE_HOST32 := tinydaw-wine-host-32.exe
+WINE32_OBJS := $(WINE_SRCS:%.cpp=build/winehost32/%.o)
+WINE32_FLAGS := $(WINE_BASE) -m32 '-D__stdcall=__attribute__((stdcall))' '-D__cdecl=__attribute__((cdecl))'
 ifneq ($(WINEGCC),)
-  ALL_WINE := $(WINE_HOST)
+  ALL_WINE := $(WINE_HOST) $(WINE_HOST32)
 endif
 
 # --- Windows builds of the test plugins, and a test installer (for test_wine; with MinGW's
-# x86_64-w64-mingw32-g++ installed, e.g. the g++-mingw-w64-x86-64 package; MINGW64=... picks another).
-# Linked statically: a Wine prefix has no MinGW runtime DLLs ---
+# x86_64-w64-mingw32-g++ installed, e.g. the g++-mingw-w64-x86-64 package; MINGW64=... picks another),
+# and 32-bit ones with i686-w64-mingw32-g++ (g++-mingw-w64-i686; MINGW32=...). Linked statically: a
+# Wine prefix has no MinGW runtime DLLs. Not in test-plugins/: the Linux tests list that folder ---
 MINGW64  ?= $(shell command -v x86_64-w64-mingw32-g++ 2>/dev/null)
-# (not in test-plugins/: the Linux tests list that folder)
-WIN64_DIR := $(BUILD)/win-test-plugins/win64
+MINGW32  ?= $(shell command -v i686-w64-mingw32-g++ 2>/dev/null)
+WIN_DIR := $(BUILD)/win-test-plugins
 WIN_FLAGS := -std=c++17 -O2 -static -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -Isrc
-WIN_TEST_PLUGINS := $(WIN64_DIR)/TinyTestFx.vst3 $(WIN64_DIR)/TinyTestFx.moduleinfo.json \
-                    $(WIN64_DIR)/TinyTestSynth.dll $(WIN64_DIR)/TinyTestInstaller.exe
+WIN_TEST_PLUGINS := $(WIN_DIR)/TinyTestFx.vst3 $(WIN_DIR)/TinyTestFx.moduleinfo.json \
+                    $(WIN_DIR)/TinyTestSynth.dll $(WIN_DIR)/TinyTestInstaller.exe
+WIN32_TEST_PLUGINS := $(WIN_DIR)/TinyTestFx32.vst3 $(WIN_DIR)/TinyTestSynth32.dll
 ifneq ($(MINGW64),)
   ALL_WIN_TEST := $(WIN_TEST_PLUGINS)
+  ifneq ($(MINGW32),)
+    ALL_WIN_TEST += $(WIN32_TEST_PLUGINS)
+  endif
 endif
 
 .PHONY: all clean test plugins winehost win-plugins
 all: $(TARGET) $(ALL_WINE)
 
-winehost: $(WINE_HOST)
+winehost: $(WINE_HOST) $(WINE_HOST32)
+
+$(WINE_HOST32): $(WINE32_OBJS)
+	$(WINEGCC) -m32 -mconsole -o $@ $^ -lstdc++ -lm -lpthread -lole32 -luser32 -ladvapi32 -lkernel32 -Wl,-z,defs
+
+build/winehost32/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(WINE32_FLAGS) -c $< -o $@
 
 $(WINE_HOST): $(WINE_OBJS)
 	$(WINEGCC) -mconsole -o $@ $^ -lstdc++ -lm -lpthread -lole32 -luser32 -ladvapi32 -lkernel32 -Wl,-z,defs
@@ -106,28 +124,37 @@ $(BUILD)/test-plugins/TinyTestFx.vst3/Contents/x86_64-linux/TinyTestFx.so: tests
 	$(CXX) -std=c++17 -O2 -fPIC -shared -Isrc -o $@ $< -lX11
 	cp tests/plugins/TinyTestFx.moduleinfo.json $(BUILD)/test-plugins/TinyTestFx.vst3/Contents/Resources/moduleinfo.json
 
-win-plugins: $(WIN_TEST_PLUGINS)
+win-plugins: $(ALL_WIN_TEST)
 
-$(WIN64_DIR)/TinyTestFx.vst3: tests/plugins/test_vst3_fx.cpp src/plugins/vst3_api.h
+$(WIN_DIR)/TinyTestFx.vst3: tests/plugins/test_vst3_fx.cpp src/plugins/vst3_api.h
 	@mkdir -p $(dir $@)
 	$(MINGW64) $(WIN_FLAGS) -shared -o $@ $< -lgdi32 -luser32
 
-$(WIN64_DIR)/TinyTestFx.moduleinfo.json: tests/plugins/TinyTestFx.moduleinfo.json
+$(WIN_DIR)/TinyTestFx.moduleinfo.json: tests/plugins/TinyTestFx.moduleinfo.json
 	@mkdir -p $(dir $@)
 	cp $< $@
 
-$(WIN64_DIR)/TinyTestSynth.dll: tests/plugins/test_vst2_synth.cpp src/plugins/vst2.h
+$(WIN_DIR)/TinyTestSynth.dll: tests/plugins/test_vst2_synth.cpp src/plugins/vst2.h
 	@mkdir -p $(dir $@)
 	$(MINGW64) $(WIN_FLAGS) -shared -o $@ $< -lgdi32 -luser32
 
-$(WIN64_DIR)/TinyTestInstaller.exe: tests/plugins/test_installer.cpp
+# (32-bit: --kill-at gives GetPluginFactory, a __stdcall function, its plain name, as Windows hosts look for it)
+$(WIN_DIR)/TinyTestFx32.vst3: tests/plugins/test_vst3_fx.cpp src/plugins/vst3_api.h
+	@mkdir -p $(dir $@)
+	$(MINGW32) $(WIN_FLAGS) -shared -Wl,--kill-at -o $@ $< -lgdi32 -luser32
+
+$(WIN_DIR)/TinyTestSynth32.dll: tests/plugins/test_vst2_synth.cpp src/plugins/vst2.h
+	@mkdir -p $(dir $@)
+	$(MINGW32) $(WIN_FLAGS) -shared -Wl,--kill-at -o $@ $< -lgdi32 -luser32
+
+$(WIN_DIR)/TinyTestInstaller.exe: tests/plugins/test_installer.cpp
 	@mkdir -p $(dir $@)
 	$(MINGW64) $(WIN_FLAGS) -o $@ $<
 
 test: $(TEST_BINS) $(TEST_PLUGINS) $(ALL_WINE) $(ALL_WIN_TEST)
-	@set -e; for t in $(TEST_BINS); do echo "== $$t"; TINYDAW_TEST_PLUGINS=$(BUILD)/test-plugins TINYDAW_WIN_TEST_PLUGINS=$(WIN64_DIR) $$t; done
+	@set -e; for t in $(TEST_BINS); do echo "== $$t"; TINYDAW_TEST_PLUGINS=$(BUILD)/test-plugins TINYDAW_WIN_TEST_PLUGINS=$(WIN_DIR) $$t; done
 
 clean:
-	rm -rf build build-debug tinydaw tinydaw-debug $(WINE_HOST) $(WINE_HOST).so
+	rm -rf build build-debug tinydaw tinydaw-debug $(WINE_HOST) $(WINE_HOST).so $(WINE_HOST32) $(WINE_HOST32).so
 
--include $(OBJS:.o=.d) $(TEST_BINS:%=%.d) $(WINE_OBJS:.o=.d)
+-include $(OBJS:.o=.d) $(TEST_BINS:%=%.d) $(WINE_OBJS:.o=.d) $(WINE32_OBJS:.o=.d)

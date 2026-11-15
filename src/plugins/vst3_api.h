@@ -29,6 +29,15 @@
 #define PLUGIN_API
 #endif
 
+// 8-byte members (double, int64) of the structures plugins share: 32-bit Windows plugins (MSVC, the
+// SDK's #pragma pack(8)) align them to 8, GCC's i386 ABI to 4; so on 32-bit Windows (the 32-bit Wine
+// host) they are aligned by hand. Elsewhere their natural alignment is already 8: nothing changes.
+#if defined(_WIN32) && defined(__i386__)
+#define VST3_ALIGN8 alignas(8)
+#else
+#define VST3_ALIGN8
+#endif
+
 namespace vst3 {
 
 // --- basic types ---
@@ -312,12 +321,12 @@ struct ProcessSetup {
     int32 processMode;
     int32 symbolicSampleSize;
     int32 maxSamplesPerBlock;
-    SampleRate sampleRate;
+    VST3_ALIGN8 SampleRate sampleRate;
 };
 
 struct AudioBusBuffers {
     int32 numChannels = 0;
-    uint64 silenceFlags = 0;
+    VST3_ALIGN8 uint64 silenceFlags = 0;
     union {
         Sample32** channelBuffers32;
         Sample64** channelBuffers64;
@@ -353,15 +362,15 @@ struct ProcessContext {
         kClockValid = 1 << 15,
     };
     uint32 state;
-    double sampleRate;
-    TSamples projectTimeSamples;
-    int64 systemTime;
-    TSamples continousTimeSamples;
-    TQuarterNotes projectTimeMusic;
-    TQuarterNotes barPositionMusic;
-    TQuarterNotes cycleStartMusic;
-    TQuarterNotes cycleEndMusic;
-    double tempo;
+    VST3_ALIGN8 double sampleRate;
+    VST3_ALIGN8 TSamples projectTimeSamples;
+    VST3_ALIGN8 int64 systemTime;
+    VST3_ALIGN8 TSamples continousTimeSamples;
+    VST3_ALIGN8 TQuarterNotes projectTimeMusic;
+    VST3_ALIGN8 TQuarterNotes barPositionMusic;
+    VST3_ALIGN8 TQuarterNotes cycleStartMusic;
+    VST3_ALIGN8 TQuarterNotes cycleEndMusic;
+    VST3_ALIGN8 double tempo;
     int32 timeSigNumerator;
     int32 timeSigDenominator;
     Chord chord;
@@ -405,7 +414,7 @@ struct PolyPressureEvent {
 struct NoteExpressionValueEvent {
     NoteExpressionTypeID typeId;
     int32 noteId;
-    double value;
+    VST3_ALIGN8 double value;
 };
 
 struct NoteExpressionTextEvent {
@@ -452,7 +461,7 @@ struct Event {
     };
     int32 busIndex;
     int32 sampleOffset;
-    TQuarterNotes ppqPosition;
+    VST3_ALIGN8 TQuarterNotes ppqPosition;
     uint16 flags;
     uint16 type;
     union {
@@ -604,7 +613,7 @@ struct ParameterInfo {
     String128 shortTitle;
     String128 units;
     int32 stepCount;
-    ParamValue defaultNormalizedValue;
+    VST3_ALIGN8 ParamValue defaultNormalizedValue;
     UnitID unitId;
     int32 flags;
 };
@@ -851,6 +860,18 @@ static_assert(offsetof(Vst::ParameterInfo, defaultNormalizedValue) == 776, "Para
 static_assert(sizeof(Vst::ProcessSetup) == 24, "ProcessSetup");
 static_assert(sizeof(Vst::AudioBusBuffers) == 24, "AudioBusBuffers");
 static_assert(sizeof(Vst::ProcessData) == 80, "ProcessData");
+static_assert(sizeof(Vst::ProcessContext) == 112, "ProcessContext");
+static_assert(offsetof(Vst::ProcessContext, tempo) == 72, "ProcessContext");
+static_assert(sizeof(Vst::Event) == 48, "Event");
+static_assert(offsetof(Vst::Event, type) == 18 && offsetof(Vst::Event, noteOn) == 24, "Event");
+static_assert(sizeof(Vst::NoteOnEvent) == 20 && sizeof(Vst::NoteOffEvent) == 16, "note events");
+#elif defined(_WIN32) && defined(__i386__)
+// (32-bit Windows, as plugins built with MSVC lay them out: pointers of 4 bytes, 8-byte members at 8)
+static_assert(sizeof(Vst::ParameterInfo) == 792, "ParameterInfo");
+static_assert(offsetof(Vst::ParameterInfo, defaultNormalizedValue) == 776, "ParameterInfo");
+static_assert(sizeof(Vst::ProcessSetup) == 24 && offsetof(Vst::ProcessSetup, sampleRate) == 16, "ProcessSetup");
+static_assert(sizeof(Vst::AudioBusBuffers) == 24 && offsetof(Vst::AudioBusBuffers, silenceFlags) == 8, "AudioBusBuffers");
+static_assert(sizeof(Vst::ProcessData) == 48, "ProcessData");
 static_assert(sizeof(Vst::ProcessContext) == 112, "ProcessContext");
 static_assert(offsetof(Vst::ProcessContext, tempo) == 72, "ProcessContext");
 static_assert(sizeof(Vst::Event) == 48, "Event");

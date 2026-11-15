@@ -64,15 +64,19 @@ Options → VST2 plugin folders (the usual ones: `~/.vst`, `/usr/lib/vst`, `/usr
 `/usr/lib/lxvst`). A plugin's type is found out in a separate process (`tinydaw --probe`), so a
 plugin that crashes can't take the program with it.
 
-**Windows plugins** (through Wine, 64-bit only): Options → Wine prefixes chooses the Wine prefixes
+**Windows plugins** (through Wine, 64- and 32-bit): Options → Wine prefixes chooses the Wine prefixes
 to look in (at first the default one, `$WINEPREFIX` or `~/.wine`). In each, VST3 plugins are found
-in `C:\Program Files\Common Files\VST3`; VST2 plugins (`.dll`) in the folders chosen in Options →
+in `C:\Program Files\Common Files\VST3` (and 32-bit ones in `C:\Program Files (x86)\Common Files\VST3`); VST2 plugins (`.dll`) in the folders chosen in Options →
 VST2 plugin folders, which offers their usual folders in each prefix. They are listed as
 "… (Windows)" and used like any other plugin: their windows open inside Tiny DAW's plugin windows,
 their settings are saved with the project. Each runs in a process of its own,
 `tinydaw-wine-host.exe` under Wine in its prefix (Tiny DAW's own VST hosts built as a Winelib
 program; audio through shared memory, `src/plugins/bridge.h`), so a Windows plugin that crashes
-falls silent instead of taking the program with it.
+falls silent instead of taking the program with it. 32-bit plugins (listed as "… (Windows, 32-bit)")
+run in `tinydaw-wine-host-32.exe`, built by `make` beside the 64-bit host when winegcc can build
+32-bit programs (the `gcc-multilib` and `g++-multilib` packages, and Wine's 32-bit part), in a
+64-bit prefix through Wine's WoW64 or in a 32-bit-only one. They are looked for in
+`C:\Program Files (x86)` too (VST3 bundles' `Contents\x86-win`, the usual VST2 folders there).
 
 No Terminal is needed to set them up: Options → Wine prefixes → **New prefix…** makes a 64-bit
 prefix (named by you, in `~/.local/share/wineprefixes`, as winetricks does; about half a minute) and
@@ -87,7 +91,7 @@ Wine prefixes (select the prefix, Wine program…; Automatic goes back). The dia
 selected prefix, whether it is 64- or 32-bit and which Wine runs it, with its version (a Wine older
 than 11, the one Tiny DAW's host is tested with, is pointed out). A runner that is missing, or can't
 run outside Bottles, gives way to the usual Wine, and the dialog says why. A 32-bit-only prefix
-(made with `WINEARCH=win32`) can't run Tiny DAW's 64-bit host: loading one of its plugins says so.
+(made with `WINEARCH=win32`) runs only 32-bit plugins: loading a 64-bit one from it says so.
 
 Lines like `libEGL warning: egl: failed to create dri2 screen` on the terminal, when a prefix's
 Wine starts, come from Wine's own programs in it (`explorer.exe`, `services.exe`…), on computers
@@ -119,7 +123,7 @@ builds and runs every `tests/test_*.cpp` (each linked against all of `src/` exce
 and the two test plugins in `build/test-plugins/` (a VST3 effect and a VST2 synth, built on Tiny
 DAW's own plugin headers). With MinGW installed (`x86_64-w64-mingw32-g++`, e.g. the
 `g++-mingw-w64-x86-64` package), `make win-plugins` (part of `make test`) also builds their Windows
-versions and a small Windows installer for them in `build/win-test-plugins/win64/`: `test_wine` makes a
+versions and a small Windows installer for them in `build/win-test-plugins/` (32-bit ones too with `i686-w64-mingw32-g++`): `test_wine` makes a
 new Wine prefix, installs them there with that installer as Options → Install Windows plugin… does,
 and tests them through the Wine host like any installed plugin, without needing any commercial
 Windows plugin.

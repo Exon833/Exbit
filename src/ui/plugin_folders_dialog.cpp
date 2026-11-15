@@ -33,8 +33,8 @@ PluginFoldersDialog::PluginFoldersDialog(ui::Window* parent, const std::vector<s
     lay->addLayout(std::move(row));
     auto* hint = Widget::add<ui::Label>("VST3 plugins are always found in ~/.vst3, /usr/lib/vst3 and /usr/local/lib/vst3, and "
                                 "in the VST3 folder of each Wine prefix (Options → Wine prefixes). Folders may hold "
-                                "Linux plugins (.so) and Windows ones (.dll, run through Wine). Only 64-bit VST2 "
-                                "plugins can be used; plugins that hold several (shells, such as Waves) aren't "
+                                "Linux plugins (.so) and Windows ones (.dll, run through Wine: 64- and 32-bit). Linux plugins "
+                                "must be 64-bit; plugins that hold several (shells, such as Waves) aren't "
                                 "supported yet.");
     hint->setProperty("hint", "true");
     hint->setWordWrap(true);

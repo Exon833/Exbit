@@ -114,6 +114,10 @@ void testPrefixArch() {
     if (!wine::hostPath().empty() && !wine::winePath().empty()) {
         CHECK(!wine::availableIn(util::joinPath(root, "p32"), why) && why.find("32-bit") != std::string::npos);
         CHECK(wine::availableIn(util::joinPath(root, "p64"), why));
+        if (!wine::hostPath(true).empty()) {  // (32-bit plugins: in a 32-bit prefix, and in a 64-bit one through WoW64)
+            CHECK(wine::availableIn(util::joinPath(root, "p32"), why, true));
+            CHECK(wine::availableIn(util::joinPath(root, "p64"), why, true));
+        }
     }
 }
 
@@ -2818,13 +2822,15 @@ int findKinds(PluginLibrary& library) {
 // as any installed plugin, and with what they are known to do
 void testWindowsTestPlugins(const std::string& prefix) {
     const char* dirEnv = getenv("TINYDAW_WIN_TEST_PLUGINS");  // (make test sets it; else the release build's)
-    std::string win = util::absolutePath(dirEnv && *dirEnv ? dirEnv : "build/win-test-plugins/win64");
+    std::string win = util::absolutePath(dirEnv && *dirEnv ? dirEnv : "build/win-test-plugins");
     std::string installer = util::joinPath(win, "TinyTestInstaller.exe");
     if (!util::fileExists(installer)) {
         printf("(no Windows test plugins: make win-plugins needs MinGW's x86_64-w64-mingw32-g++)\n");
         return;
     }
-    printf("== the Windows test plugins, installed in %s\n", prefix.c_str());
+    // the 32-bit ones too where they were built and the 32-bit host is there
+    bool bits32 = util::fileExists(util::joinPath(win, "TinyTestFx32.vst3")) && !wine::hostPath(true).empty();
+    printf("== the Windows test plugins%s, installed in %s\n", bits32 ? " (64- and 32-bit)" : "", prefix.c_str());
     auto before = wine_setup::vst2Dlls({prefix});
     std::string why;
     int code = -2;
@@ -2833,33 +2839,43 @@ void testWindowsTestPlugins(const std::string& prefix) {
     double t0 = secondsNow();
     while (pid > 0 && !wine::finished(pid, code) && secondsNow() - t0 < 120) usleep(50000);
     CHECK(code == 0);
-    std::string bundle = util::joinPath(prefix, "drive_c/Program Files/Common Files/VST3/TinyTestFx.vst3/Contents");
-    std::string vst2 = util::joinPath(prefix, "drive_c/Program Files/VstPlugins");
-    CHECK(util::fileExists(bundle + "/x86_64-win/TinyTestFx.vst3"));
-    CHECK(util::fileExists(bundle + "/Resources/moduleinfo.json"));
+    std::string c = util::joinPath(prefix, "drive_c");
+    std::string vst2 = c + "/Program Files/VstPlugins", vst2x86 = c + "/Program Files (x86)/VstPlugins";
+    CHECK(util::fileExists(c + "/Program Files/Common Files/VST3/TinyTestFx.vst3/Contents/x86_64-win/TinyTestFx.vst3"));
+    CHECK(util::fileExists(c + "/Program Files/Common Files/VST3/TinyTestFx.vst3/Contents/Resources/moduleinfo.json"));
     CHECK(util::fileExists(vst2 + "/Tiny Test/TinyTestSynth.dll"));
-    // Install Windows plugin… would offer the VST2 folder it filled
+    if (bits32) {
+        CHECK(util::fileExists(c + "/Program Files (x86)/Common Files/VST3/TinyTestFx32.vst3/Contents/x86-win/TinyTestFx32.vst3"));
+        CHECK(util::fileExists(vst2x86 + "/Tiny Test/TinyTestSynth32.dll"));
+    }
+    // Install Windows plugin… would offer the VST2 folders it filled
     auto folders = wine_setup::newVst2Folders(before, wine_setup::vst2Dlls({prefix}), {});
-    CHECK(folders.size() == 1 && !folders.empty() && folders[0] == vst2);
+    CHECK(folders.size() == (bits32 ? 2u : 1u) && std::find(folders.begin(), folders.end(), vst2) != folders.end());
+    if (bits32) CHECK(std::find(folders.begin(), folders.end(), vst2x86) != folders.end());
     PluginLibrary library(wine::vst3Folders({prefix}), util::joinPath(tempRoot, "cache-win.json"), folders);
     findKinds(library);
     std::vector<PluginInfo> found;
     for (const auto& p : library.plugins)
         if (wine::isWindowsPlugin(p.path)) found.push_back(p);
-    const PluginInfo *fx = nullptr, *synth = nullptr;
+    const PluginInfo *fx = nullptr, *synth = nullptr, *fx32 = nullptr, *synth32 = nullptr;
     for (const auto& p : found) {
-        printf("   found %s: %s\n", p.label().c_str(), p.path.c_str());
-        if (p.name == "Tiny Test Fx") fx = &p;
+        printf("   found %s%s: %s\n", p.label().c_str(), wine::is32BitPlugin(p.path) ? " [32-bit]" : "", p.path.c_str());
+        if (p.name == "Tiny Test Fx") (util::endsWith(p.path, "TinyTestFx32.vst3") ? fx32 : fx) = &p;
         if (util::endsWith(p.path, "TinyTestSynth.dll")) synth = &p;
+        if (util::endsWith(p.path, "TinyTestSynth32.dll")) synth32 = &p;
     }
     CHECK(fx && fx->kind == EFFECT);
     CHECK(synth && synth->kind == INSTRUMENT);
+    if (bits32) {
+        CHECK(fx32 && fx32->kind == EFFECT && wine::is32BitPlugin(fx32->path));
+        CHECK(synth32 && synth32->kind == INSTRUMENT && wine::is32BitPlugin(synth32->path));
+    }
     bool editors = !getenv("TINYDAW_NO_WINDOWS") && getenv("DISPLAY");
     for (const auto& p : found) testPlugin(library, p, editors && p.name != "Tiny Test Single");  // (it has no window)
     // what they are known to do, through the bridge: the effect is its input 64 frames late (×1 at the
     // default gain), the synth sounds while a note is held
-    if (fx) {
-        auto p = library.load(*fx, 48000);
+    auto exactFx = [&](const PluginInfo& info) {
+        auto p = library.load(info, 48000);
         CHECK(p->latency() == 64);
         const int N = 256;
         Stereo in(N), out(N);
@@ -2868,9 +2884,10 @@ void testWindowsTestPlugins(const std::string& prefix) {
         CHECK_NEAR(out.l[74], 0.5f, 1e-5);
         CHECK_NEAR(out.r[74], 0.5f, 1e-5);
         CHECK_NEAR(out.l[10], 0.0f, 1e-6);
-    }
-    if (synth) {
-        auto p = library.load(*synth, 48000);
+        CHECK(bridgedHostPid(*p) > 0);
+    };
+    auto exactSynth = [&](const PluginInfo& info) {
+        auto p = library.load(info, 48000);
         CHECK(p->isInstrument());
         const int N = 512;
         Stereo out(N);
@@ -2879,8 +2896,13 @@ void testWindowsTestPlugins(const std::string& prefix) {
         for (float v : out.l) peak = std::max(peak, std::fabs(v));
         CHECK(peak > 0.2f && peak <= 0.51f);  // (a sine at the default volume, 0.5)
         CHECK(util::startsWith(p->paramText(0, 0.5), "50.0"));  // (its display, then its label)
-    }
+    };
+    for (const PluginInfo* p : {fx, fx32})
+        if (p) exactFx(*p);
+    for (const PluginInfo* p : {synth, synth32})
+        if (p) exactSynth(*p);
     if (fx) testCrash(library, *fx);
+    if (fx32) testCrash(library, *fx32);
 }
 
 void testInstalled() {

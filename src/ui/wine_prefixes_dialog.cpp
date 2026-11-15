@@ -57,8 +57,8 @@ WinePrefixesDialog::WinePrefixesDialog(ui::Window* parent, const std::vector<std
         "In each prefix, VST3 plugins are found in C:\\Program Files\\Common Files\\VST3. For VST2 plugins (.dll), "
         "add their folders in Options → VST2 plugin folders, which offers the usual ones of these prefixes. Each "
         "Windows plugin runs in a Wine process of its own (Tiny DAW's own host; yabridge isn't needed), with the "
-        "prefix's Wine: a Bottles bottle's runner, a Lutris game's Wine version, or the one chosen here. Only 64-bit "
-        "plugins can be used.");
+        "prefix's Wine: a Bottles bottle's runner, a Lutris game's Wine version, or the one chosen here. 32-bit plugins "
+        "(also those in Program Files (x86)) run in a 32-bit host of their own.");
     hint->setProperty("hint", "true");
     hint->setWordWrap(true);
     lay->addWidget(hint);
@@ -162,7 +162,7 @@ void WinePrefixesDialog::chooseWine() {
 
 std::string WinePrefixesDialog::details(const std::string& prefix) const {
     std::string arch = wine::prefixArch(prefix);
-    std::string out = arch == "win32" ? "A 32-bit prefix: its plugins can't be used (Tiny DAW's Wine host is 64-bit)."
+    std::string out = arch == "win32" ? "A 32-bit prefix: only 32-bit plugins run there."
                                       : arch.empty() ? "A prefix not finished yet (its registry isn't written)."
                                                      : "A 64-bit prefix.";
     std::string source, program;

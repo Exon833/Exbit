@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <map>
+#include <mutex>
 #include <set>
 #include <utility>
 
@@ -37,6 +39,22 @@ std::vector<std::string> vst2UsualFolders() {
 #endif
 }
 
+bool PluginInfo::is32Bit() const {
+#ifdef _WIN32
+    return false;
+#else
+    static std::mutex lock;
+    static std::map<std::string, bool> known;  // (labels are asked for often; a file's header once)
+    std::lock_guard<std::mutex> hold(lock);
+    auto it = known.find(path);
+    if (it != known.end())
+        return it->second;
+    bool bits32 = looksWindows() && wine::is32BitPlugin(path);
+    known[path] = bits32;
+    return bits32;
+#endif
+}
+
 bool PluginInfo::looksWindows() const {
 #ifdef _WIN32
     return false;
@@ -57,15 +75,20 @@ PluginChoiceNeeded::PluginChoiceNeeded(std::vector<std::string> n)
       names(std::move(n)) {}
 
 std::string loadableFile(const std::string& path) {
-#ifdef _WIN32
+#if defined(_WIN32) && defined(__i386__)
+    std::string inner = util::joinPath(util::joinPath(path, "Contents\\x86-win"), util::baseName(path));
+#elif defined(_WIN32)
     std::string inner = util::joinPath(util::joinPath(path, "Contents\\x86_64-win"), util::baseName(path));
 #else
     std::string inner = vst3Binary(path);
-    if (util::isDir(path) && !util::fileExists(inner)) {  // (a Windows bundle, run through Wine)
-        std::string windows = util::joinPath(util::joinPath(path, "Contents/x86_64-win"), util::baseName(path));
-        if (util::fileExists(windows))
-            inner = windows;
-    }
+    if (util::isDir(path) && !util::fileExists(inner))  // (a Windows bundle, run through Wine: 64-bit, else 32-bit)
+        for (const char* arch : {"Contents/x86_64-win", "Contents/x86-win"}) {
+            std::string windows = util::joinPath(util::joinPath(path, arch), util::baseName(path));
+            if (util::fileExists(windows)) {
+                inner = windows;
+                break;
+            }
+        }
 #endif
     return util::isDir(path) && util::fileExists(inner) && !util::isDir(inner) ? inner : path;
 }

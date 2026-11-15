@@ -51,6 +51,10 @@
 
 #include "winehost/d2dfix.h"
 
+// (64-bit only: the fixes read x64 thread contexts and are for 64-bit plugins, Serum 2 and Quanta 2;
+// the 32-bit host, tinydaw-wine-host-32.exe, leaves Wine's Direct2D as it is: the stubs at the end)
+#if defined(__x86_64__)
+
 namespace {
 
 typedef LONG HRESULT_;
@@ -1019,3 +1023,14 @@ int pathTest(int points, int shape, bool asIs) {
     release(factory);
     return 0;
 }
+
+#else  // (the 32-bit host)
+
+void fixWineDirect2D() {}
+void forgetLayerBitmaps() {}
+void forgetFontLookups() {}
+void fixWineDxgi() {}
+void fixWineDirectWrite() {}
+int pathTest(int, int, bool) { return -1; }
+
+#endif

@@ -102,18 +102,24 @@ std::string prefixArch(const std::string& prefix) {
 
 std::vector<std::string> vst3Folders(const std::vector<std::string>& list) {
     std::vector<std::string> out;
-    for (const auto& prefix : list) {
-        std::string f = util::joinPath(prefix, "drive_c/Program Files/Common Files/VST3");
-        if (util::isDir(f))
-            out.push_back(f);
-    }
+    for (const auto& prefix : list)  // (and 32-bit plugins' own, in a 64-bit prefix)
+        for (const char* v : {"drive_c/Program Files/Common Files/VST3", "drive_c/Program Files (x86)/Common Files/VST3"}) {
+            std::string f = util::joinPath(prefix, v);
+            if (util::isDir(f))
+                out.push_back(f);
+        }
     return out;
 }
 
 std::vector<std::string> vst2UsualFolders(const std::vector<std::string>& list) {
     static const char* usual[] = {"drive_c/Program Files/VstPlugins", "drive_c/Program Files/Steinberg/VstPlugins",
                                   "drive_c/Program Files/Common Files/VST2",
-                                  "drive_c/Program Files/Common Files/Steinberg/VST2"};
+                                  "drive_c/Program Files/Common Files/Steinberg/VST2",
+                                  // (32-bit plugins', in a 64-bit prefix)
+                                  "drive_c/Program Files (x86)/VstPlugins",
+                                  "drive_c/Program Files (x86)/Steinberg/VstPlugins",
+                                  "drive_c/Program Files (x86)/Common Files/VST2",
+                                  "drive_c/Program Files (x86)/Common Files/Steinberg/VST2"};
     std::vector<std::string> out;
     for (const auto& prefix : list)
         for (const char* u : usual) {
@@ -142,6 +148,11 @@ bool isWindowsBinary(const std::string& file, int* machine) {
     }
     fclose(f);
     return ok;
+}
+
+bool is32BitPlugin(const std::string& file) {
+    int machine = 0;
+    return isWindowsBinary(file, &machine) && machine == 0x14c;
 }
 
 bool isWindowsPlugin(const std::string& path) {
@@ -173,14 +184,14 @@ std::string winePath() {
     return "";
 }
 
-std::string hostPath() {
-    if (const char* env = getenv("TINYDAW_WINE_HOST"))
+std::string hostPath(bool bits32) {
+    if (const char* env = getenv(bits32 ? "TINYDAW_WINE_HOST32" : "TINYDAW_WINE_HOST"))
         if (*env)
             return util::fileExists(env) ? env : "";
     std::string exe = plat::executableDir();
     for (const char* rel : {"", "..", "../..", "../lib/tinydaw"}) {
         std::string dir = *rel ? util::joinPath(exe, rel) : exe;
-        std::string p = util::joinPath(dir, "tinydaw-wine-host.exe");
+        std::string p = util::joinPath(dir, bits32 ? "tinydaw-wine-host-32.exe" : "tinydaw-wine-host.exe");
         if (util::fileExists(p) && util::fileExists(p + ".so"))
             return util::absolutePath(p);
     }
@@ -427,7 +438,7 @@ bool available(std::string& why) {
     return true;
 }
 
-bool availableIn(const std::string& prefix, std::string& why) {
+bool availableIn(const std::string& prefix, std::string& why, bool bits32) {
     if (winePathFor(prefix).empty()) {
         std::string source = wineSource(prefix);
         why = "Windows plugins need Wine, which isn't installed (or set TINYDAW_WINE to the wine program)";
@@ -435,14 +446,19 @@ bool availableIn(const std::string& prefix, std::string& why) {
             why = "The Wine for " + prefix + " can't be found (" + source + ")";
         return false;
     }
-    if (hostPath().empty()) {
+    if (!bits32 && hostPath().empty()) {
         why = "Windows plugins need tinydaw-wine-host.exe next to Tiny DAW (it is built by make when winegcc is "
               "installed)";
         return false;
     }
-    if (prefixArch(prefix) == "win32") {
-        why = prefix + " is a 32-bit Wine prefix (made with WINEARCH=win32): Tiny DAW's Wine host is 64-bit and "
-                       "can't run there. Make a 64-bit prefix (Options → Wine prefixes → New prefix…) and install the "
+    if (bits32 && hostPath(true).empty()) {
+        why = "32-bit Windows plugins need tinydaw-wine-host-32.exe next to Tiny DAW (built by make when winegcc can "
+              "build 32-bit programs: gcc-multilib and g++-multilib, and Wine's 32-bit part)";
+        return false;
+    }
+    if (!bits32 && prefixArch(prefix) == "win32") {
+        why = prefix + " is a 32-bit Wine prefix (made with WINEARCH=win32): only 32-bit plugins run there, and this "
+                       "one is 64-bit. Make a 64-bit prefix (Options → Wine prefixes → New prefix…) and install the "
                        "plugin in it.";
         return false;
     }
@@ -649,7 +665,8 @@ void preferGlx(const std::string& prefix) {
     done.push_back(prefix);
     std::string reg;
     util::readFile(util::joinPath(prefix, "user.reg"), reg);
-    for (const char* app : {"tinydaw-wine-host.exe", "tinydaw-wine-host.exe.so"}) {
+    for (const char* app : {"tinydaw-wine-host.exe", "tinydaw-wine-host.exe.so", "tinydaw-wine-host-32.exe",
+                            "tinydaw-wine-host-32.exe.so"}) {
         std::string key = std::string("AppDefaults\\\\") + app + "\\\\X11 Driver]";
         if (reg.find(key) != std::string::npos)
             continue;
@@ -705,8 +722,9 @@ bool prefixChoosesRenderer(const std::string& prefix) {
 
 }  // namespace
 
-int spawnHost(const std::string& prefix, const std::vector<std::string>& args, int outFd, std::string& why, int inFd) {
-    if (!availableIn(prefix, why))
+int spawnHost(const std::string& prefix, const std::vector<std::string>& args, int outFd, std::string& why, int inFd,
+              bool bits32) {
+    if (!availableIn(prefix, why, bits32))
         return -1;
     preferGlx(prefix);
     // Wine's Direct3D draws on Vulkan where there is a graphics card with a Vulkan driver (it has no
@@ -714,7 +732,7 @@ int spawnHost(const std::string& prefix, const std::vector<std::string>& args, i
     // (Serum 2's OSC tab: 185 -> 150 ms) and use less processor. Not if WINE_D3D_CONFIG or the
     // prefix chooses a renderer.
     bool vulkan = !getenv("WINE_D3D_CONFIG") && hardwareVulkan() && !prefixChoosesRenderer(prefix);
-    std::string wine = winePathFor(prefix), host = hostPath();
+    std::string wine = winePathFor(prefix), host = hostPath(bits32);
     std::vector<std::string> env;
     std::string overrides = "winedbg.exe=d";  // (a crashing plugin ends its host, with no Wine crash dialog)
     for (char** e = environ; *e; e++) {

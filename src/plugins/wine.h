@@ -10,8 +10,9 @@
 //     usual Windows ones of every prefix (C:\Program Files\VstPlugins, …\Steinberg\VstPlugins,
 //     …\Common Files\VST2, …\Common Files\Steinberg\VST2). A .dll outside every prefix runs in the
 //     first one.
-// Each plugin then runs in a Wine host process of its own, in the plugin's prefix. Only 64-bit
-// plugins (the host is 64-bit).
+// Each plugin then runs in a Wine host process of its own, in the plugin's prefix: 64-bit plugins in
+// tinydaw-wine-host.exe, 32-bit ones in tinydaw-wine-host-32.exe (in a 64-bit prefix through Wine's
+// WoW64; also in a 32-bit-only prefix). 32-bit plugins are looked for in Program Files (x86) too.
 #pragma once
 #include <map>
 #include <memory>
@@ -36,8 +37,10 @@ std::vector<std::string> vst3Folders(const std::vector<std::string>& prefixes);
 std::vector<std::string> vst2UsualFolders(const std::vector<std::string>& prefixes);
 
 // --- plugin files ---
-// a 64-bit Windows DLL? (read from its header); `machine` gets its machine type (0x8664: x64, 0x14c: x86)
+// a Windows DLL? (read from its header); `machine` gets its machine type (0x8664: x64, 0x14c: x86)
 bool isWindowsBinary(const std::string& file, int* machine = nullptr);
+// a 32-bit (x86) Windows binary, run by the 32-bit host?
+bool is32BitPlugin(const std::string& file);
 // is this plugin path (a file, or the binary inside a bundle) a Windows one, run through Wine?
 bool isWindowsPlugin(const std::string& path);
 // from the path alone, without reading anything: inside a prefix's drive_c, or a .dll (for labels)
@@ -67,11 +70,14 @@ std::string wineVersion(const std::string& wine);
 // its major version (11 for "wine-11.22"; 0 unknown)
 int wineMajor(const std::string& version);
 constexpr int TESTED_WINE_MAJOR = 11;  // the Wine Tiny DAW's host is tested with (older: a warning, not a refusal)
-std::string hostPath();   // tinydaw-wine-host.exe: $TINYDAW_WINE_HOST, else next to the program ("" none)
+// tinydaw-wine-host.exe (bits32: tinydaw-wine-host-32.exe): $TINYDAW_WINE_HOST (…_HOST32), else next
+// to the program ("" none)
+std::string hostPath(bool bits32 = false);
 // can Windows plugins run here? if not, why (for the error a load gives)
 bool available(std::string& why);
-// …and in this prefix (its Wine there, a 64-bit prefix)? if not, why
-bool availableIn(const std::string& prefix, std::string& why);
+// …and in this prefix, for a 64-bit plugin (or a 32-bit one: bits32)? Its Wine there, the host for it,
+// a prefix it can run in (a 32-bit-only prefix: 32-bit plugins only). If not, why
+bool availableIn(const std::string& prefix, std::string& why, bool bits32 = false);
 // --- setting up (Options → Wine prefixes → New prefix…, Options → Install Windows plugin…) ---
 // Each starts a Wine process and returns its pid at once (-1 and why if it can't); wait with
 // finished() (the main thread stays free: a progress window polls it), stop() gives up.
@@ -90,7 +96,7 @@ void stop(int pid);  // kills it and waits for it
 // starts the host under Wine in `prefix` with these arguments; its stdout goes to outFd (-1: this
 // process's), its stdin comes from inFd (-1: nothing); returns its pid, or -1 (and why)
 int spawnHost(const std::string& prefix, const std::vector<std::string>& args, int outFd, std::string& why,
-              int inFd = -1);
+              int inFd = -1, bool bits32 = false);
 
 }  // namespace wine
 

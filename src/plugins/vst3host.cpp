@@ -1513,7 +1513,9 @@ std::string vst3Binary(const std::string& bundle) {
     if (!util::isDir(bundle))
         return bundle;
     std::string stem = util::stem(bundle);
-#if defined(_WIN32)
+#if defined(_WIN32) && defined(__i386__)
+    return util::joinPath(util::joinPath(bundle, "Contents/x86-win"), stem + ".vst3");  // (the 32-bit host)
+#elif defined(_WIN32)
     return util::joinPath(util::joinPath(bundle, "Contents/x86_64-win"), stem + ".vst3");
 #elif defined(__APPLE__)
     return util::joinPath(util::joinPath(bundle, "Contents/MacOS"), stem);

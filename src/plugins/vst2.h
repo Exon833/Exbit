@@ -115,7 +115,11 @@ struct Rect {
     int16_t top, left, bottom, right;
 };
 
+#if UINTPTR_MAX > 0xFFFFFFFFu
 static_assert(sizeof(Effect) == 192, "the plugin structure must match the interface (64-bit)");
+#else
+static_assert(sizeof(Effect) == 144, "the plugin structure must match the interface (32-bit)");
+#endif
 static_assert(sizeof(MidiEvent) == 32, "a MIDI event must match the interface");
 
 }  // namespace vst2

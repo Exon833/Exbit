@@ -48,11 +48,13 @@ struct PluginInfo {
     std::string label() const {
         if (isBuiltinPath(path))
             return name + "  (built-in)";
-        std::string windows = looksWindows() ? "  (Windows)" : "";
+        std::string windows = looksWindows() ? (is32Bit() ? "  (Windows, 32-bit)" : "  (Windows)") : "";
         return kind.empty() ? name + windows + "  (type not known yet)" : name + windows;
     }
     // a Windows plugin, run through Wine (from the path: inside a Wine prefix, or a .dll)
     bool looksWindows() const;
+    // a 32-bit Windows plugin (run by the 32-bit Wine host; read from the file once, then remembered)
+    bool is32Bit() const;
     bool operator==(const PluginInfo& o) const {
         return path == o.path && name == o.name && kind == o.kind && pluginName == o.pluginName;
     }

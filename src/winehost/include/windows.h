@@ -4,13 +4,18 @@
 // aren't needed). Only for that build: it is on the include path of src/winehost and nothing else.
 //
 // The host is Linux code (built with g++, linked by winegcc against Wine's DLLs), so every Win32
-// function and callback is declared with the Windows x64 calling convention (WINAPI = ms_abi), and
-// wide strings are UTF-16 (WCHAR = char16_t; wchar_t stays the Linux 32-bit one).
+// function and callback is declared with Windows' calling convention: x64's (WINAPI = ms_abi) for the
+// 64-bit host, __stdcall for the 32-bit one (tinydaw-wine-host-32.exe); the pointer-sized types follow
+// the build. Wide strings are UTF-16 (WCHAR = char16_t; wchar_t stays the Linux 32-bit one).
 #pragma once
 #include <cstddef>
 #include <cstdint>
 
+#if defined(__i386__)
+#define WINAPI __attribute__((stdcall))
+#else
 #define WINAPI __attribute__((ms_abi))
+#endif
 #define CALLBACK WINAPI
 #define APIENTRY WINAPI
 
@@ -23,8 +28,8 @@ typedef uint32_t DWORD;
 typedef uint32_t ULONG;
 typedef uint32_t UINT;
 typedef int32_t LONG;
-typedef uint64_t UINT_PTR, ULONG_PTR, WPARAM, SIZE_T;
-typedef int64_t LONG_PTR, LPARAM, LRESULT;
+typedef uintptr_t UINT_PTR, ULONG_PTR, WPARAM, SIZE_T;  // (64 bits in the 64-bit host, 32 in the 32-bit one)
+typedef intptr_t LONG_PTR, LPARAM, LRESULT;
 typedef uint16_t ATOM;
 typedef char16_t WCHAR;
 typedef WCHAR* LPWSTR;
@@ -131,7 +136,7 @@ WINAPI DWORD GetCurrentThreadId(void);
 WINAPI BOOL SetThreadPriority(HANDLE thread, int priority);
 WINAPI HANDLE GetProcessHeap(void);
 WINAPI BOOL HeapFree(HANDLE heap, DWORD flags, void* memory);
-// (a critical section, as an opaque block of its real size: 40 bytes on 64-bit Windows)
+// (a critical section, as an opaque block of its real size: 40 bytes on 64-bit Windows, 24 on 32-bit)
 typedef struct {
     void* debug;
     LONG lockCount, recursionCount;
