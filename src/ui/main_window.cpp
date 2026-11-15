@@ -141,6 +141,7 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     wine::setPrefixes(prefs.wineList());  // (Windows plugins: the prefixes they're found in)
     wine::setWinePrograms(prefs.wineProgramMap());  // (…and the wine program chosen for some of them)
     plugins = std::make_unique<PluginHost>(this, project, engine, [this] { return prefs.vst2List(); });
+    plugins->autoReload = prefs.reloadCrashedPlugins;
     // (hidden, for testing: more VST3 folders, separated by ':')
     if (const char* extra = getenv("TINYDAW_VST3_PATH")) {
         plugins->folders = plug::defaultFolders();
@@ -537,6 +538,11 @@ void MainWindow::buildOptionsMenu() {
     menu->addAction("&VST2 plugin folders…", [this] { chooseVst2Folders(); });
     menu->addAction("&Wine prefixes…", [this] { chooseWinePrefixes(); });
     menu->addAction("&Install Windows plugin…", [this] { installWindowsPlugin(); });
+    menu->addCheckable("Reload crashed Windows plugins automaticall&y", prefs.reloadCrashedPlugins, [this](bool on) {
+            prefs.reloadCrashedPlugins = plugins->autoReload = on;
+            prefs.save();
+        })->tooltip = "A Windows plugin whose Wine host crashed starts again by itself, with the settings it last had "
+                      "(at most 3 times a minute; then it stays stopped)";
     menu->addSeparator();
 
     ui::Menu* refresh = menu->addMenu("Screen &refresh");

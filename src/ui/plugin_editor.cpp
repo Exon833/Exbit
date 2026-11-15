@@ -7,6 +7,9 @@
 #include "audio/plugin_audio.h"
 #include "plugins/plugin.h"
 #include "ui/computer_keyboard.h"
+#include "ui/theme.h"
+#include "ui/toolkit/controls.h"
+#include "ui/toolkit/layout.h"
 
 plat::WindowOptions EditorWindow::options(ui::Window* parent, const std::string& title, bool invisible) {
     plat::WindowOptions o;
@@ -77,6 +80,12 @@ void EditorWindow::idle() {
         close();
         return;
     }
+    // (a Windows plugin stopped: its view went with its host, nothing more to ask of it. A plugin of
+    // Linux keeps its view here, over anything said in the window: left as it is)
+    if (reloadable && slot->failed.load(std::memory_order_acquire)) {
+        if (!stoppedShown_) showStopped();
+        return;
+    }
     instance->idle();
     if (sizeChanged_) {  // (the window's edge dragged since the last frame: the latest size, once)
         sizeChanged_ = false;
@@ -92,6 +101,32 @@ void EditorWindow::idle() {
     // (a Windows plugin's window, inside ours, takes them then): they play notes; the others, and
     // Shift+…, still go to the plugin (letters typed into its own text fields play notes meanwhile)
     if (native()) native()->grabKeys(computer_keyboard::keysInUse());
+}
+
+void EditorWindow::showStopped() {
+    if (stoppedShown_) return;
+    stoppedShown_ = true;
+    setBackground(theme::c("window"));
+    auto* lay = ui::vbox(this, 16, 10);
+    auto* text = add<ui::Label>(slot->name + " stopped" + (slot->error.empty() ? "." : ": " + slot->error) +
+                                (reloadable ? "\nReload starts it afresh, with the settings it last had." : ""));
+    text->setWordWrap(true);
+    lay->addWidget(text);
+    if (reloadable) {
+        auto row = std::make_unique<ui::HBox>();
+        auto* reload = add<ui::Button>("Reload");
+        reload->setToolTip("Start " + slot->name + " again in a new Wine host, with the settings it last had");
+        reload->clicked.connect([this] {
+            SlotPtr s = slot;
+            reloadRequested.emit(s);
+        });
+        row->addWidget(reload);
+        row->addStretch(1);
+        lay->addLayout(std::move(row));
+    }
+    lay->addStretch(1);
+    if (width() < 360 || height() < 140) fit(std::max(width(), 360), std::max(height(), 140));
+    update();
 }
 
 void EditorWindow::onEvent(plat::Window* w, const plat::Event& e) {

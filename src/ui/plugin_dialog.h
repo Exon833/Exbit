@@ -11,6 +11,7 @@
 // It is an ordinary window, not a modal one: the rest of the program keeps working while it is
 // open (play, stop, edit, open other tracks' windows). The main window keeps one per track. It can
 // be made bigger both ways; the patch space scrolls when it is bigger than the window.
+// A Windows plugin that stopped (its Wine host crashed) shows Reload on its picture and in its menu.
 // Effects without a picture yet are photographed when the window opens (invisibly, about a second
 // each; then never again, unless their window is opened or "Take a new picture" is chosen).
 //
@@ -95,6 +96,8 @@ public:
     void removeEffect();
     void unplug(const SlotPtr& slot);
     void toggleBypass(int row);
+    // a stopped Windows plugin started afresh (PluginHost::reload), right after the click that asked
+    void reloadUnit(const SlotPtr& slot);
     void unitMenu(int row, Point where);
     void spaceMenu(Point pos, Point where);
     void wireInARow();               // IN → the effects from left to right (top to bottom where level) → OUT
@@ -107,6 +110,7 @@ public:
 
 private:
     int pictureConn_ = -1;
+    int changedConn_ = -1;
     std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
 };
 

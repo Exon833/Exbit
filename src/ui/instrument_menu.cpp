@@ -31,6 +31,12 @@ ui::Menu* fillInstrumentMenu(ui::Menu* menu, ui::Window* parent, PluginHost& hos
         return menu;
     }
     SlotPtr current = track->needsInstrument || track->usesRack ? nullptr : aload(track->instrument);
+    if (current && host.canReload(current))
+        menu->addAction("Reload " + current->name + " (it stopped)", [&host, track, current] {
+            ui::App::get().singleShot(0, [&host, track, current] {  // (once the menu has gone; still its instrument)
+                if (aload(track->instrument) == current) host.reloadStopped(current);
+            });
+        });
     if (current) {
         menu->addAction("Open the " + current->name + " window", [parent, &host, track, openPanel] {
                 editInstrument(parent, host, track, openPanel);
@@ -167,6 +173,14 @@ void editInstrument(ui::Window* parent, PluginHost& host, const TrackPtr& track,
         ui::msg::information(parent, "Built-in synth",
                              track->name + " plays the built-in synth, which has no settings. Choose a VST3 instrument "
                                            "with ▾ next to 🎹 to configure one.");
+    } else if (host.canReload(slot)) {
+        if (ui::msg::question(parent, "Instrument stopped",
+                              slot->name + " stopped (" + slot->error + ").\n\nReload it, with the settings it last had?") ==
+            ui::msg::Yes) {
+            std::string why;
+            if (host.reload(slot, why)) host.edit(slot, track->name);  // (then its window, as asked)
+            else ui::msg::warning(parent, "Cannot reload plugin", slot->name + "\n\n" + why);
+        }
     } else if (!plugin_audio::usable(slot)) {
         ui::msg::information(parent, "Instrument not loaded",
                              slot->name + " isn't loaded, so its window can't open. Choose it again with ▾ next to 🎹.");

@@ -117,5 +117,13 @@ int bridgedLateBuffers(Plugin& plugin);
 bool bridgedWindowRect(Plugin& plugin, int& left, int& top, int& right, int& bottom);
 // (tests) the host's process id (-1: not a Windows plugin)
 int bridgedHostPid(Plugin& plugin);
+// is it a Windows plugin, in a Wine host of its own (so it can be started afresh: PluginHost::reload)?
+bool isBridged(const Plugin& plugin);
+// a Windows plugin whose Wine host has ended (the plugin crashed)
+bool bridgedHostEnded(const Plugin& plugin);
+// ends a Windows plugin's Wine host now (one stopped while its host lives on, late or hung: before a reload)
+void endBridgedHost(Plugin& plugin);
+// (tests) a Windows plugin whose settings are known here (what a save gets after a crash)
+bool bridgedStateKnown(const Plugin& plugin);
 
 }  // namespace plug

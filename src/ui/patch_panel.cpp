@@ -195,6 +195,13 @@ Rect PatchPanel::ledRect(int index) const {
     return Rect(r.x + left, r.y + jackY - 10, CARD_W - left - 34, 20);
 }
 
+std::optional<Rect> PatchPanel::reloadRect(int index) const {
+    if (!units_[index].reload) return std::nullopt;
+    Rect r = unitRect(index);
+    constexpr int W = 96, H = 28;
+    return Rect(r.x + PIC_X + (PIC_W - W) / 2, r.y + PIC_Y + (PIC_H - H) / 2, W, H);
+}
+
 std::optional<Rect> PatchPanel::volumeRect(int index) const {
     if (!units_[index].fader()) return std::nullopt;
     Rect r = unitRect(index);
@@ -452,7 +459,8 @@ void PatchPanel::paintUnit(Painter& p, int index) {
     const PanelUnit& unit = units_[index];
     Rect r = unitRect(index);
     float radius = (float)theme::radius();
-    bool hovered = (hover.kind == Hover::Unit || hover.kind == Hover::Led || hover.kind == Hover::Volume) &&
+    bool hovered = (hover.kind == Hover::Unit || hover.kind == Hover::Led || hover.kind == Hover::Volume ||
+                    hover.kind == Hover::Reload) &&
                    hover.index == index && !wiring;
     Color fill = hovered ? mixed("button", "window_text", 0.06f) : color("button");
     if (radius > 0) p.fillRoundedRect(RectF(r), radius, fill);
@@ -466,6 +474,14 @@ void PatchPanel::paintUnit(Painter& p, int index) {
     if (!pixmap.empty()) p.drawImage(Point(pic.x + (pic.w - pixmap.width()) / 2, pic.y + (pic.h - pixmap.height()) / 2), pixmap);
     else paintFaceplate(p, pic);
     p.restore();
+    if (auto button = reloadRect(index)) {  // (stopped: started afresh with a click)
+        bool hot = hover.kind == Hover::Reload && hover.index == index;
+        p.fillRect(pic, Color(0, 0, 0, 110));
+        RectF b(*button);
+        p.fillRoundedRect(b, 4, hot ? color("accent") : color("button"));
+        p.strokeRoundedRect(b.adjusted(0.5f, 0.5f, -0.5f, -0.5f), 4, color("frame_edge"), 1);
+        p.drawText(b, AlignCenter, "Reload", smallFont(true, 0), hot ? color("accent_text") : color("button_text"));
+    }
     // the name
     Font bold = smallFont(true, 0);
     p.drawText(RectF((float)(r.x + 8), (float)(r.y + NAME_Y), CARD_W - 16.f, 18), AlignCenter,
@@ -582,6 +598,10 @@ bool PatchPanel::mousePress(ui::MouseEvent& e) {
         return true;
     }
     setCurrent(*index);
+    if (auto button = reloadRect(*index); button && button->contains(pos)) {
+        reloadRequested.emit(*index);
+        return true;
+    }
     if (volumeUnder(pos) == index) {  // its fader: the knob goes where clicked, then follows the mouse
         volumeDrag = *index;
         setVolume(*index, volumeAt(*index, pos.x));
@@ -665,11 +685,12 @@ void PatchPanel::hoverAt(Point pos) {
     Hover hit;
     if (jack) hit = Hover{Hover::JackHit, -1, *jack};
     else if (index && ledRect(*index).contains(pos)) hit = Hover{Hover::Led, *index, {}};
+    else if (index && reloadRect(*index) && reloadRect(*index)->contains(pos)) hit = Hover{Hover::Reload, *index, {}};
     else if (index && volumeUnder(pos) == index) hit = Hover{Hover::Volume, *index, {}};
     else if (index) hit = Hover{Hover::Unit, *index, {}};
     if (hit != hover) {
         hover = hit;
-        setCursor(hit.kind == Hover::JackHit || hit.kind == Hover::Led ? ui::Cursor::Hand
+        setCursor(hit.kind == Hover::JackHit || hit.kind == Hover::Led || hit.kind == Hover::Reload ? ui::Cursor::Hand
                   : hit.kind == Hover::Volume                          ? ui::Cursor::SizeHor
                                                                        : ui::Cursor::Arrow);
         update();
@@ -714,7 +735,9 @@ bool PatchPanel::mouseDoubleClick(ui::MouseEvent& e) {
     else if (volumeUnder(pos) == index)  // (back to 0 dB, or to 100 % of the effect)
         setVolume(*index, units_[*index].volumeDb ? 0.0 : 1.0);
     else if (ledRect(*index).contains(pos)) bypassToggled.emit(*index);  // (a quick second click on the light counts once more)
-    else {
+    else if (reloadRect(*index) && reloadRect(*index)->contains(pos)) {
+        // (the first click reloads it)
+    } else {
         setCurrent(*index);
         opened.emit(*index);
     }
@@ -783,7 +806,11 @@ std::string PatchPanel::toolTipAt(Point pos) const {
                    : name + "'s input: drag a cable from here to IN or an effect's output. With a cable in: drag its "
                             "plug away to move or unplug it.";
     }
-    if (auto index = unitAt(pos)) return units_[*index].tooltip;
+    if (auto index = unitAt(pos)) {
+        if (auto button = reloadRect(*index); button && button->contains(pos))
+            return "Reload " + units_[*index].name + ": start it again in a new Wine host, with the settings it last had.";
+        return units_[*index].tooltip;
+    }
     if (auto cable = cableAt(pos))
         return nodeName(cable->first) + " → " + nodeName(cable->second) +
                ": right-click to remove it, or drag its plug off the input to move or unplug it.";

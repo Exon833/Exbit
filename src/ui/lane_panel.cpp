@@ -6,6 +6,8 @@
 #include <cstdio>
 
 #include "audio/automation.h"
+#include "audio/plugin_audio.h"
+#include "plugins/wine.h"
 #include "ui/automation_dialog.h"
 #include "ui/color_picker.h"
 #include "ui/colors.h"
@@ -580,7 +582,11 @@ void LanePanel::fillTrackMenu(ui::Menu& menu, const TrackPtr& track) {
     if (track->kind == Kind::Midi && track->usesRack && !track->needsInstrument) {
         menu.addAction("Open its instrument patch panel", [edit, track] { if (edit) edit(track); });
     } else if (track->kind == Kind::Midi && track->instrument && !track->needsInstrument) {
-        menu.addAction("Open the " + track->instrument->name + " window", [edit, track] { if (edit) edit(track); });
+        auto instance = aload(track->instrument->instance);
+        bool reload = instance && track->instrument->failed.load() && plug::isBridged(*instance);  // (edit() asks)
+        menu.addAction((reload ? "Reload the " : "Open the ") + track->instrument->name +
+                           (reload ? " (it stopped)…" : " window"),
+                       [edit, track] { if (edit) edit(track); });
     }
     if (!track->frozen) menu.addAction("Automate a parameter…", guard([this, track] { addAutomation(track); }));
     menu.addAction("Track delay…" + (track->delayMs ? " (" + signedMs(track->delayMs) + " ms)" : std::string()),
