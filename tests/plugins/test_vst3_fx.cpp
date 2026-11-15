@@ -18,9 +18,18 @@
 //   "Tiny Test Single" (Tools): a single-component plugin (the component is its controller),
 //      out = in × Level (parameter 1, default 1). Its sub-categories say neither instrument nor
 //      effect, so the probe has to create it to ask.
+//   On Windows (make win-plugins, for the Wine tests) its window is a Win32 child window (HWND),
+//   redrawn on a timer of its own, and the module exports InitDll/ExitDll as Windows plugins do.
 #include "plugins/vst3_api.h"
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
 #include <X11/Xlib.h>
+#endif
 
 #include <atomic>
 #include <cmath>
@@ -318,7 +327,11 @@ public:
         return kNoInterface;
     }
     tresult PLUGIN_API isPlatformTypeSupported(FIDString type) override {
+#ifdef _WIN32
+        return type && std::strcmp(type, kPlatformTypeHWND) == 0 ? kResultTrue : kResultFalse;
+#else
         return type && std::strcmp(type, kPlatformTypeX11EmbedWindowID) == 0 ? kResultTrue : kResultFalse;
+#endif
     }
     tresult PLUGIN_API attached(void* parent, FIDString type) override;
     tresult PLUGIN_API removed() override;
@@ -351,6 +364,10 @@ public:
         draw();
     }
 
+#ifdef _WIN32
+    static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
+#endif
+
 private:
     ~View();
     void pump();
@@ -358,8 +375,12 @@ private:
     Controller* controller;
     IPlugFrame* frame = nullptr;
     Linux::IRunLoop* loop = nullptr;
+#ifdef _WIN32
+    HWND window = nullptr;
+#else
     Display* display = nullptr;
     ::Window window = 0;
+#endif
     float scale = 1;
 };
 
@@ -550,6 +571,123 @@ View::~View() {
     controller->release();
 }
 
+#ifdef _WIN32
+
+namespace {
+COLORREF rgb(unsigned c) { return RGB((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF); }
+
+void fill(HDC dc, int x, int y, int w, int h, unsigned color) {
+    RECT r = {x, y, x + w, y + h};
+    HBRUSH b = CreateSolidBrush(rgb(color));
+    FillRect(dc, &r, b);
+    DeleteObject(b);
+}
+}  // namespace
+
+LRESULT CALLBACK View::windowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    View* v = (View*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+    if (!v)
+        return DefWindowProcW(hwnd, msg, wp, lp);
+    switch (msg) {
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC dc = BeginPaint(hwnd, &ps);
+            Controller* c = v->controller;
+            int w = (int)(c->viewW * v->scale), h = (int)(c->viewH * v->scale);
+            fill(dc, 0, 0, w, h, 0x283040);
+            fill(dc, 10, 40, 60, 30, c->values[1] >= 0.5 ? 0xE0A030 : 0x606060);
+            fill(dc, 10, h - 30, (int)((w - 20) * c->values[2]), 16, 0x40C0E0);
+            static const unsigned swatches[] = {0xE04040, 0x4080E0, 0xE0E040, 0xA040E0, 0x40E0C0};
+            for (int i = 0; i < 5; i++) fill(dc, 90 + i * 24, 46, 18, 18, swatches[i]);  // (colours to see)
+            char text[160];
+            std::snprintf(text, sizeof(text), "Tiny Test Fx (Windows) in %s: click = Duck %s, right-click = bigger",
+                          c->hostName.c_str(), c->values[1] >= 0.5 ? "on" : "off");
+            SetBkMode(dc, TRANSPARENT);
+            SetTextColor(dc, rgb(0xFFFFFF));
+            TextOutA(dc, 10, 8, text, (int)std::strlen(text));
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        case WM_TIMER:
+            InvalidateRect(hwnd, nullptr, FALSE);  // (the meter)
+            return 0;
+        case WM_LBUTTONDOWN:
+            v->controller->userSwitchesDuck();
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        case WM_RBUTTONDOWN:
+            if (v->frame) {
+                ViewRect r(0, 0, (int32)((v->controller->viewW + 40) * v->scale),
+                           (int32)((v->controller->viewH + 20) * v->scale));
+                v->frame->resizeView(v, &r);  // (the host calls onSize)
+            }
+            return 0;
+        default:
+            return DefWindowProcW(hwnd, msg, wp, lp);
+    }
+}
+
+tresult PLUGIN_API View::attached(void* parent, FIDString type) {
+    if (isPlatformTypeSupported(type) != kResultTrue || !parent)
+        return kResultFalse;
+    static ATOM cls = 0;
+    HMODULE self = nullptr;
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                       (LPCWSTR)(void*)&View::windowProc, &self);
+    if (!cls) {
+        WNDCLASSW wc = {};
+        wc.lpfnWndProc = View::windowProc;
+        wc.hInstance = self;
+        wc.hCursor = LoadCursorW(nullptr, (LPCWSTR)IDC_ARROW);
+        wc.lpszClassName = L"TinyTestFxView";
+        cls = RegisterClassW(&wc);
+    }
+    int w = (int)(controller->viewW * scale), h = (int)(controller->viewH * scale);
+    window = CreateWindowExW(0, L"TinyTestFxView", L"Tiny Test Fx", WS_CHILD | WS_VISIBLE, 0, 0, w, h, (HWND)parent,
+                             nullptr, self, nullptr);
+    if (!window)
+        return kResultFalse;
+    SetWindowLongPtrW(window, GWLP_USERDATA, (LONG_PTR)this);
+    SetTimer(window, 1, 50, nullptr);
+    return kResultOk;
+}
+
+tresult PLUGIN_API View::removed() {
+    if (window) {
+        KillTimer(window, 1);
+        DestroyWindow(window);
+        window = nullptr;
+    }
+    return kResultOk;
+}
+
+tresult PLUGIN_API View::getSize(ViewRect* size) {
+    if (!size)
+        return kInvalidArgument;
+    *size = ViewRect(0, 0, (int32)(controller->viewW * scale), (int32)(controller->viewH * scale));
+    return kResultOk;
+}
+
+tresult PLUGIN_API View::onSize(ViewRect* r) {
+    if (!r)
+        return kInvalidArgument;
+    controller->viewW = (int32)(r->getWidth() / scale);
+    controller->viewH = (int32)(r->getHeight() / scale);
+    if (window)
+        SetWindowPos(window, nullptr, 0, 0, std::max(1, r->getWidth()), std::max(1, r->getHeight()),
+                     SWP_NOMOVE | SWP_NOZORDER);
+    return kResultOk;
+}
+
+void View::draw() {
+    if (window)
+        InvalidateRect(window, nullptr, FALSE);
+}
+
+void View::pump() {}  // (Windows sends the window its messages itself)
+
+#else
+
 tresult PLUGIN_API View::attached(void* parent, FIDString type) {
     if (isPlatformTypeSupported(type) != kResultTrue || !parent)
         return kResultFalse;
@@ -641,6 +779,8 @@ void View::pump() {
     }
 }
 
+#endif
+
 // ===================================================================================== the single-component plugin
 
 class Single final : public IComponent, public IAudioProcessor, public IEditController {
@@ -688,6 +828,7 @@ public:
         if (!readAll(state, magic, 4) || std::memcmp(magic, "TSG1", 4) != 0 || !readAll(state, &v, 8))
             return kResultFalse;
         level = clamp01(v);
+        levelShown = level.load();  // (one object: its controller shows what it now plays)
         return kResultOk;
     }
     tresult PLUGIN_API getState(IBStream* state) override {
@@ -876,13 +1017,29 @@ Factory factory;
 
 }  // namespace
 
+#ifdef _WIN32
+#define EXPORT extern "C" __declspec(dllexport)
+#else
 #define EXPORT extern "C" __attribute__((visibility("default")))
+#endif
 
 EXPORT IPluginFactory* PLUGIN_API GetPluginFactory() {
     factory.addRef();
     return &factory;
 }
 
+#ifdef _WIN32
+// (Windows: InitDll/ExitDll, called once the DLL is loaded and before it is let go)
+EXPORT bool InitDll() {
+    moduleEntries++;
+    return true;
+}
+
+EXPORT bool ExitDll() {
+    moduleExits++;
+    return true;
+}
+#else
 EXPORT bool ModuleEntry(void*) {
     moduleEntries++;
     return true;
@@ -892,6 +1049,7 @@ EXPORT bool ModuleExit() {
     moduleExits++;
     return true;
 }
+#endif
 
 // (for the tests: what the host did with the module)
 EXPORT int TinyTestFx_counts(int which) {

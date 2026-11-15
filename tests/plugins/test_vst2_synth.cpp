@@ -5,9 +5,17 @@
 // Parameters: 0 Volume (amplitude 0…1, default 0.5), 1 Octave (−2…+2 in fifths of the range, default
 // 0.5 = none), 2 Tempo seen (the host's tempo / 1000, as audioMasterGetTime told it while processing;
 // read only). Its settings are a chunk ("TTS1", volume, octave). It reports 16 frames of latency.
-// Its window (Xlib): a bar showing the volume; click to set it (sent to the host as automation),
-// right-click asks the host for a bigger window.
+// Its window (Xlib; on Windows a Win32 child window, for the Wine tests: make win-plugins): a bar
+// showing the volume; click to set it (sent to the host as automation), right-click asks the host
+// for a bigger window.
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
 #include <X11/Xlib.h>
+#endif
 
 #include <cmath>
 #include <cstdio>
@@ -40,8 +48,12 @@ struct Synth {
     int pendingCount = 0;
     char chunk[12];
     // the window
+#ifdef _WIN32
+    HWND window = nullptr;
+#else
     Display* display = nullptr;
     ::Window window = 0;
+#endif
     int w = 320, h = 160;
 };
 
@@ -128,6 +140,92 @@ float getParameter(vst2::Effect* e, int32_t index) {
     return index == 0 ? s->volume : index == 1 ? s->octave : index == 2 ? s->tempoSeen : 0.0f;
 }
 
+// a click at x in the window: the volume there, told to the host as an edit
+void userSetsVolume(Synth* s, int x) {
+    float v = (float)(x - 10) / (float)(s->w - 20);
+    v = v < 0 ? 0 : v > 1 ? 1 : v;
+    s->volume = v;
+    s->host(&s->effect, vst2::host::BEGIN_EDIT, 0, 0, nullptr, 0);
+    s->host(&s->effect, vst2::host::AUTOMATE, 0, 0, nullptr, v);
+    s->host(&s->effect, vst2::host::END_EDIT, 0, 0, nullptr, 0);
+}
+
+#ifdef _WIN32
+
+COLORREF rgb(unsigned c) { return RGB((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF); }
+
+void fill(HDC dc, int x, int y, int w, int h, unsigned color) {
+    RECT r = {x, y, x + w, y + h};
+    HBRUSH b = CreateSolidBrush(rgb(color));
+    FillRect(dc, &r, b);
+    DeleteObject(b);
+}
+
+LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    Synth* s = (Synth*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+    switch (msg) {
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC dc = BeginPaint(hwnd, &ps);
+            if (s) {
+                fill(dc, 0, 0, s->w, s->h, 0x202830);
+                fill(dc, 10, s->h / 2, (int)((s->w - 20) * s->volume), 20, 0x40C080);
+                static const unsigned swatches[] = {0xE04040, 0x4080E0, 0xE0E040, 0xA040E0, 0x40E0C0};
+                for (int i = 0; i < 5; i++) fill(dc, 10 + i * 24, s->h / 2 + 30, 18, 18, swatches[i]);  // (colours to see)
+                SetBkMode(dc, TRANSPARENT);
+                SetTextColor(dc, rgb(0xFFFFFF));
+                const char* title = "Tiny Test Synth (VST2, Windows): click to set the volume";
+                TextOutA(dc, 10, 8, title, (int)std::strlen(title));
+            }
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        case WM_LBUTTONDOWN:
+            if (s) {
+                userSetsVolume(s, (short)LOWORD(lp));
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return 0;
+        case WM_RBUTTONDOWN:
+            if (s) {
+                s->w += 40;
+                s->h += 20;
+                SetWindowPos(hwnd, nullptr, 0, 0, s->w, s->h, SWP_NOMOVE | SWP_NOZORDER);
+                s->host(&s->effect, vst2::host::SIZE_WINDOW, s->w, s->h, nullptr, 0);
+            }
+            return 0;
+        default:
+            return DefWindowProcW(hwnd, msg, wp, lp);
+    }
+}
+
+void openEditor(Synth* s, void* parent) {
+    static ATOM cls = 0;
+    HMODULE self = nullptr;
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                       (LPCWSTR)(void*)&windowProc, &self);
+    if (!cls) {
+        WNDCLASSW wc = {};
+        wc.lpfnWndProc = windowProc;
+        wc.hInstance = self;
+        wc.hCursor = LoadCursorW(nullptr, (LPCWSTR)IDC_ARROW);
+        wc.lpszClassName = L"TinyTestSynthWindow";
+        cls = RegisterClassW(&wc);
+    }
+    s->window = CreateWindowExW(0, L"TinyTestSynthWindow", L"Tiny Test Synth", WS_CHILD | WS_VISIBLE, 0, 0, s->w, s->h,
+                                (HWND)parent, nullptr, self, nullptr);
+    if (s->window) SetWindowLongPtrW(s->window, GWLP_USERDATA, (LONG_PTR)s);
+}
+
+void editIdle(Synth*) {}  // (Windows sends the window its messages itself)
+
+void closeEditor(Synth* s) {
+    if (s->window) DestroyWindow(s->window);
+    s->window = nullptr;
+}
+
+#else
+
 void draw(Synth* s) {
     if (!s->display)
         return;
@@ -151,12 +249,7 @@ void editIdle(Synth* s) {
         if (ev.type == Expose) {
             draw(s);
         } else if (ev.type == ButtonPress && ev.xbutton.button == 1) {
-            float v = (float)(ev.xbutton.x - 10) / (float)(s->w - 20);
-            v = v < 0 ? 0 : v > 1 ? 1 : v;
-            s->volume = v;
-            s->host(&s->effect, vst2::host::BEGIN_EDIT, 0, 0, nullptr, 0);
-            s->host(&s->effect, vst2::host::AUTOMATE, 0, 0, nullptr, v);
-            s->host(&s->effect, vst2::host::END_EDIT, 0, 0, nullptr, 0);
+            userSetsVolume(s, ev.xbutton.x);
             draw(s);
         } else if (ev.type == ButtonPress && ev.xbutton.button == 3) {
             s->w += 40;
@@ -175,6 +268,19 @@ void closeEditor(Synth* s) {
         s->window = 0;
     }
 }
+
+void openEditor(Synth* s, void* parent) {
+    s->display = XOpenDisplay(nullptr);
+    if (!s->display)
+        return;
+    s->window = XCreateSimpleWindow(s->display, (::Window)(uintptr_t)parent, 0, 0, (unsigned)s->w, (unsigned)s->h, 0,
+                                    0, 0x202830);
+    XSelectInput(s->display, s->window, ExposureMask | ButtonPressMask);
+    XMapWindow(s->display, s->window);
+    XFlush(s->display);
+}
+
+#endif
 
 vst2::intptr dispatcher(vst2::Effect* e, int32_t opcode, int32_t index, vst2::intptr value, void* ptr, float opt) {
     Synth* s = of(e);
@@ -221,18 +327,10 @@ vst2::intptr dispatcher(vst2::Effect* e, int32_t opcode, int32_t index, vst2::in
                 *(vst2::Rect**)ptr = &rect;
             return 1;
         }
-        case vst2::effect::EDIT_OPEN: {
+        case vst2::effect::EDIT_OPEN:
             closeEditor(s);
-            s->display = XOpenDisplay(nullptr);
-            if (!s->display)
-                return 0;
-            ::Window parent = (::Window)(uintptr_t)ptr;
-            s->window = XCreateSimpleWindow(s->display, parent, 0, 0, (unsigned)s->w, (unsigned)s->h, 0, 0, 0x202830);
-            XSelectInput(s->display, s->window, ExposureMask | ButtonPressMask);
-            XMapWindow(s->display, s->window);
-            XFlush(s->display);
-            return 1;
-        }
+            openEditor(s, ptr);
+            return s->window ? 1 : 0;
         case vst2::effect::EDIT_CLOSE:
             closeEditor(s);
             return 0;
@@ -287,7 +385,13 @@ vst2::intptr dispatcher(vst2::Effect* e, int32_t opcode, int32_t index, vst2::in
 
 }  // namespace
 
-extern "C" __attribute__((visibility("default"))) vst2::Effect* VSTPluginMain(vst2::Callback host) {
+#ifdef _WIN32
+#define EXPORT extern "C" __declspec(dllexport)
+#else
+#define EXPORT extern "C" __attribute__((visibility("default")))
+#endif
+
+EXPORT vst2::Effect* VSTPluginMain(vst2::Callback host) {
     if (!host || host(nullptr, vst2::host::VERSION, 0, 0, nullptr, 0) == 0)
         return nullptr;
     Synth* s = new Synth();

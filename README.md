@@ -117,7 +117,12 @@ once, and Tiny DAW shows it as crashed. The edges of their shapes aren't smoothe
 
 builds and runs every `tests/test_*.cpp` (each linked against all of `src/` except `main.cpp`)
 and the two test plugins in `build/test-plugins/` (a VST3 effect and a VST2 synth, built on Tiny
-DAW's own plugin headers).
+DAW's own plugin headers). With MinGW installed (`x86_64-w64-mingw32-g++`, e.g. the
+`g++-mingw-w64-x86-64` package), `make win-plugins` (part of `make test`) also builds their Windows
+versions and a small Windows installer for them in `build/win-test-plugins/win64/`: `test_wine` makes a
+new Wine prefix, installs them there with that installer as Options → Install Windows plugin… does,
+and tests them through the Wine host like any installed plugin, without needing any commercial
+Windows plugin.
 
 Testing aids of the running program (hidden; see `src/ui/test_script.h`):
 

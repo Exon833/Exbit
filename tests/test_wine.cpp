@@ -229,7 +229,7 @@ void testSetupWithoutWine() {
 // New prefix… and Install Windows plugin… with Wine: a real prefix made (wineboot), its registry
 // written once its wineserver ends; an "installer" (a program of the prefix's own) run and waited for;
 // what they refuse
-void testSetupWithWine() {
+std::string testSetupWithWine() {
     std::string wine = wine::winePath(), why;
     std::string dir = util::joinPath(tempRoot, "made/Plugins");
     // refused: not a full path, not empty
@@ -257,7 +257,7 @@ void testSetupWithWine() {
     if (pid <= 0) {
         printf("  (no new prefix: %s)\n", why.c_str());
         unsetenv("WINEDLLOVERRIDES");
-        return;
+        return "";
     }
     while (!wine::finished(pid, code) && secondsNow() - t0 < 240) usleep(50000);
     CHECK(code == 0);
@@ -287,6 +287,7 @@ void testSetupWithWine() {
     server = wine::startServerWait(dir, wine, why);
     t0 = secondsNow();
     while (server > 0 && !wine::finished(server, code) && secondsNow() - t0 < 120) usleep(50000);
+    return wine::isPrefix(dir) ? dir : "";
 }
 
 // a whole prefix chosen as a VST2 folder: the scan stays inside it (Wine's links lead to "/" and to
@@ -2786,6 +2787,102 @@ void stress(PluginLibrary& library, const std::vector<PluginInfo>& windows) {
     }
 }
 
+// the kinds of the library's plugin files not known yet, from the probe (through the host), as
+// `tinydaw --probe <list>` does; how many were found
+int findKinds(PluginLibrary& library) {
+    auto unknown = library.unknownFiles();
+    if (unknown.empty()) return 0;
+    double t0 = secondsNow();
+    KindFinder finder(library, [](const std::string& list, int outFd) {
+        fflush(stdout);
+        fflush(stderr);
+        pid_t pid = fork();
+        if (pid == 0) {
+            dup2(outFd, 1);
+            runProbe(list);
+            _exit(3);
+        }
+        return (int)pid;
+    });
+    finder.start(false);
+    while (finder.poll(200)) {
+    }
+    printf("the kinds of %zu plugin files found in %.1f s (%d found)\n", unknown.size(), secondsNow() - t0,
+           finder.found());
+    CHECK(finder.found() == (int)unknown.size());
+    return finder.found();
+}
+
+// the Windows builds of the test plugins (make win-plugins), installed in a new prefix by the test
+// installer as Install Windows plugin… runs it, then found, loaded through the Wine host and tested
+// as any installed plugin, and with what they are known to do
+void testWindowsTestPlugins(const std::string& prefix) {
+    const char* dirEnv = getenv("TINYDAW_WIN_TEST_PLUGINS");  // (make test sets it; else the release build's)
+    std::string win = util::absolutePath(dirEnv && *dirEnv ? dirEnv : "build/win-test-plugins/win64");
+    std::string installer = util::joinPath(win, "TinyTestInstaller.exe");
+    if (!util::fileExists(installer)) {
+        printf("(no Windows test plugins: make win-plugins needs MinGW's x86_64-w64-mingw32-g++)\n");
+        return;
+    }
+    printf("== the Windows test plugins, installed in %s\n", prefix.c_str());
+    auto before = wine_setup::vst2Dlls({prefix});
+    std::string why;
+    int code = -2;
+    int pid = wine::startInstaller(prefix, installer, why);
+    CHECK(pid > 0);
+    double t0 = secondsNow();
+    while (pid > 0 && !wine::finished(pid, code) && secondsNow() - t0 < 120) usleep(50000);
+    CHECK(code == 0);
+    std::string bundle = util::joinPath(prefix, "drive_c/Program Files/Common Files/VST3/TinyTestFx.vst3/Contents");
+    std::string vst2 = util::joinPath(prefix, "drive_c/Program Files/VstPlugins");
+    CHECK(util::fileExists(bundle + "/x86_64-win/TinyTestFx.vst3"));
+    CHECK(util::fileExists(bundle + "/Resources/moduleinfo.json"));
+    CHECK(util::fileExists(vst2 + "/Tiny Test/TinyTestSynth.dll"));
+    // Install Windows plugin… would offer the VST2 folder it filled
+    auto folders = wine_setup::newVst2Folders(before, wine_setup::vst2Dlls({prefix}), {});
+    CHECK(folders.size() == 1 && !folders.empty() && folders[0] == vst2);
+    PluginLibrary library(wine::vst3Folders({prefix}), util::joinPath(tempRoot, "cache-win.json"), folders);
+    findKinds(library);
+    std::vector<PluginInfo> found;
+    for (const auto& p : library.plugins)
+        if (wine::isWindowsPlugin(p.path)) found.push_back(p);
+    const PluginInfo *fx = nullptr, *synth = nullptr;
+    for (const auto& p : found) {
+        printf("   found %s: %s\n", p.label().c_str(), p.path.c_str());
+        if (p.name == "Tiny Test Fx") fx = &p;
+        if (util::endsWith(p.path, "TinyTestSynth.dll")) synth = &p;
+    }
+    CHECK(fx && fx->kind == EFFECT);
+    CHECK(synth && synth->kind == INSTRUMENT);
+    bool editors = !getenv("TINYDAW_NO_WINDOWS") && getenv("DISPLAY");
+    for (const auto& p : found) testPlugin(library, p, editors && p.name != "Tiny Test Single");  // (it has no window)
+    // what they are known to do, through the bridge: the effect is its input 64 frames late (×1 at the
+    // default gain), the synth sounds while a note is held
+    if (fx) {
+        auto p = library.load(*fx, 48000);
+        CHECK(p->latency() == 64);
+        const int N = 256;
+        Stereo in(N), out(N);
+        in.l[10] = in.r[10] = 0.5f;
+        p->process(in.in(), nullptr, out.out(), N);
+        CHECK_NEAR(out.l[74], 0.5f, 1e-5);
+        CHECK_NEAR(out.r[74], 0.5f, 1e-5);
+        CHECK_NEAR(out.l[10], 0.0f, 1e-6);
+    }
+    if (synth) {
+        auto p = library.load(*synth, 48000);
+        CHECK(p->isInstrument());
+        const int N = 512;
+        Stereo out(N);
+        p->render({{0, true, 69, 100, 0}}, out.out(), N);
+        float peak = 0;
+        for (float v : out.l) peak = std::max(peak, std::fabs(v));
+        CHECK(peak > 0.2f && peak <= 0.51f);  // (a sine at the default volume, 0.5)
+        CHECK(util::startsWith(p->paramText(0, 0.5), "50.0"));  // (its display, then its label)
+    }
+    if (fx) testCrash(library, *fx);
+}
+
 void testInstalled() {
     if (getenv("TINYDAW_NO_WINE")) {
         printf("(TINYDAW_NO_WINE: the installed Windows plugins aren't tested)\n");
@@ -2830,27 +2927,7 @@ void testInstalled() {
         if (classes.empty()) printf("  (through the chosen wine: %s)\n", error.c_str());
     }
     // their kinds, from moduleinfo.json or the probe (through the host)
-    auto unknown = library.unknownFiles();
-    if (!unknown.empty()) {
-        double t0 = secondsNow();
-        KindFinder finder(library, [](const std::string& list, int outFd) {  // (as `tinydaw --probe <list>`)
-            fflush(stdout);
-            fflush(stderr);
-            pid_t pid = fork();
-            if (pid == 0) {
-                dup2(outFd, 1);
-                runProbe(list);
-                _exit(3);
-            }
-            return (int)pid;
-        });
-        finder.start(false);
-        while (finder.poll(200)) {
-        }
-        printf("the kinds of %zu plugin files found in %.1f s (%d found)\n", unknown.size(), secondsNow() - t0,
-               finder.found());
-        CHECK(finder.found() == (int)unknown.size());
-    }
+    findKinds(library);
     windows.clear();
     for (const auto& p : library.plugins)
         if (wine::isWindowsPlugin(p.path))
@@ -2899,7 +2976,10 @@ int main() {
     testPrefixArch();
     testWinePrograms();
     testSetupWithoutWine();
-    if (!getenv("TINYDAW_NO_WINE") && !wine::winePath().empty()) testSetupWithWine();
+    if (!getenv("TINYDAW_NO_WINE") && !wine::winePath().empty() && !wine::hostPath().empty()) {
+        std::string made = testSetupWithWine();
+        if (!made.empty()) testWindowsTestPlugins(made);
+    }
     testFiles();
     testPrefixAsVst2Folder();
     if (stressWanted("focus") && !getenv("TINYDAW_NO_WINDOWS") && getenv("DISPLAY"))

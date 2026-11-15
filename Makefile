@@ -59,7 +59,20 @@ ifneq ($(WINEGCC),)
   ALL_WINE := $(WINE_HOST)
 endif
 
-.PHONY: all clean test plugins winehost
+# --- Windows builds of the test plugins, and a test installer (for test_wine; with MinGW's
+# x86_64-w64-mingw32-g++ installed, e.g. the g++-mingw-w64-x86-64 package; MINGW64=... picks another).
+# Linked statically: a Wine prefix has no MinGW runtime DLLs ---
+MINGW64  ?= $(shell command -v x86_64-w64-mingw32-g++ 2>/dev/null)
+# (not in test-plugins/: the Linux tests list that folder)
+WIN64_DIR := $(BUILD)/win-test-plugins/win64
+WIN_FLAGS := -std=c++17 -O2 -static -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -Isrc
+WIN_TEST_PLUGINS := $(WIN64_DIR)/TinyTestFx.vst3 $(WIN64_DIR)/TinyTestFx.moduleinfo.json \
+                    $(WIN64_DIR)/TinyTestSynth.dll $(WIN64_DIR)/TinyTestInstaller.exe
+ifneq ($(MINGW64),)
+  ALL_WIN_TEST := $(WIN_TEST_PLUGINS)
+endif
+
+.PHONY: all clean test plugins winehost win-plugins
 all: $(TARGET) $(ALL_WINE)
 
 winehost: $(WINE_HOST)
@@ -93,8 +106,26 @@ $(BUILD)/test-plugins/TinyTestFx.vst3/Contents/x86_64-linux/TinyTestFx.so: tests
 	$(CXX) -std=c++17 -O2 -fPIC -shared -Isrc -o $@ $< -lX11
 	cp tests/plugins/TinyTestFx.moduleinfo.json $(BUILD)/test-plugins/TinyTestFx.vst3/Contents/Resources/moduleinfo.json
 
-test: $(TEST_BINS) $(TEST_PLUGINS) $(ALL_WINE)
-	@set -e; for t in $(TEST_BINS); do echo "== $$t"; TINYDAW_TEST_PLUGINS=$(BUILD)/test-plugins $$t; done
+win-plugins: $(WIN_TEST_PLUGINS)
+
+$(WIN64_DIR)/TinyTestFx.vst3: tests/plugins/test_vst3_fx.cpp src/plugins/vst3_api.h
+	@mkdir -p $(dir $@)
+	$(MINGW64) $(WIN_FLAGS) -shared -o $@ $< -lgdi32 -luser32
+
+$(WIN64_DIR)/TinyTestFx.moduleinfo.json: tests/plugins/TinyTestFx.moduleinfo.json
+	@mkdir -p $(dir $@)
+	cp $< $@
+
+$(WIN64_DIR)/TinyTestSynth.dll: tests/plugins/test_vst2_synth.cpp src/plugins/vst2.h
+	@mkdir -p $(dir $@)
+	$(MINGW64) $(WIN_FLAGS) -shared -o $@ $< -lgdi32 -luser32
+
+$(WIN64_DIR)/TinyTestInstaller.exe: tests/plugins/test_installer.cpp
+	@mkdir -p $(dir $@)
+	$(MINGW64) $(WIN_FLAGS) -o $@ $<
+
+test: $(TEST_BINS) $(TEST_PLUGINS) $(ALL_WINE) $(ALL_WIN_TEST)
+	@set -e; for t in $(TEST_BINS); do echo "== $$t"; TINYDAW_TEST_PLUGINS=$(BUILD)/test-plugins TINYDAW_WIN_TEST_PLUGINS=$(WIN64_DIR) $$t; done
 
 clean:
 	rm -rf build build-debug tinydaw tinydaw-debug $(WINE_HOST) $(WINE_HOST).so
