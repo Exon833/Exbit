@@ -114,6 +114,12 @@ PinToBottom::PinToBottom(std::unique_ptr<ui::Widget> widget, ui::Widget* viewpor
     init(height, margin);
 }
 
+void PinToBottom::setHeight(int height) {
+    height_ = height;
+    widget_->setFixedHeight(height);
+    place();
+}
+
 void PinToBottom::init(int height, int margin) {
     height_ = height;
     margin_ = margin;

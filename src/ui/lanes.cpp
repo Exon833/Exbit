@@ -48,9 +48,17 @@ std::vector<Lane> layout(const Project& project, int top) {
     }
     Lane master;
     master.top = y;
-    master.height = config::MASTER_H;
+    master.height = masterHeight();
     out.push_back(master);
     return out;
 }
+
+namespace {
+int scopeHeight = 0;
+}
+
+int masterHeight() { return config::MASTER_H + scopeHeight; }
+
+void setMasterScopeHeight(int px) { scopeHeight = px > 0 ? px : 0; }
 
 }  // namespace lanes

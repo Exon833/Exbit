@@ -128,6 +128,7 @@ Preferences Preferences::load() {
     p.favouritePlugins = getStr("favourite_plugins", p.favouritePlugins);
     p.recentPlugins = getStr("recent_plugins", p.recentPlugins);
     p.recordOffsets = getStr("record_offsets", p.recordOffsets);
+    p.scope = getStr("scope", p.scope);
     p.interfaceScale = prefs::interfaceScale();
     p.nativeWayland = getBool("native_wayland", p.nativeWayland);
     p.ghostNotes = getStr("ghost_notes", p.ghostNotes);
@@ -164,6 +165,7 @@ Preferences Preferences::load() {
     p.known_["favourite_plugins"] = Json(p.favouritePlugins);
     p.known_["recent_plugins"] = Json(p.recentPlugins);
     p.known_["record_offsets"] = Json(p.recordOffsets);
+    p.known_["scope"] = Json(p.scope);
     p.known_["wine_programs"] = Json(p.winePrograms);
     p.known_["interface_scale"] = Json(p.interfaceScale);
     p.known_["native_wayland"] = Json(p.nativeWayland);
@@ -209,6 +211,7 @@ void Preferences::save() const {
     put("favourite_plugins", favouritePlugins);
     put("recent_plugins", recentPlugins);
     put("record_offsets", recordOffsets);
+    put("scope", scope);
     put("wine_programs", winePrograms);
     put("interface_scale", interfaceScale);
     put("native_wayland", nativeWayland);

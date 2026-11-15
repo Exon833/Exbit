@@ -3,11 +3,13 @@
 
 #include "audio/dsp.h"
 #include "audio/engine.h"
+#include "ui/lanes.h"
+#include "ui/scope_view.h"
 #include "ui/theme.h"
 
 MasterStrip::MasterStrip(audio::Engine& engine_, std::function<void()> openPlugins_)
     : engine(engine_), openPlugins(std::move(openPlugins_)) {
-    owned_ = std::make_unique<LaneFrame>(theme::c("master_lane"), std::nullopt, config::MASTER_H);
+    owned_ = std::make_unique<LaneFrame>(theme::c("master_lane"), std::nullopt, lanes::masterHeight());
     frame = owned_.get();
     ui::VBox* col = ui::vbox(frame, 0, 2);
     col->setContentsMargins(8, 3, 8, 3);
@@ -46,6 +48,8 @@ MasterStrip::MasterStrip(audio::Engine& engine_, std::function<void()> openPlugi
     versionLabel = nullptr;  // (a rolling release: no version number to show)
     notice = frame->add<UpdateNotice>();
     notice->setToolTip(update_notice::noticeTip(nullptr));
+    scope = frame->add<ScopeView>(engine);
+    col->addWidget(scope);
     col->addSpacing(2);
     col->addWidget(notice);
     setVolume(0);
@@ -95,6 +99,12 @@ project_io::MasterSettings MasterStrip::settings() const {
 void MasterStrip::apply(const project_io::MasterSettings& s) {
     volume->setValue((int)s.volumeDb);
     muteButton->setChecked(s.mute);
+}
+
+void MasterStrip::setScopeShown(bool on) {
+    scope->settings.shown = on;
+    scope->setVisible(on);
+    frame->setFixedHeight(lanes::masterHeight());
 }
 
 void MasterStrip::setMute(bool on) { engine.masterMute = on; }

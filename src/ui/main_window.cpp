@@ -36,6 +36,8 @@
 #include "ui/plugin_folders_dialog.h"
 #include "ui/wine_prefixes_dialog.h"
 #include "ui/wine_setup.h"
+#include "ui/lanes.h"
+#include "ui/scope_view.h"
 #include "plugins/wine.h"
 #include "ui/plugin_host.h"
 #include "ui/recording.h"
@@ -149,7 +151,17 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
         for (auto& f : util::split(extra, ':'))
             if (!f.empty()) plugins->folders.push_back(f);
     }
+    // the master scope under the Master row (its options kept: options/scope); its height first
+    ScopeSettings scopeSettings = ScopeSettings::fromJson(Json::parse(prefs.scope));
+    lanes::setMasterScopeHeight(scopeSettings.shown ? config::SCOPE_H : 0);
     master = std::make_unique<MasterStrip>(engine, [this] { openMasterPlugins(); });
+    master->scope->settings = scopeSettings;
+    master->setScopeShown(scopeSettings.shown);
+    master->scope->settingsChanged = [this] {
+        prefs.scope = master->scope->settings.toJson().dump();
+        prefs.save();
+    };
+    master->scope->hideRequested = [this] { showScope(false); };
 
     TrackRenderHost rh;
     rh.window = this;
@@ -313,9 +325,9 @@ void MainWindow::buildLayout() {
     panelScroll->setFixedWidth(config::PANEL_W);
     // the master lane and its row stay at the bottom of the screen, over the tracks scrolling beneath
     std::unique_ptr<ui::Widget> lane = timeline->takeMasterView();
-    masterPins.push_back(std::make_unique<PinToBottom>(std::move(lane), scroll->viewport(), config::MASTER_H));
+    masterPins.push_back(std::make_unique<PinToBottom>(std::move(lane), scroll->viewport(), lanes::masterHeight()));
     masterPins.push_back(std::make_unique<PinToBottom>(master->releaseFrame(), panelScroll->viewport(),
-                                                       config::MASTER_H, theme::SCROLLBAR_W));
+                                                       lanes::masterHeight(), theme::SCROLLBAR_W));
     ui::ScrollBar* timelineBar = scroll->verticalScrollBar();
     ui::ScrollBar* panelBar = panelScroll->verticalScrollBar();
     timelineBar->valueChanged.connect([panelBar](int v) { panelBar->setValue(v); });
@@ -561,6 +573,9 @@ void MainWindow::buildOptionsMenu() {
     menu->addCheckable("&Level meters", prefs.levelMeters, [this](bool on) { setMeterOption("level_meters", on); });
     menu->addCheckable("Loudness (&LUFS)", prefs.loudnessMeters,
                        [this](bool on) { setMeterOption("loudness_meters", on); });
+    scopeAction = menu->addCheckable("Master &scope", master->scope->settings.shown, [this](bool on) { showScope(on); });
+    scopeAction->tooltip = "Under the Master row: the waveform or spectrum of what the master plays (right-click it "
+                           "for its options)";
     menu->addSeparator();
     ui::Menu* colours = menu->addMenu("&Colours");
     colours->addCheckable("&Random colour for new tracks", prefs.randomTrackColors,
@@ -727,6 +742,17 @@ void MainWindow::chooseVst2Folders() {
     for (auto& p : plugins->rescan().plugins)
         if (plug::isVst2Path(p.path)) ++found;
     showStatus(std::to_string(found) + " VST2 plugin" + (found == 1 ? "" : "s") + " found", 5000);
+}
+
+void MainWindow::showScope(bool on) {
+    // View → Master scope (and "Hide the scope" in its menu): the Master row and lane that much taller
+    lanes::setMasterScopeHeight(on ? config::SCOPE_H : 0);
+    master->setScopeShown(on);
+    for (auto& pin : masterPins) pin->setHeight(lanes::masterHeight());
+    if (scopeAction) scopeAction->setChecked(on);
+    timeline->relayout();
+    prefs.scope = master->scope->settings.toJson().dump();
+    prefs.save();
 }
 
 void MainWindow::chooseWinePrefixes() {

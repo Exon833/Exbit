@@ -51,6 +51,7 @@ struct Preferences {
     std::string favouritePlugins;           // the effect chooser's favourites, "path|plugin name" a line
     std::string recentPlugins;              // …and the plugins chosen last, newest first
     std::string recordOffsets;              // Options → Recording offset: JSON {"driver|device": ms}
+    std::string scope;                      // the master scope's options: JSON (ScopeSettings::toJson); "" the defaults
     int interfaceScale = 100;               // % the whole interface is drawn at (from the next start: main.cpp)
     bool nativeWayland = true;              // (the Python program's Qt-on-Wayland choice; kept for its settings)
     bool reloadCrashedPlugins = false;      // a Windows plugin whose Wine host crashed is started afresh by itself

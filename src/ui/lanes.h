@@ -4,7 +4,7 @@
 //   a lane for each track, as tall as the track; none for the tracks of a folded group
 //   under a track showing its automation, a lane for each of its automation lanes
 //   under a track showing its takes, a lane for each recorded take (TAKE_H), latest last
-//   the master lane at the bottom (MASTER_H)
+//   the master lane at the bottom (masterHeight(): MASTER_H, and SCOPE_H more while the scope is shown)
 #pragma once
 #include <vector>
 
@@ -26,4 +26,8 @@ struct Lane {
 namespace lanes {
 // [Lane], starting at y = top; the last one is the master lane
 std::vector<Lane> layout(const Project& project, int top = 0);
+// the master lane's and row's height: MASTER_H, and the master scope's (ui/scope_view.h) while shown
+int masterHeight();
+void setMasterScopeHeight(int px);  // (0: the scope hidden)
+
 }  // namespace lanes

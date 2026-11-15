@@ -58,6 +58,7 @@ public:
     PinToBottom(const PinToBottom&) = delete;
     PinToBottom& operator=(const PinToBottom&) = delete;
     void place();
+    void setHeight(int height);  // (the master's row: taller while the master scope is shown)
     ui::Widget* widget() const { return widget_; }
     ui::Widget* cover() const { return cover_; }
 

@@ -58,8 +58,13 @@ public:
     const int sr, channels;
     std::atomic<bool> levelsOn{true};    // peak meters
     std::atomic<bool> loudnessOn{true};  // LUFS
+    std::atomic<bool> scopeOn{false};    // the master scope (ui/scope_view.h): the master's last SCOPE_SECONDS kept
     std::atomic<int64_t> dropped{0};     // taps that found the ring full
-    bool active() const { return levelsOn.load(std::memory_order_relaxed) || loudnessOn.load(std::memory_order_relaxed); }
+    bool active() const {
+        return levelsOn.load(std::memory_order_relaxed) || loudnessOn.load(std::memory_order_relaxed) ||
+               scopeOn.load(std::memory_order_relaxed);
+    }
+    static constexpr double SCOPE_SECONDS = 2.0;
 
     // --- audio thread ---
     // what `key` played on outputs [first, first + width): planar channel pointers
@@ -82,6 +87,11 @@ public:
     void read(const Track* key, double& momentary, double& shortTerm, double& integrated) const;
     // drop the meters of tracks no longer in `tracks`
     void forgetGone(const std::vector<TrackPtr>& tracks);
+    // (scopeOn) the master's newest `n` frames (at most SCOPE_SECONDS' worth), oldest first, of its outputs
+    // 1 and 2 (a single output: the same in both); takePeaks keeps them. Fewer if fewer were heard since
+    // the scope was switched on. Returns how many frames were heard in all (for following the newest).
+    uint64_t scopeLatest(size_t n, std::vector<float>& left, std::vector<float>& right) const;
+    void clearScope() { scopeFrames_ = 0; }  // (GUI thread) forget what was kept (the scope shown again)
 
 private:
     struct Item {
@@ -104,6 +114,10 @@ private:
     std::atomic<uint64_t> itemHead_{0}, itemTail_{0};
     std::map<const Track*, std::unique_ptr<loudness::LoudnessMeter>> loudness_;
     std::map<const Track*, std::vector<Pending>> pending_;
+    // (GUI thread) the master's last SCOPE_SECONDS, as rings, and how many frames went into them
+    std::vector<float> scopeL_, scopeR_;
+    uint64_t scopeFrames_ = 0;
+    void keepForScope(const Item& item);
 };
 
 }  // namespace audio

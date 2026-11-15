@@ -15,6 +15,7 @@
 #include "ui/widgets.h"
 
 namespace audio { class Engine; }
+class ScopeView;
 
 // Builds the master lane frame; `frame` is the widget to place (take it with releaseFrame() for
 // PinToBottom), `meter` gets fed peaks and `loudness` LUFS values.
@@ -42,6 +43,9 @@ public:
     DbReading* dbLabel;
     ui::Label* versionLabel = nullptr;  // (none any more: a rolling release has no version number)
     UpdateNotice* notice;
+    ScopeView* scope;  // under the controls (ui/scope_view.h)
+    // shows or hides the scope: the frame lanes::masterHeight() tall (set that first)
+    void setScopeShown(bool on);
     std::optional<update_check::Result> updateResult;
 
 private:

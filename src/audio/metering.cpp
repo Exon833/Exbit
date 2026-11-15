@@ -147,9 +147,45 @@ void Metering::takePeaks(std::vector<float>& master, std::map<const Track*, std:
                     full[item.first + c] = std::max(full[item.first + c], peaks[c]);
             }
         }
+        if (item.key == MASTER && scopeOn.load(std::memory_order_relaxed)) keepForScope(item);
         dataTail_.store(item.offset + floats, std::memory_order_release);
         itemTail_.store(it + 1, std::memory_order_release);
     }
+}
+
+void Metering::keepForScope(const Item& item) {
+    size_t cap = (size_t)std::max(1.0, SCOPE_SECONDS * sr);
+    if (scopeL_.size() != cap) {
+        scopeL_.assign(cap, 0.0f);
+        scopeR_.assign(cap, 0.0f);
+        scopeFrames_ = 0;
+    }
+    size_t n = data_.size();
+    for (int f = 0; f < item.frames; f++) {
+        float l = 0.0f, r = 0.0f;
+        if (!item.silent && item.width > 0) {
+            uint64_t at = item.offset + (uint64_t)f * item.width;
+            l = data_[at % n];
+            r = item.width > 1 ? data_[(at + 1) % n] : l;
+        }
+        size_t i = scopeFrames_ % cap;
+        scopeL_[i] = l;
+        scopeR_[i] = r;
+        scopeFrames_++;
+    }
+}
+
+uint64_t Metering::scopeLatest(size_t n, std::vector<float>& left, std::vector<float>& right) const {
+    size_t cap = scopeL_.size();
+    n = std::min<size_t>({n, cap, (size_t)scopeFrames_});
+    left.resize(n);
+    right.resize(n);
+    for (size_t k = 0; k < n; k++) {
+        size_t i = (size_t)((scopeFrames_ - n + k) % cap);
+        left[k] = scopeL_[i];
+        right[k] = scopeR_[i];
+    }
+    return scopeFrames_;
 }
 
 void Metering::updateLoudness() {

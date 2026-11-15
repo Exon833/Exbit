@@ -30,11 +30,31 @@ extends; that program is in the repository's history.
   instrument patch panels; automation of any parameter, volume and pan; plugin delay compensation.
 - **Audio**: ALSA, PulseAudio (PipeWire through either) and JACK; recording with count-in and a
   measurable recording offset; freeze and bounce; render to WAV, FLAC, MP3 or OGG with peak or
-  loudness normalizing; stems; level meters with peak hold and clip lights; LUFS.
+  loudness normalizing; stems; level meters with peak hold and clip lights; LUFS; a master scope.
 - **Projects**: templates, recent projects, backups of what each save replaces, autosave with crash
   recovery, Ableton Live set import.
 - **Look**: skins (Dark, Light, Midnight, OLED, High contrast, or your own, editable), interface size
   75–200 %, a sample Explorer with search and previews, a project overview.
+
+## The master scope
+
+Under the Master row (the right-hand column), a small window shows what the master plays, as a
+**waveform** (an oscilloscope: the default) or a **spectrum**. View → Master scope shows or hides it;
+right-click it for its options, which are remembered:
+
+- **Combined channels** (left and right mixed) or **separate** (left and right side by side), in
+  either view.
+- Waveform: the **capture window** (5 ms … 2 s of the newest sound) and **pitch follow**: the note's
+  period is found (YIN) and whole cycles of it are shown (1, 2, 4 or 8), each picture starting where
+  the last one did, so a held note stands still; its name and frequency are shown ("A3 220 Hz").
+  Where no clear pitch is heard (noise, chords, silence) the capture window runs freely.
+- Spectrum: the **FFT size** (1024 … 16384), the **window function** (Hann, Hamming,
+  Blackman-Harris, rectangular), how fast it **falls back**, the **slope** (0, 3 or 4.5 dB per octave
+  about 1 kHz) and the **range** (60, 90 or 120 dB); frequencies on a logarithmic scale.
+
+It shows the master after its volume (what is heard), outputs 1 and 2. While it is hidden nothing is
+kept for it, and the audio thread does nothing more for it at any time: the meters' copy of what was
+played is read on the interface thread.
 
 ## Build
 

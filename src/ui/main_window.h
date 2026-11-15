@@ -140,6 +140,7 @@ public:
     std::unique_ptr<UpdateChecker> updates;
     // menu entries
     ui::Action* explorerAction = nullptr;
+    ui::Action* scopeAction = nullptr;  // View → Master scope
     ui::Menu* skinMenu = nullptr;
     ui::Action* roundedAction = nullptr;
     ui::Action* undoAction = nullptr;
@@ -202,6 +203,7 @@ public:
     void openSkinsFolder();
     void chooseVst2Folders();
     void chooseWinePrefixes();
+    void showScope(bool on);  // View → Master scope
     void installWindowsPlugin();  // Options → Install Windows plugin… (wine_setup.h)
     void showAudioProperties();
     void setAudioDevice(const std::string& driverType, const std::string& device, int bufferSize, bool exclusive = false);

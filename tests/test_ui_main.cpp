@@ -1,10 +1,16 @@
 // The main window's own modules: the interface size (the toolkit's scale), recent projects and
 // templates (ui/templates.h), autosave and crash recovery (ui/autosave.h). Pictures of the scaled
 // controls go to build/ui-samples/main/.
+#include <cmath>
 #include <cstdio>
 #include <string>
 
+#include "audio/engine.h"
+#include "audio/metering.h"
 #include "check.h"
+#include "config.h"
+#include "ui/lanes.h"
+#include "ui/scope_view.h"
 #include "core/util.h"
 #include "gfx/image.h"
 #include "gfx/painter.h"
@@ -278,6 +284,94 @@ static void testAutosave() {
     d.close();
 }
 
+// the master scope's options as kept, what it finds in left and right (combined: their mix; separate:
+// each), its menu, and that the master's audio is kept for it only while it is shown
+static void testScope() {
+    ScopeSettings d;
+    CHECK(d.shown && !d.spectrum && !d.separate && d.captureMs == 50 && d.pitchFollow && d.cycles == 2);
+    ScopeSettings s;
+    s.spectrum = true, s.separate = true, s.captureMs = 200, s.pitchFollow = false, s.cycles = 4;
+    s.fft.fftSize = 16384, s.fft.window = scope::Window::BlackmanHarris, s.fft.fall = 18, s.fft.slope = 4.5;
+    s.fft.floorDb = -120;
+    ScopeSettings back = ScopeSettings::fromJson(Json::parse(s.toJson().dump()));
+    CHECK(back.spectrum && back.separate && back.captureMs == 200 && !back.pitchFollow && back.cycles == 4);
+    CHECK(back.fft.fftSize == 16384 && back.fft.window == scope::Window::BlackmanHarris && back.fft.fall == 18);
+    CHECK(back.fft.slope == 4.5 && back.fft.floorDb == -120);
+    ScopeSettings odd = ScopeSettings::fromJson(Json::parse("{\"capture_ms\": 7, \"fft_size\": 1000, \"mode\": 3}"));
+    CHECK(odd.captureMs == 50 && odd.fft.fftSize == 4096 && !odd.spectrum);  // (not offered: the defaults)
+    CHECK(!ScopeSettings::fromJson(Json::parse("")).spectrum);
+
+    Project project;
+    audio::Engine engine(project);
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(240, config::SCOPE_H);
+    auto* view = w.add<ScopeView>(engine);
+    view->setGeometry(0, 0, 240, config::SCOPE_H);
+    w.showWindow();
+    const int sr = 48000;
+    std::vector<float> left(8192), right(8192);
+    for (size_t i = 0; i < left.size(); i++) {
+        left[i] = (float)(0.4 * (2 * std::fmod(220.0 * i / sr, 1.0) - 1));  // (a saw, A3)
+        right[i] = (float)(0.3 * std::sin(2 * 3.14159265358979 * 330.0 * i / sr));  // (a sine, E4)
+    }
+    view->showAudio(left, right, sr, 0);
+    CHECK(std::fabs(view->pitchHz() - 110) < 1.5);  // (their mix: 110 Hz is the period of both)
+    CHECK(view->label() == "A2 110 Hz");
+    picture(w, "scope-waveform");
+    view->settings.separate = true;
+    view->showAudio(left, right, sr, 0);
+    CHECK(std::fabs(view->pitchHz(0) - 220) < 1.5 && std::fabs(view->pitchHz(1) - 330) < 2);
+    CHECK(view->label(0) == "A3 220 Hz" && view->label(1) == "E4 330 Hz");
+    picture(w, "scope-waveform-separate");
+    view->settings.pitchFollow = false;
+    view->showAudio(left, right, sr, 0);
+    CHECK(view->pitchHz(0) == 0 && view->label(0) == "50 ms");
+    // the menu: each choice changes the settings, and says so
+    int told = 0;
+    bool hidden = false;
+    view->settingsChanged = [&] { told++; };
+    view->hideRequested = [&] { hidden = true; };
+    Menu menu;
+    view->fillMenu(menu);
+    auto choose = [&](Menu& m, const std::string& text) {
+        for (auto& a : m.actions()) {
+            if (a->text == text) {
+                if (a->checkable && a->toggled) a->toggled(true);
+                else if (a->triggered) a->triggered();
+                return true;
+            }
+            if (a->submenu)
+                for (auto& b : a->submenu->actions())
+                    if (b->text == text && b->toggled) {
+                        b->toggled(true);
+                        return true;
+                    }
+        }
+        return false;
+    };
+    CHECK(choose(menu, "&Spectrum") && view->settings.spectrum && told == 1);
+    CHECK(choose(menu, "&Combined channels") && !view->settings.separate && told == 2);
+    CHECK(choose(menu, "8192") && view->settings.fft.fftSize == 8192);
+    CHECK(choose(menu, "Blackman-Harris") && view->settings.fft.window == scope::Window::BlackmanHarris);
+    CHECK(choose(menu, "200 ms") && view->settings.captureMs == 200);
+    CHECK(choose(menu, "&Hide the scope") && hidden);
+    view->showAudio(left, right, sr, 0.016);
+    CHECK(view->label() == "FFT 8192");
+    picture(w, "scope-spectrum");
+    // the master's audio is kept for it only while it is shown
+    view->frame();
+    CHECK(engine.metering->scopeOn.load());
+    view->settings.shown = false;
+    view->frame();
+    CHECK(!engine.metering->scopeOn.load());
+    // the master's row: taller by the scope while it is shown
+    lanes::setMasterScopeHeight(config::SCOPE_H);
+    CHECK(lanes::masterHeight() == config::MASTER_H + config::SCOPE_H);
+    lanes::setMasterScopeHeight(0);
+    CHECK(lanes::masterHeight() == config::MASTER_H);
+    w.hideWindow();
+}
+
 int main() {
     App::get().initHeadless();
     util::makeDirs(SAMPLES);
@@ -288,5 +382,6 @@ int main() {
     testWindowScale();
     testRecent();
     testAutosave();
+    testScope();
     TEST_MAIN_END();
 }

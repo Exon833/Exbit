@@ -7,6 +7,7 @@ namespace config {
 constexpr int RULER_H = 24;           // time ruler at the top; the CPU monitor uses the same height
 constexpr int TRACK_H = 72;           // default lane height
 constexpr int MASTER_FOOTER_H = 14;   // under the master's controls: the update notice
+constexpr int SCOPE_H = 78;            // the master scope (ui/scope_view.h), under them while shown
 constexpr int MASTER_H = TRACK_H + MASTER_FOOTER_H;  // the master lane and its row (pinned to the bottom)
 constexpr int GROUP_H = 52;           // a group's header lane (and its row in the panel)
 constexpr int TAKE_H = 46;            // a take lane (recorded takes shown under their track, for comping)
