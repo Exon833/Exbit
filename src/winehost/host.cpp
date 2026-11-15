@@ -1043,6 +1043,10 @@ int main(int argc, char** argv) {
         return plug::runProbe(arg);
     if (mode == "--classes" && !arg.empty())
         return classesMain(arg);
+    if (mode == "--outline-test")
+        TerminateProcess(GetCurrentProcess(), outlineTest());
+    if (mode == "--path-test-file" && !arg.empty())
+        TerminateProcess(GetCurrentProcess(), pathTestFile(arg));
     if (mode == "--path-test" && argc > 3)
         TerminateProcess(GetCurrentProcess(),  // (as quit(): returning from main ends in Wine's abort)
                          pathTest(atoi(argv[2]), atoi(argv[3]), argc > 4 && std::string(argv[4]) == "as-is"));

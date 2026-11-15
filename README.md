@@ -129,7 +129,13 @@ bright and solid), layers (clipping to shapes and masks: Quanta 2's red rectangl
 the screen's refresh (JUCE 8 plugins repaint only after it: their windows stood still). Shapes are
 filled with a bounded stack: Wine's Direct2D can recurse without end on some (Serum 2's wavetable
 view, its WT POS knob turned), and such a shape is left unfilled instead of the plugin crashing
-(`TINYDAW_WINE_PATHS_AS_IS=1` leaves that as it is). A plugin that crashes anyway ends its host at
+(`TINYDAW_WINE_PATHS_AS_IS=1` leaves that as it is). Those shapes are mostly waveforms with points
+exactly in line with one of their sides (an empty multisample display is one flat line): every point
+a shape is given is nudged off such lines by a few thousandths of a pixel first, which Wine then fills
+(Serum 2 with a drum kit: 0 shapes given up instead of over 800 in ten seconds; they had shown as
+nothing, or as slivers fanning out of the display; `TINYDAW_WINE_FILL_AS_IS=1` leaves the points as
+they are). Outlines that turn back sharper than Direct2D's mitre limit (a waveform's peaks) end flat
+there, as Windows cuts them, instead of shooting spikes. A plugin that crashes anyway ends its host at
 once, and Tiny DAW shows it as stopped, ready to be reloaded (above). The edges of their shapes aren't smoothed as on Windows
 (Wine's Direct2D doesn't do that yet).
 
@@ -155,10 +161,12 @@ Testing aids of the running program (hidden; see `src/ui/test_script.h`):
 | `TINYDAW_VST3_PATH=<dir>[:<dir>…]` | more VST3 folders besides the standard ones (e.g. `build/test-plugins`) |
 | `TINYDAW_NO_UPDATE_CHECK=1` | doesn't ask GitHub whether there are newer commits |
 | `TINYDAW_WINE=<wine>`, `TINYDAW_WINE_HOST=<…/tinydaw-wine-host.exe>` | another Wine, another Wine host |
-| `TINYDAW_WINE_TRACE=1` | the Wine host prints which window gets the keys and clicks, slow audio buffers, its corrections |
+| `TINYDAW_WINE_TRACE=1` | the Wine host prints which window gets the keys and clicks, slow audio buffers, its corrections, the font families a plugin asks for (found or not) |
 | `TINYDAW_WINE_EGL=1` | doesn't switch the Wine host's OpenGL to GLX |
 | `TINYDAW_WINE_D2D_AS_IS=1` | doesn't fill in Wine's Direct2D gradients, layers and vertical blank |
 | `TINYDAW_WINE_PATHS_AS_IS=1` | fills Direct2D shapes on the plugin's own thread, as Wine does (no bounded stack) |
+| `TINYDAW_WINE_FILL_AS_IS=1` | gives Wine's Direct2D shapes' points as the plugin made them (not nudged off exact lines) |
+| `TINYDAW_WINE_DUMP_PATHS=<folder>` | writes each shape Wine's Direct2D recursed on there (for `tinydaw-wine-host.exe --path-test-file`) |
 | `XDG_CONFIG_HOME=<dir>`, `XDG_DATA_HOME=<dir>` | settings and data elsewhere, to leave your own alone |
 
 ## Folder layout

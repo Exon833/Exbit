@@ -445,7 +445,26 @@ constexpr int RT_DRAW_GEOMETRY = 22;
 using DrawGeometryFn = void(WINAPI*)(void* dc, void* geometry, void* brush, float width, void* style);
 DrawGeometryFn wineDrawGeometry = nullptr;
 
-// splits and merges a figure so no point has its neighbours in line with it; true if it changed
+// are the steps u and v (from a point, then on from the next) in line: the second's sideways offset
+// from the first's direction at most 1/64 of a pixel (more than the nudge filled shapes' points get,
+// far less than anyone sees)?
+bool inLine(float ux, float uy, float vx, float vy) {
+    float cross = ux * vy - uy * vx;
+    float longest = std::max(std::hypot(ux, uy), std::hypot(vx, vy));
+    return std::fabs(cross) <= longest / 64.0f;
+}
+
+// does the outline turn back at the point between steps u and v: straight back, or so sharply that
+// Direct2D's mitre there would be longer than its limit (10 half-widths: a turn of more than 168.5°,
+// a waveform's peak)? Windows' Direct2D cuts such a corner off; Wine's draws the whole mitre, a spike
+// shot out of the peak. So the figure is split there: each side ends flat at the point.
+bool turnsBack(float ux, float uy, float vx, float vy) {
+    float dot = ux * vx + uy * vy;
+    return (inLine(ux, uy, vx, vy) && dot < 0) || dot < -0.98f * std::hypot(ux, uy) * std::hypot(vx, vy);
+}
+
+// splits and merges a figure so no point has its neighbours in line with it, nor a turn back at it;
+// true if it changed
 bool straighten(const Polyline& in, std::vector<Polyline>& out) {
     std::vector<Point2F> p;
     for (const auto& q : in.points)  // (repeated points go)
@@ -464,7 +483,7 @@ bool straighten(const Polyline& in, std::vector<Polyline>& out) {
         for (size_t i = 0, n = p.size(); i < n; i++) {
             const Point2F &a = p[(i + n - 1) % n], &b = p[i], &c = p[(i + 1) % n];
             float ux = b.x - a.x, uy = b.y - a.y, vx = c.x - b.x, vy = c.y - b.y;
-            if (ux * vy - uy * vx == 0.0f && ux * vx + uy * vy < 0) {
+            if (turnsBack(ux, uy, vx, vy)) {
                 Polyline open;
                 open.points.assign(p.begin() + (long)i, p.end());
                 open.points.insert(open.points.end(), p.begin(), p.begin() + (long)i + 1);
@@ -478,14 +497,15 @@ bool straighten(const Polyline& in, std::vector<Polyline>& out) {
         if (current.points.size() >= 2) {
             const Point2F &a = current.points[current.points.size() - 2], &b = current.points.back(), &c = p[i];
             float ux = b.x - a.x, uy = b.y - a.y, vx = c.x - b.x, vy = c.y - b.y;
-            float cross = ux * vy - uy * vx, dot = ux * vx + uy * vy;
-            if (cross == 0.0f) {
+            float dot = ux * vx + uy * vy;
+            if (inLine(ux, uy, vx, vy) && dot > 0) {  // (straight on: b isn't needed)
                 changed = true;
-                if (dot > 0) {  // (straight on: b isn't needed)
-                    current.points.back() = c;
-                    continue;
-                }
-                // (straight back: the figure ends at b, and goes on from there as a new one)
+                current.points.back() = c;
+                continue;
+            }
+            if (turnsBack(ux, uy, vx, vy)) {
+                changed = true;
+                // (back: the figure ends at b, and goes on from there as a new one)
                 current.closed = false;
                 out.push_back(current);
                 current.points = {b};
@@ -498,12 +518,12 @@ bool straighten(const Polyline& in, std::vector<Polyline>& out) {
     // (a closed figure's corner where it ends and begins again)
     if (in.closed && out.size() == 1 && out[0].points.size() >= 3) {
         auto& q = out[0].points;
-        auto inLine = [](const Point2F& a, const Point2F& b, const Point2F& c) {
-            return (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x) == 0.0f;
+        auto through = [](const Point2F& a, const Point2F& b, const Point2F& c) {  // (a, b, c in line)
+            return inLine(b.x - a.x, b.y - a.y, c.x - b.x, c.y - b.y);
         };
-        while (q.size() >= 3 && inLine(q[q.size() - 2], q.back(), q[0]))
+        while (q.size() >= 3 && through(q[q.size() - 2], q.back(), q[0]))
             q.pop_back(), changed = true;
-        while (q.size() >= 3 && inLine(q.back(), q[0], q[1]))
+        while (q.size() >= 3 && through(q.back(), q[0], q[1]))
             q.erase(q.begin()), changed = true;
     }
     return changed;
@@ -647,6 +667,13 @@ LONG WINAPI findFamily(void* collection, const char16_t* name, UINT* index, BOOL
     if (known)
         return 0;
     LONG hr = wineFindFamily(collection, name, index, exists);
+    if (hr >= 0 && getenv("TINYDAW_WINE_TRACE")) {  // (each name once per collection: what fonts a plugin asks for)
+        std::string n;
+        for (const char16_t* c = name; *c; c++)
+            n += *c < 128 ? (char)*c : '?';
+        fprintf(stderr, "tinydaw-wine-host: font family \"%s\" %s (in a collection of %u)\n", n.c_str(),
+                *exists ? "found" : "NOT found", count);
+    }
     if (hr >= 0) {
         EnterCriticalSection_(familiesLock);
         bool full = families->size() > 4096;
@@ -665,6 +692,214 @@ LONG WINAPI findFamily(void* collection, const char16_t* name, UINT* index, BOOL
     return hr;
 }
 
+
+// --- filled shapes Wine can triangulate ---
+
+// Wine's triangulation (below) recurses without end where a shape's point lies exactly in line with
+// one of its sides: waveforms drawn filled down to their line have such points by the hundred (Serum
+// 2's oscillators: 575 shapes given up in ten seconds, filled as nothing or as slivers). So every
+// point a path is given is nudged first, by a few thousandths of a pixel (±1…4/1024 in each
+// direction, never 0): exactly in line no more, and nothing anyone can see. The nudge is the point's
+// own (a hash of it): the same point in two shapes moves the same way, so shapes that meet still meet.
+// TINYDAW_WINE_FILL_AS_IS=1 leaves the points as they are.
+// TINYDAW_WINE_DUMP_PATHS=<folder>: a path Wine recursed on is written there (its points as given),
+// for tinydaw-wine-host.exe --path-test-file <file> to replay.
+constexpr int SINK_SET_FILL_MODE = 3, SINK_ADD_BEZIERS = 7, SINK_ADD_LINE = 10, SINK_ADD_BEZIER = 11,
+              SINK_ADD_QUAD = 12, SINK_ADD_QUADS = 13, SINK_ADD_ARC = 14;
+struct BezierSeg {
+    Point2F p1, p2, p3;
+};
+struct QuadSeg {
+    Point2F p1, p2;
+};
+struct ArcSeg {
+    Point2F point;
+    float width, height;  // (D2D1_SIZE_F)
+    float rotation;
+    int sweep, size;
+};
+using SetFillModeFn = void(WINAPI*)(void* sink, int mode);
+using BeginFigureFn = void(WINAPI*)(void* sink, Point2F start, int begin);
+using AddLinesFn = void(WINAPI*)(void* sink, const Point2F* points, UINT count);
+using AddBeziersFn = void(WINAPI*)(void* sink, const BezierSeg* beziers, UINT count);
+using EndFigureFn = void(WINAPI*)(void* sink, int end);
+using AddLineFn = void(WINAPI*)(void* sink, Point2F point);
+using AddBezierFn = void(WINAPI*)(void* sink, const BezierSeg* bezier);
+using AddQuadFn = void(WINAPI*)(void* sink, const QuadSeg* bezier);
+using AddQuadsFn = void(WINAPI*)(void* sink, const QuadSeg* beziers, UINT count);
+using AddArcFn = void(WINAPI*)(void* sink, const ArcSeg* arc);
+SetFillModeFn wineSetFillMode = nullptr;
+BeginFigureFn wineBeginFigure = nullptr;
+AddLinesFn wineAddLines = nullptr;
+AddBeziersFn wineAddBeziers = nullptr;
+EndFigureFn wineEndFigure = nullptr;
+AddLineFn wineAddLine = nullptr;
+AddBezierFn wineAddBezier = nullptr;
+AddQuadFn wineAddQuad = nullptr;
+AddQuadsFn wineAddQuads = nullptr;
+AddArcFn wineAddArc = nullptr;
+bool nudging = true;           // (TINYDAW_WINE_FILL_AS_IS: false)
+const char* dumpDir = nullptr;  // (TINYDAW_WINE_DUMP_PATHS)
+
+Point2F nudged(Point2F p) {
+    if (!nudging)
+        return p;
+    uint32_t a, b;
+    std::memcpy(&a, &p.x, 4);
+    std::memcpy(&b, &p.y, 4);
+    uint32_t h = a * 0x9E3779B1u ^ (b + 0x7F4A7C15u) * 0x85EBCA77u;
+    h ^= h >> 15;
+    h *= 0x2C1B3C6Du;
+    h ^= h >> 12;
+    float dx = (float)((h & 3u) + 1) / 1024.0f, dy = (float)(((h >> 3) & 3u) + 1) / 1024.0f;
+    return {p.x + ((h & 4u) ? dx : -dx), p.y + ((h & 32u) ? dy : -dy)};
+}
+
+// (TINYDAW_WINE_DUMP_PATHS) what each open path was given, by its sink: lines of text, as
+// --path-test-file reads them
+std::mutex recordLock;
+std::map<void*, std::string>* recorded = nullptr;
+std::atomic<int> dumped{0};
+
+void record(void* sink, const std::string& line) {
+    if (!dumpDir)
+        return;
+    std::lock_guard<std::mutex> hold(recordLock);
+    if (!recorded)
+        recorded = new std::map<void*, std::string>();
+    (*recorded)[sink] += line + "\n";
+}
+
+std::string pointText(Point2F p) {
+    char t[64];
+    std::snprintf(t, sizeof t, "%.9g %.9g", p.x, p.y);
+    return t;
+}
+
+// the sink's record, taken (written to the folder when `wanted`: a path Wine recursed on)
+void takeRecord(void* sink, bool wanted) {
+    if (!dumpDir)
+        return;
+    std::string text;
+    {
+        std::lock_guard<std::mutex> hold(recordLock);
+        if (!recorded)
+            return;
+        auto it = recorded->find(sink);
+        if (it == recorded->end())
+            return;
+        text.swap(it->second);
+        recorded->erase(it);
+    }
+    int n = wanted ? ++dumped : 0;
+    if (!wanted || n > 50)
+        return;
+    char name[512];
+    std::snprintf(name, sizeof name, "%s/path-%03d.txt", dumpDir, n);
+    if (FILE* f = std::fopen(name, "w")) {
+        std::fputs(text.c_str(), f);
+        std::fclose(f);
+    }
+}
+
+void WINAPI setFillMode(void* sink, int mode) {
+    record(sink, "fill " + std::to_string(mode));
+    wineSetFillMode(sink, mode);
+}
+
+void WINAPI beginFigure(void* sink, Point2F start, int begin) {
+    record(sink, "begin " + pointText(start) + " " + std::to_string(begin));
+    wineBeginFigure(sink, nudged(start), begin);
+}
+
+void WINAPI addLines(void* sink, const Point2F* points, UINT count) {
+    if (dumpDir)
+        for (UINT i = 0; i < count; i++)
+            record(sink, "L " + pointText(points[i]));
+    if (!nudging || !points) {
+        wineAddLines(sink, points, count);
+        return;
+    }
+    std::vector<Point2F> p(points, points + count);
+    for (auto& q : p)
+        q = nudged(q);
+    wineAddLines(sink, p.data(), count);
+}
+
+void WINAPI addLine(void* sink, Point2F point) {
+    record(sink, "L " + pointText(point));
+    wineAddLine(sink, nudged(point));
+}
+
+BezierSeg nudged(const BezierSeg& b) { return {nudged(b.p1), nudged(b.p2), nudged(b.p3)}; }
+QuadSeg nudged(const QuadSeg& q) { return {nudged(q.p1), nudged(q.p2)}; }
+
+void WINAPI addBeziers(void* sink, const BezierSeg* beziers, UINT count) {
+    if (dumpDir)
+        for (UINT i = 0; i < count; i++)
+            record(sink, "B " + pointText(beziers[i].p1) + " " + pointText(beziers[i].p2) + " " + pointText(beziers[i].p3));
+    if (!nudging || !beziers) {
+        wineAddBeziers(sink, beziers, count);
+        return;
+    }
+    std::vector<BezierSeg> b(beziers, beziers + count);
+    for (auto& s : b)
+        s = nudged(s);
+    wineAddBeziers(sink, b.data(), count);
+}
+
+void WINAPI addBezier(void* sink, const BezierSeg* bezier) {
+    if (!bezier) {
+        wineAddBezier(sink, bezier);
+        return;
+    }
+    record(sink, "B " + pointText(bezier->p1) + " " + pointText(bezier->p2) + " " + pointText(bezier->p3));
+    BezierSeg b = nudging ? nudged(*bezier) : *bezier;
+    wineAddBezier(sink, &b);
+}
+
+void WINAPI addQuad(void* sink, const QuadSeg* bezier) {
+    if (!bezier) {
+        wineAddQuad(sink, bezier);
+        return;
+    }
+    record(sink, "Q " + pointText(bezier->p1) + " " + pointText(bezier->p2));
+    QuadSeg q = nudging ? nudged(*bezier) : *bezier;
+    wineAddQuad(sink, &q);
+}
+
+void WINAPI addQuads(void* sink, const QuadSeg* beziers, UINT count) {
+    if (dumpDir)
+        for (UINT i = 0; i < count; i++)
+            record(sink, "Q " + pointText(beziers[i].p1) + " " + pointText(beziers[i].p2));
+    if (!nudging || !beziers) {
+        wineAddQuads(sink, beziers, count);
+        return;
+    }
+    std::vector<QuadSeg> q(beziers, beziers + count);
+    for (auto& s : q)
+        s = nudged(s);
+    wineAddQuads(sink, q.data(), count);
+}
+
+void WINAPI addArc(void* sink, const ArcSeg* arc) {
+    if (!arc) {
+        wineAddArc(sink, arc);
+        return;
+    }
+    char t[160];
+    std::snprintf(t, sizeof t, "A %s %.9g %.9g %.9g %d %d", pointText(arc->point).c_str(), arc->width, arc->height,
+                  arc->rotation, arc->sweep, arc->size);
+    record(sink, t);
+    ArcSeg a = *arc;
+    a.point = nudged(a.point);
+    wineAddArc(sink, &a);
+}
+
+void WINAPI endFigure(void* sink, int end) {
+    record(sink, "end " + std::to_string(end));
+    wineEndFigure(sink, end);
+}
 
 // --- paths Wine recurses on without end ---
 
@@ -775,7 +1010,10 @@ LONG WINAPI closeBounded(void* sink) {
             endlessPaths++;
         }
     LONG result = closeResult;
-    if (endlessPaths.load() != endless && getenv("TINYDAW_WINE_TRACE"))
+    bool gaveUp = endlessPaths.load() != endless;
+    hold.unlock();
+    takeRecord(sink, gaveUp);
+    if (gaveUp && getenv("TINYDAW_WINE_TRACE"))
         fprintf(stderr, "tinydaw-wine-host: a path Wine's Direct2D recursed on without end: not filled\n");
     return result;
 }
@@ -862,6 +1100,28 @@ void fixWineDirect2D() {
         void* sink = nullptr;
         if (method<LONG(WINAPI*)(void*, void**)>(path, PATH_OPEN)(path, &sink) >= 0 && sink) {
             void** sinks = *(void***)sink;
+            // (its points nudged off exact lines first: filled shapes Wine can triangulate)
+            bool pointsHere = true;
+            for (int i : {SINK_SET_FILL_MODE, SINK_BEGIN, SINK_ADD_LINES, SINK_ADD_BEZIERS, SINK_END, SINK_ADD_LINE,
+                          SINK_ADD_BEZIER, SINK_ADD_QUAD, SINK_ADD_QUADS, SINK_ADD_ARC})
+                pointsHere = pointsHere && inside(d2d, sinks[i]);
+            nudging = !getenv("TINYDAW_WINE_FILL_AS_IS");
+            dumpDir = getenv("TINYDAW_WINE_DUMP_PATHS");
+            if (pointsHere && (nudging || dumpDir)) {
+                patch(sinks, SINK_SET_FILL_MODE, (void*)setFillMode, (void**)&wineSetFillMode);
+                patch(sinks, SINK_BEGIN, (void*)beginFigure, (void**)&wineBeginFigure);
+                patch(sinks, SINK_ADD_LINES, (void*)addLines, (void**)&wineAddLines);
+                patch(sinks, SINK_ADD_BEZIERS, (void*)addBeziers, (void**)&wineAddBeziers);
+                patch(sinks, SINK_END, (void*)endFigure, (void**)&wineEndFigure);
+                patch(sinks, SINK_ADD_LINE, (void*)addLine, (void**)&wineAddLine);
+                patch(sinks, SINK_ADD_BEZIER, (void*)addBezier, (void**)&wineAddBezier);
+                patch(sinks, SINK_ADD_QUAD, (void*)addQuad, (void**)&wineAddQuad);
+                patch(sinks, SINK_ADD_QUADS, (void*)addQuads, (void**)&wineAddQuads);
+                patch(sinks, SINK_ADD_ARC, (void*)addArc, (void**)&wineAddArc);
+                if (trace)
+                    fprintf(stderr, "tinydaw-wine-host: Direct2D paths' points %s\n",
+                            nudging ? "nudged off exact lines" : "recorded");
+            }
             if (inside(d2d, sinks[SINK_CLOSE]) && !getenv("TINYDAW_WINE_PATHS_AS_IS")) {
                 d2dModule = d2d;
                 AddVectoredExceptionHandler(1, closerRanOut);
@@ -1024,6 +1284,95 @@ int pathTest(int points, int shape, bool asIs) {
     return 0;
 }
 
+// tinydaw-wine-host.exe --path-test-file <file>: a path written by TINYDAW_WINE_DUMP_PATHS, given
+// to a new path as it was given then (through the corrections, as a plugin's would be: with
+// TINYDAW_WINE_FILL_AS_IS=1, not nudged); says what Close() answered (80004005: Wine recursed on it)
+int pathTestFile(const std::string& file) {
+    HMODULE d2d = LoadLibraryW(u"d2d1.dll");
+    fixWineDirect2D();
+    using CreateFactory = HRESULT_(WINAPI*)(int type, const Guid* iid, const void* options, void** factory);
+    auto createFactory = d2d ? (CreateFactory)GetProcAddress(d2d, "D2D1CreateFactory") : nullptr;
+    void *factory = nullptr, *path = nullptr, *sink = nullptr;
+    FILE* f = std::fopen(file.c_str(), "r");
+    if (!f || !createFactory || createFactory(0, &IID_ID2D1Factory1, nullptr, &factory) < 0 || !factory ||
+        method<LONG(WINAPI*)(void*, void**)>(factory, FACTORY_CREATE_PATH)(factory, &path) < 0 ||
+        method<LONG(WINAPI*)(void*, void**)>(path, PATH_OPEN)(path, &sink) < 0) {
+        fprintf(stderr, "path test: no Direct2D, or no %s\n", file.c_str());
+        if (f)
+            std::fclose(f);
+        return 1;
+    }
+    char line[512];
+    int points = 0;
+    while (std::fgets(line, sizeof line, f)) {
+        char kind[16] = {0};
+        float v[9] = {0};
+        int a = 0, b = 0;
+        if (std::sscanf(line, "%15s", kind) != 1)
+            continue;
+        std::string k = kind;
+        const char* rest = line + k.size();
+        if (k == "fill" && std::sscanf(rest, "%d", &a) == 1) {
+            method<SetFillModeFn>(sink, SINK_SET_FILL_MODE)(sink, a);
+        } else if (k == "begin" && std::sscanf(rest, "%f %f %d", &v[0], &v[1], &a) == 3) {
+            method<BeginFigureFn>(sink, SINK_BEGIN)(sink, Point2F{v[0], v[1]}, a);
+            points++;
+        } else if (k == "L" && std::sscanf(rest, "%f %f", &v[0], &v[1]) == 2) {
+            method<AddLineFn>(sink, SINK_ADD_LINE)(sink, Point2F{v[0], v[1]});
+            points++;
+        } else if (k == "B" && std::sscanf(rest, "%f %f %f %f %f %f", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]) == 6) {
+            BezierSeg s{{v[0], v[1]}, {v[2], v[3]}, {v[4], v[5]}};
+            method<AddBezierFn>(sink, SINK_ADD_BEZIER)(sink, &s);
+            points += 3;
+        } else if (k == "Q" && std::sscanf(rest, "%f %f %f %f", &v[0], &v[1], &v[2], &v[3]) == 4) {
+            QuadSeg s{{v[0], v[1]}, {v[2], v[3]}};
+            method<AddQuadFn>(sink, SINK_ADD_QUAD)(sink, &s);
+            points += 2;
+        } else if (k == "A" &&
+                   std::sscanf(rest, "%f %f %f %f %f %d %d", &v[0], &v[1], &v[2], &v[3], &v[4], &a, &b) == 7) {
+            ArcSeg s{{v[0], v[1]}, v[2], v[3], v[4], a, b};
+            method<AddArcFn>(sink, SINK_ADD_ARC)(sink, &s);
+            points++;
+        } else if (k == "end" && std::sscanf(rest, "%d", &a) == 1) {
+            method<EndFigureFn>(sink, SINK_END)(sink, a);
+        }
+    }
+    std::fclose(f);
+    LONG closed = method<LONG(WINAPI*)(void*)>(sink, SINK_CLOSE)(sink);
+    printf("path test: %s (%d points%s): Close() answered %08x\n", file.c_str(), points,
+           nudging ? ", nudged" : ", as given", (unsigned)closed);
+    fflush(stdout);
+    release(sink);
+    release(path);
+    release(factory);
+    return 0;
+}
+
+// tinydaw-wine-host.exe --outline-test: what the outlines' straightening (above) makes of a few
+// figures, as one line: a zigzag with sharp peaks (split at each), a gentle wave (left whole), a
+// line whose middle point was nudged a thousandth of a pixel (merged)
+int outlineTest() {
+    auto figures = [](std::vector<Point2F> p, bool closed, size_t& pointsOfFirst) {
+        std::vector<Polyline> out;
+        if (!straighten(Polyline{p, closed}, out))
+            out = {Polyline{p, closed}};
+        pointsOfFirst = out.empty() ? 0 : out[0].points.size();
+        return out.size();
+    };
+    size_t first = 0;
+    size_t zigzag = figures({{0, 0}, {1, 40}, {2, 0}, {3, 40}, {4, 0}}, false, first);
+    std::vector<Point2F> wave;
+    for (int i = 0; i <= 40; i++)
+        wave.push_back({(float)i * 4, 20.0f * std::sin(i * 0.3f)});
+    size_t gentle = figures(wave, false, first);
+    size_t gentlePoints = first;
+    figures({{0, 0}, {1, 0.002f}, {2, 0}}, false, first);
+    printf("outline test: zigzag %zu figures, wave %zu figure of %zu points, nudged line %zu points\n", zigzag,
+           gentle, gentlePoints, first);
+    fflush(stdout);
+    return 0;
+}
+
 #else  // (the 32-bit host)
 
 void fixWineDirect2D() {}
@@ -1032,5 +1381,7 @@ void forgetFontLookups() {}
 void fixWineDxgi() {}
 void fixWineDirectWrite() {}
 int pathTest(int, int, bool) { return -1; }
+int pathTestFile(const std::string&) { return -1; }
+int outlineTest() { return -1; }
 
 #endif

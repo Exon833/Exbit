@@ -2990,6 +2990,43 @@ int findKinds(PluginLibrary& library) {
     return finder.found();
 }
 
+// what the Wine host's own test modes print (run under Wine in `prefix`, with `env` set): its output
+std::string hostSays(const std::string& prefix, const std::string& env, const std::string& args) {
+    std::string cmd = "env WINEPREFIX='" + prefix + "' WINEDEBUG=-all " + env + " '" + wine::winePath() + "' '" +
+                      wine::hostPath() + "' " + args + " 2>/dev/null";
+    std::string out;
+    if (FILE* p = popen(cmd.c_str(), "r")) {
+        char buf[512];
+        while (fgets(buf, sizeof buf, p))
+            out += buf;
+        pclose(p);
+    }
+    return out;
+}
+
+// the host's corrections to Wine's Direct2D, on what Serum 2 really draws: a waveform display's
+// flat line, filled (written by TINYDAW_WINE_DUMP_PATHS): Wine recurses on it without end as it is
+// given (its points all in line), and fills it once they are nudged; and outlines split where they
+// turn back sharper than Direct2D's mitre limit (a waveform's peaks: spikes in Wine), left whole
+// elsewhere, with points a nudge put off a line merged again
+void testDirect2DFixes(const std::string& prefix) {
+    std::string fixture = util::absolutePath("tests/plugins/serum-flat-wave.path");
+    if (!util::fileExists(fixture)) {
+        printf("(no %s: Direct2D's fixes not tested)\n", fixture.c_str());
+        return;
+    }
+    std::string asGiven = hostSays(prefix, "TINYDAW_WINE_FILL_AS_IS=1", "--path-test-file '" + fixture + "'");
+    std::string nudged = hostSays(prefix, "", "--path-test-file '" + fixture + "'");
+    CHECK(asGiven.find("as given): Close() answered 80004005") != std::string::npos);  // (still Wine's bug)
+    CHECK(nudged.find("nudged): Close() answered 00000000") != std::string::npos);
+    std::string outlines = hostSays(prefix, "", "--outline-test");
+    CHECK(outlines.find("zigzag 4 figures, wave 1 figure of 41 points, nudged line 2 points") != std::string::npos);
+    printf("   Direct2D: Serum 2's flat waveform %s nudged (Wine %s as given); %s", 
+           nudged.find("answered 00000000") != std::string::npos ? "filled" : "NOT filled",
+           asGiven.find("answered 80004005") != std::string::npos ? "recurses on it" : "fills it",
+           outlines.empty() ? "no outline test\n" : outlines.c_str());
+}
+
 // drag and drop through the Wine host, with the plugin's window open in one of ours: a file dropped
 // on it reaches it (the VST3 effect's OLE drop target, the VST2 synth's WM_DROPFILES: each marks the
 // file "<file>.seen-vst3/2"), and a MIDI file the synth drags out of its window (its Volume set to
@@ -3233,7 +3270,10 @@ int main() {
     testSetupWithoutWine();
     if (!getenv("TINYDAW_NO_WINE") && !wine::winePath().empty() && !wine::hostPath().empty()) {
         std::string made = testSetupWithWine();
-        if (!made.empty()) testWindowsTestPlugins(made);
+        if (!made.empty()) {
+            testDirect2DFixes(made);
+            testWindowsTestPlugins(made);
+        }
     }
     testFiles();
     testPrefixAsVst2Folder();
