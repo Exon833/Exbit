@@ -138,6 +138,7 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     scroll = add<ui::ScrollArea>();
     timeline = scroll->makeContent<Timeline>(project, engine, scroll);
     wine::setPrefixes(prefs.wineList());  // (Windows plugins: the prefixes they're found in)
+    wine::setWinePrograms(prefs.wineProgramMap());  // (…and the wine program chosen for some of them)
     plugins = std::make_unique<PluginHost>(this, project, engine, [this] { return prefs.vst2List(); });
     // (hidden, for testing: more VST3 folders, separated by ':')
     if (const char* extra = getenv("TINYDAW_VST3_PATH")) {
@@ -723,14 +724,18 @@ void MainWindow::chooseVst2Folders() {
 void MainWindow::chooseWinePrefixes() {
     // Options → Wine prefixes: where Windows plugins are looked for (remembered)
     std::vector<std::string> chosen;
+    std::map<std::string, std::string> programs;
     {
-        WinePrefixesDialog d(this, prefs.wineList());
+        WinePrefixesDialog d(this, prefs.wineList(), prefs.wineProgramMap());
         if (!d.exec()) return;
         chosen = d.prefixes();
+        programs = d.programs();
     }
     prefs.setWineList(chosen);
+    prefs.setWineProgramMap(programs);
     prefs.save();
     wine::setPrefixes(prefs.wineList());
+    wine::setWinePrograms(prefs.wineProgramMap());
     int found = 0;
     for (auto& p : plugins->rescan().plugins)
         if (p.looksWindows()) ++found;

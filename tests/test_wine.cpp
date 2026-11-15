@@ -10,6 +10,7 @@
 // (hosts killed and hung, many at once, odd buffers, states, rate changes, offline, windows; see
 // stress() below).
 #include <signal.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -80,6 +81,112 @@ void testPrefixes() {
     CHECK(wine::prefixes().empty());
     CHECK(wine::looksWindows(util::joinPath(fake, "drive_c/a/b.vst3")) && wine::looksWindows("/x/Y.DLL"));
     CHECK(!wine::looksWindows("/usr/lib/vst3/X.vst3"));
+}
+
+// a fake prefix (drive_c, and a registry saying which Windows it is: "" none)
+std::string fakePrefix(const std::string& dir, const std::string& arch) {
+    util::makeDirs(util::joinPath(dir, "drive_c/Program Files/Common Files/VST3"));
+    std::string reg = "WINE REGISTRY Version 2\n;; All keys relative to REGISTRY\\\\Machine\n\n";
+    if (!arch.empty()) reg += "#arch=" + arch + "\n";
+    util::writeFile(util::joinPath(dir, "system.reg"), reg + "\n[Software] 1700000000\n");
+    return dir;
+}
+
+// a fake wine program: a script answering --version with `version` (and failing otherwise)
+std::string fakeWine(const std::string& file, const std::string& version) {
+    util::makeDirs(util::dirName(file));
+    util::writeFile(file, "#!/bin/sh\n[ \"$1\" = --version ] && echo " + version + " && exit 0\nexit 1\n");
+    chmod(file.c_str(), 0755);
+    return file;
+}
+
+void testPrefixArch() {
+    std::string root = util::joinPath(tempRoot, "arch");
+    CHECK(wine::prefixArch(fakePrefix(util::joinPath(root, "p64"), "win64")) == "win64");
+    CHECK(wine::prefixArch(fakePrefix(util::joinPath(root, "p32"), "win32")) == "win32");
+    CHECK(wine::prefixArch(fakePrefix(util::joinPath(root, "old"), "")) == "win64");  // (no #arch: before 32-bit-only ones)
+    CHECK(wine::prefixArch(util::joinPath(root, "none")).empty());                      // (no registry yet)
+    CHECK(wine::wineMajor("wine-11.22 (Staging)") == 11 && wine::wineMajor("wine-8.0") == 8);
+    CHECK(wine::wineMajor("") == 0 && wine::wineMajor("nonsense") == 0);
+    // a 32-bit prefix can't run the (64-bit) host, and says so
+    std::string why;
+    if (!wine::hostPath().empty() && !wine::winePath().empty()) {
+        CHECK(!wine::availableIn(util::joinPath(root, "p32"), why) && why.find("32-bit") != std::string::npos);
+        CHECK(wine::availableIn(util::joinPath(root, "p64"), why));
+    }
+}
+
+// which wine program runs in a prefix: chosen, a Bottles bottle's runner, a Lutris game's Wine, the usual one
+void testWinePrograms() {
+    std::string root = util::joinPath(tempRoot, "programs");
+    std::string data = util::joinPath(root, "data"), config = util::joinPath(root, "config");
+    std::string oldData = getenv("XDG_DATA_HOME") ? getenv("XDG_DATA_HOME") : "";
+    std::string oldConfig = getenv("XDG_CONFIG_HOME") ? getenv("XDG_CONFIG_HOME") : "";
+    setenv("XDG_DATA_HOME", data.c_str(), 1);
+    setenv("XDG_CONFIG_HOME", config.c_str(), 1);
+    std::string usual = wine::winePath();
+
+    // a plain prefix: the usual Wine
+    std::string plain = fakePrefix(util::joinPath(root, "plain"), "win64");
+    CHECK(wine::winePathFor(plain) == usual && wine::wineSource(plain).empty());
+
+    // a Bottles bottle (<data>/bottles/bottles/<name>, its runner in <data>/bottles/runners/<runner>)
+    std::string bottle = fakePrefix(util::joinPath(data, "bottles/bottles/Music"), "win64");
+    util::writeFile(util::joinPath(bottle, "bottle.yml"),
+                    "Arch: win64\nName: Music\nRunner: soda-9.0-1\nParameters:\n  dxvk: true\n  Runner: not-this\n");
+    std::string soda = fakeWine(util::joinPath(data, "bottles/runners/soda-9.0-1/bin/wine"), "wine-9.0");
+    CHECK(wine::winePathFor(bottle) == soda);
+    CHECK(wine::wineSource(bottle) == "Bottles: soda-9.0-1");
+    CHECK(wine::wineVersion(soda) == "wine-9.0");
+    // …whose runner is gone: the usual Wine, and why
+    std::string gone = fakePrefix(util::joinPath(data, "bottles/bottles/Gone"), "win64");
+    util::writeFile(util::joinPath(gone, "bottle.yml"), "Runner: 'caffe-7.20'\n");
+    CHECK(wine::winePathFor(gone) == usual);
+    CHECK(wine::wineSource(gone) == "Bottles: caffe-7.20 isn't installed; the usual Wine instead");
+    // …a "sys-" runner: the system's Wine
+    std::string sys = fakePrefix(util::joinPath(data, "bottles/bottles/Sys"), "win64");
+    util::writeFile(util::joinPath(sys, "bottle.yml"), "Runner: sys-wine-11.0\n");
+    if (!usual.empty()) CHECK(wine::winePathFor(sys) == usual && wine::wineSource(sys) == "Bottles: sys-wine-11.0");
+    // …a runner that doesn't run here (no answer to --version): the usual Wine
+    std::string broken = fakePrefix(util::joinPath(data, "bottles/bottles/Broken"), "win64");
+    util::writeFile(util::joinPath(broken, "bottle.yml"), "Runner: broken-1\n");
+    fakeWine(util::joinPath(data, "bottles/runners/broken-1/bin/wine"), "nonsense");
+    CHECK(wine::winePathFor(broken) == usual);
+    CHECK(util::startsWith(wine::wineSource(broken), "Bottles: broken-1 doesn't run outside it"));
+
+    // a Lutris game's prefix (<config>/lutris/games/*.yml: game: prefix:, wine: version:)
+    std::string game = fakePrefix(util::joinPath(root, "Games/synths"), "win64");
+    std::string ge = fakeWine(util::joinPath(data, "lutris/runners/wine/wine-ge-8-26-x86_64/bin/wine"), "wine-8.26");
+    util::makeDirs(util::joinPath(config, "lutris/games"));
+    util::writeFile(util::joinPath(config, "lutris/games/other-1.yml"),
+                    "game:\n  exe: x.exe\n  prefix: /elsewhere\nwine:\n  version: nope\n");
+    util::writeFile(util::joinPath(config, "lutris/games/synths-2.yml"),
+                    "game:\n  exe: drive_c/x.exe\n  prefix: \"" + game + "/\"\nsystem:\n  version: not-this\nwine:\n"
+                    "  version: wine-ge-8-26-x86_64\n");
+    CHECK(wine::winePathFor(game) == ge);
+    CHECK(wine::wineSource(game) == "Lutris: wine-ge-8-26-x86_64");
+    // …without its own version: the Wine runner's (<config>/lutris/runners/wine.yml)
+    std::string game2 = fakePrefix(util::joinPath(root, "Games/fx"), "win64");
+    util::writeFile(util::joinPath(config, "lutris/games/fx-3.yml"), "game:\n  prefix: " + game2 + "\n");
+    util::makeDirs(util::joinPath(config, "lutris/runners"));
+    util::writeFile(util::joinPath(config, "lutris/runners/wine.yml"), "wine:\n  version: wine-ge-8-26-x86_64\n");
+    CHECK(wine::winePathFor(game2) == ge);
+
+    // chosen in Options → Wine prefixes: before everything else, for that prefix only
+    std::string mine = fakeWine(util::joinPath(root, "mywine/bin/wine"), "wine-10.5");
+    wine::setWinePrograms({{bottle + "/", mine}, {"", mine}});
+    CHECK(wine::winePathFor(bottle) == mine && wine::wineSource(bottle) == "chosen");
+    std::string source;
+    CHECK(wine::automaticWine(bottle, source) == soda && source == "Bottles: soda-9.0-1");  // (what Automatic would give)
+    CHECK(wine::winePathFor(game) == ge);
+    CHECK(wine::winePrograms().size() == 1);
+    wine::setWinePrograms({});
+    CHECK(wine::winePathFor(bottle) == soda);
+
+    if (oldData.empty()) unsetenv("XDG_DATA_HOME");
+    else setenv("XDG_DATA_HOME", oldData.c_str(), 1);
+    if (oldConfig.empty()) unsetenv("XDG_CONFIG_HOME");
+    else setenv("XDG_CONFIG_HOME", oldConfig.c_str(), 1);
 }
 
 std::string fakePe(uint16_t machine);
@@ -2607,6 +2714,23 @@ void testInstalled() {
             windows.push_back(p);
     printf("%zu Windows plugins found in %s\n", windows.size(), folders[0].c_str());
     CHECK(!windows.empty());
+    // the wine program chosen for the plugin's prefix is the one that runs its host (a script that
+    // notes it ran, then runs the usual one)
+    if (!windows.empty() && !wine::prefixOf(windows[0].path).empty()) {
+        std::string log = util::joinPath(tempRoot, "chosen-wine.log");
+        std::string wrapper = util::joinPath(tempRoot, "chosen/bin/wine");
+        util::makeDirs(util::dirName(wrapper));
+        util::writeFile(wrapper, "#!/bin/sh\necho \"$@\" >> '" + log + "'\nexec '" + wine::winePath() + "' \"$@\"\n");
+        chmod(wrapper.c_str(), 0755);
+        wine::setWinePrograms({{wine::prefixOf(windows[0].path), wrapper}});
+        std::string error, ran;
+        auto classes = bridgedClasses(windows[0].path, error);
+        wine::setWinePrograms({});
+        util::readFile(log, ran);
+        CHECK(ran.find("--classes") != std::string::npos);
+        CHECK(!classes.empty());
+        if (classes.empty()) printf("  (through the chosen wine: %s)\n", error.c_str());
+    }
     // their kinds, from moduleinfo.json or the probe (through the host)
     auto unknown = library.unknownFiles();
     if (!unknown.empty()) {
@@ -2674,6 +2798,8 @@ int main() {
     char tmpl[] = "/tmp/tinydaw-wine-test-XXXXXX";
     tempRoot = mkdtemp(tmpl);
     testPrefixes();
+    testPrefixArch();
+    testWinePrograms();
     testFiles();
     testPrefixAsVst2Folder();
     if (stressWanted("focus") && !getenv("TINYDAW_NO_WINDOWS") && getenv("DISPLAY"))

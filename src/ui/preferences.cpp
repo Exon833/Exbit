@@ -52,6 +52,21 @@ void Preferences::setWineList(const std::vector<std::string>& prefixes) {
     winePrefixes = joined;
 }
 
+std::map<std::string, std::string> Preferences::wineProgramMap() const {
+    std::map<std::string, std::string> out;
+    Json j = Json::parse(winePrograms);
+    for (auto& [prefix, program] : j.members())
+        if (!prefix.empty() && program.isString() && !program.toString().empty()) out[prefix] = program.toString();
+    return out;
+}
+
+void Preferences::setWineProgramMap(const std::map<std::string, std::string>& programs) {
+    Json j = Json::object();
+    for (auto& [prefix, program] : programs)
+        if (!prefix.empty() && !program.empty()) j[prefix] = Json(program);
+    winePrograms = programs.empty() ? "" : j.dump();
+}
+
 namespace {
 // QSettings on Windows stored booleans as "true"/"false" strings and ints as strings in some
 // cases; accept those too
@@ -101,6 +116,7 @@ Preferences Preferences::load() {
     p.countInBars = getInt("count_in_bars", p.countInBars);
     p.vst2Folders = getStr("vst2_folders", p.vst2Folders);
     p.winePrefixes = getStr("wine_prefixes", wine::defaultPrefix());
+    p.winePrograms = getStr("wine_programs", p.winePrograms);
     p.midiInput = getStr("midi_input", p.midiInput);
     p.computerKeyboard = getBool("computer_keyboard", p.computerKeyboard);
     p.keyboardOctave = getInt("keyboard_octave", p.keyboardOctave);
@@ -147,6 +163,7 @@ Preferences Preferences::load() {
     p.known_["favourite_plugins"] = Json(p.favouritePlugins);
     p.known_["recent_plugins"] = Json(p.recentPlugins);
     p.known_["record_offsets"] = Json(p.recordOffsets);
+    p.known_["wine_programs"] = Json(p.winePrograms);
     p.known_["interface_scale"] = Json(p.interfaceScale);
     p.known_["native_wayland"] = Json(p.nativeWayland);
     p.known_["ghost_notes"] = Json(p.ghostNotes);
@@ -190,6 +207,7 @@ void Preferences::save() const {
     put("favourite_plugins", favouritePlugins);
     put("recent_plugins", recentPlugins);
     put("record_offsets", recordOffsets);
+    put("wine_programs", winePrograms);
     put("interface_scale", interfaceScale);
     put("native_wayland", nativeWayland);
     put("ghost_notes", ghostNotes);

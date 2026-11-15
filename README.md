@@ -74,6 +74,19 @@ their settings are saved with the project. Each runs in a process of its own,
 program; audio through shared memory, `src/plugins/bridge.h`), so a Windows plugin that crashes
 falls silent instead of taking the program with it.
 
+Each prefix's plugins run with that prefix's own Wine: a Bottles bottle's runner (from its
+`bottle.yml`), the Wine version of the Lutris game whose prefix it is, or one chosen in Options →
+Wine prefixes (select the prefix, Wine program…; Automatic goes back). The dialog shows, for the
+selected prefix, whether it is 64- or 32-bit and which Wine runs it, with its version (a Wine older
+than 11, the one Tiny DAW's host is tested with, is pointed out). A runner that is missing, or can't
+run outside Bottles, gives way to the usual Wine, and the dialog says why. A 32-bit-only prefix
+(made with `WINEARCH=win32`) can't run Tiny DAW's 64-bit host: loading one of its plugins says so.
+
+Lines like `libEGL warning: egl: failed to create dri2 screen` on the terminal, when a prefix's
+Wine starts, come from Wine's own programs in it (`explorer.exe`, `services.exe`…), on computers
+whose graphics card runs NVIDIA's own driver; Tiny DAW's host draws through GLX (below) and doesn't
+print them. They are harmless.
+
 Their windows are drawn by the graphics card through OpenGL's GLX: before the first host starts in
 a prefix, Tiny DAW sets `UseEGL=N` in that prefix's settings for `tinydaw-wine-host.exe` only
 (`HKCU\Software\Wine\AppDefaults\tinydaw-wine-host.exe[.so]\X11 Driver`), as Wine 11's default,

@@ -13,6 +13,7 @@
 // Each plugin then runs in a Wine host process of its own, in the plugin's prefix. Only 64-bit
 // plugins (the host is 64-bit).
 #pragma once
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -42,11 +43,35 @@ bool isWindowsPlugin(const std::string& path);
 // from the path alone, without reading anything: inside a prefix's drive_c, or a .dll (for labels)
 bool looksWindows(const std::string& path);
 
+// --- a prefix's facts ---
+// the Windows a prefix was made for, from its registry: "win64", "win32" ("" when not written yet:
+// a prefix being made has no system.reg until its wineserver ends)
+std::string prefixArch(const std::string& prefix);
+
 // --- Wine and the host ---
 std::string winePath();   // the wine program: $TINYDAW_WINE, else wine on the PATH, else /opt/wine-*/bin/wine ("" none)
+// the wine program to run in this prefix: the one chosen for it (setWinePrograms), else the one of the
+// Bottles bottle it is (its runner), else the one of the Lutris game it is the prefix of (its Wine
+// version), else winePath(); "" none. A runner that is missing gives winePath() (and wineSource says so).
+std::string winePathFor(const std::string& prefix);
+// where winePathFor's choice comes from, for people: "chosen", "Bottles: <runner>", "Lutris: <version>",
+// "" (the usual one), or why a Bottles/Lutris one wasn't used ("Bottles: <runner> isn't installed")
+std::string wineSource(const std::string& prefix);
+// the automatic choice (without setWinePrograms'), and where it comes from (as wineSource)
+std::string automaticWine(const std::string& prefix, std::string& source);
+// Options → Wine prefixes: a wine program for some prefixes ({prefix: program}; the rest: automatic)
+void setWinePrograms(const std::map<std::string, std::string>& chosen);
+std::map<std::string, std::string> winePrograms();
+// "wine-11.22 (Staging)": what this wine program says it is (asked once; "" if it doesn't answer)
+std::string wineVersion(const std::string& wine);
+// its major version (11 for "wine-11.22"; 0 unknown)
+int wineMajor(const std::string& version);
+constexpr int TESTED_WINE_MAJOR = 11;  // the Wine Tiny DAW's host is tested with (older: a warning, not a refusal)
 std::string hostPath();   // tinydaw-wine-host.exe: $TINYDAW_WINE_HOST, else next to the program ("" none)
 // can Windows plugins run here? if not, why (for the error a load gives)
 bool available(std::string& why);
+// …and in this prefix (its Wine there, a 64-bit prefix)? if not, why
+bool availableIn(const std::string& prefix, std::string& why);
 // starts the host under Wine in `prefix` with these arguments; its stdout goes to outFd (-1: this
 // process's), its stdin comes from inFd (-1: nothing); returns its pid, or -1 (and why)
 int spawnHost(const std::string& prefix, const std::vector<std::string>& args, int outFd, std::string& why,

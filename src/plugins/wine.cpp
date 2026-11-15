@@ -84,6 +84,22 @@ std::string prefixFor(const std::string& path) {
     return defaultPrefix();
 }
 
+std::string prefixArch(const std::string& prefix) {
+    // (system.reg starts with "WINE REGISTRY Version 2", a comment, then "#arch=win64")
+    FILE* f = fopen(util::joinPath(prefix, "system.reg").c_str(), "rb");
+    if (!f)
+        return "";
+    char head[4096];
+    size_t n = fread(head, 1, sizeof(head), f);
+    fclose(f);
+    std::string text(head, n);
+    size_t at = text.find("\n#arch=");
+    if (at == std::string::npos)
+        return "win64";  // (written by every Wine since 2.x; a prefix without it is from before 32-bit-only ones were usual)
+    size_t start = at + 7, end = text.find_first_of("\r\n", start);
+    return util::trim(text.substr(start, end == std::string::npos ? std::string::npos : end - start));
+}
+
 std::vector<std::string> vst3Folders(const std::vector<std::string>& list) {
     std::vector<std::string> out;
     for (const auto& prefix : list) {
@@ -171,6 +187,233 @@ std::string hostPath() {
     return "";
 }
 
+// --- the wine program of a prefix ---
+
+namespace {
+
+std::map<std::string, std::string> programs;  // (setWinePrograms; under `lock`)
+
+std::string normPrefix(const std::string& p) { return withoutSlash(util::expandUser(p)); }
+
+std::string dataHome() {
+    const char* x = getenv("XDG_DATA_HOME");
+    return x && *x ? std::string(x) : util::joinPath(plat::homeDir(), ".local/share");
+}
+
+std::string configHome() {
+    const char* x = getenv("XDG_CONFIG_HOME");
+    return x && *x ? std::string(x) : util::joinPath(plat::homeDir(), ".config");
+}
+
+std::string unquote(std::string s) {
+    s = util::trim(s);
+    if (s.size() >= 2 && (s[0] == '"' || s[0] == '\'') && s.back() == s[0])
+        s = s.substr(1, s.size() - 2);
+    return s;
+}
+
+// a value of a small YAML file (Bottles' and Lutris' settings): `key` at the top level (section "")
+// or one level inside `section:`. Only plain "key: value" lines; enough for these files.
+std::string yamlValue(const std::string& text, const std::string& section, const std::string& key) {
+    std::string in;  // the top-level section we are in
+    for (std::string line : util::split(text, '\n')) {
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        std::string t = util::trim(line);
+        if (t.empty() || t[0] == '#')
+            continue;
+        bool top = line[0] != ' ' && line[0] != '\t';
+        size_t colon = t.find(':');
+        if (colon == std::string::npos)
+            continue;
+        std::string k = unquote(t.substr(0, colon)), v = t.substr(colon + 1);
+        if (top)
+            in = k;
+        if (k != key)
+            continue;
+        if ((section.empty() && top) || (!section.empty() && !top && in == section))
+            return unquote(v);
+    }
+    return "";
+}
+
+struct Found {
+    std::string wine;    // the program ("" none)
+    std::string source;  // for people (wineSource)
+};
+
+// a Bottles bottle is a prefix of its own whose bottle.yml names its runner ("Runner: soda-7.0-9"), in
+// <Bottles' data>/runners/<runner>/bin/wine; Bottles' data is the bottle's grandparent
+// (<data>/bottles/<name>), else the usual places (installed, or as a Flatpak). "sys-…": the system's.
+Found bottles(const std::string& prefix) {
+    std::string yml;
+    if (!util::readFile(util::joinPath(prefix, "bottle.yml"), yml))
+        return {};
+    std::string runner = yamlValue(yml, "", "Runner");
+    if (runner.empty() || runner.find('/') != std::string::npos)
+        return {};
+    if (util::startsWith(runner, "sys-"))
+        return {winePath(), "Bottles: " + runner};
+    std::vector<std::string> roots = {util::dirName(util::dirName(prefix)), util::joinPath(dataHome(), "bottles"),
+                                      util::joinPath(plat::homeDir(), ".var/app/com.usebottles.bottles/data/bottles")};
+    for (const auto& root : roots) {
+        std::string w = util::joinPath(root, "runners/" + runner + "/bin/wine");
+        if (access(w.c_str(), X_OK) == 0)
+            return {w, "Bottles: " + runner};
+    }
+    return {"", "Bottles: " + runner + " isn't installed"};
+}
+
+// a Lutris game's settings (<config>/lutris/games/*.yml, or <data>/lutris/games) name its prefix
+// (game: prefix:) and maybe its Wine (wine: version:), else the Wine runner's own (runners/wine.yml);
+// that Wine is <data>/lutris/runners/wine/<version>/bin/wine ("system": the system's)
+Found lutris(const std::string& prefix) {
+    std::string target = normPrefix(prefix);
+    for (const auto& base : {configHome(), dataHome()}) {
+        std::string games = util::joinPath(base, "lutris/games");
+        for (const auto& e : util::listDir(games)) {
+            if (!util::endsWith(e.name, ".yml"))
+                continue;
+            std::string yml;
+            if (!util::readFile(util::joinPath(games, e.name), yml))
+                continue;
+            std::string p = yamlValue(yml, "game", "prefix");
+            if (p.empty() || normPrefix(p) != target)
+                continue;
+            std::string version = yamlValue(yml, "wine", "version");
+            if (version.empty()) {
+                std::string runner;
+                util::readFile(util::joinPath(configHome(), "lutris/runners/wine.yml"), runner);
+                version = yamlValue(runner, "wine", "version");
+            }
+            if (version.empty() || version == "system")
+                return {winePath(), "Lutris: the system's Wine"};
+            if (version.find('/') != std::string::npos)
+                return {};
+            std::string w = util::joinPath(dataHome(), "lutris/runners/wine/" + version + "/bin/wine");
+            if (access(w.c_str(), X_OK) == 0)
+                return {w, "Lutris: " + version};
+            return {"", "Lutris: " + version + " isn't installed"};
+        }
+    }
+    return {};
+}
+
+Found automatic(const std::string& p) {
+    if (p.empty())
+        return {winePath(), ""};
+    Found f = bottles(p);
+    if (f.source.empty())
+        f = lutris(p);
+    if (f.source.empty())
+        return {winePath(), ""};
+    if (f.wine.empty() || wineVersion(f.wine).empty()) {  // (missing, or one that can't run outside its program)
+        std::string why = f.wine.empty() ? f.source : f.source + " doesn't run outside it";
+        return {winePath(), why + "; the usual Wine instead"};
+    }
+    return f;
+}
+
+Found findWine(const std::string& prefix) {
+    std::string p = normPrefix(prefix);
+    {
+        std::lock_guard<std::mutex> hold(lock);
+        auto it = programs.find(p);
+        if (it != programs.end() && !it->second.empty())
+            return {it->second, "chosen"};
+    }
+    return automatic(p);
+}
+
+}  // namespace
+
+std::string winePathFor(const std::string& prefix) { return findWine(prefix).wine; }
+
+std::string wineSource(const std::string& prefix) { return findWine(prefix).source; }
+
+std::string automaticWine(const std::string& prefix, std::string& source) {
+    Found f = automatic(normPrefix(prefix));
+    source = f.source;
+    return f.wine;
+}
+
+void setWinePrograms(const std::map<std::string, std::string>& chosen) {
+    std::lock_guard<std::mutex> hold(lock);
+    programs.clear();
+    for (const auto& [prefix, program] : chosen)
+        if (!prefix.empty() && !program.empty())
+            programs[normPrefix(prefix)] = util::expandUser(program);
+}
+
+std::map<std::string, std::string> winePrograms() {
+    std::lock_guard<std::mutex> hold(lock);
+    return programs;
+}
+
+std::string wineVersion(const std::string& wine) {
+    static std::mutex m;
+    static std::map<std::string, std::string> known;
+    {
+        std::lock_guard<std::mutex> hold(m);
+        auto it = known.find(wine);
+        if (it != known.end())
+            return it->second;
+    }
+    std::string out;
+    int fds[2];
+    if (executable(wine) && pipe2(fds, O_CLOEXEC) == 0) {
+        posix_spawn_file_actions_t actions;
+        posix_spawn_file_actions_init(&actions);
+        posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0);
+        posix_spawn_file_actions_adddup2(&actions, fds[1], 1);
+        posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_WRONLY, 0);
+        std::string arg0 = wine, arg1 = "--version";
+        char* argv[] = {&arg0[0], &arg1[0], nullptr};
+        pid_t pid = -1;
+        int r = posix_spawn(&pid, wine.c_str(), &actions, nullptr, argv, environ);
+        posix_spawn_file_actions_destroy(&actions);
+        close(fds[1]);
+        if (r == 0) {
+            // (--version answers at once, without the prefix; 10 s for a slow disk, then given up)
+            fcntl(fds[0], F_SETFL, O_NONBLOCK);
+            for (int waited = 0; waited < 1000; waited++) {
+                char buf[256];
+                ssize_t n;
+                while ((n = read(fds[0], buf, sizeof(buf))) > 0)
+                    out.append(buf, (size_t)n);
+                int status;
+                if (waitpid(pid, &status, WNOHANG) == pid) {
+                    while ((n = read(fds[0], buf, sizeof(buf))) > 0)
+                        out.append(buf, (size_t)n);
+                    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+                        out.clear();
+                    pid = -1;
+                    break;
+                }
+                usleep(10000);
+            }
+            if (pid > 0) {
+                kill(pid, SIGKILL);
+                waitpid(pid, nullptr, 0);
+                out.clear();
+            }
+        }
+        close(fds[0]);
+    }
+    out = util::trim(out);
+    if (!util::startsWith(out, "wine-"))
+        out.clear();
+    std::lock_guard<std::mutex> hold(m);
+    known[wine] = out;
+    return out;
+}
+
+int wineMajor(const std::string& version) {
+    if (!util::startsWith(version, "wine-"))
+        return 0;
+    return std::atoi(version.c_str() + 5);
+}
+
 bool available(std::string& why) {
     if (winePath().empty()) {
         why = "Windows plugins need Wine, which isn't installed (or set TINYDAW_WINE to the wine program)";
@@ -184,11 +427,33 @@ bool available(std::string& why) {
     return true;
 }
 
+bool availableIn(const std::string& prefix, std::string& why) {
+    if (winePathFor(prefix).empty()) {
+        std::string source = wineSource(prefix);
+        why = "Windows plugins need Wine, which isn't installed (or set TINYDAW_WINE to the wine program)";
+        if (!source.empty())
+            why = "The Wine for " + prefix + " can't be found (" + source + ")";
+        return false;
+    }
+    if (hostPath().empty()) {
+        why = "Windows plugins need tinydaw-wine-host.exe next to Tiny DAW (it is built by make when winegcc is "
+              "installed)";
+        return false;
+    }
+    if (prefixArch(prefix) == "win32") {
+        why = prefix + " is a 32-bit Wine prefix (made with WINEARCH=win32): Tiny DAW's Wine host is 64-bit and "
+                       "can't run there. Make a 64-bit prefix (Options → Wine prefixes → New prefix…) and install the "
+                       "plugin in it.";
+        return false;
+    }
+    return true;
+}
+
 namespace {
 
 // runs `wine <args>` in a prefix and waits for it (up to `seconds`); true if it ended well
 bool runWine(const std::string& prefix, const std::vector<std::string>& args, double seconds) {
-    std::string wine = winePath();
+    std::string wine = winePathFor(prefix);
     if (wine.empty())
         return false;
     std::vector<std::string> env;
@@ -304,7 +569,7 @@ bool prefixChoosesRenderer(const std::string& prefix) {
 }  // namespace
 
 int spawnHost(const std::string& prefix, const std::vector<std::string>& args, int outFd, std::string& why, int inFd) {
-    if (!available(why))
+    if (!availableIn(prefix, why))
         return -1;
     preferGlx(prefix);
     // Wine's Direct3D draws on Vulkan where there is a graphics card with a Vulkan driver (it has no
@@ -312,7 +577,7 @@ int spawnHost(const std::string& prefix, const std::vector<std::string>& args, i
     // (Serum 2's OSC tab: 185 -> 150 ms) and use less processor. Not if WINE_D3D_CONFIG or the
     // prefix chooses a renderer.
     bool vulkan = !getenv("WINE_D3D_CONFIG") && hardwareVulkan() && !prefixChoosesRenderer(prefix);
-    std::string wine = winePath(), host = hostPath();
+    std::string wine = winePathFor(prefix), host = hostPath();
     std::vector<std::string> env;
     std::string overrides = "winedbg.exe=d";  // (a crashing plugin ends its host, with no Wine crash dialog)
     for (char** e = environ; *e; e++) {

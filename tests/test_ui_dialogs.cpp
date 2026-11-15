@@ -2,6 +2,8 @@
 // picker (wheel mapping, recent colours, tones), the skin editor, the metronome settings, Audio
 // properties, recording helpers (input choices, count-in, take placement), freezing / bouncing
 // and rendering the mix to a file. Pictures of every dialog go to build/ui-samples/dialogs/.
+#include <sys/stat.h>
+
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -24,6 +26,7 @@
 #include "ui/theme.h"
 #include "ui/track_render.h"
 #include "ui/toolkit/menu.h"
+#include "ui/wine_prefixes_dialog.h"
 
 using namespace ui;
 
@@ -1016,6 +1019,42 @@ static void testHighContrast() {
     skin::apply(skin::find("Dark"));
 }
 
+// Options → Wine prefixes: each prefix's facts, and the wine program chosen for it (or automatic)
+void testWinePrefixesDialog() {
+    std::string dir = TMP + "/wine";
+    auto prefix = [&](const std::string& name, const std::string& arch) {
+        std::string p = util::absolutePath(dir + "/" + name);
+        util::makeDirs(p + "/drive_c");
+        util::writeFile(p + "/system.reg", "WINE REGISTRY Version 2\n\n#arch=" + arch + "\n");
+        return p;
+    };
+    std::string p64 = prefix("p64", "win64"), p32 = prefix("p32", "win32");
+    std::string fake = util::absolutePath(dir + "/bin/wine");
+    util::makeDirs(dir + "/bin");
+    util::writeFile(fake, "#!/bin/sh\n[ \"$1\" = --version ] && echo wine-8.0 && exit 0\nexit 1\n");
+    chmod(fake.c_str(), 0755);
+    WinePrefixesDialog d(nullptr, {p64, p32}, {{p64, fake}, {"/not/listed", fake}});
+    CHECK(d.list->count() == 2 && d.list->currentRow() == 0);
+    CHECK(d.programs().size() == 1 && d.programs()[p64] == fake);  // (only of the prefixes listed)
+    std::string about = d.about->text();
+    CHECK(about.find("64-bit prefix") != std::string::npos && about.find(fake) != std::string::npos);
+    CHECK(about.find("wine-8.0") != std::string::npos && about.find("chosen") != std::string::npos);
+    CHECK(about.find("tested with Wine 11") != std::string::npos);  // (an older Wine: said)
+    CHECK(d.automaticButton->isEnabled() && d.wineButton->isEnabled());
+    picture(d, "wine-prefixes");
+    d.setWine("");  // Automatic
+    CHECK(d.programs().empty() && !d.automaticButton->isEnabled());
+    CHECK(d.about->text().find("chosen") == std::string::npos);
+    d.list->setCurrentRow(1);
+    CHECK(d.about->text().find("32-bit prefix") != std::string::npos);
+    d.setWine(fake);
+    CHECK(d.programs().size() == 1 && d.programs()[p32] == fake);
+    d.removePrefix();
+    CHECK(d.prefixes().size() == 1 && d.programs().empty());
+    CHECK(d.add(p32) && d.prefixes().size() == 2 && d.list->currentRow() == 1);  // (added: selected)
+    CHECK(!d.add(dir + "/bin"));                                                 // (not a prefix)
+}
+
 int main() {
     App::get().initHeadless();
     util::makeDirs(OUT);
@@ -1038,6 +1077,7 @@ int main() {
     testCountInOnTheBeat();
     testBounceKeepsTheMix();
     testHighContrast();
+    testWinePrefixesDialog();
     // the dialogs in another skin
     skin::apply(skin::find("Light"));
     {

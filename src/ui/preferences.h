@@ -38,6 +38,8 @@ struct Preferences {
     std::string vst2Folders;                // separated by "|"
     std::string winePrefixes;               // the Wine prefixes Windows plugins are found in, separated by "|"
                                             // (not set yet: the default prefix, ~/.wine, if there is one)
+    std::string winePrograms;               // …the wine program chosen for some of them: JSON {"prefix": "program"}
+                                            // (the others: automatic, wine::winePathFor)
     std::string midiInput;                  // the MIDI keyboard played into the selected MIDI track; "" = none
     bool computerKeyboard = false;          // the computer keyboard plays the selected MIDI track
     int keyboardOctave = 4;                 // …its A key plays C of this octave (C4 = MIDI note 60)
@@ -57,6 +59,8 @@ struct Preferences {
     void setVst2List(const std::vector<std::string>& folders);
     std::vector<std::string> wineList() const;
     void setWineList(const std::vector<std::string>& prefixes);
+    std::map<std::string, std::string> wineProgramMap() const;
+    void setWineProgramMap(const std::map<std::string, std::string>& programs);
     static Preferences load();
     void save() const;  // (writes only the values changed since load() or the last save())
 
