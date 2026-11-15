@@ -6,6 +6,7 @@
 #include "audio/automation.h"
 #include "audio/plugin_audio.h"
 #include "plugins/plugin.h"
+#include "ui/computer_keyboard.h"
 
 plat::WindowOptions EditorWindow::options(ui::Window* parent, const std::string& title, bool invisible) {
     plat::WindowOptions o;
@@ -77,18 +78,34 @@ void EditorWindow::idle() {
         return;
     }
     instance->idle();
+    if (sizeChanged_) {  // (the window's edge dragged since the last frame: the latest size, once)
+        sizeChanged_ = false;
+        int w = width(), h = height();
+        if (instance->editorOpen()) {
+            instance->editorResized(w, h);
+            if (w > 0 && h > 0 && (w != width() || h != height())) fit(w, h);  // (the plugin only takes certain sizes)
+        }
+    }
     int w = 0, h = 0;
     if (instance->requestedSize(w, h) && w > 0 && h > 0) fit(w, h);
+    // the computer keyboard's keys come to this window even after a click gave the plugin the keys
+    // (a Windows plugin's window, inside ours, takes them then): they play notes; the others, and
+    // Shift+…, still go to the plugin (letters typed into its own text fields play notes meanwhile)
+    if (native()) native()->grabKeys(computer_keyboard::keysInUse());
 }
 
+void EditorWindow::onEvent(plat::Window* w, const plat::Event& e) {
+    if (computer_keyboard::filter(this, e)) return;
+    ui::Window::onEvent(w, e);
+}
+
+// the plugin is told with the next frame (idle): a drag gives a size for every move of the pointer,
+// many in one go when the program was busy, and each is a round trip to a Windows plugin's host
+// (30 sizes in a row held the main thread ~0.5 s)
 void EditorWindow::resized() {
     ui::Window::resized();
     if (!resizable || fitting || closing_) return;
-    auto instance = aload(slot->instance);
-    if (!instance || !instance->editorOpen()) return;
-    int w = width(), h = height();
-    instance->editorResized(w, h);
-    if (w > 0 && h > 0 && (w != width() || h != height())) fit(w, h);  // (the plugin only takes certain sizes)
+    sizeChanged_ = true;
 }
 
 Point EditorWindow::position() const {

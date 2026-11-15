@@ -93,12 +93,37 @@ WINAPI BOOL FreeLibrary(HMODULE module);
 WINAPI HMODULE GetModuleHandleW(LPCWSTR name);
 WINAPI DWORD GetLastError(void);
 WINAPI void ExitProcess(UINT code) __attribute__((noreturn));
+WINAPI void ExitThread(DWORD code) __attribute__((noreturn));
+
+// exceptions (only what the host's watch over them needs: host.cpp)
+typedef struct _EXCEPTION_RECORD {
+    DWORD ExceptionCode;
+    DWORD ExceptionFlags;
+    struct _EXCEPTION_RECORD* ExceptionRecord;
+    void* ExceptionAddress;
+    DWORD NumberParameters;
+    ULONG_PTR ExceptionInformation[15];
+} EXCEPTION_RECORD;
+typedef struct _EXCEPTION_POINTERS {
+    EXCEPTION_RECORD* ExceptionRecord;
+    void* ContextRecord;
+} EXCEPTION_POINTERS;
+typedef LONG(WINAPI* PVECTORED_EXCEPTION_HANDLER)(EXCEPTION_POINTERS* info);
+#define EXCEPTION_CONTINUE_SEARCH 0
+#define EXCEPTION_CONTINUE_EXECUTION (-1)
+#define GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT 0x2
+#define GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS 0x4
+WINAPI void* AddVectoredExceptionHandler(ULONG first, PVECTORED_EXCEPTION_HANDLER handler);
+WINAPI void GetCurrentThreadStackLimits(ULONG_PTR* low, ULONG_PTR* high);
+WINAPI BOOL GetModuleHandleExW(DWORD flags, LPCWSTR name, HMODULE* module);
+WINAPI DWORD GetModuleFileNameW(HMODULE module, WCHAR* name, DWORD size);
 WINAPI BOOL TerminateProcess(HANDLE process, UINT code);
 WINAPI HANDLE GetCurrentProcess(void);
 WINAPI int MultiByteToWideChar(UINT codePage, DWORD flags, LPCSTR text, int size, LPWSTR out, int outSize);
 WINAPI HANDLE CreateThread(void* security, SIZE_T stack, LPTHREAD_START_ROUTINE start, LPVOID param, DWORD flags,
                            DWORD* id);
 WINAPI DWORD WaitForSingleObject(HANDLE handle, DWORD ms);
+#define STACK_SIZE_PARAM_IS_A_RESERVATION 0x00010000u
 WINAPI BOOL CloseHandle(HANDLE handle);
 WINAPI void Sleep(DWORD ms);
 WINAPI HANDLE GetCurrentThread(void);
@@ -121,6 +146,7 @@ WINAPI void LeaveCriticalSection(CRITICAL_SECTION_* section);
 #define LeaveCriticalSection_ LeaveCriticalSection
 WINAPI BOOL VirtualProtect(void* address, SIZE_T size, DWORD protect, DWORD* old);
 #define PAGE_READWRITE 0x04u
+WINAPI BOOL K32EnumProcessModules(HANDLE process, HMODULE* modules, DWORD size, DWORD* needed);
 #define THREAD_PRIORITY_TIME_CRITICAL 15
 
 // Wine's own (kernel32): a Unix path's DOS name ("Z:\…", "C:\…"), allocated on the process heap
@@ -191,8 +217,14 @@ WINAPI LRESULT CallNextHookEx(HHOOK hook, int code, WPARAM wp, LPARAM lp);
 #define WM_KEYUP 0x0101u
 #define WM_CHAR 0x0102u
 #define WM_SYSKEYDOWN 0x0104u
+#define WM_MOUSEMOVE 0x0200u
 #define WM_LBUTTONDOWN 0x0201u
 #define WM_LBUTTONUP 0x0202u
+#define MK_LBUTTON 0x0001u
+#define CWP_SKIPINVISIBLE 0x0001u
+WINAPI HWND ChildWindowFromPointEx(HWND parent, POINT point, UINT flags);
+WINAPI BOOL ClientToScreen(HWND hwnd, POINT* point);
+WINAPI int MapWindowPoints(HWND from, HWND to, POINT* points, UINT count);
 #define MA_ACTIVATE 1
 #define WM_USER 0x0400u
 #define WM_APP 0x8000u

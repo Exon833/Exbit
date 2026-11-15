@@ -4,6 +4,7 @@
 // MIDI input routing (sustain pedal), Capture's phrases and placement, MIDI export (read back), the MIDI
 // effects window and the sampler window. Paints PNGs into build/ui-samples/midi2/. No sound: the engine
 // is never opened.
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -595,6 +596,15 @@ static void testComputerKeyboard() {
     CHECK(kb.isOn() && shown == "\xe2\x8c\xa8 C4  \xc2\xb7  velocity 100");
     CHECK(!messages.empty() && messages.back().find("Computer keyboard: plays the selected MIDI track") == 0);
     CHECK(settings::get("options/computer_keyboard").toBool(false));
+    // the keys a plugin's window grabs while it is on (so they play notes even while a Windows plugin has
+    // the keys): its 18 note keys and 4 setting keys, nothing else
+    {
+        auto keys = keysInUse();
+        auto has = [&](int k) { return std::find(keys.begin(), keys.end(), k) != keys.end(); };
+        CHECK(keys.size() == 22);
+        CHECK(has('A') && has('W') && has(';') && has('\'') && has('Z') && has('X') && has('C') && has('V'));
+        CHECK(!has('Q') && !has('R') && !has(' ') && !has('B'));
+    }
     // the letters reach it before the window's shortcuts
     Window win;
     win.showWindow();
@@ -662,6 +672,7 @@ static void testComputerKeyboard() {
     kb.setOn(false);
     send(plat::Event::KeyDown, 'S');
     CHECK(splits == 101);
+    CHECK(keysInUse().empty());  // (off: a plugin's window grabs none)
     // the MIDI editor passes its keys through it too
     kb.setOn(true, false);
     kb.octave = 4;

@@ -83,7 +83,7 @@ struct Atoms {
         NET_WORKAREA, NET_CURRENT_DESKTOP, NET_WM_USER_TIME, CLIPBOARD, TARGETS, TEXT, TEXT_PLAIN_UTF8,
         INCR, TINYDAW_SEL, XdndAware, XdndEnter, XdndPosition, XdndStatus, XdndLeave, XdndDrop,
         XdndFinished, XdndSelection, XdndTypeList, XdndActionCopy, URI_LIST, MOTIF_WM_HINTS, CLIPBOARD_MANAGER,
-        SAVE_TARGETS;
+        SAVE_TARGETS, XEMBED;
 };
 
 struct Timer {
@@ -118,6 +118,7 @@ struct State {
     XIMStyle imStyle = 0;
     XWin helper = 0;         // owns the clipboard, receives selections
     bool detectableRepeat = false;
+    unsigned keymapChanges = 0;  // (MappingNotify: keys grabbed by their codes are grabbed again)
     std::unordered_map<XWin, XWindow*> windows;
 
     std::map<int, Timer> timers;
@@ -570,6 +571,7 @@ public:
     void setCursor(Cursor c) override;
     void present(const Image& fb, const Rect& dirty) override;
     void grabPointer(bool on) override;
+    void grabKeys(const std::vector<int>& keys) override;
     uintptr_t nativeHandle() const override { return (uintptr_t)win_; }
     void* nativeDisplay() const override { return S().dpy; }
     bool capture(Image& out) override;
@@ -594,6 +596,12 @@ private:
     bool focusOnMap_ = false;
     bool grabbed_ = false;
     bool kbdGrabbed_ = false;     // a popup that takes the keys (menus): keyboard grab, see MapNotify
+    XWin embedFocus_ = 0;         // an embedded window (XEmbed) that asked for the keys: see handleClientMessage
+    std::vector<int> grabbedKeys_;          // grabKeys: as given
+    std::vector<KeyCode> grabbedKeycodes_;  // and as grabbed
+    unsigned grabbedKeymap_ = 0;            // (State::keymapChanges then)
+    std::vector<KeyCode> grabbedDown_;      // grabbed keys held: the whole keyboard is ours meanwhile
+    bool keyboardHeld_ = false;             // (XGrabKeyboard for them)
     bool pointerInside_ = false;
     int reportedW_ = 0, reportedH_ = 0;  // the size the listener last heard of (Resize)
     long frame_[4] = {0, 0, 0, 0};  // left, right, top, bottom
@@ -631,7 +639,12 @@ private:
     void freeImage();
     void waitShm();
     void handleClientMessage(XClientMessageEvent& cm);
+    XWin embedded();
+    void focusEmbedded();
+    void deactivateEmbedded();
     void handleKey(XKeyEvent& k, bool press);
+    void noteKey(XKeyEvent& k, bool press);
+    void forgetHeldKeys();
     void sendDndStatus(bool accept);
     void sendDndFinished(bool accepted);
     bool fetchDndFiles();
@@ -1007,6 +1020,66 @@ void XWindow::setCursor(Cursor c) {
     XFlush(S().dpy);
 }
 
+// X gives a key grabbed on a window to it whenever the focus is in it or in a window inside it (an
+// embedded plugin's): grabbed without modifiers, Caps Lock and Num Lock either way, so Shift+letter
+// (a capital typed into the plugin) and Ctrl+… still go where the focus is
+// Only keys that give the symbol unshifted are grabbed (on a German keyboard ';' is Shift+',': plain
+// ',' stays the plugin's). A passive grab ends when its own key is let go, so while any grabbed key is
+// held the whole keyboard is taken (noteKey): another note's release then comes here too, not to the
+// plugin (A down, S down, A up, S up: S would sound on)
+void XWindow::grabKeys(const std::vector<int>& keys) {
+    State& s = S();
+    if (keys == grabbedKeys_ && grabbedKeymap_ == s.keymapChanges) return;
+    const unsigned locks[] = {0, LockMask, Mod2Mask, LockMask | Mod2Mask};
+    for (KeyCode code : grabbedKeycodes_)
+        for (unsigned m : locks) XUngrabKey(s.dpy, code, m, win_);
+    grabbedKeycodes_.clear();
+    grabbedKeys_ = keys;
+    grabbedKeymap_ = s.keymapChanges;
+    if (keys.empty() && keyboardHeld_) {  // (turned off while one was held)
+        XUngrabKeyboard(s.dpy, CurrentTime);
+        keyboardHeld_ = false;
+        grabbedDown_.clear();
+    }
+    int first = 0, last = 0;
+    XDisplayKeycodes(s.dpy, &first, &last);
+    for (int key : keys) {
+        KeySym ks = key >= 'A' && key <= 'Z' ? (KeySym)(XK_a + (key - 'A')) : (KeySym)key;  // (Event::key's letters: capitals)
+        for (int code = first; code <= last; code++) {
+            if (XkbKeycodeToKeysym(s.dpy, (KeyCode)code, 0, 0) != ks) continue;
+            grabbedKeycodes_.push_back((KeyCode)code);
+            for (unsigned m : locks) XGrabKey(s.dpy, code, m, win_, False, GrabModeAsync, GrabModeAsync);
+        }
+    }
+    XFlush(s.dpy);
+}
+
+// the grabbed keys' releases will come elsewhere (unmapped, or another grab took the keyboard): our
+// keyboard grab is already gone (not let go here: a grab is the program's, a popup's would go with
+// it), and the next grabbed key takes it again
+void XWindow::forgetHeldKeys() {
+    keyboardHeld_ = false;
+    grabbedDown_.clear();
+}
+
+// (KeyPress / KeyRelease) a grabbed key held: the keyboard is ours until every one is let go
+void XWindow::noteKey(XKeyEvent& k, bool press) {
+    State& s = S();
+    bool grabbed = std::find(grabbedKeycodes_.begin(), grabbedKeycodes_.end(), (KeyCode)k.keycode) != grabbedKeycodes_.end();
+    if (press && grabbed) {
+        if (std::find(grabbedDown_.begin(), grabbedDown_.end(), (KeyCode)k.keycode) == grabbedDown_.end())
+            grabbedDown_.push_back((KeyCode)k.keycode);
+        if (!keyboardHeld_)
+            keyboardHeld_ = XGrabKeyboard(s.dpy, win_, False, GrabModeAsync, GrabModeAsync, k.time) == GrabSuccess;
+    } else if (!press) {
+        grabbedDown_.erase(std::remove(grabbedDown_.begin(), grabbedDown_.end(), (KeyCode)k.keycode), grabbedDown_.end());
+        if (grabbedDown_.empty() && keyboardHeld_) {
+            XUngrabKeyboard(s.dpy, k.time);
+            keyboardHeld_ = false;
+        }
+    }
+}
+
 void XWindow::grabPointer(bool on) {
     State& s = S();
     if (on) {
@@ -1255,9 +1328,53 @@ bool XWindow::fetchDndFiles() {
     return true;
 }
 
+// XEmbed, as the embedder (a plugin's window put in ours: Windows plugins' through Wine). An embedded
+// window asks for the keys (XEMBED_REQUEST_FOCUS: Wine doesn't take the X focus itself once
+// embedded): it gets the X focus while ours has it (else when ours gets it again), until a click on
+// our own part of the window takes it back; when the focus leaves our window, it is told it isn't
+// active any more (XEMBED_WINDOW_DEACTIVATE: Wine's plugin then knows it lost the keys).
+constexpr long XEMBED_WINDOW_DEACTIVATE = 2, XEMBED_REQUEST_FOCUS = 3;
+
+// the window embedded in ours (the topmost of our children; 0: none)
+XWin XWindow::embedded() {
+    XWin root = 0, parent = 0, *children = nullptr, top = 0;
+    unsigned count = 0;
+    if (XQueryTree(S().dpy, win_, &root, &parent, &children, &count) && children) {
+        if (count) top = children[count - 1];
+        XFree(children);
+    }
+    return top;
+}
+
+void XWindow::focusEmbedded() {
+    if (embedFocus_ && embedded() == embedFocus_) XSetInputFocus(S().dpy, embedFocus_, RevertToParent, CurrentTime);
+}
+
+void XWindow::deactivateEmbedded() {
+    if (!embedFocus_ || embedded() != embedFocus_) return;
+    XEvent e{};
+    e.xclient.type = ClientMessage;
+    e.xclient.window = embedFocus_;
+    e.xclient.message_type = S().a.XEMBED;
+    e.xclient.format = 32;
+    e.xclient.data.l[0] = CurrentTime;
+    e.xclient.data.l[1] = XEMBED_WINDOW_DEACTIVATE;
+    XSendEvent(S().dpy, embedFocus_, False, NoEventMask, &e);
+}
+
 void XWindow::handleClientMessage(XClientMessageEvent& cm) {
     State& s = S();
     const Atoms& A = s.a;
+    if (cm.message_type == A.XEMBED) {
+        if (cm.data.l[1] == XEMBED_REQUEST_FOCUS) {
+            embedFocus_ = embedded();
+            XWin focused = 0;
+            int revert = 0;
+            XGetInputFocus(s.dpy, &focused, &revert);
+            if (focused == win_ || (focused && focused == embedFocus_)) focusEmbedded();
+        }
+        return;
+    }
     if (cm.message_type == A.WM_PROTOCOLS) {
         Atom what = (Atom)cm.data.l[0];
         if (what == A.WM_DELETE_WINDOW) {
@@ -1467,6 +1584,7 @@ void XWindow::handle(XEvent& ev) {
             break;
         case UnmapNotify:
             mapped_ = false;
+            forgetHeldKeys();  // (X lets go of a grab whose window can't be seen)
             if (kbdGrabbed_) {
                 XUngrabKeyboard(s.dpy, CurrentTime);
                 kbdGrabbed_ = false;
@@ -1501,6 +1619,10 @@ void XWindow::handle(XEvent& ev) {
             }
             int btn = buttonOf(b.button);
             if (!btn) break;
+            if (ev.type == ButtonPress && embedFocus_) {  // (our own part of the window: the keys are ours again)
+                embedFocus_ = 0;
+                XSetInputFocus(s.dpy, win_, RevertToParent, b.time);
+            }
             if (ev.type == ButtonPress) {
                 s.lastInputTime = b.time;
                 e.type = Event::MouseDown;
@@ -1552,6 +1674,8 @@ void XWindow::handle(XEvent& ev) {
         case FocusIn:
         case FocusOut: {
             XFocusChangeEvent& f = ev.xfocus;
+            // (another grab took the keyboard from ours, a popup's: what is held is let go of elsewhere)
+            if (ev.type == FocusOut && f.mode == NotifyGrab && f.detail != NotifyInferior) forgetHeldKeys();
             if (f.mode == NotifyGrab || f.mode == NotifyUngrab || f.detail == NotifyPointer) break;
             if (kbdGrabbed_) break;  // a popup with the keyboard grab counts as focused while shown
             bool in = ev.type == FocusIn;
@@ -1563,6 +1687,10 @@ void XWindow::handle(XEvent& ev) {
                 s.keysDown.clear();
                 s.repeatKeycode = 0;
             }
+            if (f.detail != NotifyInferior) {  // (the focus came to our window, or left it: not just to a window inside)
+                if (in) focusEmbedded();
+                else deactivateEmbedded();
+            }
             if (in == focus_) break;
             focus_ = in;
             Event e;
@@ -1572,9 +1700,11 @@ void XWindow::handle(XEvent& ev) {
         }
         case KeyPress:
             s.lastInputTime = ev.xkey.time;
+            noteKey(ev.xkey, true);
             handleKey(ev.xkey, true);
             break;
         case KeyRelease:
+            noteKey(ev.xkey, false);
             handleKey(ev.xkey, false);
             break;
         default:
@@ -1694,7 +1824,10 @@ void handleXEvent(XEvent& ev) {
             if (ev.xselectionclear.selection == s.a.CLIPBOARD) s.ownClipboard = false;
             return;
         case MappingNotify:
-            if (ev.xmapping.request != MappingPointer) XRefreshKeyboardMapping(&ev.xmapping);
+            if (ev.xmapping.request != MappingPointer) {
+                XRefreshKeyboardMapping(&ev.xmapping);
+                s.keymapChanges++;
+            }
             return;
         default:
             break;
@@ -1954,7 +2087,7 @@ void init(int argc, char** argv) {
         "_NET_CURRENT_DESKTOP", "_NET_WM_USER_TIME", "CLIPBOARD", "TARGETS", "TEXT", "text/plain;charset=utf-8",
         "INCR", "TINYDAW_SELECTION", "XdndAware", "XdndEnter", "XdndPosition", "XdndStatus", "XdndLeave", "XdndDrop",
         "XdndFinished", "XdndSelection", "XdndTypeList", "XdndActionCopy", "text/uri-list", "_MOTIF_WM_HINTS",
-        "CLIPBOARD_MANAGER", "SAVE_TARGETS"};
+        "CLIPBOARD_MANAGER", "SAVE_TARGETS", "_XEMBED"};
     const int count = (int)(sizeof names / sizeof names[0]);
     static_assert(sizeof(Atoms) == sizeof(Atom) * (sizeof names / sizeof names[0]), "atom names and Atoms differ");
     XInternAtoms(s.dpy, (char**)names, count, False, (Atom*)&s.a);

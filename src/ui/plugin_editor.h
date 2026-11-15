@@ -5,7 +5,7 @@
 // The plugin decides the size (it may change it, e.g. when its own window grows a panel); plugins
 // that allow it can be resized by dragging the window's edge. The window stays above the main
 // window and is named after the plugin and its track. The plugin gets idle() every frame (values
-// from playback, size changes).
+// from playback, size changes both ways: the window's new size is passed to it there, once a frame).
 //
 // invisible=true: the window is mapped offscreen (WindowOptions::offscreen), off the taskbar and
 // without taking the focus, for a picture of it (PluginHost::photograph).
@@ -40,6 +40,8 @@ public:
     void place(ui::Window* main, std::optional<Point> last = {});
     void close() override;
     void resized() override;
+    // the computer keyboard's keys play notes here too (also while the plugin has the keys: idle())
+    void onEvent(plat::Window* w, const plat::Event& e) override;
     // the window's top-left on the screen (where it is remembered)
     Point position() const;
 
@@ -54,5 +56,6 @@ public:
 private:
     int frameId_ = -1;
     bool closing_ = false;
+    bool sizeChanged_ = false;  // (resized by the user: the plugin is told in idle())
     static plat::WindowOptions options(ui::Window* parent, const std::string& title, bool invisible);
 };

@@ -110,6 +110,10 @@ public:
     virtual void present(const Image& fb, const Rect& dirty) = 0;
     // pointer grab for popups: every mouse event comes to this window until released
     virtual void grabPointer(bool on) = 0;
+    // keys (as Event::key gives them; pressed without Shift, Ctrl, Alt or Meta) that come to this
+    // window even while a window inside it has the focus: an embedded plugin's window (the computer
+    // keyboard's notes); empty: none. Replaces the keys given before
+    virtual void grabKeys(const std::vector<int>& keys) { (void)keys; }
     // the native handle (X11: the Window id; Windows: the HWND), e.g. to embed a plugin's window
     virtual uintptr_t nativeHandle() const = 0;
     // the native display connection (X11: Display*), for plugin windows that need it

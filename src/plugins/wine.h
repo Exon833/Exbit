@@ -48,8 +48,9 @@ std::string hostPath();   // tinydaw-wine-host.exe: $TINYDAW_WINE_HOST, else nex
 // can Windows plugins run here? if not, why (for the error a load gives)
 bool available(std::string& why);
 // starts the host under Wine in `prefix` with these arguments; its stdout goes to outFd (-1: this
-// process's); returns its pid, or -1 (and why)
-int spawnHost(const std::string& prefix, const std::vector<std::string>& args, int outFd, std::string& why);
+// process's), its stdin comes from inFd (-1: nothing); returns its pid, or -1 (and why)
+int spawnHost(const std::string& prefix, const std::vector<std::string>& args, int outFd, std::string& why,
+              int inFd = -1);
 
 }  // namespace wine
 

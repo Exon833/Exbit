@@ -432,7 +432,10 @@ void PluginLibrary::remember(const std::string& file, const std::vector<PluginIn
 
 // --- states ---
 
-std::string stateOf(Plugin& plugin) { return packState(plugin.componentState(), plugin.controllerState()); }
+std::string stateOf(Plugin& plugin) {
+    std::string component = plugin.componentState();  // (first: a Windows plugin gives both at once)
+    return packState(component, plugin.controllerState());
+}
 
 void setState(Plugin& plugin, const std::string& state) {
     std::string component, controller;

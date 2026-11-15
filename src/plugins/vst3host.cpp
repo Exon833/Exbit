@@ -40,6 +40,7 @@
 
 #include "core/util.h"
 #include "platform/platform.h"
+#include "plugins/param_changes.h"
 #include "plugins/plugin.h"
 #include "plugins/vst3_api.h"
 #include "plugins/winlib.h"
@@ -436,28 +437,36 @@ public:
         *obj = nullptr;
         return kNoInterface;
     }
-    void setMaxParameters(int32 n) { queues.resize((size_t)std::max(1, n)); }
-    void clear() { used = 0; }
+    void setMaxParameters(int32 n) {
+        queues.resize((size_t)std::max(1, n));
+        index.reserve(queues.size());
+    }
+    void clear() {
+        used = 0;
+        index.clear();
+    }
     int32 PLUGIN_API getParameterCount() override { return used; }
     IParamValueQueue* PLUGIN_API getParameterData(int32 index) override {
         return index >= 0 && index < used ? &queues[(size_t)index] : nullptr;
     }
-    IParamValueQueue* PLUGIN_API addParameterData(const ParamID& id, int32& index) override {
-        for (int32 i = 0; i < used; i++)
-            if (queues[(size_t)i].id == id) {
-                index = i;
-                return &queues[(size_t)i];
-            }
+    IParamValueQueue* PLUGIN_API addParameterData(const ParamID& id, int32& at) override {
+        int32 i = index.find(id);  // (thousands of parameters a buffer: not searched one by one)
+        if (i != IdIndex::NONE) {
+            at = i;
+            return &queues[(size_t)i];
+        }
         if (used >= (int32)queues.size()) return nullptr;
         auto& q = queues[(size_t)used];
         q.id = id;
         q.count = 0;
-        index = used++;
+        index.insert(id, used);
+        at = used++;
         return &q;
     }
 
 private:
     std::vector<ParamValueQueue> queues;
+    IdIndex index;  // (room for all of queues: setMaxParameters)
     int32 used = 0;
 };
 
@@ -816,50 +825,7 @@ private:
     ~PlugFrame() = default;
 };
 
-struct Change {
-    ParamID id;
-    ParamValue value;
-};
-
-// A short list guarded by a mutex, held only for a moment: the audio thread takes it with try_lock,
-// and adds to it (automation, output parameters) without allocating. take() copies the changes out
-// and clears the list in place, so the list keeps its room: swapping it away (as before) left it
-// empty-handed after every idle(), and the audio thread's next add() allocated, a frame at a time for
-// every automated parameter and every meter a plugin reports.
-struct ChangeQueue {
-    static constexpr size_t ROOM = 512;  // (more distinct parameters at once than this: the list grows, rarely)
-    std::mutex lock;
-    std::vector<Change> changes;
-    ChangeQueue() { changes.reserve(ROOM); }
-    void add(ParamID id, ParamValue value) {
-        std::lock_guard<std::mutex> hold(lock);
-        for (auto& c : changes)
-            if (c.id == id) {
-                c.value = value;
-                return;
-            }
-        changes.push_back({id, value});
-    }
-    bool find(ParamID id, ParamValue& value) {
-        std::lock_guard<std::mutex> hold(lock);
-        for (auto& c : changes)
-            if (c.id == id) {
-                value = c.value;
-                return true;
-            }
-        return false;
-    }
-    bool take(std::vector<Change>& into, bool wait) {
-        std::unique_lock<std::mutex> hold(lock, std::defer_lock);
-        if (wait)
-            hold.lock();
-        else if (!hold.try_lock())
-            return false;
-        into.assign(changes.begin(), changes.end());  // (into keeps its own room: no allocation once it has some)
-        changes.clear();                              // (keeps its room)
-        return true;
-    }
-};
+using Change = ParamValueChange;  // (plugins/param_changes.h: ChangeQueue)
 
 // ===================================================================================== the plugin
 
@@ -938,7 +904,14 @@ public:
         inputChanges.setMaxParameters(params + 8);
         outputChanges.setMaxParameters(params + 8);
         pendingNotes.reserve(MAX_EVENTS);
-        changesNow.reserve(ChangeQueue::ROOM);  // (the audio thread copies the changes into it: room enough to never allocate)
+        // room for a change of every parameter at once (a preset, automation of them all): the audio
+        // thread adds to the queues and copies them into changesNow without allocating
+        size_t room = std::max(ChangeQueue::ROOM, (size_t)std::max(0, params) + 8);
+        toProcessor.reserve(room);
+        toController.reserve(room);
+        fromProcessor.reserve(room);
+        changesNow.reserve(room);
+        idleChanges.reserve(room);
         std::memset(&context, 0, sizeof(context));
         setTransport(120.0, 4, 4, false, 0);
         prepare(48000.0, 4096);
@@ -1078,11 +1051,16 @@ public:
         }
     }
 
+    // (under processLock) notes still held get their note-offs with the next buffer: a plugin may keep
+    // its idea of the keys held across setActive(false/true) and ignore those keys until let go of
+    // (FabFilter One stayed silent for them after a sample-rate change)
     void activate() {
         component->setActive(true);
         processor->setProcessing(true);
         active = true;
         latencyFrames = (int)processor->getLatencySamples();
+        if (held.any())
+            notesOffWanted = true;
     }
 
     // (main thread) the sample rate (and longest buffer) to process at; the plugin starts afresh
@@ -1099,12 +1077,11 @@ public:
         activate();
     }
 
-    // forget what it was holding or playing (tails, delays, notes)
+    // forget what it was holding or playing (tails, delays, notes: their note-offs come with the next buffer)
     void reset() override {
         std::lock_guard<std::mutex> hold(processLock);
         deactivate();
         activate();
-        held.reset();
     }
 
     // --- processing (audio thread) ---
@@ -1328,7 +1305,7 @@ public:
 
     // (main thread) values on their way to the window; a changed latency; a reload the plugin asked for
     void idle() override {
-        std::vector<Change> now;
+        std::vector<Change>& now = idleChanges;
         if (controller) {
             fromProcessor.take(now, true);
             for (auto& c : now)
@@ -1448,8 +1425,12 @@ public:
         if (!view)
             return;
         ViewRect r(0, 0, w, h);
-        if (view->canResize() == kResultTrue)
-            view->checkSizeConstraint(&r);
+        if (view->canResize() != kResultTrue) {  // (a view of one size keeps it: told nothing)
+            if (view->getSize(&r) == kResultOk && r.getWidth() > 0 && r.getHeight() > 0)
+                w = r.getWidth(), h = r.getHeight();
+            return;
+        }
+        view->checkSizeConstraint(&r);
         view->onSize(&r);
         w = r.getWidth();
         h = r.getHeight();
@@ -1497,6 +1478,7 @@ private:
     std::atomic<int> restartFlags{0};
     ChangeQueue toProcessor, toController, fromProcessor;
     std::vector<Change> changesNow;
+    std::vector<Change> idleChanges;  // (main thread: idle()'s, keeping its room)
     std::mutex editsLock;
     std::vector<uint32_t> edits;
     int wantedW = 0, wantedH = 0;
@@ -1593,3 +1575,4 @@ int unloadUnusedModules() {
 }
 
 }  // namespace plug
+

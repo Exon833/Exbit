@@ -35,7 +35,7 @@
 
 namespace bridge {
 
-constexpr uint32_t VERSION = 3;
+constexpr uint32_t VERSION = 4;
 constexpr int MAX_FRAMES = 8192;       // the longest buffer (prepare()'s maxBlock is capped to it)
 constexpr int MAX_NOTES = 1024;        // notes per buffer
 constexpr int MAX_PARAM_CHANGES = 1024;  // parameter changes per buffer (more wait for the next)
@@ -44,7 +44,7 @@ enum Op : uint32_t {
     HELLO = 0,         // host -> Tiny DAW, first: the host's process id (Wine's launcher, Tiny DAW's child, isn't it)
     // Tiny DAW -> host (answered with the same op and number, unless said otherwise)
     LOAD = 1,          // path, plugin name, shared memory name -> ok, error, the plugin's facts
-    PREPARE,           // sample rate, max block -> latency
+    PREPARE,           // sample rate, max block -> latency (on the main thread; else AudioBlock::prepareSet)
     RESET,             // -> latency
     PARAMETERS,        // -> [ParamInfo + value]
     SET_PARAM,         // id, value (no answer)
@@ -178,12 +178,51 @@ inline bool recvAll(int fd, void* p, size_t n) {
     return true;
 }
 
-inline bool sendMessage(int fd, uint32_t op, uint32_t seq, const std::string& payload) {
+// as sendAll, but giving up when the other side takes nothing for `seconds` (0: whatever fits now;
+// errno ETIMEDOUT): a reader that has stopped. `sent` gets how much went (a message cut short
+// leaves the stream unreadable)
+inline bool sendAllWithin(int fd, const void* p, size_t n, double seconds, size_t& sent) {
+    const char* c = (const char*)p;
+    sent = 0;
+    while (n) {
+        ssize_t k = ::send(fd, c, n, MSG_NOSIGNAL | MSG_DONTWAIT);
+        if (k < 0 && errno == EINTR)
+            continue;
+        if (k < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            pollfd q{fd, POLLOUT, 0};
+            int r;
+            do
+                r = ::poll(&q, 1, (int)(seconds * 1000));
+            while (r < 0 && errno == EINTR);
+            if (r == 0)
+                errno = ETIMEDOUT;
+            if (r <= 0)
+                return false;
+            continue;
+        }
+        if (k <= 0)
+            return false;
+        c += k;
+        n -= (size_t)k;
+        sent += (size_t)k;
+    }
+    return true;
+}
+
+inline std::string framed(uint32_t op, uint32_t seq, const std::string& payload) {
     Header h{op, seq, (uint32_t)payload.size()};
     std::string all((const char*)&h, sizeof(h));
     all += payload;
+    return all;
+}
+
+inline bool sendMessage(int fd, uint32_t op, uint32_t seq, const std::string& payload) {
+    std::string all = framed(op, seq, payload);
     return sendAll(fd, all.data(), all.size());
 }
+
+// (--classes) the host's first line: this, then its process id (so that it can be ended, hung or not)
+constexpr const char* CLASSES_PID_MARK = "\x1eTINYDAW-PID ";
 
 constexpr uint32_t MAX_MESSAGE = 512u << 20;  // (a plugin state can be large; anything past this is nonsense)
 
@@ -232,6 +271,11 @@ struct AudioBlock {
     int32_t numerator, denominator, playing;
     double tempo;
     int64_t position;
+    // a new sample rate, asked for on the audio thread (prepare() there is no request: the host's
+    // audio thread prepares the plugin before this buffer)
+    int32_t prepareSet;
+    int32_t maxBlock;
+    double sampleRate;
     // in
     int32_t noteCount;
     int32_t paramCount;

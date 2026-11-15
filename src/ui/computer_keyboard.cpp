@@ -34,6 +34,14 @@ bool isControlKey(int key) {
     return key == OCTAVE_DOWN || key == OCTAVE_UP || key == VELOCITY_DOWN || key == VELOCITY_UP;
 }
 
+std::vector<int> keysInUse() {
+    std::vector<int> keys;
+    if (!gActive || !gActive->isOn()) return keys;
+    for (int key = ' '; key <= '~'; key++)
+        if (stepOf(key) >= 0 || isControlKey(key)) keys.push_back(key);
+    return keys;
+}
+
 std::string noteName(int note) {
     static const char* const NAMES[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
     return std::string(NAMES[((note % 12) + 12) % 12]) + std::to_string(note / 12 - 1);

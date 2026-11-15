@@ -303,7 +303,7 @@ bool prefixChoosesRenderer(const std::string& prefix) {
 
 }  // namespace
 
-int spawnHost(const std::string& prefix, const std::vector<std::string>& args, int outFd, std::string& why) {
+int spawnHost(const std::string& prefix, const std::vector<std::string>& args, int outFd, std::string& why, int inFd) {
     if (!available(why))
         return -1;
     preferGlx(prefix);
@@ -325,6 +325,12 @@ int spawnHost(const std::string& prefix, const std::vector<std::string>& args, i
         }
         env.push_back(s);
     }
+    // Wine's own Direct3D 11 and DXGI, also where the prefix has DXVK's put in for every program
+    // (DllOverrides *d3d11, *dxgi = native): the host's fixes are made for Wine's (WaitForVBlank,
+    // which JUCE 8 draws after: Quanta 2's window stayed empty with DXVK's), and Wine's Direct2D and
+    // DirectComposition are made to draw through them. Not if WINEDLLOVERRIDES names them itself
+    if (!util::containsNoCase(overrides, "dxgi") && !util::containsNoCase(overrides, "d3d11"))
+        overrides += ";dxgi,d3d11,d3d10core=b";
     if (!prefix.empty())
         env.push_back("WINEPREFIX=" + prefix);
     env.push_back("WINEDLLOVERRIDES=" + overrides);
@@ -343,9 +349,9 @@ int spawnHost(const std::string& prefix, const std::vector<std::string>& args, i
     e.push_back(nullptr);
     posix_spawn_file_actions_t actions;
     posix_spawn_file_actions_init(&actions);
-    int devnull = open("/dev/null", O_RDONLY | O_CLOEXEC);
-    if (devnull >= 0)
-        posix_spawn_file_actions_adddup2(&actions, devnull, 0);
+    int devnull = inFd >= 0 ? -1 : open("/dev/null", O_RDONLY | O_CLOEXEC);
+    if (inFd >= 0 || devnull >= 0)
+        posix_spawn_file_actions_adddup2(&actions, inFd >= 0 ? inFd : devnull, 0);
     if (outFd >= 0)
         posix_spawn_file_actions_adddup2(&actions, outFd, 1);
     posix_spawnattr_t attr;

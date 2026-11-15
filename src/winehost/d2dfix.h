@@ -3,7 +3,13 @@
 #pragma once
 
 void fixWineDirect2D();
+// lets go of the bitmaps kept for Direct2D layers (the plugin's window closed: its devices may go)
+void forgetLayerBitmaps();
+// forgets DirectWrite's family lookups (and lets go of the font collections they were for)
+void forgetFontLookups();
 // gives Wine's DXGI a WaitForVBlank (see d2dfix.cpp); likewise, if dxgi is loaded
 void fixWineDxgi();
 // remembers DirectWrite's font family lookups (see d2dfix.cpp); likewise, if dwrite is loaded
 void fixWineDirectWrite();
+// (tests) closes one filled path of so many points (see d2dfix.cpp); 0 when Direct2D could be used
+int pathTest(int points, int shape, bool asIs);

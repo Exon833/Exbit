@@ -3,10 +3,14 @@
 //
 // Main thread: requests over the socket, each waiting for its answer (with a time limit: a host
 // that hangs makes the plugin fall silent, not the program); idle() reads the plugin's news
-// without waiting (one IDLE request out at a time). Audio thread: the buffer goes through the
-// shared memory; a host that's late leaves this buffer silent (an effect: its input) and the
-// next buffers too, until it has caught up. Parameter values are kept here as the host last told
-// them, so asking for them costs nothing.
+// without waiting (one IDLE request out at a time). Parameter changes go together (the last of
+// each), just before the next message, or at idle(). A host that doesn't answer in time, or takes
+// no message for a while (its socket full), is hung: until it says anything again, requests get
+// their defaults at once and parameter changes wait here (the last of each). Audio thread: the
+// buffer goes through the shared memory; a host that's late leaves this buffer silent (an effect:
+// its input) and the next buffers too, until it has caught up; a host that has ended (the plugin
+// crashed) makes process() and render() fail, so the program shows the plugin stopped. Parameter
+// values are kept here as the host last told them, so asking for them costs nothing.
 //
 // The plugin's window: the host makes a Win32 window and gives the plugin its view in it; Tiny DAW
 // puts that window's X11 window (Wine's) inside its own plugin window, embedded by XEmbed, and tells
@@ -17,6 +21,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 #include <memory>
@@ -38,6 +43,7 @@
 #include "platform/platform.h"
 #include "plugins/bridge.h"
 #include "plugins/library.h"
+#include "plugins/param_changes.h"
 #include "plugins/plugin.h"
 #include "plugins/probe.h"
 #include "plugins/wine.h"
@@ -55,6 +61,11 @@ constexpr double LOAD_SECONDS = 120;    // the plugin loading
 constexpr double CALL_SECONDS = 30;     // any other request
 constexpr double STATE_SECONDS = 120;   // states can be large
 constexpr double TEXT_SECONDS = 2;      // a parameter's text
+constexpr double RESIZE_SECONDS = 2;    // its window's new size (asked on our main thread, as it is dragged)
+constexpr double SEND_SECONDS = 2;      // a message the host takes nothing of for this long: it is hung
+constexpr double BURST_SECONDS = 0.002;  // parameter changes this close to the last sent: sent together, later
+constexpr double CLOSE_SECONDS = 3;     // its window closing (on our main thread: the desktop thinks a
+                                        // program that long unanswering hangs, and may end it)
 
 double secondsNow() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -87,13 +98,61 @@ int launcherEnded(int launcher) {
     return WIFEXITED(status) ? WEXITSTATUS(status) : 128;
 }
 
-// the host goes: given graceSeconds to end by itself, then killed; Wine's launcher reaped
-void endProcesses(int host, int& launcher, double graceSeconds) {
-    double until = secondsNow() + graceSeconds;
-    while (host > 0 && processAlive(host) && secondsNow() < until)
-        usleep(10000);
-    if (host > 0 && processAlive(host))
+// the host's process itself rather than its number (a number is given again once its process has
+// ended: a host that crashed hours ago mustn't take another program with it); -1 if Linux can't
+int processHandle(int pid) {
+#ifdef SYS_pidfd_open
+    return pid > 0 ? (int)syscall(SYS_pidfd_open, pid, 0) : -1;
+#else
+    return -1;
+#endif
+}
+
+// the host still there? (by its handle when there is one: readable once it has ended)
+bool running(int host, int handle) { return handle >= 0 ? !readable(handle, 0) : processAlive(host); }
+
+// the host's main thread ended while its process goes on: a plugin that crashed on its window's
+// thread, where Wine couldn't unwind the host's own (Winelib) frames: the exception went round
+// until the thread's stack ran out, and only that thread ended; the audio thread plays on, nothing
+// is answered any more. As good as dead. (Its number can't be another's while its threads live.)
+// (Hosts now run the plugin on a thread of its own, which the first one waits on and ends the host
+// when it ends; this stays for a host whose first thread ends otherwise.)
+bool mainThreadEnded(int host) {
+    if (host <= 0)
+        return false;
+    char path[64], text[512];
+    std::snprintf(path, sizeof path, "/proc/%d/stat", host);
+    FILE* f = std::fopen(path, "r");
+    if (!f)
+        return false;
+    size_t n = std::fread(text, 1, sizeof text - 1, f);
+    std::fclose(f);
+    text[n] = 0;
+    const char* name = std::strrchr(text, ')');  // (the state follows the name, which may hold anything)
+    return name && name[1] == ' ' && (name[2] == 'Z' || name[2] == 'X');
+}
+
+void killHost(int host, int handle) {
+#ifdef SYS_pidfd_send_signal
+    if (handle >= 0) {
+        syscall(SYS_pidfd_send_signal, handle, SIGKILL, nullptr, 0);
+        return;
+    }
+#endif
+    if (host > 0)
         kill(host, SIGKILL);
+}
+
+// the host goes: given graceSeconds to end by itself, then killed; Wine's launcher reaped (the
+// host's handle, if any, is closed)
+void endProcesses(int host, int handle, int& launcher, double graceSeconds) {
+    double until = secondsNow() + graceSeconds;
+    while (host > 0 && running(host, handle) && secondsNow() < until)
+        usleep(10000);
+    if (host > 0 && running(host, handle))
+        killHost(host, handle);
+    if (handle >= 0)
+        close(handle);
     while (launcher > 0 && launcherEnded(launcher) < 0 && secondsNow() < until)
         usleep(10000);
     if (launcher > 0 && launcherEnded(launcher) < 0) {
@@ -110,6 +169,7 @@ public:
         std::string why;
         if (!wine::available(why))
             throw std::runtime_error(why);
+        changes.reserve((size_t)MAX_PARAM_CHANGES);
         int n = ++made;
         std::string tag = std::to_string((long)getpid()) + "-" + std::to_string(n);
         shmName = "/tinydaw-wine-" + tag;
@@ -144,10 +204,16 @@ public:
     bool isInstrument() const override { return instrument_; }
     bool hasSidechain() const override { return sidechain_; }
     int latency() const override { return latency_.load(); }
-    double sampleRate() const override { return sampleRate_; }
+    double sampleRate() const override { return sampleRate_.load(); }
 
     void prepare(double sr, int maxBlock) override {
         sampleRate_ = sr;
+        if (!plat::isMainThread()) {  // (the audio thread, a new rate: no request, it goes with the next buffer)
+            preparedBlock = std::max(1, std::min(maxBlock, MAX_FRAMES));
+            prepareWanted = true;
+            return;
+        }
+        prepareWanted = false;
         std::string answer;
         if (call(PREPARE, Writer().f64(sr).i32(std::min(maxBlock, MAX_FRAMES)), answer, CALL_SECONDS)) {
             Reader r(answer);
@@ -187,6 +253,7 @@ public:
             done += n;
             t_position += n;  // (a long buffer goes in parts)
         }
+        failIfEnded();
     }
 
     void render(const std::vector<NoteMessage>& notes, float* const out[2], int frames) override {
@@ -200,6 +267,7 @@ public:
             done += n;
             t_position += n;
         }
+        failIfEnded();
     }
 
     void notesOff() override { notesOffWanted = true; }
@@ -228,13 +296,23 @@ public:
     void setParam(uint32_t id, double value) override {
         if (plat::isMainThread()) {
             values[id] = value;
-            post(SET_PARAM, Writer().u32(id).f64(value));  // (the plugin and its window, even when nothing plays)
+            {
+                // (the plugin and its window, even when nothing plays; held while the host is hung). A
+                // change by itself goes at once (the processor has it with the next buffers); one of
+                // many at once (a preset, automation of every knob, each frame) waits for the next
+                // message, or idle(), with the others
+                std::lock_guard<std::recursive_mutex> hold(callLock);
+                if (!dead) {
+                    toSend.set(id, value);
+                    if (toSend.size() == 1 && secondsNow() - paramsSent > BURST_SECONDS)
+                        flushParams();
+                }
+            }
             if (!processedOnMain)
                 return;
         }
         std::lock_guard<SpinLock> hold(changesLock);  // (to the processor, with the next buffer)
-        if (changeCount < MAX_PARAM_CHANGES)
-            changes[changeCount++] = {id, 0, value};
+        changes.set(id, value);
     }
 
     std::string paramText(uint32_t id, double value) override {
@@ -259,10 +337,20 @@ public:
         if (dead)
             return;
         readWaiting(0);
+        ready();        // (what waited for a hung host goes, if it answers again)
+        flushParams();  // (this frame's parameter changes)
+        // (its idle not answered: is its main thread still there? Its window would stay frozen while
+        // its sound plays on, nothing asked of it noticing; twice a second)
+        if (idleSeq && !dead && secondsNow() - mainThreadLooked > 0.5) {
+            mainThreadLooked = secondsNow();
+            if (mainThreadEnded(pid))
+                crashed();
+        }
         if (!idleSeq && !dead) {
+            // (a hung host is asked again every frame, without waiting: its answer ends the hang)
             idleSeq = ++seq;
-            if (!sendMessage(sock, IDLE, idleSeq, ""))
-                died();
+            if (!send(IDLE, idleSeq, "", hung ? 0 : SEND_SECONDS))
+                idleSeq = 0;
         }
         keepEditorInPlace();
     }
@@ -279,16 +367,19 @@ public:
 
     // --- state ---
 
+    // (no answer: an error, not an empty state, so that a project saved meanwhile keeps the one it had)
     std::string componentState() override {
         std::string answer;
         stateFetched = false;
         if (!call(GET_STATE, Writer(), answer, STATE_SECONDS))
-            return "";
+            throw std::runtime_error(name_ + " didn't give its settings (its Wine host doesn't answer)");
         Reader r(answer);
         std::string component = r.str();
         fetchedController = r.str();
         stateFetched = r.ok();
-        return r.ok() ? component : "";
+        if (!r.ok())
+            throw std::runtime_error(name_ + " didn't give its settings");
+        return component;
     }
 
     std::string controllerState() override {
@@ -361,7 +452,7 @@ public:
         // the host closes the plugin's view and its window (gone from ours when this returns); if
         // it doesn't answer, Wine's window leaves ours anyway (if ours went first, it would take
         // Wine's with it)
-        if (!call(CLOSE_EDITOR, Writer(), answer, CALL_SECONDS) && dpy) {
+        if (!call(CLOSE_EDITOR, Writer(), answer, CLOSE_SECONDS) && dpy) {
             XUnmapWindow(dpy, going);
             XReparentWindow(dpy, going, DefaultRootWindow(dpy), -32000, -32000);
             XSync(dpy, False);
@@ -402,7 +493,7 @@ public:
         if (!wineWindow)
             return;
         std::string answer;
-        if (!call(EDITOR_RESIZED, Writer().i32(w).i32(h), answer, CALL_SECONDS))
+        if (!call(EDITOR_RESIZED, Writer().i32(w).i32(h), answer, RESIZE_SECONDS))
             return;
         Reader r(answer);
         int nw = r.i32(), nh = r.i32();
@@ -428,17 +519,28 @@ public:
 private:
     // --- the host process ---
     int pid = -1, launcher = -1, sock = -1;  // (pid: the host's; launcher: Wine's, which started it)
+    int hostHandle = -1;                     // (the host's process itself: processHandle)
     std::string shmName, socketPath;
     AudioBlock* block = nullptr;
     std::recursive_mutex callLock;
     uint32_t seq = 0, idleSeq = 0;
+    double mainThreadLooked = 0;  // (idle: when its main thread was last looked for)
     std::atomic<bool> dead{false};
+    bool hung = false;                 // (main thread) it hasn't answered, or taken a message, in time
+    bool settingsWaited = false;       // (main thread) a settings request waited its whole limit in this hang
+    std::map<uint32_t, double> held;   // parameter changes waiting while it is hung (the last of each)
+    LatestChanges toSend;              // (under callLock) parameter changes not sent yet: before the next message
+    std::vector<ParamValueChange> heldList;
+    std::string batch;                 // (sendParams: the messages, keeping its room)
+    double paramsSent = 0;             // (when parameter changes were last sent)
 
     // --- facts ---
     bool vst2_ = false, instrument_ = false, sidechain_ = false;
     std::string name_, vendor_, subcategories_;
     std::atomic<int> latency_{0};
-    double sampleRate_ = 48000;
+    std::atomic<double> sampleRate_{48000};
+    std::atomic<int> preparedBlock{MAX_FRAMES};
+    std::atomic<bool> prepareWanted{false};  // (a rate set on the audio thread: the host prepares with the next buffer)
 
     // --- parameters (main thread) ---
     bool paramsKnown = false;
@@ -450,12 +552,14 @@ private:
 
     // --- audio thread ---
     SpinLock changesLock;
-    ParamChange changes[MAX_PARAM_CHANGES];
-    int changeCount = 0;
+    LatestChanges changes;  // (the last of each: a buffer takes MAX_PARAM_CHANGES, the rest wait for the next)
     std::atomic<bool> notesOffWanted{false}, holding_{false};
     std::atomic<int> late_{0};
     bool pending = false;  // a buffer the host hasn't finished
     uint32_t pendingRequest = 0;
+    NoteMessage waiting[MAX_NOTES];  // notes of buffers the host was late for: sent with the next (at its start)
+    int waitingCount = 0;
+    bool lateOffline = false;  // (main thread, offline) a buffer it didn't do in time: process()/render() fail
     std::atomic<bool> processedOnMain{false};  // (offline rendering: parameter changes go with the buffers)
     double t_tempo = 120;
     int t_num = 4, t_den = 4;
@@ -478,6 +582,9 @@ private:
         std::string dir = util::joinPath(runtime && *runtime ? runtime : (tmp && *tmp ? tmp : "/tmp"),
                                          "tinydaw-wine-" + std::to_string((long)getuid()));
         mkdir(dir.c_str(), 0700);
+        struct stat own {};
+        if (lstat(dir.c_str(), &own) != 0 || !S_ISDIR(own.st_mode) || own.st_uid != getuid() || (own.st_mode & 077))
+            throw std::runtime_error("The folder for Windows plugins' sockets isn't only Tiny DAW's (" + dir + ")");
         socketPath = util::joinPath(dir, tag + ".sock");
         unlink(socketPath.c_str());
         int listener = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
@@ -534,10 +641,11 @@ private:
             throw std::runtime_error("The plugin host for " + util::baseName(path) + " didn't say hello");
         Reader hr(hello);
         pid = hr.i32();
+        hostHandle = processHandle(pid);
         if (hr.u32() != VERSION)
             throw std::runtime_error("tinydaw-wine-host.exe is of another version than Tiny DAW (make builds both)");
         std::string answer;
-        if (!call(LOAD, Writer().str(path).str(wanted).str(shmName).f64(sampleRate_), answer, LOAD_SECONDS))
+        if (!call(LOAD, Writer().str(path).str(wanted).str(shmName).f64(sampleRate_.load()), answer, LOAD_SECONDS))
             throw std::runtime_error(dead ? util::baseName(path) + " crashed its Wine host while loading"
                                           : util::baseName(path) + " took too long to load");
         shm_unlink(shmName.c_str());  // (the host has it open; nothing is left behind)
@@ -562,16 +670,19 @@ private:
         if (block)
             block->quit = 1, block->request.fetch_add(1), wake(&block->request);
         if (sock >= 0) {
+            std::string quit = framed(QUIT, ++seq, "");
+            size_t sent;
             if (!dead)
-                sendMessage(sock, QUIT, ++seq, "");
+                sendAllWithin(sock, quit.data(), quit.size(), 0, sent);  // (if it fits: a hung host is killed below)
             close(sock);
             sock = -1;
         }
         // (it ends by itself when told, or when the socket closes; it is waited for, and killed if
         // it doesn't, away from the main thread)
-        int host = pid, wineLauncher = launcher;
-        std::thread([host, wineLauncher]() mutable { endProcesses(host, wineLauncher, 3); }).detach();
+        int host = pid, handle = hostHandle, wineLauncher = launcher;
+        std::thread([host, handle, wineLauncher]() mutable { endProcesses(host, handle, wineLauncher, 3); }).detach();
         pid = -1;
+        hostHandle = -1;
         launcher = -1;
         if (block) {
             block->~AudioBlock();
@@ -591,23 +702,127 @@ private:
         }
     }
 
-    // a request and its answer (false: no answer in time, or the host is gone)
-    bool call(Op op, const Writer& w, std::string& answer, double seconds) {
-        std::lock_guard<std::recursive_mutex> hold(callLock);
+    // a host whose main thread has ended (mainThreadEnded): ended, so it is reported as crashed
+    void crashed() {
+        killHost(pid, hostHandle);
+        died();
+    }
+
+    // a message to the host (false: not sent). One it takes nothing of for `seconds` makes it hung
+    // (the message isn't sent; the stream is as it was); one it took only part of can't be read any
+    // more, so the host is ended (it is stuck, and would misread what follows)
+    bool send(Op op, uint32_t number, const std::string& payload, double seconds = SEND_SECONDS) {
+        std::string all = framed(op, number, payload);
+        size_t sent = 0;
+        if (sendAllWithin(sock, all.data(), all.size(), seconds, sent))
+            return true;
+        if (errno == ETIMEDOUT && sent == 0) {
+            hung = true;
+        } else {
+            if (sent > 0)
+                killHost(pid, hostHandle);
+            died();
+        }
+        return false;
+    }
+
+    // can a message go? Not to a hung host (unless it has said something since); once it can,
+    // the parameter changes held for it go first
+    bool ready() {
         if (dead || sock < 0)
             return false;
-        uint32_t mine = ++seq;
-        if (!sendMessage(sock, op, mine, w.data)) {
-            died();
-            return false;
+        if (hung)
+            readWaiting(0);
+        if (hung && mainThreadEnded(pid))
+            crashed();
+        if (!hung && !dead && !held.empty()) {
+            heldList.clear();
+            for (const auto& [id, v] : held)
+                heldList.push_back({id, v});
+            size_t n = sendParams(heldList);
+            for (size_t i = 0; i < n; i++)
+                held.erase(heldList[i].id);
         }
+        return !hung && !dead;
+    }
+
+    // the parameter changes set since the last message go before the next (in the order asked: the
+    // host sees them before what follows): all of them in one write, still one SET_PARAM each (a
+    // preset, or automation of thousands of knobs, was a message, a lock and a system call each)
+    void flushParams() {
+        if (toSend.empty())
+            return;
+        size_t n = ready() ? sendParams(toSend.items()) : 0;
+        if (hung && !dead)
+            for (size_t i = n; i < toSend.size(); i++)
+                held[toSend.items()[i].id] = toSend.items()[i].value;
+        toSend.clear();
+    }
+
+    // SET_PARAM messages for the changes, in one write; how many went whole. As with send(), a host
+    // that takes nothing more for a while is hung (the messages that went are taken; the others didn't
+    // go), one that took part of a message can't read on and is ended
+    size_t sendParams(const std::vector<ParamValueChange>& list) {
+        batch.clear();
+        size_t each = 0;
+        for (const auto& c : list) {
+            Writer w;
+            w.u32(c.id).f64(c.value);
+            Header h{SET_PARAM, ++seq, (uint32_t)w.data.size()};
+            batch.append((const char*)&h, sizeof(h));
+            batch.append(w.data);
+            each = sizeof(h) + w.data.size();
+        }
+        if (list.empty())
+            return 0;
+        size_t sent = 0;
+        paramsSent = secondsNow();
+        if (sendAllWithin(sock, batch.data(), batch.size(), SEND_SECONDS, sent))
+            return list.size();
+        if (errno == ETIMEDOUT && sent % each == 0) {
+            hung = true;
+        } else {
+            if (sent % each != 0)
+                killHost(pid, hostHandle);
+            died();
+        }
+        return sent / each;
+    }
+
+    // a request and its answer (false: no answer in time, or the host is gone or hung). A hung host
+    // isn't asked, except for what's worth its wait: loading, and its settings (else a host only busy
+    // for a while would have them saved empty), once a hang (else each autosave waited again)
+    bool call(Op op, const Writer& w, std::string& answer, double seconds) {
+        std::lock_guard<std::recursive_mutex> hold(callLock);
+        bool settings = op == GET_STATE || op == SET_STATE;
+        if (!ready()) {
+            if (dead || sock < 0 || !(op == LOAD || (settings && !settingsWaited)))
+                return false;
+            hung = false;  // (asked as if it answered: a full socket or no answer makes it hung again)
+            if (!ready())
+                return false;
+        }
+        flushParams();  // (the parameter changes asked before it)
+        if (hung || dead)
+            return false;
+        uint32_t mine = ++seq;
+        if (!send(op, mine, w.data))
+            return false;
         double until = secondsNow() + seconds;
         for (;;) {
             double left = until - secondsNow();
-            if (left <= 0)
+            if (left <= 0) {
+                hung = true;  // (not waited for again until it says something)
+                settingsWaited = settingsWaited || settings;
                 return false;
-            if (!readable(sock, (int)std::min(1000.0, left * 1000) + 1))
+            }
+            if (!readable(sock, (int)std::min(1000.0, left * 1000) + 1)) {
+                if (mainThreadEnded(pid)) {  // (nothing will come)
+                    crashed();
+                    return false;
+                }
                 continue;
+            }
             Header h;
             std::string payload;
             if (!recvMessage(sock, h, payload)) {
@@ -622,15 +837,16 @@ private:
         }
     }
 
-    void post(Op op, const Writer& w) {
+    // a message without an answer (false: not sent)
+    bool post(Op op, const Writer& w) {
         std::lock_guard<std::recursive_mutex> hold(callLock);
-        if (dead || sock < 0)
-            return;
-        if (!sendMessage(sock, op, ++seq, w.data))
-            died();
+        if (!ready())
+            return false;
+        flushParams();  // (the parameter changes asked before it)
+        return !hung && !dead && send(op, ++seq, w.data);
     }
 
-    // reads what has come (waiting up to ms for the first)
+    // reads what has come (waiting up to ms for the first); a hung host that says anything isn't
     void readWaiting(int ms) {
         while (!dead && readable(sock, ms)) {
             ms = 0;
@@ -640,7 +856,19 @@ private:
                 died();
                 return;
             }
+            hung = settingsWaited = false;
             news(h, payload);
+        }
+    }
+
+    // a host that has ended can't play: the plugin is shown stopped; nor one that, offline, didn't
+    // do a buffer in its time (an export would go on without it)
+    void failIfEnded() {
+        if (dead)
+            throw std::runtime_error(name_ + "'s Wine host has ended (the plugin crashed)");
+        if (lateOffline) {
+            lateOffline = false;
+            throw std::runtime_error(name_ + " didn't finish a buffer in time (its Wine host doesn't answer)");
         }
     }
 
@@ -707,6 +935,9 @@ private:
         params.swap(list);
         values.swap(vals);
         paramsKnown = true;
+        toSend.reserve(params.size());
+        std::lock_guard<SpinLock> hold(changesLock);  // (a change of every parameter at once without allocating)
+        changes.reserve(std::max((size_t)MAX_PARAM_CHANGES, params.size() + 8));
     }
 
     // --- the audio thread's buffer ---
@@ -719,8 +950,17 @@ private:
         if (onMain)
             processedOnMain = true;
         if (pending) {
+            uint32_t now = block->done.load(std::memory_order_acquire);
+            if (now != pendingRequest && onMain && !lateOffline)  // (offline: a buffer still being done is waited for, once)
+                waitDone(now, pendingRequest, CALL_SECONDS, true);
             if (block->done.load(std::memory_order_acquire) != pendingRequest) {
                 late_++;
+                if (onMain)
+                    lateOffline = true;
+                if (notes)  // (they wait for the next buffer: a note-off lost here would leave a note on)
+                    for (const auto& m : *notes)
+                        if (m.frame >= offset && m.frame < offset + frames)
+                            keepNote(m);
                 return false;
             }
             pending = false;
@@ -735,21 +975,35 @@ private:
         block->denominator = t_den;
         block->playing = t_playing;
         block->position = t_position;
+        block->prepareSet = prepareWanted.exchange(false) ? 1 : 0;
+        block->sampleRate = sampleRate_.load();
+        block->maxBlock = preparedBlock;
         block->paramCount = 0;
         if (changesLock.try_lock()) {
-            std::memcpy(block->params, changes, sizeof(ParamChange) * (size_t)changeCount);
-            block->paramCount = changeCount;
-            changeCount = 0;
+            const auto& list = changes.items();
+            size_t n = std::min(list.size(), (size_t)MAX_PARAM_CHANGES);
+            for (size_t i = 0; i < n; i++)
+                block->params[i] = {list[i].id, 0, list[i].value};
+            block->paramCount = (int32_t)n;
+            changes.dropFirst(n);  // (more than a buffer takes: the rest with the next)
             changesLock.unlock();
         }
         block->noteCount = 0;
+        if (block->notesOff)
+            waitingCount = 0;  // (the notes-off, before this buffer's notes, ends them all)
+        for (int i = 0; i < waitingCount; i++) {  // (first those of the buffers it was late for)
+            const NoteMessage& m = waiting[i];
+            block->notes[block->noteCount++] = {0, m.on ? 1 : 0, m.pitch, m.velocity, m.channel};
+        }
+        waitingCount = 0;
         if (notes)
             for (const auto& m : *notes) {
                 if (m.frame < offset || m.frame >= offset + frames)
                     continue;
                 if (block->noteCount >= MAX_NOTES)
-                    break;
-                block->notes[block->noteCount++] = {m.frame - offset, m.on ? 1 : 0, m.pitch, m.velocity, m.channel};
+                    keepNote(m);  // (too many: the rest with the next buffer)
+                else
+                    block->notes[block->noteCount++] = {m.frame - offset, m.on ? 1 : 0, m.pitch, m.velocity, m.channel};
             }
         if (in)
             for (int c = 0; c < 2; c++)
@@ -762,13 +1016,15 @@ private:
         block->request.store(request, std::memory_order_release);
         wake(&block->request);
         // (real time: a few buffers' time at most; offline, on the main thread: as long as it takes)
-        double limit = onMain ? CALL_SECONDS : std::max(0.02, 4.0 * frames / std::max(1.0, sampleRate_));
-        if (!waitChange(&block->done, before, limit) || block->done.load(std::memory_order_acquire) != request) {
+        double limit = onMain ? CALL_SECONDS : std::max(0.02, 4.0 * frames / std::max(1.0, sampleRate_.load()));
+        if (!waitDone(before, request, limit, onMain)) {
             pending = true;
             pendingRequest = request;
             late_++;
-            if (!processAlive(pid))
+            if (!running(pid, hostHandle))
                 dead = true;  // (it crashed)
+            else if (onMain)
+                lateOffline = true;
             return false;
         }
         for (int c = 0; c < 2; c++)
@@ -776,6 +1032,51 @@ private:
         holding_ = block->holding != 0;
         latency_ = block->latency;
         return true;
+    }
+
+    // waits up to `seconds` for the host to be done with buffer `request` (`done` was `before`); in
+    // slices on the main thread (offline), so that a host that has ended is known at once, not after
+    // the whole wait
+    bool waitDone(uint32_t before, uint32_t request, double seconds, bool slices) {
+        double until = secondsNow() + seconds;
+        for (;;) {
+            double left = until - secondsNow();
+            waitChange(&block->done, before, slices ? std::max(0.0, std::min(0.1, left)) : seconds);
+            uint32_t now = block->done.load(std::memory_order_acquire);
+            if (now == request)
+                return true;
+            if (!slices || secondsNow() >= until || !running(pid, hostHandle))
+                return false;
+            before = now;
+        }
+    }
+
+    // (audio thread) a note for the next buffer, at its start. A note-off whose note-on is waiting
+    // too takes it away (the plugin never had that note: not a burst of them all when it catches up);
+    // when there are too many waiting, a note-off takes the place of a note-on (never lost: it would
+    // leave a note on)
+    void keepNote(const NoteMessage& m) {
+        NoteMessage n = m;
+        n.frame = 0;
+        if (!n.on)
+            for (int i = waitingCount - 1; i >= 0; i--)
+                if (waiting[i].on && waiting[i].pitch == n.pitch && waiting[i].channel == n.channel) {
+                    std::copy(waiting + i + 1, waiting + waitingCount, waiting + i);
+                    waitingCount--;
+                    return;
+                }
+        if (waitingCount < MAX_NOTES) {
+            waiting[waitingCount++] = n;
+            return;
+        }
+        if (n.on)
+            return;
+        for (int i = waitingCount - 1; i >= 0; i--)
+            if (waiting[i].on) {
+                std::copy(waiting + i + 1, waiting + waitingCount, waiting + i);
+                waiting[waitingCount - 1] = n;
+                return;
+            }
     }
 
     // XEmbed: Wine's window is told it is embedded in ours (XEMBED_EMBEDDED_NOTIFY). Wine then
@@ -807,7 +1108,8 @@ private:
         if (XTranslateCoordinates(dpy, parentWindow, DefaultRootWindow(dpy), 0, 0, &x, &y, &child) &&
             (x != placedX || y != placedY)) {
             placedX = x, placedY = y;
-            post(EDITOR_PLACE, Writer().i32(x).i32(y));
+            if (!post(EDITOR_PLACE, Writer().i32(x).i32(y)))
+                placedX = placedY = INT32_MIN;  // (told again once the host takes messages)
         }
         // and Wine's window stays in ours, at its corner
         Window root, parent, *children = nullptr;
@@ -875,15 +1177,26 @@ std::vector<ClassInfo> bridgedClasses(const std::string& path, std::string& erro
         error = "Cannot write " + list;
         return result;
     }
-    int fds[2];
+    // (its answer comes through fds; life is its lifeline, its stdin: when we let go of our end, done
+    // or this process killed (a scan's probe that took too long), it ends, hung or not)
+    int fds[2], life[2];
     if (pipe2(fds, O_CLOEXEC) != 0) {
         util::removeFile(list);
         error = "Cannot start the Wine host";
         return result;
     }
-    int pid = wine::spawnHost(wine::prefixFor(path), {"--classes", list}, fds[1], error);
+    if (pipe2(life, O_CLOEXEC) != 0) {
+        close(fds[0]);
+        close(fds[1]);
+        util::removeFile(list);
+        error = "Cannot start the Wine host";
+        return result;
+    }
+    int pid = wine::spawnHost(wine::prefixFor(path), {"--classes", list}, fds[1], error, life[0]);
     close(fds[1]);
+    close(life[0]);
     std::string output;
+    int hostPid = -1, hostHandle = -1;  // (the host says who it is first)
     double until = secondsNow() + START_SECONDS + LOAD_SECONDS;
     char chunk[4096];
     while (pid > 0 && secondsNow() < until) {
@@ -893,10 +1206,19 @@ std::vector<ClassInfo> bridgedClasses(const std::string& path, std::string& erro
         if (k <= 0)
             break;
         output.append(chunk, (size_t)k);
+        size_t me = hostPid < 0 ? output.find(CLASSES_PID_MARK) : std::string::npos;
+        if (me != std::string::npos && output.find('\n', me) != std::string::npos) {
+            hostPid = std::atoi(output.c_str() + me + std::strlen(CLASSES_PID_MARK));
+            hostHandle = processHandle(hostPid);
+        }
+        size_t mark = output.find(PROBE_MARK);  // (its one line has come: Wine's own processes may hold the pipe open)
+        if (mark != std::string::npos && output.find('\n', mark) != std::string::npos)
+            break;
     }
+    close(life[1]);
     close(fds[0]);
     int launcherPid = pid;
-    endProcesses(-1, launcherPid, 1);
+    endProcesses(hostPid, hostHandle, launcherPid, 1);  // (it has a second to end by itself)
     util::removeFile(list);
     if (pid < 0)
         return result;

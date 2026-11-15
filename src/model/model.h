@@ -141,6 +141,7 @@ struct PluginSlot {
     std::string pluginName;    // which plugin, for files that hold several ("" = none)
     bool bypass = false;
     std::string state;         // its settings as last saved or loaded (packed: plugin.h packState); "" = none
+    mutable std::string lastRead;  // (main thread) its settings as currentState() last read them from the plugin
     std::shared_ptr<plug::Plugin> instance;  // the loaded plugin; null while not loaded (or missing)
     std::atomic<bool> failed{false};         // set by the audio thread if the plugin failed; it is then skipped
     std::string error;                       // why (set together with `failed`)

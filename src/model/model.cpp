@@ -23,13 +23,19 @@ std::vector<Cable> chain(const std::vector<SlotPtr>& slots) {
 
 PluginSlot::PluginSlot(const PluginSlot& o)
     : path(o.path), name(o.name), kind(o.kind), pluginName(o.pluginName), bypass(o.bypass), state(o.state),
-      instance(std::atomic_load(&o.instance)), failed(o.failed.load()), error(o.error), recent(o.recent),
-      placed(o.placed), atX(o.atX), atY(o.atY), volumeDb(o.volumeDb), mix(o.mix) {}
+      lastRead(o.lastRead), instance(std::atomic_load(&o.instance)), failed(o.failed.load()), error(o.error),
+      recent(o.recent), placed(o.placed), atX(o.atX), atY(o.atY), volumeDb(o.volumeDb), mix(o.mix) {}
 
 std::string PluginSlot::currentState() const {
     auto p = std::atomic_load(&instance);
     if (!p) return state;
-    return plug::packState(p->componentState(), p->controllerState());
+    try {
+        std::string component = p->componentState();  // (first: a Windows plugin gives both at once)
+        lastRead = plug::packState(component, p->controllerState());
+        return lastRead;
+    } catch (const std::exception&) {  // (a plugin that can't give its settings now: the last it gave)
+        return lastRead.empty() ? state : lastRead;
+    }
 }
 
 void Automation::setPoints(std::vector<AutoPoint> pts) {

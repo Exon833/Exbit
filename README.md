@@ -84,8 +84,12 @@ redraw faster with it), unless `WINE_D3D_CONFIG` or the prefix already chooses a
 2) the host fills in what Wine's Direct2D and DXGI lack (`src/winehost/d2dfix.cpp`;
 `TINYDAW_WINE_D2D_AS_IS=1` leaves them as they are): gradients with see-through colours (drawn too
 bright and solid), layers (clipping to shapes and masks: Quanta 2's red rectangles) and waiting for
-the screen's refresh (JUCE 8 plugins repaint only after it: their windows stood still). The edges of
-their shapes aren't smoothed as on Windows (Wine's Direct2D doesn't do that yet).
+the screen's refresh (JUCE 8 plugins repaint only after it: their windows stood still). Shapes are
+filled with a bounded stack: Wine's Direct2D can recurse without end on some (Serum 2's wavetable
+view, its WT POS knob turned), and such a shape is left unfilled instead of the plugin crashing
+(`TINYDAW_WINE_PATHS_AS_IS=1` leaves that as it is). A plugin that crashes anyway ends its host at
+once, and Tiny DAW shows it as crashed. The edges of their shapes aren't smoothed as on Windows
+(Wine's Direct2D doesn't do that yet).
 
 ## Test
 
@@ -107,6 +111,7 @@ Testing aids of the running program (hidden; see `src/ui/test_script.h`):
 | `TINYDAW_WINE_TRACE=1` | the Wine host prints which window gets the keys and clicks, slow audio buffers, its corrections |
 | `TINYDAW_WINE_EGL=1` | doesn't switch the Wine host's OpenGL to GLX |
 | `TINYDAW_WINE_D2D_AS_IS=1` | doesn't fill in Wine's Direct2D gradients, layers and vertical blank |
+| `TINYDAW_WINE_PATHS_AS_IS=1` | fills Direct2D shapes on the plugin's own thread, as Wine does (no bounded stack) |
 | `XDG_CONFIG_HOME=<dir>`, `XDG_DATA_HOME=<dir>` | settings and data elsewhere, to leave your own alone |
 
 ## Folder layout

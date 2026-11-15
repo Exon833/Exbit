@@ -38,11 +38,17 @@ void syncState(PluginSlot& slot, int sr, int frames) {
     std::vector<float> buf((size_t)frames * 4, 0.0f);
     float* out[2] = {buf.data(), buf.data() + frames};
     const float* in[2] = {buf.data() + 2 * frames, buf.data() + 3 * frames};
-    ensureRate(*inst, sr);
-    if (slot.kind == INSTRUMENT)
-        inst->render({}, out, frames);
-    else
-        inst->process(in, nullptr, out, frames);
+    try {
+        ensureRate(*inst, sr);
+        if (slot.kind == INSTRUMENT)
+            inst->render({}, out, frames);
+        else
+            inst->process(in, nullptr, out, frames);
+    } catch (const std::exception& e) {  // (as when playing: the plugin is switched off)
+        fail(slot, e.what());
+    } catch (...) {
+        fail(slot, "unknown error");
+    }
 }
 
 bool processEffect(PluginSlot& slot, const float* const in[2], const float* const side[2], float* const out[2],

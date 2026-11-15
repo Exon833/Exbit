@@ -28,6 +28,7 @@
 #include <functional>
 #include <map>
 #include <string>
+#include <vector>
 
 #include "platform/platform.h"
 #include "ui/midi_input.h"
@@ -84,5 +85,8 @@ private:
 ComputerKeyboard* active();
 // pass a window's event through the keyboard in use first; true: taken (don't handle it further)
 bool filter(ui::Window* window, const plat::Event& e);
+// the keys it plays or sets with while it is on (none while off): a plugin's window grabs them, so
+// they play notes even while the plugin has the keys (plugin_editor.cpp)
+std::vector<int> keysInUse();
 
 }  // namespace computer_keyboard

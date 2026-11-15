@@ -179,10 +179,14 @@ public:
         }
     }
 
+    // (under process_lock) notes still held get their note-offs with the next buffer: a plugin may keep
+    // its idea of the keys held across a suspend and ignore those keys until let go of (as VST3: activate)
     void resume() {
         dispatch(vst2::effect::MAINS_CHANGED, 0, 1);
         dispatch(vst2::effect::START_PROCESS);
         active = true;
+        if (held.any())
+            notes_off_wanted = true;
     }
 
     // (main thread) the sample rate to process at; the plugin starts afresh
@@ -199,11 +203,11 @@ public:
         resume();
     }
 
+    // forget what it was holding or playing (its notes' note-offs come with the next buffer)
     void reset() override {
         std::lock_guard<std::mutex> hold(process_lock);
         suspend();
         resume();
-        held.reset();
     }
 
     // --- processing (audio thread) ---

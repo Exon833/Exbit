@@ -35,6 +35,10 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <cerrno>
 #include <cmath>
 #include <cstdio>
@@ -172,25 +176,44 @@ constexpr int RESOURCE_GET_FACTORY = 3;
 constexpr int RT_CREATE_BITMAP_BRUSH = 7, RT_FILL_GEOMETRY = 23, RT_SET_TRANSFORM = 30, RT_GET_TRANSFORM = 31,
               RT_PUSH_LAYER = 40, RT_POP_LAYER = 41, RT_PUSH_CLIP = 45, RT_POP_CLIP = 46, RT_CLEAR = 47,
               RT_GET_PIXEL_FORMAT = 50, RT_GET_DPI = 52, RT_GET_PIXEL_SIZE = 54;
-constexpr int DC_CREATE_BITMAP = 57, DC_SET_TARGET = 74, DC_GET_TARGET = 75, DC_PUSH_LAYER = 86;
+constexpr int DC_CREATE_BITMAP = 57, DC_GET_DEVICE = 73, DC_SET_TARGET = 74, DC_GET_TARGET = 75, DC_PUSH_LAYER = 86;
 constexpr int FACTORY_CREATE_RECTANGLE = 5, FACTORY_CREATE_TRANSFORMED = 9;
 constexpr float HUGE_EXTENT = 1e30f;
 
+// a layer's bitmap: what it is for (one is used again only by a context of the same device, size,
+// resolution and pixel format)
+struct LayerBitmap {
+    void* bitmap = nullptr;  // (held)
+    void* device = nullptr;  // (held) the context's ID2D1Device
+    SizeU size{};
+    float dpiX = 96, dpiY = 96;
+    UINT format = 0;
+    bool fits(const LayerBitmap& o) const {
+        return device == o.device && size.width == o.size.width && size.height == o.size.height && dpiX == o.dpiX &&
+               dpiY == o.dpiY && format == o.format;
+    }
+};
+
 struct Layer {
     void* previousTarget = nullptr;  // (held)
-    void* bitmap = nullptr;          // (held) what is drawn inside the layer, or null: nothing done
-    SizeU size{};
+    LayerBitmap drawn;               // what is drawn inside the layer (bitmap null: nothing done)
     Matrix transform{};              // the transform when it was pushed
     LayerParameters parameters{};    // (geometricMask and opacityBrush held)
 };
 
-struct ContextLayers {
-    std::vector<Layer> stack;
-    std::vector<std::pair<SizeU, void*>> spare;  // bitmaps to use again
-};
-
 CRITICAL_SECTION_* layersLock = nullptr;
-std::map<void*, ContextLayers>* layers = nullptr;
+std::map<void*, std::vector<Layer>>* layers = nullptr;  // each device context's layers pushed (none: no entry)
+// bitmaps to use again, the latest last; a few at most, of any context (a context's address is
+// given again once it is gone: what is kept is matched by what it is, not by whose it was); none
+// kept once the plugin's window is closed (forgetLayerBitmaps)
+std::vector<LayerBitmap>* spareBitmaps = nullptr;
+constexpr size_t SPARE_BITMAPS = 8;
+
+void releaseBitmap(LayerBitmap& b) {
+    release(b.bitmap);
+    release(b.device);
+    b.bitmap = b.device = nullptr;
+}
 
 void addRef(void* object) {
     if (object)
@@ -220,35 +243,43 @@ void pushLayer(void* dc, const LayerParameters* given) {
     }
     method<void(WINAPI*)(void*, Matrix*)>(dc, RT_GET_TRANSFORM)(dc, &layer.transform);
     method<void(WINAPI*)(void*, void**)>(dc, DC_GET_TARGET)(dc, &layer.previousTarget);
-    if (layer.previousTarget) {
-        method<SizeU*(WINAPI*)(void*, SizeU*)>(dc, RT_GET_PIXEL_SIZE)(dc, &layer.size);
+    LayerBitmap& b = layer.drawn;
+    if (layer.previousTarget)
+        method<void(WINAPI*)(void*, void**)>(dc, DC_GET_DEVICE)(dc, &b.device);
+    if (layer.previousTarget && b.device) {
+        BitmapProperties1 props{};
+        method<SizeU*(WINAPI*)(void*, SizeU*)>(dc, RT_GET_PIXEL_SIZE)(dc, &b.size);
+        method<PixelFormat*(WINAPI*)(void*, PixelFormat*)>(dc, RT_GET_PIXEL_FORMAT)(dc, &props.pixelFormat);
+        method<void(WINAPI*)(void*, float*, float*)>(dc, RT_GET_DPI)(dc, &b.dpiX, &b.dpiY);
+        b.format = props.pixelFormat.format;
         EnterCriticalSection_(layersLock);
-        auto& spare = (*layers)[dc].spare;
-        for (size_t i = 0; i < spare.size(); i++)
-            if (spare[i].first.width == layer.size.width && spare[i].first.height == layer.size.height) {
-                layer.bitmap = spare[i].second;
+        auto& spare = *spareBitmaps;
+        for (size_t i = spare.size(); i-- > 0;)
+            if (spare[i].fits(b)) {
+                release(b.device);  // (the spare's holds it too)
+                b = spare[i];
                 spare.erase(spare.begin() + (long)i);
                 break;
             }
         LeaveCriticalSection_(layersLock);
-        if (!layer.bitmap && layer.size.width && layer.size.height) {
-            BitmapProperties1 props{};
-            method<PixelFormat*(WINAPI*)(void*, PixelFormat*)>(dc, RT_GET_PIXEL_FORMAT)(dc, &props.pixelFormat);
+        if (!b.bitmap && b.size.width && b.size.height) {
             props.pixelFormat.alphaMode = 1;  // (premultiplied: it is drawn onto the target)
-            method<void(WINAPI*)(void*, float*, float*)>(dc, RT_GET_DPI)(dc, &props.dpiX, &props.dpiY);
+            props.dpiX = b.dpiX, props.dpiY = b.dpiY;
             props.options = 1;  // (D2D1_BITMAP_OPTIONS_TARGET)
             using CreateBitmap = LONG(WINAPI*)(void*, SizeU, const void*, UINT, const BitmapProperties1*, void**);
-            if (method<CreateBitmap>(dc, DC_CREATE_BITMAP)(dc, layer.size, nullptr, 0, &props, &layer.bitmap) < 0)
-                layer.bitmap = nullptr;
+            if (method<CreateBitmap>(dc, DC_CREATE_BITMAP)(dc, b.size, nullptr, 0, &props, &b.bitmap) < 0)
+                b.bitmap = nullptr;
         }
-        if (layer.bitmap) {
-            method<void(WINAPI*)(void*, void*)>(dc, DC_SET_TARGET)(dc, layer.bitmap);
+        if (b.bitmap) {
+            method<void(WINAPI*)(void*, void*)>(dc, DC_SET_TARGET)(dc, b.bitmap);
             ColorF clear{0, 0, 0, 0};
             method<void(WINAPI*)(void*, const ColorF*)>(dc, RT_CLEAR)(dc, &clear);
         }
     }
+    if (!b.bitmap)
+        releaseBitmap(b);  // (nothing done: no device held either)
     EnterCriticalSection_(layersLock);
-    (*layers)[dc].stack.push_back(layer);
+    (*layers)[dc].push_back(layer);
     LeaveCriticalSection_(layersLock);
 }
 
@@ -256,15 +287,17 @@ void popLayer(void* dc) {
     Layer layer;
     EnterCriticalSection_(layersLock);
     auto found = layers->find(dc);
-    bool any = found != layers->end() && !found->second.stack.empty();
+    bool any = found != layers->end() && !found->second.empty();
     if (any) {
-        layer = found->second.stack.back();
-        found->second.stack.pop_back();
+        layer = found->second.back();
+        found->second.pop_back();
     }
+    if (found != layers->end() && found->second.empty())
+        layers->erase(found);  // (a context with no layers has no entry: it may be gone soon)
     LeaveCriticalSection_(layersLock);
     if (!any)
         return;
-    if (layer.bitmap) {
+    if (layer.drawn.bitmap) {
         // back to the target, and the layer's content painted onto it: under the transform of when
         // it was pushed, as the layer's mask, content bounds and opacity brush are in its
         // coordinates; the bitmap brush undoes that transform, so the bitmap lands pixel for pixel
@@ -290,7 +323,7 @@ void popLayer(void* dc) {
                 // (the whole target, in the layer's coordinates: its corners through the inverse)
                 float dpiX = 96, dpiY = 96;
                 method<void(WINAPI*)(void*, float*, float*)>(dc, RT_GET_DPI)(dc, &dpiX, &dpiY);
-                float w = layer.size.width * 96.0f / dpiX, h = layer.size.height * 96.0f / dpiY;
+                float w = layer.drawn.size.width * 96.0f / dpiX, h = layer.drawn.size.height * 96.0f / dpiY;
                 float xs[4] = {0, w, 0, w}, ys[4] = {0, 0, h, h};
                 RectF all{HUGE_EXTENT, HUGE_EXTENT, -HUGE_EXTENT, -HUGE_EXTENT};
                 for (int i = 0; i < 4; i++) {
@@ -304,7 +337,7 @@ void popLayer(void* dc) {
         }
         BrushProperties bp{p.opacity, inverse};
         method<LONG(WINAPI*)(void*, void*, const void*, const BrushProperties*, void**)>(dc, RT_CREATE_BITMAP_BRUSH)(
-            dc, layer.bitmap, nullptr, &bp, &brush);
+            dc, layer.drawn.bitmap, nullptr, &bp, &brush);
         bool bounded = p.contentBounds.left > -HUGE_EXTENT / 2 && p.contentBounds.right < HUGE_EXTENT / 2;
         if (bounded)
             method<void(WINAPI*)(void*, const RectF*, int)>(dc, RT_PUSH_CLIP)(dc, &p.contentBounds, 1);
@@ -316,13 +349,16 @@ void popLayer(void* dc) {
         release(brush);
         release(shape);
         release(factory);
+        LayerBitmap oldest;
         EnterCriticalSection_(layersLock);
-        auto& spare = (*layers)[dc].spare;
-        if (spare.size() < 8)
-            spare.push_back({layer.size, layer.bitmap});
-        else
-            release(layer.bitmap);
+        auto& spare = *spareBitmaps;
+        if (spare.size() >= SPARE_BITMAPS) {
+            oldest = spare.front();
+            spare.erase(spare.begin());
+        }
+        spare.push_back(layer.drawn);
         LeaveCriticalSection_(layersLock);
+        releaseBitmap(oldest);
     }
     release(layer.previousTarget);
     release(layer.parameters.geometricMask);
@@ -414,6 +450,24 @@ bool straighten(const Polyline& in, std::vector<Polyline>& out) {
     if (in.closed && p.size() > 1 && p.front().x == p.back().x && p.front().y == p.back().y)
         p.pop_back();
     bool changed = p.size() != in.points.size();
+    // (a closed figure that turns straight back somewhere is opened there: begun at that point and
+    // ended at it again, so its closing side is drawn as any other, and it is split as an open one)
+    if (in.closed && p.size() == 2) {  // (there and straight back: a line)
+        out.push_back({p, false});
+        return true;
+    }
+    if (in.closed && p.size() >= 3)
+        for (size_t i = 0, n = p.size(); i < n; i++) {
+            const Point2F &a = p[(i + n - 1) % n], &b = p[i], &c = p[(i + 1) % n];
+            float ux = b.x - a.x, uy = b.y - a.y, vx = c.x - b.x, vy = c.y - b.y;
+            if (ux * vy - uy * vx == 0.0f && ux * vx + uy * vy < 0) {
+                Polyline open;
+                open.points.assign(p.begin() + (long)i, p.end());
+                open.points.insert(open.points.end(), p.begin(), p.begin() + (long)i + 1);
+                straighten(open, out);
+                return true;
+            }
+        }
     Polyline current;
     current.closed = in.closed;
     for (size_t i = 0; i < p.size(); i++) {
@@ -495,6 +549,52 @@ void WINAPI drawGeometry(void* dc, void* geometry, void* brush, float width, voi
 }
 
 
+// --- paths Wine couldn't fill ---
+
+// When Wine can't triangulate a path for filling ("Triangle not found"), its Close() frees the
+// path's figures but keeps their count (d2d_path_geometry_free_figures), and the methods that don't
+// look at the path's state first then read through a null pointer: Simplify (the outlines above
+// call it for every outline), FillContainsPoint and StrokeContainsPoint. Serum 2's wavetable view
+// makes such paths while its WT POS knob turns: its window's thread crashed. They are answered as
+// Wine's other methods answer for such a path (GetFigureCount looks at the state): wrong state.
+constexpr int GEOMETRY_STROKE_CONTAINS = 6, GEOMETRY_FILL_CONTAINS = 7, PATH_GET_FIGURE_COUNT = 20;
+constexpr HRESULT_ D2DERR_WRONG_STATE = (HRESULT_)0x88990001;
+using SimplifyFn = HRESULT_(WINAPI*)(void* path, int option, const Matrix* transform, float tolerance, void* sink);
+using StrokeContainsFn = HRESULT_(WINAPI*)(void* path, Point2F point, float width, void* style, const Matrix* transform,
+                                           float tolerance, BOOL* contains);
+using FillContainsFn = HRESULT_(WINAPI*)(void* path, Point2F point, const Matrix* transform, float tolerance,
+                                         BOOL* contains);
+SimplifyFn wineSimplify = nullptr;
+StrokeContainsFn wineStrokeContains = nullptr;
+FillContainsFn wineFillContains = nullptr;
+
+bool pathClosed(void* path) {
+    UINT count = 0;
+    return method<HRESULT_(WINAPI*)(void*, UINT*)>(path, PATH_GET_FIGURE_COUNT)(path, &count) >= 0;
+}
+
+HRESULT_ WINAPI simplifyPath(void* path, int option, const Matrix* transform, float tolerance, void* sink) {
+    return pathClosed(path) ? wineSimplify(path, option, transform, tolerance, sink) : D2DERR_WRONG_STATE;
+}
+
+HRESULT_ WINAPI strokeContains(void* path, Point2F point, float width, void* style, const Matrix* transform,
+                               float tolerance, BOOL* contains) {
+    if (pathClosed(path))
+        return wineStrokeContains(path, point, width, style, transform, tolerance, contains);
+    if (contains)
+        *contains = FALSE;
+    return D2DERR_WRONG_STATE;
+}
+
+HRESULT_ WINAPI fillContains(void* path, Point2F point, const Matrix* transform, float tolerance, BOOL* contains) {
+    if (pathClosed(path))
+        return wineFillContains(path, point, transform, tolerance, contains);
+    if (contains)
+        *contains = FALSE;
+    return D2DERR_WRONG_STATE;
+}
+
+
 // --- finding font families ---
 
 constexpr int COLLECTION_FAMILY_COUNT = 3, COLLECTION_FIND_FAMILY = 5, DWRITE_FACTORY_SYSTEM_COLLECTION = 3;
@@ -514,6 +614,20 @@ struct FamilyKey {
 };
 CRITICAL_SECTION_* familiesLock = nullptr;
 std::map<FamilyKey, std::pair<UINT, BOOL>>* families = nullptr;
+// the collections in `families`' keys, held (else a collection let go, and a new one made where it
+// was, would get its answers)
+std::vector<void*>* familyCollections = nullptr;
+
+// forgets every answer (the collections they hold let go)
+void forgetFamilies() {
+    std::vector<void*> going;
+    EnterCriticalSection_(familiesLock);
+    families->clear();
+    going.swap(*familyCollections);
+    LeaveCriticalSection_(familiesLock);
+    for (void* c : going)
+        release(c);
+}
 
 LONG WINAPI findFamily(void* collection, const char16_t* name, UINT* index, BOOL* exists) {
     if (!collection || !name || !index || !exists)
@@ -531,12 +645,135 @@ LONG WINAPI findFamily(void* collection, const char16_t* name, UINT* index, BOOL
     LONG hr = wineFindFamily(collection, name, index, exists);
     if (hr >= 0) {
         EnterCriticalSection_(familiesLock);
-        if (families->size() > 4096)
-            families->clear();
+        bool full = families->size() > 4096;
+        LeaveCriticalSection_(familiesLock);
+        if (full)
+            forgetFamilies();
+        EnterCriticalSection_(familiesLock);
+        auto& held = *familyCollections;
+        if (std::find(held.begin(), held.end(), collection) == held.end()) {
+            addRef(collection);
+            held.push_back(collection);
+        }
         (*families)[key] = {*index, *exists};
         LeaveCriticalSection_(familiesLock);
     }
     return hr;
+}
+
+
+// --- paths Wine recurses on without end ---
+
+// Filling a path, Wine's Direct2D inserts each of its sides into a triangulation; for a side whose
+// end it finds in line with an edge ("collinear": d2d_point_ccw() exactly 0, with floats), it goes
+// on from that edge's other end, which may lie beyond the end, from where the edge back is in line
+// too: d2d_cdt_insert_segment() calls itself back and forth without end, until the thread's stack
+// runs out (Serum 2's wavetable view, as its WT POS knob turned: the plugin crashed). Windows' own
+// Direct2D doesn't do this. So Close() is done on a thread of its own, its stack bounded: run out
+// there, in Direct2D, the thread is turned to an end (as Windows lets an exception handler do: a
+// new instruction and stack for it) and the path is answered as one Wine couldn't fill (as Wine
+// answers "Triangle not found"); the plugin goes on, and the next Close() has a new thread. (Such a
+// path is left half made: Wine has it closed, without its triangles, so it fills as nothing or, with
+// curves, as slivers of them; and its triangulation's memory stays taken. Seen? Not yet: on a
+// thread of its own, the Close() that recursed without end on Serum 2's thread ended every time.)
+constexpr SIZE_T CLOSE_STACK = 16u << 20;
+constexpr LONG E_FAIL_ = (LONG)0x80004005;
+using CloseFn = LONG(WINAPI*)(void* sink);
+CloseFn wineClose = nullptr;
+HMODULE d2dModule = nullptr;
+
+std::mutex closeCallers;  // (one Close() at a time on the closing thread)
+std::mutex closeLock;
+std::condition_variable closeChanged;
+void* closeSink = nullptr;
+bool closeAsked = false, closeAnswered = false, closerAlive = false;
+LONG closeResult = 0;
+std::atomic<DWORD> closerThread{0};
+HANDLE closerHandle = nullptr;
+std::atomic<uintptr_t> closerTop{0};
+std::atomic<int> endlessPaths{0};
+
+__attribute__((noreturn)) void WINAPI closerGivesUp() {
+    {
+        std::lock_guard<std::mutex> hold(closeLock);
+        closeResult = E_FAIL_;
+        closeAnswered = true;
+        closerAlive = false;
+        closerThread = 0;
+        endlessPaths++;
+    }
+    closeChanged.notify_all();
+    ExitThread(0);
+}
+
+DWORD WINAPI closerMain(LPVOID) {
+    volatile char top = 0;
+    closerTop = (uintptr_t)&top;
+    closerThread = GetCurrentThreadId();
+    std::unique_lock<std::mutex> hold(closeLock);
+    for (;;) {
+        closeChanged.wait(hold, [] { return closeAsked; });
+        closeAsked = false;
+        void* sink = closeSink;
+        hold.unlock();
+        LONG result = wineClose(sink);
+        hold.lock();
+        closeResult = result;
+        closeAnswered = true;
+        closeChanged.notify_all();
+    }
+}
+
+LONG WINAPI closerRanOut(EXCEPTION_POINTERS* info) {
+    constexpr DWORD STACK_OVERFLOW = 0xC00000FD;
+    const EXCEPTION_RECORD* r = info ? info->ExceptionRecord : nullptr;
+    if (!r || r->ExceptionCode != STACK_OVERFLOW || !info->ContextRecord || GetCurrentThreadId() != closerThread ||
+        !d2dModule || !inside(d2dModule, r->ExceptionAddress))
+        return EXCEPTION_CONTINUE_SEARCH;
+    // (x64 CONTEXT: Rsp at 0x98, Rip at 0xF8; the stack as a call to closerGivesUp from the thread's own
+    // frame would leave it, above the frames that recursed)
+    char* context = (char*)info->ContextRecord;
+    uint64_t rsp = ((uint64_t)closerTop.load() - 4096) & ~(uint64_t)15;
+    *(uint64_t*)(context + 0x98) = rsp - 8;
+    *(uint64_t*)(context + 0xF8) = (uint64_t)(uintptr_t)closerGivesUp;
+    return EXCEPTION_CONTINUE_EXECUTION;
+}
+
+LONG WINAPI closeBounded(void* sink) {
+    if (GetCurrentThreadId() == closerThread)
+        return wineClose(sink);
+    std::lock_guard<std::mutex> one(closeCallers);
+    std::unique_lock<std::mutex> hold(closeLock);
+    if (!closerAlive) {
+        HANDLE thread = CreateThread(nullptr, CLOSE_STACK, closerMain, nullptr, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+        if (!thread) {
+            hold.unlock();
+            return wineClose(sink);
+        }
+        if (closerHandle)
+            CloseHandle(closerHandle);
+        closerHandle = thread;
+        closerAlive = true;
+    }
+    int endless = endlessPaths.load();
+    closeSink = sink;
+    closeAsked = true;
+    closeAnswered = false;
+    closeChanged.notify_all();
+    // (a closing thread that ended otherwise, as Wine ends one it can't even tell of its stack running
+    // out: the path answered as unfillable, not waited for for ever)
+    while (!closeChanged.wait_for(hold, std::chrono::milliseconds(100), [] { return closeAnswered; }))
+        if (WaitForSingleObject(closerHandle, 0) == 0) {
+            closerAlive = false;
+            closerThread = 0;
+            closeAnswered = true;
+            closeResult = E_FAIL_;
+            endlessPaths++;
+        }
+    LONG result = closeResult;
+    if (endlessPaths.load() != endless && getenv("TINYDAW_WINE_TRACE"))
+        fprintf(stderr, "tinydaw-wine-host: a path Wine's Direct2D recursed on without end: not filled\n");
+    return result;
 }
 
 }  // namespace
@@ -590,7 +827,8 @@ void fixWineDirect2D() {
                 static CRITICAL_SECTION_ lock;
                 InitializeCriticalSection_(&lock);
                 layersLock = &lock;
-                layers = new std::map<void*, ContextLayers>();
+                layers = new std::map<void*, std::vector<Layer>>();
+                spareBitmaps = new std::vector<LayerBitmap>();
                 void* was = nullptr;
                 patch(table, RT_PUSH_LAYER, (void*)pushLayerRT, &was);
                 patch(table, DC_PUSH_LAYER, (void*)pushLayerDC, &was);
@@ -604,11 +842,61 @@ void fixWineDirect2D() {
     } else if (trace) {
         fprintf(stderr, "tinydaw-wine-host: no Direct2D device context to correct gradients with\n");
     }
+    // paths Wine couldn't fill: answered, not read through a null pointer (Wine's paths share one table)
+    void* path = nullptr;
+    if (factory && method<HRESULT_(WINAPI*)(void*, void**)>(factory, FACTORY_CREATE_PATH)(factory, &path) >= 0 && path) {
+        void** table = *(void***)path;
+        if (inside(d2d, table[GEOMETRY_SIMPLIFY]) && inside(d2d, table[GEOMETRY_STROKE_CONTAINS]) &&
+            inside(d2d, table[GEOMETRY_FILL_CONTAINS]) && inside(d2d, table[PATH_GET_FIGURE_COUNT])) {
+            patch(table, GEOMETRY_SIMPLIFY, (void*)simplifyPath, (void**)&wineSimplify);
+            patch(table, GEOMETRY_STROKE_CONTAINS, (void*)strokeContains, (void**)&wineStrokeContains);
+            patch(table, GEOMETRY_FILL_CONTAINS, (void*)fillContains, (void**)&wineFillContains);
+            if (trace)
+                fprintf(stderr, "tinydaw-wine-host: Direct2D paths Wine couldn't fill guarded\n");
+        }
+        // (and filling them: Close(), on its sink's table, shared by all paths too)
+        void* sink = nullptr;
+        if (method<LONG(WINAPI*)(void*, void**)>(path, PATH_OPEN)(path, &sink) >= 0 && sink) {
+            void** sinks = *(void***)sink;
+            if (inside(d2d, sinks[SINK_CLOSE]) && !getenv("TINYDAW_WINE_PATHS_AS_IS")) {
+                d2dModule = d2d;
+                AddVectoredExceptionHandler(1, closerRanOut);
+                patch(sinks, SINK_CLOSE, (void*)closeBounded, (void**)&wineClose);
+                if (trace)
+                    fprintf(stderr, "tinydaw-wine-host: Direct2D paths filled with a bounded stack\n");
+            }
+            release(sink);
+        }
+    }
+    release(path);
     release(context);
     release(device);
     release(dxgi);
     release(d3d);
     release(factory);
+}
+
+void forgetLayerBitmaps() {
+    if (!layersLock)
+        return;
+    std::vector<LayerBitmap> going;
+    size_t contexts = 0, pushed = 0;
+    EnterCriticalSection_(layersLock);
+    going.swap(*spareBitmaps);
+    contexts = layers->size();
+    for (auto& [dc, stack] : *layers)
+        pushed += stack.size();
+    LeaveCriticalSection_(layersLock);
+    for (auto& b : going)
+        releaseBitmap(b);
+    if (getenv("TINYDAW_WINE_TRACE"))
+        fprintf(stderr, "tinydaw-wine-host: %zu layer bitmaps let go; %zu contexts with %zu layers still pushed\n",
+                going.size(), contexts, pushed);
+}
+
+void forgetFontLookups() {
+    if (familiesLock)
+        forgetFamilies();
 }
 
 void fixWineDxgi() {
@@ -679,6 +967,7 @@ void fixWineDirectWrite() {
             InitializeCriticalSection_(&lock);
             familiesLock = &lock;
             families = new std::map<FamilyKey, std::pair<UINT, BOOL>>();
+            familyCollections = new std::vector<void*>();
             patch(table, COLLECTION_FIND_FAMILY, (void*)findFamily, (void**)&wineFindFamily);
             if (trace)
                 fprintf(stderr, "tinydaw-wine-host: DirectWrite family lookups remembered\n");
@@ -686,4 +975,47 @@ void fixWineDirectWrite() {
     }
     release(collection);
     release(factory);
+}
+
+// --- (tests) a filled path Wine must triangulate ---
+
+// tinydaw-wine-host.exe --path-test <points> <shape> [as-is]: one filled figure of so many points,
+// closed, as plugins draw a wave filled down to its line (shape 0: a zigzag between that line and
+// above it; 1: a flat run along it; 2: a wave, in whole pixels; 3: a zigzag across it, which its
+// closing side crosses at every turn); says what Close() answered. With
+// "as-is", Wine's Direct2D isn't corrected first
+int pathTest(int points, int shape, bool asIs) {
+    HMODULE d2d = LoadLibraryW(u"d2d1.dll");
+    if (!asIs)
+        fixWineDirect2D();
+    using CreateFactory = HRESULT_(WINAPI*)(int type, const Guid* iid, const void* options, void** factory);
+    auto createFactory = d2d ? (CreateFactory)GetProcAddress(d2d, "D2D1CreateFactory") : nullptr;
+    void *factory = nullptr, *path = nullptr, *sink = nullptr;
+    if (!createFactory || createFactory(0, &IID_ID2D1Factory1, nullptr, &factory) < 0 || !factory ||
+        method<LONG(WINAPI*)(void*, void**)>(factory, FACTORY_CREATE_PATH)(factory, &path) < 0 ||
+        method<LONG(WINAPI*)(void*, void**)>(path, PATH_OPEN)(path, &sink) < 0) {
+        fprintf(stderr, "path test: no Direct2D\n");
+        return 1;
+    }
+    std::vector<Point2F> line;
+    for (int i = 1; i <= points; i++) {
+        float y = shape == 0   ? (i % 2 ? 10.f : 0.f)
+                  : shape == 1 ? 0.f
+                  : shape == 2 ? (float)(int)(20 * std::sin(i * 0.01))
+                               : (i % 2 ? 10.f : -10.f);
+        line.push_back({(float)i, y});
+    }
+    if (shape == 1)
+        line.push_back({(float)points, 10.f});
+    constexpr int BEGIN_FILLED = 0, END_CLOSED = 1;
+    method<void(WINAPI*)(void*, Point2F, int)>(sink, SINK_BEGIN)(sink, Point2F{0, 0}, BEGIN_FILLED);
+    method<void(WINAPI*)(void*, const Point2F*, UINT)>(sink, SINK_ADD_LINES)(sink, line.data(), (UINT)line.size());
+    method<void(WINAPI*)(void*, int)>(sink, SINK_END)(sink, END_CLOSED);
+    LONG closed = method<LONG(WINAPI*)(void*)>(sink, SINK_CLOSE)(sink);
+    printf("path test: %d points, shape %d: Close() answered %08x\n", points, shape, (unsigned)closed);
+    fflush(stdout);
+    release(sink);
+    release(path);
+    release(factory);
+    return 0;
 }

@@ -16,6 +16,7 @@
 #include "check.h"
 #include "core/util.h"
 #include "plugins/library.h"
+#include "plugins/param_changes.h"
 #include "plugins/plugin.h"
 #include "plugins/probe.h"
 
@@ -175,6 +176,16 @@ void testVst3Fx() {
     CHECK_NEAR(out.l[300], 0.25, 1e-6);
     // Duck off: no ducking
     p->setParam(101, 0.0);
+    p->process(steady.in(), side.in(), out.out(), N);
+    CHECK_NEAR(out.l[300], 0.25, 1e-6);
+    // set again and again before a buffer: the last value plays, and is the one asked
+    p->setParam(100, 1.0);
+    p->setParam(101, 1.0);
+    p->setParam(100, 0.0);
+    p->setParam(101, 0.0);
+    p->setParam(100, 0.25);
+    CHECK_NEAR(p->getParam(100), 0.25, 1e-9);
+    p->process(steady.in(), side.in(), out.out(), N);
     p->process(steady.in(), side.in(), out.out(), N);
     CHECK_NEAR(out.l[300], 0.25, 1e-6);
     // in place
@@ -363,6 +374,22 @@ void testVst2() {
     p->render({}, out.out(), 480);
     CHECK_NEAR(rms(out.l), 0.0, 1e-9);
     CHECK(!p->holding());
+
+    // a note held across prepare() (a sample-rate change) or reset(): its note-off comes with the next
+    // buffer (this synth, like FabFilter One, keeps its voices across a suspend: without it the note
+    // would sound on and on, and a plugin that ignores a held key's note-on would stay silent)
+    for (int how = 0; how < 2; how++) {
+        p->render({{0, true, 69, 100, 0}}, out.out(), 480);
+        CHECK(rms(out.l) > 0.2);
+        CHECK(p->holding());
+        if (how == 0)
+            p->prepare(rate, 480);
+        else
+            p->reset();
+        p->render({}, out.out(), 480);
+        CHECK_NEAR(rms(out.l), 0.0, 1e-9);
+        CHECK(!p->holding());
+    }
 
     // a note in the middle of a buffer; an octave up
     p->setParam(1, 0.75);
@@ -679,6 +706,88 @@ void testFinderFailures() {
     }
 }
 
+// the parameter changes on their way (plugins/param_changes.h): the last value of each wins, in the
+// order first changed; emptied in place, keeping their room (the audio thread never allocates); and
+// thousands of parameters at once (Serum 2: 2,622) found by their ids, not searched one by one
+void testParamChanges() {
+    IdIndex index;
+    CHECK(index.find(7) == IdIndex::NONE);  // (empty, no room yet)
+    index.reserve(100);
+    size_t room = index.room();
+    CHECK(room >= 100);
+    for (uint32_t i = 0; i < 100; i++)
+        index.insert(i * 4096u, (int32_t)i);  // (ids alike in their low bits)
+    bool all = true;
+    for (uint32_t i = 0; i < 100; i++)
+        all = all && index.find(i * 4096u) == (int32_t)i;
+    CHECK(all);
+    CHECK(index.find(1) == IdIndex::NONE);
+    index.clear();
+    CHECK(index.size() == 0);
+    CHECK(index.find(0) == IdIndex::NONE);
+    CHECK(index.find(4096) == IdIndex::NONE);
+    CHECK(index.room() == room);  // (emptied in place)
+    for (uint32_t i = 0; i < 300; i++)  // (more than its room: it grows, keeping what it has)
+        index.insert(0x9E000000u + i * 7u, (int32_t)i);
+    all = true;
+    for (uint32_t i = 0; i < 300; i++)
+        all = all && index.find(0x9E000000u + i * 7u) == (int32_t)i;
+    CHECK(all);
+    CHECK(index.room() >= 300);
+
+    LatestChanges latest;
+    latest.set(5, 0.1);
+    latest.set(3, 0.2);
+    latest.set(5, 0.3);  // (the last of each, where it was first changed)
+    latest.set(9, 0.4);
+    CHECK(latest.size() == 3);
+    CHECK(latest.items()[0].id == 5 && latest.items()[0].value == 0.3);
+    CHECK(latest.items()[1].id == 3 && latest.items()[1].value == 0.2);
+    CHECK(latest.items()[2].id == 9 && latest.items()[2].value == 0.4);
+    double v = 0;
+    CHECK(latest.find(3, v) && v == 0.2);
+    CHECK(!latest.find(4, v));
+    latest.dropFirst(1);  // (the first sent: the others kept, in order, still found)
+    CHECK(latest.size() == 2 && latest.items()[0].id == 3 && latest.items()[1].id == 9);
+    CHECK(!latest.find(5, v));
+    CHECK(latest.find(9, v) && v == 0.4);
+    latest.set(5, 0.5);
+    CHECK(latest.size() == 3 && latest.items()[2].id == 5);
+    latest.dropFirst(10);
+    CHECK(latest.empty() && !latest.find(9, v));
+
+    // a queue between threads: every parameter of a big plugin, changed each frame
+    const uint32_t COUNT = 2622;
+    ChangeQueue queue;
+    queue.reserve(COUNT + 8);
+    size_t queueRoom = queue.room();
+    CHECK(queueRoom >= COUNT);
+    std::vector<ParamValueChange> taken;
+    taken.reserve(queueRoom);
+    const ParamValueChange* takenAt = taken.data();
+    bool ordered = true, latestWon = true, found = true;
+    for (int frame = 0; frame < 3; frame++) {
+        for (int pass = 0; pass < 2; pass++)  // (twice: the second values win)
+            for (uint32_t i = 0; i < COUNT; i++)
+                queue.add(0x40000000u + i * 2654435761u, frame + pass + i / (double)COUNT);
+        for (uint32_t i = 0; i < COUNT; i += 97)
+            found = found && queue.find(0x40000000u + i * 2654435761u, v) && v == frame + 1 + i / (double)COUNT;
+        CHECK(queue.take(taken, false));
+        CHECK(taken.size() == COUNT);
+        for (uint32_t i = 0; i < COUNT && i < taken.size(); i++) {
+            ordered = ordered && taken[i].id == 0x40000000u + i * 2654435761u;
+            latestWon = latestWon && taken[i].value == frame + 1 + i / (double)COUNT;
+        }
+        CHECK(!queue.find(0x40000000u, v));  // (taken: empty)
+        CHECK(queue.take(taken, true) && taken.empty());
+    }
+    CHECK(ordered);
+    CHECK(latestWon);
+    CHECK(found);
+    CHECK(queue.room() == queueRoom);  // (it kept its room: nothing allocated frame after frame)
+    CHECK(taken.data() == takenAt);    // (nor what it was taken into)
+}
+
 }  // namespace
 
 int main() {
@@ -690,6 +799,7 @@ int main() {
     }
     char tmpl[] = "/tmp/tinydaw-plugin-test-XXXXXX";
     tempRoot = mkdtemp(tmpl);
+    testParamChanges();
     testPaths();
     testVst3Classes();
     testVst3Fx();
