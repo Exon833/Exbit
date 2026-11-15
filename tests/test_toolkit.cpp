@@ -800,6 +800,55 @@ static void testScrollAndLists() {
     w.hideWindow();
 }
 
+// a drag that came from outside the program's windows (a Windows plugin's, through its Wine host): it
+// follows the pointer, asked every frame, and drops where the left button is let go
+static void testPointerDrag() {
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(300, 200);
+    w.showWindow();
+    struct Target : Widget {
+        std::vector<std::string> got;
+        int enters = 0;
+        void dragEnter(DragEvent& e) override {
+            enters++;
+            e.accepted = !e.data->files.empty();
+        }
+        void drop(DragEvent& e) override { got = e.data->files; }
+    };
+    auto* target = w.add<Target>();
+    target->setGeometry(150, 0, 150, 200);
+    target->setAcceptDrops(true);
+    Rect g = w.screenGeometry();
+    Point at(g.x + 10, g.y + 10);
+    int buttons = plat::LeftButton;
+    App::get().pointerForDrags = [&] { return std::make_pair(at, buttons); };
+    DragData d;
+    d.files = {"/tmp/from a plugin.mid"};
+    App::get().followPointerDrag(d);
+    CHECK(App::get().drag() != nullptr);
+    App::get().advanceTimers(0.05);
+    CHECK(target->enters == 0 && App::get().drag());  // (not over it yet)
+    at = Point(g.x + 200, g.y + 50);
+    App::get().advanceTimers(0.05);
+    CHECK(target->enters > 0 && App::get().drag());
+    buttons = 0;  // let go over it
+    App::get().advanceTimers(0.05);
+    CHECK(App::get().drag() == nullptr);
+    CHECK(target->got.size() == 1 && target->got[0] == "/tmp/from a plugin.mid");
+    // let go over nothing that takes it: no drop, the drag ends
+    target->got.clear();
+    at = Point(g.x + 10, g.y + 10);
+    buttons = plat::LeftButton;
+    App::get().followPointerDrag(d);
+    buttons = 0;
+    App::get().advanceTimers(0.05);
+    CHECK(App::get().drag() == nullptr && target->got.empty());
+    App::get().pointerForDrags = nullptr;
+    App::get().followPointerDrag(d);  // (headless without a pointer to ask: nothing starts)
+    CHECK(App::get().drag() == nullptr);
+    w.hideWindow();
+}
+
 static void testDialogs() {
     Window main(plat::WindowOptions{});
     main.resizeWindow(500, 400);
@@ -1182,6 +1231,7 @@ int main() {
     testComboAndMenus();
     testDeleteLaterAndForget();
     testFocusAndToolTips();
+    testPointerDrag();
     testScrollAndLists();
     testDialogs();
     testFileDialog();

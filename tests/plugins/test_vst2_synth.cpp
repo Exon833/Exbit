@@ -13,6 +13,10 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+
+#include <atomic>
+
+#include "win_dnd.h"  // (its window: files dropped on it are marked; Volume set to 0.123 drags a MIDI file out)
 #else
 #include <X11/Xlib.h>
 #endif
@@ -50,6 +54,7 @@ struct Synth {
     // the window
 #ifdef _WIN32
     HWND window = nullptr;
+    std::atomic<bool> dragWanted{false};  // (tests: a drag of a MIDI file out of the window, at the next idle)
 #else
     Display* display = nullptr;
     ::Window window = 0;
@@ -131,6 +136,10 @@ void setParameter(vst2::Effect* e, int32_t index, float value) {
     Synth* s = of(e);
     if (index == 0)
         s->volume = value;
+#ifdef _WIN32
+    if (index == 0 && std::fabs(value - 0.123f) < 1e-6f)
+        s->dragWanted = true;
+#endif
     else if (index == 1)
         s->octave = value;
 }
@@ -186,6 +195,10 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 InvalidateRect(hwnd, nullptr, FALSE);
             }
             return 0;
+        case WM_DROPFILES:  // (DragAcceptFiles: files dropped on the window)
+            win_dnd::markSeen(win_dnd::filesIn((HDROP)wp), L"vst2");
+            DragFinish((HDROP)wp);
+            return 0;
         case WM_RBUTTONDOWN:
             if (s) {
                 s->w += 40;
@@ -214,10 +227,15 @@ void openEditor(Synth* s, void* parent) {
     }
     s->window = CreateWindowExW(0, L"TinyTestSynthWindow", L"Tiny Test Synth", WS_CHILD | WS_VISIBLE, 0, 0, s->w, s->h,
                                 (HWND)parent, nullptr, self, nullptr);
-    if (s->window) SetWindowLongPtrW(s->window, GWLP_USERDATA, (LONG_PTR)s);
+    if (s->window) {
+        SetWindowLongPtrW(s->window, GWLP_USERDATA, (LONG_PTR)s);
+        DragAcceptFiles(s->window, TRUE);
+    }
 }
 
-void editIdle(Synth*) {}  // (Windows sends the window its messages itself)
+void editIdle(Synth* s) {  // (Windows sends the window its messages itself)
+    if (s->window && s->dragWanted.exchange(false)) win_dnd::dragMidiOut(L"TinyTestDrag.mid");
+}
 
 void closeEditor(Synth* s) {
     if (s->window) DestroyWindow(s->window);

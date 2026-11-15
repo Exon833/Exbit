@@ -85,6 +85,14 @@ through `msiexec`) in a prefix (asked when there are several; with none, it offe
 waits for it, then lists the new plugins it finds. An installer that put VST2 plugins in a usual
 folder that isn't searched yet gets that folder offered for Options → VST2 plugin folders.
 
+**Drag and drop** works with Windows plugins' windows both ways. Files a plugin drags out of its window
+(the MIDI or audio a drum machine or chord tool makes, through Windows' DoDragDrop) come to Tiny DAW:
+the drag goes on under the pointer and drops where the button is let go, e.g. on a track as a clip.
+Files dragged onto a plugin's window (from the explorer, a track, or the file manager) are given to it
+as Windows does: to the drop target of its window under the pointer, else as WM_DROPFILES; a plugin
+that doesn't take them there says so in a tooltip. (Drags of "virtual" files, which a few plugins
+make without writing a file, aren't taken over yet: they stay inside Wine.)
+
 Each prefix's plugins run with that prefix's own Wine: a Bottles bottle's runner (from its
 `bottle.yml`), the Wine version of the Lutris game whose prefix it is, or one chosen in Options →
 Wine prefixes (select the prefix, Wine program…; Automatic goes back). The dialog shows, for the

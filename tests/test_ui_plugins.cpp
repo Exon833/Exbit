@@ -1215,6 +1215,16 @@ int displayTests() {
         CHECK(fx->instance->editorOpen());
         printf("editor %dx%d resizable=%d\n", w->width(), w->height(), (int)w->resizable);
         CHECK(w->width() > 10 && w->height() > 10);
+        // files dragged onto it: only a Windows plugin's are taken here (a Linux plugin's view takes
+        // its own drops, through XDND)
+        {
+            ui::DragData files;
+            files.files = {"/tmp/kick.wav"};
+            ui::DragEvent de;
+            de.data = &files;
+            w->dragEnter(de);
+            CHECK(w->acceptsDrops() && !de.accepted);
+        }
         w->showWindow();
         for (int i = 0; i < 5; ++i) {
             ui::App::get().processEvents();

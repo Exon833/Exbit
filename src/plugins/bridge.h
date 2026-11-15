@@ -36,7 +36,7 @@
 
 namespace bridge {
 
-constexpr uint32_t VERSION = 4;
+constexpr uint32_t VERSION = 5;  // (5: files dragged out in IDLE's news, DROP_FILES)
 constexpr int MAX_FRAMES = 8192;       // the longest buffer (prepare()'s maxBlock is capped to it)
 constexpr int MAX_NOTES = 1024;        // notes per buffer
 constexpr int MAX_PARAM_CHANGES = 1024;  // parameter changes per buffer (more wait for the next)
@@ -51,7 +51,7 @@ enum Op : uint32_t {
     SET_PARAM,         // id, value (no answer)
     PARAM_TEXT,        // id, value -> text
     WINDOW_EDIT,       // id, value (no answer)
-    IDLE,              // -> news: [(edited id, value)], [(changed id, value)], resize, latency, params changed
+    IDLE,              // -> news: [(edited id, value)], [(changed id, value)], resize, latency, [files dragged out]
     GET_STATE,         // -> component, controller
     SET_STATE,         // component, controller -> latency
     HAS_EDITOR,        // -> bool, resizable
@@ -64,6 +64,7 @@ enum Op : uint32_t {
     NOTES_OFF,         // (no answer)
     QUIT,              // (no answer) the host ends
     WINDOW_RECT,       // -> where Wine believes the window is on the screen: left, top, right, bottom (tests)
+    DROP_FILES,        // x, y (in the plugin's window, pixels), [Unix paths] -> how they were taken ("" not)
 };
 
 // --- messages: a header (op, number, size) then the payload, written and read with Writer/Reader ---

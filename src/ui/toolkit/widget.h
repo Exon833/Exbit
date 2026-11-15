@@ -477,6 +477,12 @@ public:
     // current drag (internal and from the desktop), for Window
     DragData* drag() { return dragActive_ ? &drag_ : nullptr; }
     void beginDrag(const DragData& d, Widget* source);
+    // a drag that began outside the program's windows (a Windows plugin's, from its window, which its
+    // Wine host holds the pointer for while the button is down): it follows the pointer, asked every
+    // frame, and drops where the left button is let go
+    void followPointerDrag(const DragData& d);
+    // (tests) where the pointer is and which MouseButtons are held, instead of asking the system
+    std::function<std::pair<Point, int>()> pointerForDrags;
     void endDrag();
     // tooltips
     void showToolTip(Point globalPos, const std::string& text, Widget* owner);
@@ -523,6 +529,7 @@ private:
     double lastFrameFns_ = -1;  // when the onFrame callbacks last ran (frameTimer)
     float scale_ = 1;
     int frameTimer_ = -1;
+    int followTimer_ = -1;  // (followPointerDrag)
     void startFrameTimer();
     void frameTimer();          // a picture of the screen: paints; runs the onFrame callbacks when due
     bool quit_ = false;

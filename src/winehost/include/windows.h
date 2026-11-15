@@ -253,4 +253,87 @@ WINAPI LONG RegCloseKey(HKEY key);
 WINAPI LONG OleInitialize(LPVOID reserved);
 WINAPI void OleUninitialize(void);
 
+// --- drag and drop (winehost/dragdrop.cpp: plugins' drags out, files dropped in) ---
+typedef LONG HRESULT;
+typedef void* HGLOBAL;
+typedef struct _GUID {
+    uint32_t Data1;
+    uint16_t Data2, Data3;
+    uint8_t Data4[8];
+} GUID;
+typedef struct tagFORMATETC {
+    WORD cfFormat;
+    void* ptd;
+    DWORD dwAspect;
+    LONG lindex;
+    DWORD tymed;
+} FORMATETC;
+typedef struct tagSTGMEDIUM {
+    DWORD tymed;
+    HGLOBAL hGlobal;  // (a union; only the HGLOBAL case is used)
+    void* pUnkForRelease;
+} STGMEDIUM;
+typedef struct _POINTL {
+    LONG x, y;
+} POINTL;
+// the start of a CF_HDROP block (then the file names, each ended by a 0, the list by another)
+typedef struct _DROPFILES {
+    DWORD pFiles;  // (where the names start)
+    POINT pt;
+    BOOL fNC;
+    BOOL fWide;
+} DROPFILES;
+// IDataObject's and IDropTarget's tables of methods, in their order (COM: `this` first)
+typedef struct IDataObjectVtbl {
+    HRESULT(WINAPI* QueryInterface)(void* self, const GUID* iid, void** object);
+    ULONG(WINAPI* AddRef)(void* self);
+    ULONG(WINAPI* Release)(void* self);
+    HRESULT(WINAPI* GetData)(void* self, FORMATETC* format, STGMEDIUM* medium);
+    HRESULT(WINAPI* GetDataHere)(void* self, FORMATETC* format, STGMEDIUM* medium);
+    HRESULT(WINAPI* QueryGetData)(void* self, FORMATETC* format);
+    HRESULT(WINAPI* GetCanonicalFormatEtc)(void* self, FORMATETC* in, FORMATETC* out);
+    HRESULT(WINAPI* SetData)(void* self, FORMATETC* format, STGMEDIUM* medium, BOOL release);
+    HRESULT(WINAPI* EnumFormatEtc)(void* self, DWORD direction, void** enumerator);
+    HRESULT(WINAPI* DAdvise)(void* self, FORMATETC* format, DWORD flags, void* sink, DWORD* connection);
+    HRESULT(WINAPI* DUnadvise)(void* self, DWORD connection);
+    HRESULT(WINAPI* EnumDAdvise)(void* self, void** enumerator);
+} IDataObjectVtbl;
+typedef struct IDropTargetVtbl {
+    HRESULT(WINAPI* QueryInterface)(void* self, const GUID* iid, void** object);
+    ULONG(WINAPI* AddRef)(void* self);
+    ULONG(WINAPI* Release)(void* self);
+    HRESULT(WINAPI* DragEnter)(void* self, void* data, DWORD keys, POINTL point, DWORD* effect);
+    HRESULT(WINAPI* DragOver)(void* self, DWORD keys, POINTL point, DWORD* effect);
+    HRESULT(WINAPI* DragLeave)(void* self);
+    HRESULT(WINAPI* Drop)(void* self, void* data, DWORD keys, POINTL point, DWORD* effect);
+} IDropTargetVtbl;
+#define CF_HDROP 15
+#define DVASPECT_CONTENT 1u
+#define TYMED_HGLOBAL 1u
+#define DROPEFFECT_NONE 0u
+#define DROPEFFECT_COPY 1u
+#define DRAGDROP_S_DROP 0x00040100L
+#define S_OK 0L
+#define E_NOTIMPL ((HRESULT)0x80004001u)
+#define E_NOINTERFACE ((HRESULT)0x80004002u)
+#define DV_E_FORMATETC ((HRESULT)0x80040064u)
+#define OLE_E_ADVISENOTSUPPORTED ((HRESULT)0x80040003u)
+#define GMEM_MOVEABLE 0x0002u
+#define GMEM_ZEROINIT 0x0040u
+#define GWL_EXSTYLE (-20)
+#define WS_EX_ACCEPTFILES 0x00000010u
+#define WM_DROPFILES 0x0233u
+WINAPI HGLOBAL GlobalAlloc(UINT flags, SIZE_T bytes);
+WINAPI void* GlobalLock(HGLOBAL memory);
+WINAPI BOOL GlobalUnlock(HGLOBAL memory);
+WINAPI HGLOBAL GlobalFree(HGLOBAL memory);
+WINAPI SIZE_T GlobalSize(HGLOBAL memory);
+WINAPI void ReleaseStgMedium(STGMEDIUM* medium);
+WINAPI HANDLE GetPropW(HWND hwnd, LPCWSTR name);
+WINAPI HWND WindowFromPoint(POINT point);
+WINAPI LONG GetWindowLongW(HWND hwnd, int index);
+WINAPI BOOL ScreenToClient(HWND hwnd, POINT* point);
+// Wine's own (kernel32): a DOS path's Unix name, allocated on the process heap
+WINAPI char* wine_get_unix_file_name(LPCWSTR dosName);
+
 }  // extern "C"

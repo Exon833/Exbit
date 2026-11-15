@@ -119,6 +119,11 @@ bool bridgedWindowRect(Plugin& plugin, int& left, int& top, int& right, int& bot
 int bridgedHostPid(Plugin& plugin);
 // is it a Windows plugin, in a Wine host of its own (so it can be started afresh: PluginHost::reload)?
 bool isBridged(const Plugin& plugin);
+// files a Windows plugin dragged out of its window since last asked (Unix paths; read with its idle())
+std::vector<std::string> bridgedDraggedFiles(Plugin& plugin);
+// files (Unix paths) dropped on a Windows plugin's open window at (x, y) (its pixels): how its host gave
+// them to it ("ole": its drop target, "dropfiles": WM_DROPFILES); "" not taken (or not a Windows plugin)
+std::string bridgedDropFiles(Plugin& plugin, const std::vector<std::string>& files, int x, int y);
 // a Windows plugin whose Wine host has ended (the plugin crashed)
 bool bridgedHostEnded(const Plugin& plugin);
 // ends a Windows plugin's Wine host now (one stopped while its host lives on, late or hung: before a reload)

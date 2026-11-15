@@ -27,6 +27,8 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+
+#include "win_dnd.h"  // (its window is an OLE drop target: files dropped on it are marked)
 #else
 #include <X11/Xlib.h>
 #endif
@@ -98,13 +100,13 @@ bool readAll(IBStream* s, void* data, int32 n) {
 
 // ===================================================================================== the processor
 
-class Processor final : public IComponent, public IAudioProcessor, public IConnectionPoint {
+class Processor final : public IComponent, public IAudioProcessor, public Vst::IConnectionPoint {
 public:
     REFCOUNTED
     Processor() { instances++; }
     tresult PLUGIN_API queryInterface(const TUID iid, void** obj) override {
         if (give<IComponent>(this, iid, obj) || give<IPluginBase>(this, iid, obj) ||
-            give<IAudioProcessor>(this, iid, obj) || give<IConnectionPoint>(this, iid, obj))
+            give<IAudioProcessor>(this, iid, obj) || give<Vst::IConnectionPoint>(this, iid, obj))
             return kResultOk;
         if (iidEqual(iid, FUnknown::iid)) {
             *obj = static_cast<FUnknown*>(static_cast<IComponent*>(this));
@@ -272,14 +274,14 @@ public:
         return kResultOk;
     }
 
-    tresult PLUGIN_API connect(IConnectionPoint* other) override {
+    tresult PLUGIN_API connect(Vst::IConnectionPoint* other) override {
         if (!other || peer)
             return kResultFalse;
         peer = other;
         peer->addRef();
         return kResultOk;
     }
-    tresult PLUGIN_API disconnect(IConnectionPoint* other) override {
+    tresult PLUGIN_API disconnect(Vst::IConnectionPoint* other) override {
         if (!peer || other != peer)
             return kResultFalse;
         peer->release();
@@ -297,7 +299,7 @@ private:
         instances--;
     }
     IHostApplication* host = nullptr;
-    IConnectionPoint* peer = nullptr;
+    Vst::IConnectionPoint* peer = nullptr;
     double rate = 44100, gain = 0.5, duck = 1.0;
     bool active = false, sidechainActive = false;
     std::vector<float> delay[2] = {std::vector<float>(LATENCY, 0.0f), std::vector<float>(LATENCY, 0.0f)};
@@ -377,6 +379,7 @@ private:
     Linux::IRunLoop* loop = nullptr;
 #ifdef _WIN32
     HWND window = nullptr;
+    win_dnd::Target* dropTarget = nullptr;
 #else
     Display* display = nullptr;
     ::Window window = 0;
@@ -384,13 +387,13 @@ private:
     float scale = 1;
 };
 
-class Controller final : public IEditController, public IConnectionPoint {
+class Controller final : public IEditController, public Vst::IConnectionPoint {
 public:
     REFCOUNTED
     Controller() { instances++; }
     tresult PLUGIN_API queryInterface(const TUID iid, void** obj) override {
         if (give<IEditController>(this, iid, obj) || give<IPluginBase>(this, iid, obj) ||
-            give<IConnectionPoint>(this, iid, obj))
+            give<Vst::IConnectionPoint>(this, iid, obj))
             return kResultOk;
         if (iidEqual(iid, FUnknown::iid)) {
             *obj = static_cast<FUnknown*>(static_cast<IEditController*>(this));
@@ -513,14 +516,14 @@ public:
         return new View(this);
     }
 
-    tresult PLUGIN_API connect(IConnectionPoint* other) override {
+    tresult PLUGIN_API connect(Vst::IConnectionPoint* other) override {
         if (!other || peer)
             return kResultFalse;
         peer = other;
         peer->addRef();
         return kResultOk;
     }
-    tresult PLUGIN_API disconnect(IConnectionPoint* other) override {
+    tresult PLUGIN_API disconnect(Vst::IConnectionPoint* other) override {
         if (!peer || other != peer)
             return kResultFalse;
         peer->release();
@@ -561,7 +564,7 @@ private:
         instances--;
     }
     IComponentHandler* handler = nullptr;
-    IConnectionPoint* peer = nullptr;
+    Vst::IConnectionPoint* peer = nullptr;
 };
 
 View::View(Controller* c) : controller(c) { controller->addRef(); }
@@ -649,11 +652,22 @@ tresult PLUGIN_API View::attached(void* parent, FIDString type) {
         return kResultFalse;
     SetWindowLongPtrW(window, GWLP_USERDATA, (LONG_PTR)this);
     SetTimer(window, 1, 50, nullptr);
+    OleInitialize(nullptr);
+    dropTarget = new win_dnd::Target(L"vst3");
+    if (RegisterDragDrop(window, dropTarget) != S_OK) {
+        dropTarget->Release();
+        dropTarget = nullptr;
+    }
     return kResultOk;
 }
 
 tresult PLUGIN_API View::removed() {
     if (window) {
+        if (dropTarget) {
+            RevokeDragDrop(window);
+            dropTarget->Release();
+            dropTarget = nullptr;
+        }
         KillTimer(window, 1);
         DestroyWindow(window);
         window = nullptr;

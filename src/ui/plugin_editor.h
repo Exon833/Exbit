@@ -44,6 +44,10 @@ public:
     void place(ui::Window* main, std::optional<Point> last = {});
     void close() override;
     void resized() override;
+    // files dragged onto a Windows plugin's window go to it (its Wine host drops them on the window
+    // under that point); a Linux plugin's view takes its drops itself (XDND)
+    void dragEnter(ui::DragEvent& e) override;
+    void drop(ui::DragEvent& e) override;
     // the computer keyboard's keys play notes here too (also while the plugin has the keys: idle())
     void onEvent(plat::Window* w, const plat::Event& e) override;
     // the window's top-left on the screen (where it is remembered)

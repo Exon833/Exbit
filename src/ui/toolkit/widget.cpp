@@ -1637,6 +1637,30 @@ void App::beginDrag(const DragData& d, Widget* source) {
     if (source && source->window()) source->window()->applyCursor();
 }
 
+void App::followPointerDrag(const DragData& d) {
+    if (headless_ && !pointerForDrags) return;
+    if (followTimer_ >= 0) cancelTimer(followTimer_);
+    if (dragActive_) dragFinish(cursorPos(), 0, false);
+    beginDrag(d, nullptr);
+    followTimer_ = every(16, [this] {
+        if (!dragActive_) {  // (ended some other way)
+            cancelTimer(followTimer_);
+            followTimer_ = -1;
+            return;
+        }
+        std::pair<Point, int> at = pointerForDrags ? pointerForDrags()
+                                                   : std::make_pair(cursorPos(), plat::heldButtons());
+        int mods = headless_ ? 0 : plat::heldModifiers();
+        if (!(at.second & plat::LeftButton)) {  // let go: dropped here
+            cancelTimer(followTimer_);
+            followTimer_ = -1;
+            dragFinish(at.first, mods, true);
+            return;
+        }
+        dragMoveTo(at.first, mods);
+    });
+}
+
 void App::endDrag() {
     Window* src = dragSource_ && Widget::alive(dragSource_) ? dragSource_->window() : nullptr;
     dragActive_ = false;

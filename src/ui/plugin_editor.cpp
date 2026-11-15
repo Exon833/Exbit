@@ -6,6 +6,7 @@
 #include "audio/automation.h"
 #include "audio/plugin_audio.h"
 #include "plugins/plugin.h"
+#include "plugins/wine.h"
 #include "ui/computer_keyboard.h"
 #include "ui/theme.h"
 #include "ui/toolkit/controls.h"
@@ -31,6 +32,22 @@ EditorWindow::EditorWindow(ui::Window* parent, SlotPtr slot_, const std::string&
     deleteOnClose = true;
     setScale(1);  // (a plugin draws its window at its own size, whatever the interface size)
     setBackground(Color(0, 0, 0));
+    setAcceptDrops(true);  // (files, for a Windows plugin: dragEnter)
+}
+
+void EditorWindow::dragEnter(ui::DragEvent& e) {
+    auto instance = aload(slot->instance);
+    e.accepted = instance && plug::isBridged(*instance) && instance->editorOpen() && e.data && !e.data->files.empty() &&
+                 !slot->failed.load(std::memory_order_acquire);
+}
+
+void EditorWindow::drop(ui::DragEvent& e) {
+    auto instance = aload(slot->instance);
+    if (!instance || !e.data || e.data->files.empty()) return;
+    // (this window is at the plugin's own pixels: setScale(1))
+    std::string how = plug::bridgedDropFiles(*instance, e.data->files, e.pos.x, e.pos.y);
+    if (how.empty())
+        ui::App::get().showToolTip(e.globalPos, "The plugin didn't take the file there", this);
 }
 
 EditorWindow::~EditorWindow() {
@@ -87,6 +104,17 @@ void EditorWindow::idle() {
         return;
     }
     instance->idle();
+    // files the plugin dragged out of its window (a Windows plugin's, through its Wine host): dragged
+    // on under the pointer, to be dropped on a track, the explorer…
+    if (plug::isBridged(*instance)) {
+        auto files = plug::bridgedDraggedFiles(*instance);
+        if (!files.empty()) {
+            ui::DragData d;
+            d.files = files;
+            d.kind = "files";
+            ui::App::get().followPointerDrag(d);
+        }
+    }
     if (sizeChanged_) {  // (the window's edge dragged since the last frame: the latest size, once)
         sizeChanged_ = false;
         int w = width(), h = height();

@@ -42,6 +42,7 @@
 #include "plugins/plugin.h"
 #include "plugins/probe.h"
 #include "winehost/d2dfix.h"
+#include "winehost/dragdrop.h"
 
 using namespace bridge;
 
@@ -293,6 +294,7 @@ void load(const Incoming& in) {
         fixWineDirect2D();  // (before it draws anything)
         fixWineDxgi();
         fixWineDirectWrite();
+        catchDragsOut();
         try {
             plugin->prepare(sampleRate);
         } catch (const std::exception&) {
@@ -378,6 +380,12 @@ void serve(const Incoming& in) {
             w.u32(id).f64(v);
         w.b(resizeNews).i32(newsW).i32(newsH);
         w.i32(plugin->latency());
+        {
+            auto files = takeDraggedFiles();
+            w.u32((uint32_t)files.size());
+            for (const auto& f : files)
+                w.str(f);
+        }
         editedNews.clear();
         changedNews.clear();
         resizeNews = false;
@@ -433,6 +441,7 @@ void serve(const Incoming& in) {
         fixWineDirect2D();  // (and if it loaded them while making its window: before that draws much)
         fixWineDxgi();
         fixWineDirectWrite();
+        catchDragsOut();
         resizeEditorWindow(pw, ph);
         uint64_t xid = x11Window(editorWindow);
         if (!xid) {  // (Wine makes the X11 window when it is first shown: shown off every screen, not to be seen)
@@ -454,6 +463,15 @@ void serve(const Incoming& in) {
         }
         reply(in, w.b(true).i64((int64_t)xid).i32(pw).i32(ph).b(plugin->editorResizable()));
         startTestDrag();
+        break;
+    }
+    case DROP_FILES: {
+        int x = r.i32(), y = r.i32();
+        uint32_t n = r.u32();
+        std::vector<std::string> files;
+        for (uint32_t i = 0; i < n && r.ok(); i++)
+            files.push_back(r.str());
+        reply(in, w.str(r.ok() && editorWindow ? dropFiles(editorWindow, x, y, files) : std::string()));
         break;
     }
     case SHOW_EDITOR:

@@ -2990,6 +2990,63 @@ int findKinds(PluginLibrary& library) {
     return finder.found();
 }
 
+// drag and drop through the Wine host, with the plugin's window open in one of ours: a file dropped
+// on it reaches it (the VST3 effect's OLE drop target, the VST2 synth's WM_DROPFILES: each marks the
+// file "<file>.seen-vst3/2"), and a MIDI file the synth drags out of its window (its Volume set to
+// 0.123, the test plugins' cue) comes to Tiny DAW as a Unix path
+void testDragAndDrop(PluginLibrary& library, const PluginInfo& info) {
+    if (getenv("TINYDAW_NO_WINDOWS") || !getenv("DISPLAY")) return;
+    auto p = library.load(info, 48000);
+    Display* dpy = XOpenDisplay(nullptr);
+    if (!dpy) return;
+    Window ours = XCreateSimpleWindow(dpy, DefaultRootWindow(dpy), 60, 60, 400, 300, 0, 0, 0);
+    XMapWindow(dpy, ours);
+    XFlush(dpy);
+    int w = 0, h = 0;
+    bool opened = p->openEditor((uintptr_t)ours, dpy, 1.0, w, h);
+    CHECK(opened);
+    if (opened) {
+        for (int i = 0; i < 20; i++) {  // (shown, and placed)
+            p->idle();
+            usleep(20000);
+        }
+        bool vst2 = p->isVst2();
+        std::string file = util::joinPath(tempRoot, std::string("dropped ") + (vst2 ? "on synth" : "on fx") +
+                                                        (wine::is32BitPlugin(info.path) ? " 32" : "") + ".wav");
+        util::writeFile(file, "RIFF");
+        std::string how = bridgedDropFiles(*p, {file}, w / 2, h / 2);
+        CHECK(how == (vst2 ? "dropfiles" : "ole"));
+        std::string mark = file + (vst2 ? ".seen-vst2" : ".seen-vst3");
+        double t0 = secondsNow();
+        while (!util::fileExists(mark) && secondsNow() - t0 < 5) {
+            p->idle();
+            usleep(20000);
+        }
+        CHECK(util::fileExists(mark));
+        printf("   a file dropped on its window: %s, %s\n", how.empty() ? "not taken" : how.c_str(),
+               util::fileExists(mark) ? "arrived" : "did NOT arrive");
+        CHECK(bridgedDropFiles(*p, {}, w / 2, h / 2).empty());  // (nothing to drop)
+        if (vst2) {
+            p->setParam(0, 0.123);
+            std::vector<std::string> out;
+            t0 = secondsNow();
+            while (out.empty() && secondsNow() - t0 < 5) {
+                p->idle();
+                usleep(20000);
+                out = bridgedDraggedFiles(*p);
+            }
+            std::string midi;
+            CHECK(out.size() == 1 && util::endsWith(out[0], "TinyTestDrag.mid") && util::readFile(out[0], midi) &&
+                  midi.compare(0, 4, "MThd") == 0);
+            printf("   dragged out of its window: %s\n", out.empty() ? "NOTHING" : out[0].c_str());
+            CHECK(bridgedDraggedFiles(*p).empty());  // (once)
+        }
+        p->closeEditor();
+    }
+    XDestroyWindow(dpy, ours);
+    XCloseDisplay(dpy);
+}
+
 // the Windows builds of the test plugins (make win-plugins), installed in a new prefix by the test
 // installer as Install Windows plugin… runs it, then found, loaded through the Wine host and tested
 // as any installed plugin, and with what they are known to do
@@ -3074,6 +3131,8 @@ void testWindowsTestPlugins(const std::string& prefix) {
         if (p) exactFx(*p);
     for (const PluginInfo* p : {synth, synth32})
         if (p) exactSynth(*p);
+    for (const PluginInfo* p : {fx, synth, fx32, synth32})
+        if (p) testDragAndDrop(library, *p);
     if (fx) testCrash(library, *fx);
     if (fx32) testCrash(library, *fx32);
 }

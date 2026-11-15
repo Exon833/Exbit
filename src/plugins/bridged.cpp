@@ -541,6 +541,30 @@ public:
         return r.ok();
     }
 
+    // files the plugin dragged out of its window since last asked (Unix paths; IDLE's news)
+    std::vector<std::string> takeDragged() {
+        std::lock_guard<std::mutex> hold(draggedLock);
+        std::vector<std::string> out;
+        out.swap(dragged);
+        return out;
+    }
+
+    // files dropped on its window at (x, y) (pixels): how the host gave them to it ("" not taken)
+    std::string dropFiles(const std::vector<std::string>& files, int x, int y) {
+        if (files.empty() || !editorOpen())
+            return "";
+        Writer w;
+        w.i32(x).i32(y).u32((uint32_t)files.size());
+        for (const auto& f : files)
+            w.str(f);
+        std::string answer;
+        if (!call(DROP_FILES, w, answer, CALL_SECONDS))
+            return "";
+        Reader r(answer);
+        std::string how = r.str();
+        return r.ok() ? how : "";
+    }
+
     bool hostAlive() const { return !dead; }
     bool stateIsKnown() const { return stateKnown; }
     // its host ended now (a plugin stopped for a host that is late or hung, about to be started
@@ -575,6 +599,8 @@ private:
     bool vst2_ = false, instrument_ = false, sidechain_ = false;
     std::string name_, vendor_, subcategories_;
     std::atomic<int> latency_{0};
+    std::mutex draggedLock;
+    std::vector<std::string> dragged;  // (takeDragged)
     std::atomic<double> sampleRate_{48000};
     std::atomic<int> preparedBlock{MAX_FRAMES};
     std::atomic<bool> prepareWanted{false};  // (a rate set on the audio thread: the host prepares with the next buffer)
@@ -962,6 +988,14 @@ private:
         if (resize && w > 0 && hh > 0)
             resizeWanted = true, wantedW = w, wantedH = hh;
         latency_ = l;
+        uint32_t files = r.u32();  // (dragged out of its window)
+        std::vector<std::string> out;
+        for (uint32_t i = 0; i < files && r.ok(); i++)
+            out.push_back(r.str());
+        if (r.ok() && !out.empty()) {
+            std::lock_guard<std::mutex> hold(draggedLock);
+            dragged.insert(dragged.end(), out.begin(), out.end());
+        }
     }
 
     void fetchParameters() {
@@ -1223,6 +1257,16 @@ int bridgedHostPid(Plugin& plugin) {
 }
 
 bool isBridged(const Plugin& plugin) { return dynamic_cast<const BridgedPlugin*>(&plugin) != nullptr; }
+
+std::vector<std::string> bridgedDraggedFiles(Plugin& plugin) {
+    auto* b = dynamic_cast<BridgedPlugin*>(&plugin);
+    return b ? b->takeDragged() : std::vector<std::string>{};
+}
+
+std::string bridgedDropFiles(Plugin& plugin, const std::vector<std::string>& files, int x, int y) {
+    auto* b = dynamic_cast<BridgedPlugin*>(&plugin);
+    return b ? b->dropFiles(files, x, y) : "";
+}
 
 bool bridgedHostEnded(const Plugin& plugin) {
     auto* b = dynamic_cast<const BridgedPlugin*>(&plugin);

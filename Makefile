@@ -49,7 +49,7 @@ TEST_PLUGINS := $(BUILD)/test-plugins/TinyTestSynth.so \
 # linked by winegcc against Wine's DLLs) ---
 WINEGCC  ?= $(shell command -v winegcc 2>/dev/null)
 WINE_HOST := tinydaw-wine-host.exe
-WINE_SRCS := src/winehost/host.cpp src/winehost/platform.cpp src/winehost/d2dfix.cpp src/plugins/vst3host.cpp src/plugins/vst2host.cpp \
+WINE_SRCS := src/winehost/host.cpp src/winehost/platform.cpp src/winehost/d2dfix.cpp src/winehost/dragdrop.cpp src/plugins/vst3host.cpp src/plugins/vst2host.cpp \
              src/plugins/plugin.cpp src/plugins/probe.cpp src/core/util.cpp src/core/json.cpp
 WINE_OBJS := $(WINE_SRCS:%.cpp=build/winehost/%.o)  # (one host for both builds, always optimized)
 WINE_BASE := -std=c++17 -O2 -g1 -DNDEBUG -fPIC -Wall -Wextra \
@@ -126,26 +126,26 @@ $(BUILD)/test-plugins/TinyTestFx.vst3/Contents/x86_64-linux/TinyTestFx.so: tests
 
 win-plugins: $(ALL_WIN_TEST)
 
-$(WIN_DIR)/TinyTestFx.vst3: tests/plugins/test_vst3_fx.cpp src/plugins/vst3_api.h
+$(WIN_DIR)/TinyTestFx.vst3: tests/plugins/test_vst3_fx.cpp tests/plugins/win_dnd.h src/plugins/vst3_api.h
 	@mkdir -p $(dir $@)
-	$(MINGW64) $(WIN_FLAGS) -shared -o $@ $< -lgdi32 -luser32
+	$(MINGW64) $(WIN_FLAGS) -shared -o $@ $< -lgdi32 -luser32 -lole32 -lshell32 -luuid
 
 $(WIN_DIR)/TinyTestFx.moduleinfo.json: tests/plugins/TinyTestFx.moduleinfo.json
 	@mkdir -p $(dir $@)
 	cp $< $@
 
-$(WIN_DIR)/TinyTestSynth.dll: tests/plugins/test_vst2_synth.cpp src/plugins/vst2.h
+$(WIN_DIR)/TinyTestSynth.dll: tests/plugins/test_vst2_synth.cpp tests/plugins/win_dnd.h src/plugins/vst2.h
 	@mkdir -p $(dir $@)
-	$(MINGW64) $(WIN_FLAGS) -shared -o $@ $< -lgdi32 -luser32
+	$(MINGW64) $(WIN_FLAGS) -shared -o $@ $< -lgdi32 -luser32 -lole32 -lshell32 -luuid
 
 # (32-bit: --kill-at gives GetPluginFactory, a __stdcall function, its plain name, as Windows hosts look for it)
-$(WIN_DIR)/TinyTestFx32.vst3: tests/plugins/test_vst3_fx.cpp src/plugins/vst3_api.h
+$(WIN_DIR)/TinyTestFx32.vst3: tests/plugins/test_vst3_fx.cpp tests/plugins/win_dnd.h src/plugins/vst3_api.h
 	@mkdir -p $(dir $@)
-	$(MINGW32) $(WIN_FLAGS) -shared -Wl,--kill-at -o $@ $< -lgdi32 -luser32
+	$(MINGW32) $(WIN_FLAGS) -shared -Wl,--kill-at -o $@ $< -lgdi32 -luser32 -lole32 -lshell32 -luuid
 
-$(WIN_DIR)/TinyTestSynth32.dll: tests/plugins/test_vst2_synth.cpp src/plugins/vst2.h
+$(WIN_DIR)/TinyTestSynth32.dll: tests/plugins/test_vst2_synth.cpp tests/plugins/win_dnd.h src/plugins/vst2.h
 	@mkdir -p $(dir $@)
-	$(MINGW32) $(WIN_FLAGS) -shared -Wl,--kill-at -o $@ $< -lgdi32 -luser32
+	$(MINGW32) $(WIN_FLAGS) -shared -Wl,--kill-at -o $@ $< -lgdi32 -luser32 -lole32 -lshell32 -luuid
 
 $(WIN_DIR)/TinyTestInstaller.exe: tests/plugins/test_installer.cpp
 	@mkdir -p $(dir $@)
