@@ -11,7 +11,7 @@ const std::vector<int>& bufferSizes() {
     return v;
 }
 const std::vector<int>& refreshRates() {
-    static const std::vector<int> v{60, 30, 15};
+    static const std::vector<int> v{0, 60, 30, 15};  // (0: as often as the screen shows a picture)
     return v;
 }
 const std::vector<int>& interfaceSizes() {

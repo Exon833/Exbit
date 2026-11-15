@@ -301,6 +301,26 @@ struct Runner {
         } else if (cmd == "target") {
             std::getline(in, target);
             while (!target.empty() && target.front() == ' ') target.erase(target.begin());
+        } else if (cmd == "glide") {  // glide x0 y0 x1 y1 ms: a drag at a hand's pace (a move every millisecond)
+            ui::Window* w = targetWindow();
+            if (!w) return say("no target window");
+            int x0 = 0, y0 = 0, x1 = 0, y1 = 0, ms = 500;
+            in >> x0 >> y0 >> x1 >> y1 >> ms;
+            mouse(w, plat::Event::MouseMove, x0, y0, 0, 0);
+            mouse(w, plat::Event::MouseDown, x0, y0, plat::LeftButton, plat::LeftButton);
+            double start = plat::now(), length = std::max(1, ms) / 1000.0;
+            resumeAt = start + length + 0.1;
+            auto timer = std::make_shared<int>(-1);
+            *timer = App::get().every(1, [this, w, x0, y0, x1, y1, start, length, timer] {
+                if (!ui::Widget::alive(w)) return App::get().cancelTimer(*timer);
+                double f = std::min(1.0, (plat::now() - start) / length);
+                int x = (int)std::lround(x0 + (x1 - x0) * f), y = (int)std::lround(y0 + (y1 - y0) * f);
+                mouse(w, plat::Event::MouseMove, x, y, 0, plat::LeftButton);
+                if (f >= 1) {
+                    mouse(w, plat::Event::MouseUp, x1, y1, plat::LeftButton, 0);
+                    App::get().cancelTimer(*timer);
+                }
+            });
         } else if (cmd == "move" || cmd == "click" || cmd == "drag" || cmd == "wheel") {
             ui::Window* w = targetWindow();
             if (!w) return say("no target window");

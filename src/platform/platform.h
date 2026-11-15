@@ -135,6 +135,10 @@ bool quitting();
 int loopDepth();
 
 int addTimer(int intervalMs, std::function<void()> fn, bool repeat = true);  // returns an id
+// the same with a fractional interval (a frame of a 60 Hz screen is 16.67 ms, not 16)
+int addTimerMs(double intervalMs, std::function<void()> fn, bool repeat = true);
+// how many pictures a second the fastest screen shows (its mode's refresh rate); 0 if unknown
+double displayRefreshRate();
 void removeTimer(int id);
 // fd readable (VST3 plugins' IRunLoop on Linux): fn runs on the main thread
 int watchFd(int fd, std::function<void()> fn);

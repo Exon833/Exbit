@@ -210,6 +210,37 @@ static void testLayouts() {
     w5.relayout();
     CHECK(g1->width() == 100 && g2->x() == 100);
     CHECK(g3->width() == 200 && g3->y() == 50);
+
+    // deep nesting: a widget is measured about once per ancestor laid out, not once per path through
+    // its ancestors' questions (a panel of track rows measured that way took ~40 ms a pixel of a drag)
+    struct Counted : Widget {
+        int* count;
+        explicit Counted(int* c) : count(c) {}
+        Point sizeHint() const override {
+            ++*count;
+            return Point(20, 10);
+        }
+    };
+    int measured = 0;
+    Window w6(plat::WindowOptions{});
+    w6.resizeWindow(300, 400);
+    Widget* box = &w6;
+    Counted* leaf = nullptr;
+    for (int depth = 0; depth < 8; ++depth) {
+        BoxLayout* lay = depth % 2 ? (BoxLayout*)hbox(box, 1, 1) : (BoxLayout*)vbox(box, 1, 1);
+        leaf = box->add<Counted>(&measured);
+        lay->addWidget(leaf);
+        auto* inner = box->add<Widget>();
+        lay->addWidget(inner, 1);
+        box = inner;
+    }
+    App::get().doLayouts();
+    w6.relayout();
+    measured = 0;
+    w6.resizeWindow(320, 420);
+    w6.relayout();
+    CHECK(measured > 0 && measured < 1000);  // (about one per ancestor laid out; it was 2,956,116)
+    CHECK(leaf->width() == 20 && leaf->height() > 10);  // (in a row: its hint across, the row's height down)
 }
 
 static void testPaintingColours() {

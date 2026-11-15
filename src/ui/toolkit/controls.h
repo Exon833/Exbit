@@ -26,7 +26,12 @@ public:
     void setWordWrap(bool on) { wrap_ = on; updateGeometry(); update(); }
     void setElide(bool on) { elide_ = on; updateGeometry(); update(); }
     void setFont(const Font& f) { font_ = f; hasFont_ = true; updateGeometry(); update(); }
-    void setColor(Color c) { color_ = c; hasColor_ = true; update(); }   // overrides the style's
+    void setColor(Color c) {  // overrides the style's (a repaint only when it changes: paint() may set it)
+        if (hasColor_ && color_ == c) return;
+        color_ = c;
+        hasColor_ = true;
+        update();
+    }
     void clearColor() { hasColor_ = false; update(); }
     void setImage(const Image& img) { image_ = img; updateGeometry(); update(); }
     // a clickable link: the text is drawn underlined in the accent colour; onLink(url) when clicked

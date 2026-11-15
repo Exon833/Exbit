@@ -1412,7 +1412,33 @@ void App::init(int argc, char** argv) {
     inited_ = true;
     plat::init(argc, argv);
     theme::c("window");  // the default skin, until one is chosen
-    frameTimer_ = addTimer(1000 / std::max(1, fps_), [this] { tick(); }, true);
+    startFrameTimer();
+}
+
+void App::startFrameTimer() {
+    // one tick per picture of the (fastest) screen; a timer of whole milliseconds would beat against
+    // it (16 ms: 62.5 a second on a 60 Hz screen, a picture shown twice now and then)
+    if (frameTimer_ >= 0) cancelTimer(frameTimer_);
+    double hz = headless_ ? 0 : plat::displayRefreshRate();
+    displayHz_ = hz >= 20 && hz <= 1000 ? hz : 60;
+    lastFrameFns_ = -1;
+    frameTimer_ = addTimerMs(1000.0 / displayHz_, [this] { frameTimer(); }, true);
+}
+
+void App::frameTimer() {
+    // the onFrame callbacks (playhead, meters, plugins' idle) at the chosen rate, in step with the
+    // screen's pictures (60 a second on a 180 Hz screen: every third); painting at every picture
+    double t = now();
+    double period = fps_ > 0 ? 1.0 / fps_ : 0;
+    if (lastFrameFns_ < 0 || t - lastFrameFns_ >= period - 0.5 / displayHz_) {
+        lastFrameFns_ = lastFrameFns_ < 0 || t - lastFrameFns_ > period + 1.0 / displayHz_ ? t : lastFrameFns_ + period;
+        tick();
+        return;
+    }
+    collectGarbage();
+    doLayouts();
+    for (Window* w : std::vector<Window*>(windows_))
+        if (std::find(windows_.begin(), windows_.end(), w) != windows_.end()) w->flush();
 }
 
 void App::initHeadless() {
@@ -1473,23 +1499,20 @@ int App::onFrame(std::function<void()> fn) {
 void App::removeFrame(int id) { frames_.erase(id); }
 
 void App::setFrameRate(int fps) {
-    fps = std::max(1, fps);
-    if (fps == fps_) return;
-    fps_ = fps;
-    if (frameTimer_ >= 0) {
-        cancelTimer(frameTimer_);
-        frameTimer_ = addTimer(1000 / fps_, [this] { tick(); }, true);
-    }
+    fps_ = std::max(0, fps);
+    if (frameTimer_ >= 0) startFrameTimer();  // (the screen may have changed too)
 }
 
-int App::addTimer(int ms, std::function<void()> fn, bool repeat) {
+int App::addTimer(int ms, std::function<void()> fn, bool repeat) { return addTimerMs(ms, std::move(fn), repeat); }
+
+int App::addTimerMs(double ms, std::function<void()> fn, bool repeat) {
     int id = ++nextTimer_;
     Timer t;
     t.fn = std::move(fn);
     t.repeat = repeat;
-    t.interval = std::max(ms, repeat ? 1 : 0) / 1000.0;
+    t.interval = std::max(ms, repeat ? 1.0 : 0.0) / 1000.0;
     t.due = now() + t.interval;
-    if (!headless_) t.plat = plat::addTimer(std::max(0, ms), [this, id] { fireTimer(id); }, repeat);
+    if (!headless_) t.plat = plat::addTimerMs(std::max(0.0, ms), [this, id] { fireTimer(id); }, repeat);
     timers_[id] = std::move(t);
     return id;
 }

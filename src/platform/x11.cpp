@@ -87,7 +87,7 @@ struct Atoms {
 };
 
 struct Timer {
-    int intervalMs = 0;
+    double intervalMs = 0;
     double deadline = 0;
     bool repeat = true;
     std::shared_ptr<std::function<void()>> fn;
@@ -2271,10 +2271,14 @@ bool quitting() { return S().quit; }
 int loopDepth() { return std::max(0, S().processDepth - 1); }
 
 int addTimer(int intervalMs, std::function<void()> fn, bool repeat) {
+    return addTimerMs((double)intervalMs, std::move(fn), repeat);
+}
+
+int addTimerMs(double intervalMs, std::function<void()> fn, bool repeat) {
     State& s = S();
     int id = s.nextTimer++;
     Timer t;
-    t.intervalMs = std::max(0, intervalMs);
+    t.intervalMs = std::max(0.0, intervalMs);
     t.deadline = monoNow() + t.intervalMs / 1000.0;
     t.repeat = repeat;
     t.fn = std::make_shared<std::function<void()>>(std::move(fn));
@@ -2283,6 +2287,31 @@ int addTimer(int intervalMs, std::function<void()> fn, bool repeat) {
 }
 
 void removeTimer(int id) { S().timers.erase(id); }
+
+double displayRefreshRate() {
+    // each lit CRTC's mode: pixel clock / (total width x total height), the highest of them
+    State& s = S();
+    int evb, erb;
+    if (!s.dpy || !XRRQueryExtension(s.dpy, &evb, &erb)) return 0;
+    XRRScreenResources* res = XRRGetScreenResourcesCurrent(s.dpy, s.root);
+    if (!res) return 0;
+    double best = 0;
+    for (int c = 0; c < res->ncrtc; c++) {
+        XRRCrtcInfo* crtc = XRRGetCrtcInfo(s.dpy, res, res->crtcs[c]);
+        if (!crtc) continue;
+        for (int m = 0; crtc->mode && m < res->nmode; m++) {
+            const XRRModeInfo& mode = res->modes[m];
+            if (mode.id != crtc->mode || !mode.hTotal || !mode.vTotal) continue;
+            double v = mode.vTotal;
+            if (mode.modeFlags & RR_DoubleScan) v *= 2;
+            if (mode.modeFlags & RR_Interlace) v /= 2;
+            best = std::max(best, (double)mode.dotClock / ((double)mode.hTotal * v));
+        }
+        XRRFreeCrtcInfo(crtc);
+    }
+    XRRFreeScreenResources(res);
+    return best;
+}
 
 int watchFd(int fd, std::function<void()> fn) {
     State& s = S();

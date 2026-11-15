@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <climits>
+#include <unordered_map>
 
 #include "ui/toolkit/controls.h"
 
@@ -24,8 +25,46 @@ struct Sz {
     bool expand = false;
 };
 
+// Measuring is recursive: a row's size hint asks each child for its hint, minimum and maximum, and
+// whether it expands, along both axes; a child with a layout asks its own children the same, and so
+// on, so without remembering, every level multiplies the work (a panel of track rows: ~40 ms to
+// measure). While one measurement runs nothing changes, so each widget's and layout's sizes are
+// remembered until the outermost measurement is done (a Measuring held by it), then forgotten.
+struct Measured {
+    int depth = 0;
+    std::unordered_map<const void*, Sz> sizes[2];  // [horizontal]: widgets and layouts
+};
+Measured measured;
+
+struct Measuring {
+    Measuring() { ++measured.depth; }
+    ~Measuring() {
+        if (--measured.depth == 0) {
+            measured.sizes[0].clear();
+            measured.sizes[1].clear();
+        }
+    }
+};
+
+Sz measureWidget(const Widget* w, bool horizontal);
+Sz measureLayout(const Layout* l, bool horizontal);
+
+template <class T, class F>
+Sz remembered(const T* key, bool horizontal, F measure) {
+    Measuring m;
+    auto& sizes = measured.sizes[horizontal ? 1 : 0];
+    auto found = sizes.find(key);
+    if (found != sizes.end()) return found->second;
+    Sz s = measure(key, horizontal);
+    sizes[key] = s;
+    return s;
+}
+
 // a widget's sizes along one axis (horizontal: x)
-Sz widgetSz(const Widget* w, bool horizontal) {
+Sz widgetSz(const Widget* w, bool horizontal) { return remembered(w, horizontal, measureWidget); }
+Sz layoutSz(const Layout* l, bool horizontal) { return remembered(l, horizontal, measureLayout); }
+
+Sz measureWidget(const Widget* w, bool horizontal) {
     Point h = w->sizeHint(), mh = w->minimumSizeHint(), mn = w->minimumSize(), mx = w->maximumSize();
     SizePolicy pol = horizontal ? w->hPolicy : w->vPolicy;
     Sz s;
@@ -43,7 +82,7 @@ Sz widgetSz(const Widget* w, bool horizontal) {
     return s;
 }
 
-Sz layoutSz(const Layout* l, bool horizontal) {
+Sz measureLayout(const Layout* l, bool horizontal) {
     Point h = l->sizeHint(), mn = l->minimumSize(), mx = l->maximumSize();
     Sz s;
     s.min = horizontal ? mn.x : mn.y;
@@ -255,6 +294,7 @@ struct BoxItemSz { Sz main, cross; bool skip; bool isSpacing; };
 }
 
 static std::vector<BoxItemSz> boxSizes(const BoxLayout& b) {
+    Measuring m;
     bool horz = b.dir == Direction::Horizontal;
     std::vector<BoxItemSz> v;
     for (auto& it : b.items) {

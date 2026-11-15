@@ -538,12 +538,15 @@ void MainWindow::buildOptionsMenu() {
 
     ui::Menu* refresh = menu->addMenu("Screen &refresh");
     for (int fps : prefs::refreshRates()) {
-        ui::Action* a = refresh->addCheckable(std::to_string(fps) + " per second", fps == prefs.refreshFps,
+        std::string label = fps ? std::to_string(fps) + " per second"
+                                : "As the screen (" + std::to_string((int)std::lround(App::get().displayRate())) + " per second)";
+        ui::Action* a = refresh->addCheckable(label, fps == prefs.refreshFps,
                                               [this, fps](bool on) {
                                                   if (on) setRefreshRate(fps);
                                               });
         a->group = 1;
-        a->tooltip = "How often the playhead and meters move. Lower: less CPU, less smooth";
+        a->tooltip = "How often the playhead and meters move. Lower: less CPU, less smooth. "
+                     "(Drags and resizes always move with every picture the screen shows)";
     }
     menu->addSeparator();
     menu->addCheckable("&Level meters", prefs.levelMeters, [this](bool on) { setMeterOption("level_meters", on); });

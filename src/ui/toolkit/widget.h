@@ -448,8 +448,12 @@ public:
     // calls fn every frame (the playhead and meter refresh); returns an id
     int onFrame(std::function<void()> fn);
     void removeFrame(int id);
-    void setFrameRate(int fps);         // 60 / 30 / 15 (Options → Screen refresh)
+    // how often onFrame callbacks run: 60 / 30 / 15, or 0: as often as the screen shows a picture
+    // (Options → Screen refresh). Windows are painted at the screen's rate whatever it is, so what
+    // follows the mouse (a drag, a resize) moves with every picture the screen shows.
+    void setFrameRate(int fps);
     int frameRate() const { return fps_; }
+    double displayRate() const { return displayHz_; }  // the screen's pictures a second (60 if unknown)
     // (added) the interface size (1 = 100 %): set before windows are made (main(), from the settings);
     // windows made afterwards are drawn that much bigger (Window::scale())
     void setScale(float s);
@@ -515,8 +519,12 @@ private:
     std::map<int, std::function<void()>> frames_;
     int nextFrame_ = 0;
     int fps_ = 60;
+    double displayHz_ = 60;
+    double lastFrameFns_ = -1;  // when the onFrame callbacks last ran (frameTimer)
     float scale_ = 1;
     int frameTimer_ = -1;
+    void startFrameTimer();
+    void frameTimer();          // a picture of the screen: paints; runs the onFrame callbacks when due
     bool quit_ = false;
     DragData drag_;
     bool dragActive_ = false;
@@ -531,6 +539,7 @@ private:
     std::map<int, Timer> timers_;
     int nextTimer_ = 0;
     int addTimer(int ms, std::function<void()> fn, bool repeat);
+    int addTimerMs(double ms, std::function<void()> fn, bool repeat);
     void fireTimer(int id);
     std::vector<Window*> popupStack_;
     std::vector<std::pair<Widget*, std::function<void()>>> popupInfo_;  // parallel: owner, dismiss
