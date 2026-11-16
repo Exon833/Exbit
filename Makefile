@@ -62,7 +62,13 @@ WINE_HOST32 := tinydaw-wine-host-32.exe
 WINE32_OBJS := $(WINE_SRCS:%.cpp=build/winehost32/%.o)
 WINE32_FLAGS := $(WINE_BASE) -m32 '-D__stdcall=__attribute__((stdcall))' '-D__cdecl=__attribute__((cdecl))'
 ifneq ($(WINEGCC),)
-  ALL_WINE := $(WINE_HOST) $(WINE_HOST32)
+  ALL_WINE := $(WINE_HOST)
+  # only when winegcc -m32 can link (a WoW64-only Wine, e.g. Arch's, has no i386-unix libraries)
+  WINE32_OK := $(shell d=$$(mktemp -d) && echo 'int main(void){return 0;}' > $$d/p.c && \
+                 $(WINEGCC) -m32 -mconsole -o $$d/p.exe $$d/p.c >/dev/null 2>&1 && echo 1; rm -rf $$d)
+  ifeq ($(WINE32_OK),1)
+    ALL_WINE += $(WINE_HOST32)
+  endif
 endif
 
 # --- Windows builds of the test plugins, and a test installer (for test_wine; with MinGW's
