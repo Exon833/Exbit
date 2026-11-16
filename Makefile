@@ -63,9 +63,14 @@ WINE32_OBJS := $(WINE_SRCS:%.cpp=build/winehost32/%.o)
 WINE32_FLAGS := $(WINE_BASE) -m32 '-D__stdcall=__attribute__((stdcall))' '-D__cdecl=__attribute__((cdecl))'
 ifneq ($(WINEGCC),)
   ALL_WINE := $(WINE_HOST)
-  # only when winegcc -m32 can link (a WoW64-only Wine, e.g. Arch's, has no i386-unix libraries)
-  WINE32_OK := $(shell d=$$(mktemp -d) && echo 'int main(void){return 0;}' > $$d/p.c && \
-                 $(WINEGCC) -m32 -mconsole -o $$d/p.exe $$d/p.c >/dev/null 2>&1 && echo 1; rm -rf $$d)
+  # only when it can be built, tried as it is built (a C++ file with $(CXX) -m32, linked by winegcc -m32
+  # with the host's libraries): a WoW64-only Wine (e.g. Arch's) has no i386-unix libraries to link
+  # with, and without g++-multilib there is no 32-bit C++ (<string>, libstdc++) even where C links
+  WINE32_OK := $(shell d=$$(mktemp -d) && \
+                 echo 'int main() { std::string s = std::to_string(1); delete new int; return (int)s.size() - 1; }' > $$d/p.cpp && \
+                 $(CXX) -m32 -std=c++17 -include string -c -o $$d/p.o $$d/p.cpp >/dev/null 2>&1 && \
+                 $(WINEGCC) -m32 -mconsole -o $$d/p.exe $$d/p.o -lstdc++ -lm -lpthread -lole32 -luser32 -ladvapi32 \
+                   -lkernel32 -Wl,-z,defs >/dev/null 2>&1 && echo 1; rm -rf $$d)
   ifeq ($(WINE32_OK),1)
     ALL_WINE += $(WINE_HOST32)
   endif
