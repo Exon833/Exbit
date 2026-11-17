@@ -1,6 +1,8 @@
-// Slider, ScrollBar, ScrollArea, ListWidget, TreeWidget.
+// Slider, ScrollBar, ScrollArea, ListWidget, TreeWidget: their look is default.css's (Lists, scrolling, tabs and
+// menus): every colour, size, padding and radius they draw with comes from their styles and their parts'.
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <unordered_set>
 
 #include "ui/toolkit/controls.h"
@@ -9,10 +11,81 @@
 namespace ui {
 
 // ============================================================================================
+// PartStyles: the parts with states of their own (also used by menu.cpp and filedialog.cpp)
+// ============================================================================================
+
+struct PartStyles::PartNode : css::Node {
+    const Widget& w;
+    const std::vector<std::string>& own;
+    const std::vector<const char*>& states;
+    PartNode(const Widget& widget, const std::vector<std::string>& o, const std::vector<const char*>& s)
+        : w(widget), own(o), states(s) {}
+    const std::string& type() const override { return w.type(); }
+    bool isType(const std::string& name) const override { return w.isType(name); }
+    const std::string& id() const override { return w.id(); }
+    bool hasClass(const std::string& name) const override { return w.hasClass(name); }
+    bool hasState(const std::string& name) const override {
+        for (const char* s : states)
+            if (name == s) return true;
+        for (const std::string& s : own)
+            if (s == name) return true;
+        return false;
+    }
+    const css::Node* parent() const override { return w.parent(); }
+};
+
+PartStyles::PartStyles(const Widget& w) : w_(w) {
+    std::vector<std::string> all;
+    w.styleStates(all);
+    for (std::string& s : all)
+        if (s != "hover" && s != "pressed") own_.push_back(std::move(s));
+}
+
+PartStyles::~PartStyles() = default;
+
+const css::Style& PartStyles::get(const std::string& part, const std::vector<const char*>& states, const css::Style* from) {
+    std::string key = part;
+    key += '|';
+    for (const char* s : states) {
+        key += s;
+        key += ' ';
+    }
+    if (from) {
+        char buf[32];
+        snprintf(buf, sizeof buf, "|%p", (const void*)from);
+        key += buf;
+    }
+    auto it = cache_.find(key);
+    if (it != cache_.end()) return *it->second;
+    PartNode node(w_, own_, states);
+    const css::Style& base = from ? *from : w_.computedStyle();
+    auto st = std::make_unique<css::Style>(theme::styles().compute(node, &base, part));
+    const css::Style& ref = *st;
+    cache_.emplace(std::move(key), std::move(st));
+    return ref;
+}
+
+const Font& PartStyles::font(const css::Style& st, const Font& def) {
+    auto it = fonts_.find(&st);
+    if (it == fonts_.end()) it = fonts_.emplace(&st, style::font(st, def)).first;
+    return it->second;
+}
+
+double PartStyles::lengthVar(const css::Style& st, const std::string& name, double def) {
+    std::optional<std::string> text = st.variable(name);
+    if (!text) return def;
+    css::Style probe;  // (the variable's text as a property, read as a length)
+    probe.props_["width"] = *text;
+    probe.emPx_ = st.emPx_;
+    return probe.length("width", def);
+}
+
+// ============================================================================================
 // Slider
 // ============================================================================================
 
 Slider::Slider(Orientation o, Widget* parent) : Widget(parent), orientation(o) {
+    setStyleType("Slider");
     setFocusPolicy(FocusPolicy::Strong);
     setMouseTracking(true);
     if (o == Orientation::Horizontal) {
@@ -59,8 +132,16 @@ void Slider::setValueSilently(int v) {
     update();
 }
 
+void Slider::styleStates(std::vector<std::string>& out) const {
+    Widget::styleStates(out);
+    out.push_back(orientation == Orientation::Horizontal ? "horizontal" : "vertical");
+}
+
 Point Slider::sizeHint() const {
-    Point h = orientation == Orientation::Horizontal ? Point(84, 16) : Point(16, 84);
+    // (default.css: 84 x 16, or 16 x 84 when vertical)
+    const css::Style& st = computedStyle();
+    bool horz = orientation == Orientation::Horizontal;
+    Point h(style::px(st, "width", horz ? 84 : 16), style::px(st, "height", horz ? 16 : 84));
     Point mn = minimumSize(), mx = maximumSize();
     if (mn.x == mx.x) h.x = mn.x;
     if (mn.y == mx.y) h.y = mn.y;
@@ -69,54 +150,82 @@ Point Slider::sizeHint() const {
 
 Point Slider::minimumSizeHint() const {
     Point h = sizeHint();
-    if (orientation == Orientation::Horizontal) h.x = std::min(h.x, 20);
-    else h.y = std::min(h.y, 20);
+    const css::Style& st = computedStyle();
+    if (orientation == Orientation::Horizontal) h.x = std::min(h.x, style::px(st, "min-width", 20));
+    else h.y = std::min(h.y, style::px(st, "min-height", 20));
     return h;
 }
 
+void Slider::handleStates(std::vector<const char*>& out) const {
+    if (hoverHandle_) out.push_back("hover");
+    if (dragging_) out.push_back("pressed");
+}
+
+Point Slider::handleSize() const {
+    std::vector<const char*> states;
+    handleStates(states);
+    PartStyles parts(*this);
+    const css::Style& hs = parts.get("handle", states);
+    return Point(std::max(0, style::px(hs, "width", 10)), std::max(0, style::px(hs, "height", 10)));
+}
+
 int Slider::handleCenter(int v) const {
-    int len = orientation == Orientation::Horizontal ? width() : height();
-    int span = std::max(0, len - 10);
+    bool horz = orientation == Orientation::Horizontal;
+    int len = horz ? width() : height();
+    Point hs = handleSize();
+    int along = horz ? hs.x : hs.y;
+    int span = std::max(0, len - along);
     double t = hi_ > lo_ ? (double)(v - lo_) / (hi_ - lo_) : 0;
-    int c = 5 + (int)std::lround(span * t);
-    return orientation == Orientation::Horizontal ? c : len - c;
+    int c = along / 2 + (int)std::lround(span * t);
+    return horz ? c : len - c;
 }
 
 int Slider::valueAt(Point p) const {
-    int len = orientation == Orientation::Horizontal ? width() : height();
-    int span = std::max(1, len - 10);
-    int c = orientation == Orientation::Horizontal ? p.x : len - p.y;
-    double t = (double)(c - 5) / span;
+    bool horz = orientation == Orientation::Horizontal;
+    int len = horz ? width() : height();
+    Point hs = handleSize();
+    int along = horz ? hs.x : hs.y;
+    int span = std::max(1, len - along);
+    int c = horz ? p.x : len - p.y;
+    double t = (double)(c - along / 2) / span;
     t = std::max(0.0, std::min(1.0, t));
     return lo_ + (int)std::lround(t * (hi_ - lo_));
 }
 
 void Slider::paint(Painter& p) {
-    const theme::Shades& sh = theme::shades();
-    bool en = isEnabled();
-    float r2 = (float)theme::radius(2), r5 = (float)theme::radius(5);
-    int hc = handleCenter(pos_);
-    Color sub = en ? theme::c("accent") : sh.fieldHover;
-    Color hcol = !en ? theme::c("disabled_text") : (hoverHandle_ || dragging_) ? theme::c("accent") : theme::c("button_text");
-    if (orientation == Orientation::Horizontal) {
-        int cy = height() / 2;
-        style::fill(p, Rect(0, cy - 2, width(), 4), sh.fieldEdge, r2);
-        style::fill(p, Rect(0, cy - 2, hc, 4), sub, r2);
-        if (r5 >= 4.99f) p.fillEllipse(RectF(hc - 5.f, cy - 5.f, 10, 10), hcol);
-        else style::fill(p, Rect(hc - 5, cy - 5, 10, 10), hcol, r5);
+    // the groove across the middle, its part below the value (fill), the handle: boxes of their styles
+    bool horz = orientation == Orientation::Horizontal;
+    const css::Style& groove = computedStyle("groove");
+    const css::Style& fill = computedStyle("fill");
+    std::vector<const char*> states;
+    handleStates(states);
+    PartStyles parts(*this);
+    const css::Style& handle = parts.get("handle", states);
+    int hw = std::max(0, style::px(handle, "width", 10)), hh = std::max(0, style::px(handle, "height", 10));
+    int len = horz ? width() : height(), along = horz ? hw : hh;
+    double t = hi_ > lo_ ? (double)(pos_ - lo_) / (hi_ - lo_) : 0;
+    int c = along / 2 + (int)std::lround(std::max(0, len - along) * t);
+    int hc = horz ? c : len - c;
+    Rect hr;
+    if (horz) {
+        int cy = height() / 2, th = std::max(0, style::px(groove, "height", 4));
+        style::box(p, Rect(0, cy - th / 2, width(), th), groove);
+        style::box(p, Rect(0, cy - th / 2, hc, th), fill);
+        hr = Rect(hc - hw / 2, cy - hh / 2, hw, hh);
     } else {
-        int cx = width() / 2;
-        style::fill(p, Rect(cx - 2, 0, 4, height()), sh.fieldEdge, r2);
-        style::fill(p, Rect(cx - 2, hc, 4, height() - hc), sub, r2);
-        if (r5 >= 4.99f) p.fillEllipse(RectF(cx - 5.f, hc - 5.f, 10, 10), hcol);
-        else style::fill(p, Rect(cx - 5, hc - 5, 10, 10), hcol, r5);
+        int cx = width() / 2, th = std::max(0, style::px(groove, "width", 4));
+        style::box(p, Rect(cx - th / 2, 0, th, height()), groove);
+        style::box(p, Rect(cx - th / 2, hc, th, height() - hc), fill);
+        hr = Rect(cx - hw / 2, hc - hh / 2, hw, hh);
     }
+    style::box(p, hr, handle);
 }
 
 bool Slider::mousePress(MouseEvent& e) {
     bool horz = orientation == Orientation::Horizontal;
     int c = horz ? e.pos.x : e.pos.y;
     int hc = handleCenter(pos_);
+    Point hs = handleSize();
     if (e.button == plat::MiddleButton) {
         dragging_ = true;
         dragOffset_ = 0;
@@ -128,7 +237,7 @@ bool Slider::mousePress(MouseEvent& e) {
         return true;
     }
     if (e.button != plat::LeftButton) return false;
-    if (std::abs(c - hc) <= 6) {
+    if (std::abs(c - hc) <= (horz ? hs.x : hs.y) / 2 + 1) {  // (on the handle, or a pixel beside it)
         dragging_ = true;
         dragOffset_ = c - hc;
         sliderPressed.emit();
@@ -158,7 +267,11 @@ bool Slider::mouseMove(MouseEvent& e) {
     int c = horz ? e.pos.x : e.pos.y;
     int across = horz ? e.pos.y : e.pos.x;
     int mid = horz ? height() / 2 : width() / 2;
-    bool hh = rect().contains(e.pos) && std::abs(c - handleCenter(pos_)) <= 6 && std::abs(across - mid) <= 7;
+    // (over the handle: a pixel beside it along the groove, two across it)
+    Point hs = handleSize();
+    int alongHalf = (horz ? hs.x : hs.y) / 2, acrossHalf = (horz ? hs.y : hs.x) / 2;
+    bool hh = rect().contains(e.pos) && std::abs(c - handleCenter(pos_)) <= alongHalf + 1 &&
+              std::abs(across - mid) <= acrossHalf + 2;
     if (hh != hoverHandle_) {
         hoverHandle_ = hh;
         update();
@@ -227,6 +340,7 @@ bool Slider::keyPress(KeyEvent& e) {
 // ============================================================================================
 
 ScrollBar::ScrollBar(Orientation o, Widget* parent) : Widget(parent), orientation(o) {
+    setStyleType("ScrollBar");
     setMouseTracking(true);
     if (o == Orientation::Vertical) {
         hPolicy = SizePolicy::Fixed;
@@ -266,40 +380,85 @@ void ScrollBar::setValue(int v) {
     valueChanged.emit(v);
 }
 
+void ScrollBar::styleStates(std::vector<std::string>& out) const {
+    Widget::styleStates(out);
+    out.push_back(orientation == Orientation::Horizontal ? "horizontal" : "vertical");
+}
+
 Point ScrollBar::sizeHint() const {
-    Point h = orientation == Orientation::Vertical ? Point(theme::SCROLLBAR_W, 40) : Point(40, theme::SCROLLBAR_W);
+    // (default.css: --scrollbar-width across it, 40 px along it)
+    const css::Style& st = computedStyle();
+    bool v = orientation == Orientation::Vertical;
+    int w = theme::metric("scrollbar-width", 10);
+    Point h(style::px(st, "width", v ? w : 40), style::px(st, "height", v ? 40 : w));
     Point mn = minimumSize(), mx = maximumSize();
     if (mn.x == mx.x) h.x = mn.x;
     if (mn.y == mx.y) h.y = mn.y;
     return h;
 }
 
-Rect ScrollBar::handleRect() const {
-    bool v = orientation == Orientation::Vertical;
-    int len = v ? height() : width();
-    int range = hi_ - lo_;
+int ScrollBar::thickness() const {
+    Point h = sizeHint();
+    return std::max(0, orientation == Orientation::Vertical ? h.x : h.y);
+}
+
+void ScrollBar::thumbStates(std::vector<const char*>& out) const {
+    if (hoverHandle_) out.push_back("hover");
+    if (dragging_) out.push_back("pressed");
+}
+
+namespace {
+// the thumb's slot (the thumb with its margins) in a bar `len` long and `across` thick
+Rect thumbSlot(const css::Style& thumb, bool v, int len, int across, int lo, int hi, int value, int page) {
+    style::Insets m = style::insets(thumb, "margin");
+    int range = hi - lo;
     int hl = len;
     int pos = 0;
     if (range > 0) {
-        hl = (int)std::max<long long>(28, (long long)len * page_ / std::max(1, range + page_));
+        // (its shortest: min-height / min-width, with its margins along the bar; default.css: 24 + 2 + 2)
+        int least = v ? style::px(thumb, "min-height", 24) + m.h() : style::px(thumb, "min-width", 24) + m.w();
+        hl = (int)std::max<long long>(least, (long long)len * page / std::max(1, range + page));
         hl = std::min(hl, len);
-        pos = (int)std::lround((double)(len - hl) * (value_ - lo_) / range);
+        pos = (int)std::lround((double)(len - hl) * (value - lo) / range);
     }
-    Rect slot = v ? Rect(0, pos, width(), hl) : Rect(pos, 0, hl, height());
-    return slot.adjusted(2, 2, -2, -2);
+    return v ? Rect(0, pos, across, hl) : Rect(pos, 0, hl, across);
+}
+}  // namespace
+
+Rect ScrollBar::slotRect() const {
+    std::vector<const char*> states;
+    thumbStates(states);
+    PartStyles parts(*this);
+    bool v = orientation == Orientation::Vertical;
+    return thumbSlot(parts.get("thumb", states), v, v ? height() : width(), v ? width() : height(), lo_, hi_, value_,
+                     page_);
+}
+
+Rect ScrollBar::handleRect() const {
+    std::vector<const char*> states;
+    thumbStates(states);
+    PartStyles parts(*this);
+    const css::Style& thumb = parts.get("thumb", states);
+    bool v = orientation == Orientation::Vertical;
+    Rect slot = thumbSlot(thumb, v, v ? height() : width(), v ? width() : height(), lo_, hi_, value_, page_);
+    return style::inside(slot, style::insets(thumb, "margin"));
 }
 
 void ScrollBar::paint(Painter& p) {
-    const theme::Shades& sh = theme::shades();
-    p.fillRect(rect(), theme::c("window"));
-    Color c = (hoverHandle_ || dragging_) ? sh.handleHover : sh.handle;
-    style::fill(p, handleRect(), c, (float)theme::radius());
+    style::box(p, rect(), computedStyle());
+    std::vector<const char*> states;
+    thumbStates(states);
+    PartStyles parts(*this);
+    const css::Style& thumb = parts.get("thumb", states);
+    bool v = orientation == Orientation::Vertical;
+    Rect slot = thumbSlot(thumb, v, v ? height() : width(), v ? width() : height(), lo_, hi_, value_, page_);
+    style::box(p, style::inside(slot, style::insets(thumb, "margin")), thumb);
 }
 
 bool ScrollBar::mousePress(MouseEvent& e) {
     bool v = orientation == Orientation::Vertical;
     int c = v ? e.pos.y : e.pos.x;
-    Rect h = handleRect().adjusted(-2, -2, 2, 2);
+    Rect h = slotRect();
     int hs = v ? h.y : h.x, hl = v ? h.h : h.w;
     int len = v ? height() : width();
     if (e.button == plat::MiddleButton && hi_ > lo_) {
@@ -327,7 +486,7 @@ bool ScrollBar::mousePress(MouseEvent& e) {
             Point lp = mapFromGlobal(App::get().cursorPos());
             bool vv = orientation == Orientation::Vertical;
             int cc = vv ? lp.y : lp.x;
-            Rect hr = handleRect().adjusted(-2, -2, 2, 2);
+            Rect hr = slotRect();
             int s = vv ? hr.y : hr.x, l = vv ? hr.h : hr.w;
             if ((dir < 0 && cc < s) || (dir > 0 && cc >= s + l)) setValue(value_ + dir * std::max(1, page_));
         });
@@ -336,7 +495,7 @@ bool ScrollBar::mousePress(MouseEvent& e) {
 }
 
 bool ScrollBar::mouseMove(MouseEvent& e) {
-    bool hh = handleRect().adjusted(-2, -2, 2, 2).contains(e.pos);
+    bool hh = slotRect().contains(e.pos);
     if (hh != hoverHandle_) {
         hoverHandle_ = hh;
         update();
@@ -345,7 +504,7 @@ bool ScrollBar::mouseMove(MouseEvent& e) {
     bool v = orientation == Orientation::Vertical;
     int c = v ? e.pos.y : e.pos.x;
     int len = v ? height() : width();
-    Rect h = handleRect().adjusted(-2, -2, 2, 2);
+    Rect h = slotRect();
     int hl = v ? h.h : h.w;
     int start = c - dragOffset_;
     int room = std::max(1, len - hl);
@@ -392,6 +551,7 @@ public:
 }  // namespace
 
 ScrollArea::ScrollArea(Widget* parent) : Widget(parent) {
+    setStyleType("ScrollArea");
     auto* vp = add<Viewport>();
     vp->area = this;
     viewport_ = vp;
@@ -428,7 +588,7 @@ void ScrollArea::place() {
     if (placing_) return;
     placing_ = true;
     layoutDirty_ = false;
-    int W = width(), H = height(), sb = theme::SCROLLBAR_W;
+    int W = width(), H = height(), vsb = vbar_->thickness(), hsb = hbar_->thickness();
     Widget* c = content_ && Widget::alive(content_) ? content_ : nullptr;
     Point chint(0, 0), cmin(0, 0), cmax(1 << 24, 1 << 24);
     if (c) {
@@ -442,8 +602,8 @@ void ScrollArea::place() {
     bool needV = vpol_ == Policy::AlwaysOn, needH = hpol_ == Policy::AlwaysOn;
     int vw = W, vh = H, cw = 0, ch = 0;
     for (int i = 0; i < 4; ++i) {
-        vw = std::max(0, W - (needV ? sb : 0));
-        vh = std::max(0, H - (needH ? sb : 0));
+        vw = std::max(0, W - (needV ? vsb : 0));
+        vh = std::max(0, H - (needH ? hsb : 0));
         if (c) {
             if (resizable_) {
                 cw = std::min(std::max(vw, cmin.x), std::max(cmin.x, cmax.x));
@@ -462,8 +622,8 @@ void ScrollArea::place() {
     viewport_->setGeometry(0, 0, vw, vh);
     vbar_->setVisible(needV);
     hbar_->setVisible(needH);
-    vbar_->setGeometry(vw, 0, sb, vh);
-    hbar_->setGeometry(0, vh, vw, sb);
+    vbar_->setGeometry(vw, 0, vsb, vh);
+    hbar_->setGeometry(0, vh, vw, hsb);
     vbar_->setPageStep(vh);
     hbar_->setPageStep(vw);
     vbar_->setRange(0, std::max(0, ch - vh));
@@ -508,8 +668,8 @@ Point ScrollArea::sizeHint() const {
         Point c = resizable_ ? content_->sizeHint() : Point(content_->width(), content_->height());
         h = c;
     }
-    if (vpol_ == Policy::AlwaysOn) h.x += theme::SCROLLBAR_W;
-    if (hpol_ == Policy::AlwaysOn) h.y += theme::SCROLLBAR_W;
+    if (vpol_ == Policy::AlwaysOn) h.x += vbar_->thickness();
+    if (hpol_ == Policy::AlwaysOn) h.y += hbar_->thickness();
     h.x = std::min(h.x, 36 * fh);
     h.y = std::min(h.y, 24 * fh);
     Point mn = minimumSize(), mx = maximumSize();
@@ -518,13 +678,27 @@ Point ScrollArea::sizeHint() const {
     return h;
 }
 
-Point ScrollArea::minimumSizeHint() const { return Point(4 * theme::SCROLLBAR_W, 4 * theme::SCROLLBAR_W); }
+Point ScrollArea::minimumSizeHint() const { return Point(4 * vbar_->thickness(), 4 * hbar_->thickness()); }
 
 // ============================================================================================
 // ListWidget
 // ============================================================================================
 
+namespace {
+// a list's (or tree's) default size, and its least, from its style (width / height, min-width / min-height)
+Point styledSize(const css::Style& st, Point def, const Point& mn, const Point& mx) {
+    Point h(style::px(st, "width", def.x), style::px(st, "height", def.y));
+    if (mn.x == mx.x) h.x = mn.x;
+    if (mn.y == mx.y) h.y = mn.y;
+    return h;
+}
+Point styledMinimum(const css::Style& st, Point def) {
+    return Point(style::px(st, "min-width", def.x), style::px(st, "min-height", def.y));
+}
+}  // namespace
+
 ListWidget::ListWidget(Widget* parent) : Widget(parent) {
+    setStyleType("ListWidget");
     bar_ = add<ScrollBar>(Orientation::Vertical);
     bar_->setVisible(false);
     bar_->valueChanged.connect([this](int) { update(); });
@@ -533,11 +707,32 @@ ListWidget::ListWidget(Widget* parent) : Widget(parent) {
     hPolicy = vPolicy = SizePolicy::Expanding;
 }
 
+Point ListWidget::sizeHint() const { return styledSize(computedStyle(), Point(256, 192), minimumSize(), maximumSize()); }
+
+Point ListWidget::minimumSizeHint() const { return styledMinimum(computedStyle(), Point(40, 40)); }
+
+bool ListWidget::readStyle() {
+    PartStyles parts(*this);
+    int h = std::max(1, style::px(parts.get("item"), "height", 22));
+    if (h == rowHeight) return false;
+    rowHeight = h;
+    return true;
+}
+
+Rect ListWidget::viewRect() const {
+    Rect in = style::contents(rect(), computedStyle());
+    if (bar_->isVisible()) in.w = std::max(0, in.w - bar_->thickness());
+    return in;
+}
+
 void ListWidget::syncBar() {
-    int total = count() * rowHeight, vh = height();
+    readStyle();
+    Rect in = style::contents(rect(), computedStyle());
+    int total = count() * rowHeight, vh = std::max(0, in.h);
     bool need = total > vh && vh > 0;
+    int bw = bar_->thickness();
     bar_->setVisible(need);
-    bar_->setGeometry(width() - theme::SCROLLBAR_W, 0, theme::SCROLLBAR_W, vh);
+    bar_->setGeometry(in.right() - bw, in.y, bw, vh);
     bar_->setPageStep(vh);
     bar_->setSingleStep(rowHeight);
     bar_->setRange(0, std::max(0, total - vh));
@@ -660,63 +855,103 @@ void ListWidget::select(int row, int mods) {
 
 void ListWidget::scrollToRow(int row) {
     if (row < 0 || row >= count()) return;
-    int y = row * rowHeight, v = bar_->value(), vh = height();
+    int y = row * rowHeight, v = bar_->value(), vh = viewRect().h;
     if (y < v) v = y;
     else if (y + rowHeight > v + vh) v = y + rowHeight - vh;
     bar_->setValue(v);
 }
 
 int ListWidget::rowAt(Point p) const {
-    int vw = width() - (bar_->isVisible() ? theme::SCROLLBAR_W : 0);
-    if (p.x < 0 || p.x >= vw || p.y < 0 || p.y >= height()) return -1;
-    int row = (p.y + bar_->value()) / std::max(1, rowHeight);
+    Rect vr = viewRect();
+    if (!vr.contains(p)) return -1;
+    int row = (p.y - vr.y + bar_->value()) / std::max(1, rowHeight);
     return row < count() ? row : -1;
 }
 
+void ListWidget::rowStates(int row, std::vector<const char*>& out) const {
+    const Item& it = items_[row];
+    if (selected_[row]) out.push_back("selected");
+    if (row == hoverRow_ && it.enabled && isEnabled()) out.push_back("hover");
+    if (alternate_ && row % 2) out.push_back("alternate");
+    if (!it.enabled) out.push_back("disabled");
+    if (it.checkable) out.push_back("checkable");
+    if (it.checked) out.push_back("checked");
+    if (it.bold) out.push_back("bold");
+}
+
+namespace {
+// where a row's check box is: at the left of its content, centred in it (ListWidget::indicator)
+Rect indicatorRect(const Rect& content, const css::Style& ind) {
+    int w = std::max(0, style::px(ind, "width", 14)), h = std::max(0, style::px(ind, "height", 14));
+    return Rect(content.x + style::px(ind, "margin-left"), content.y + (content.h - h) / 2, w, h);
+}
+}  // namespace
+
 Rect ListWidget::checkRect(int row) const {
-    int y = row * rowHeight - bar_->value();
-    return Rect(4, y + (rowHeight - 14) / 2, 14, 14);
+    if (row < 0 || row >= count()) return Rect();
+    std::vector<const char*> states;
+    rowStates(row, states);
+    PartStyles parts(*this);
+    const css::Style& item = parts.get("item", states);
+    Rect vr = viewRect();
+    Rect r(vr.x, vr.y + row * rowHeight - bar_->value(), vr.w, rowHeight);
+    return indicatorRect(style::contents(r, item), parts.get("indicator", states, &item));
 }
 
 void ListWidget::paint(Painter& p) {
-    const theme::Shades& sh = theme::shades();
-    p.fillRect(rect(), theme::c("base"));
-    int vw = width() - (bar_->isVisible() ? theme::SCROLLBAR_W : 0);
+    // its box, then each row seen: the row's box (ListWidget::item in the row's states), its check box
+    // (::indicator), its icon (::icon) and its text; each combination of states is worked out once
+    if (readStyle()) syncBar();
+    const css::Style& st = computedStyle();
+    style::box(p, rect(), st);
+    Rect vr = viewRect(), inner = style::contents(rect(), st);
+    bool clip = inner != rect();  // (rows inside its border and padding; the bar is drawn over them)
+    if (clip) {
+        p.save();
+        p.setClip(inner);
+    }
+    PartStyles parts(*this);
     Font f = theme::uiFont();
+    std::vector<const char*> states;
     int scroll = bar_->value();
     int first = std::max(0, scroll / std::max(1, rowHeight));
-    float rad = (float)theme::radius();
     for (int row = first; row < count(); ++row) {
-        int y = row * rowHeight - scroll;
-        if (y >= height()) break;
+        int y = vr.y + row * rowHeight - scroll;
+        if (y >= vr.bottom()) break;
         const Item& it = items_[row];
-        Rect r(0, y, vw, rowHeight);
-        bool sel = selected_[row];
-        if (sel) p.fillRect(r, theme::c("highlight"));
-        else if (row == hoverRow_ && it.enabled && isEnabled()) p.fillRect(r, sh.itemHover);
-        else if (alternate_ && row % 2) p.fillRect(r, theme::c("alternate_base"));
-        int x = 4;
+        states.clear();
+        rowStates(row, states);
+        const css::Style& item = parts.get("item", states);
+        Rect r(vr.x, y, vr.w, rowHeight);
+        style::box(p, r, item);
+        Rect c = style::contents(r, item);
+        int x = c.x;
         if (it.checkable) {
-            Rect cr = checkRect(row);
+            const css::Style& ind = parts.get("indicator", states, &item);
+            Rect cr = indicatorRect(c, ind);
+            style::box(p, cr, ind);
             if (it.checked) {
-                style::frame(p, cr, theme::c("accent"), theme::c("accent"), rad);
-                style::icon(p, cr.x + 2.f, cr.y + 2.f, 10, "check", theme::c("accent_text"));
-            } else {
-                style::frame(p, cr, theme::c("base"), sh.fieldHover, rad);
+                Rect mark = style::contents(cr, ind);
+                style::icon(p, (float)mark.x, (float)mark.y, (float)std::min(mark.w, mark.h), "check", style::foreground(ind));
             }
-            x += 14 + 6;
+            x = cr.right() + style::px(ind, "margin-right", 6);
         }
         if (!it.icon.empty()) {
-            int iy = y + (rowHeight - it.icon.height()) / 2;
-            if (it.icon.width() <= 16 && it.icon.height() <= 16) p.drawImage(Point(x, iy), it.icon);
-            else p.drawImage(RectF((float)x, y + (rowHeight - 16) / 2.f, 16, 16), it.icon);
-            x += 16 + 4;
+            const css::Style& ic = parts.get("icon", states, &item);
+            int iw = std::max(0, style::px(ic, "width", 16)), ih = std::max(0, style::px(ic, "height", 16));
+            x += style::px(ic, "margin-left");
+            int iy = c.y + (c.h - it.icon.height()) / 2;
+            if (it.icon.width() <= iw && it.icon.height() <= ih) p.drawImage(Point(x, iy), it.icon);
+            else p.drawImage(RectF((float)x, c.y + (c.h - ih) / 2.f, (float)iw, (float)ih), it.icon);
+            x += iw + style::px(ic, "margin-right", 4);
         }
-        Color tc = (!it.enabled || !isEnabled()) ? theme::c("disabled_text") : sel ? theme::c("highlighted_text")
-                                                                                 : it.hasColor ? it.color : theme::c("text");
-        style::text(p, Rect(x, y, std::max(0, vw - x - 4), rowHeight), AlignLeft | AlignVCenter, it.text,
-                    it.bold ? f.withBold(true) : f, tc, true);
+        // (an item's own colour, unless it is selected or disabled)
+        bool plain = !selected_[row] && it.enabled && isEnabled();
+        Color tc = it.hasColor && plain ? it.color : style::foreground(item);
+        style::text(p, Rect(x, c.y, std::max(0, c.right() - x), c.h), AlignLeft | AlignVCenter, it.text,
+                    parts.font(item, f), tc, true);
     }
+    if (clip) p.restore();
 }
 
 bool ListWidget::mousePress(MouseEvent& e) {
@@ -782,7 +1017,7 @@ bool ListWidget::wheel(WheelEvent& e) {
 bool ListWidget::keyPress(KeyEvent& e) {
     int n = count();
     if (!n) return false;
-    int page = std::max(1, height() / std::max(1, rowHeight) - 1);
+    int page = std::max(1, viewRect().h / std::max(1, rowHeight) - 1);
     int row = current_;
     auto next = [&](int from, int dir, int steps) {
         int r = from, last = from;
@@ -865,6 +1100,7 @@ TreeWidget::Node* TreeWidget::Node::add(const std::string& text_, const std::str
 }
 
 TreeWidget::TreeWidget(Widget* parent) : Widget(parent) {
+    setStyleType("TreeWidget");
     bar_ = add<ScrollBar>(Orientation::Vertical);
     bar_->setVisible(false);
     bar_->valueChanged.connect([this](int) { update(); });
@@ -911,14 +1147,38 @@ void TreeWidget::clear() {
 }
 
 void TreeWidget::syncBar() {
-    int total = (int)rows_.size() * rowHeight, vh = height();
+    readStyle();
+    Rect in = style::contents(rect(), computedStyle());
+    int total = (int)rows_.size() * rowHeight, vh = std::max(0, in.h);
     bool need = total > vh && vh > 0;
+    int bw = bar_->thickness();
     bar_->setVisible(need);
-    bar_->setGeometry(width() - theme::SCROLLBAR_W, 0, theme::SCROLLBAR_W, vh);
+    bar_->setGeometry(in.right() - bw, in.y, bw, vh);
     bar_->setPageStep(vh);
     bar_->setSingleStep(rowHeight);
     bar_->setRange(0, std::max(0, total - vh));
     update();
+}
+
+Point TreeWidget::sizeHint() const { return styledSize(computedStyle(), Point(256, 192), minimumSize(), maximumSize()); }
+
+Point TreeWidget::minimumSizeHint() const { return styledMinimum(computedStyle(), Point(40, 40)); }
+
+bool TreeWidget::readStyle() {
+    PartStyles parts(*this);
+    const css::Style& item = parts.get("item");
+    int h = std::max(1, style::px(item, "height", 20));
+    int in = std::max(0, style::px(parts.get("branch", {}, &item), "width", 16));
+    if (h == rowHeight && in == indent) return false;
+    rowHeight = h;
+    indent = in;
+    return true;
+}
+
+Rect TreeWidget::viewRect() const {
+    Rect in = style::contents(rect(), computedStyle());
+    if (bar_->isVisible()) in.w = std::max(0, in.w - bar_->thickness());
+    return in;
 }
 
 void TreeWidget::resized() { syncBar(); }
@@ -973,60 +1233,90 @@ void TreeWidget::scrollToNode(Node* n) {
     if (changed) refreshRows();
     int row = rowOf(n);
     if (row < 0) return;
-    int y = row * rowHeight, v = bar_->value(), vh = height();
+    int y = row * rowHeight, v = bar_->value(), vh = viewRect().h;
     if (y < v) v = y;
     else if (y + rowHeight > v + vh) v = y + rowHeight - vh;
     bar_->setValue(v);
 }
 
 TreeWidget::Node* TreeWidget::nodeAt(Point p) const {
-    int vw = width() - (bar_->isVisible() ? theme::SCROLLBAR_W : 0);
-    if (p.x < 0 || p.x >= vw || p.y < 0 || p.y >= height()) return nullptr;
-    int row = (p.y + bar_->value()) / std::max(1, rowHeight);
+    Rect vr = viewRect();
+    if (!vr.contains(p)) return nullptr;
+    int row = (p.y - vr.y + bar_->value()) / std::max(1, rowHeight);
     return row < (int)rows_.size() ? rows_[row].first : nullptr;
 }
 
 bool TreeWidget::onArrow(Point p, Node* n) const {
     int row = rowOf(n);
     if (row < 0) return false;
-    int x = rows_[row].second * indent;
+    std::vector<const char*> states;
+    rowStates(n, states);
+    PartStyles parts(*this);
+    Rect vr = viewRect();
+    Rect c = style::contents(Rect(vr.x, 0, vr.w, rowHeight), parts.get("item", states));
+    int x = c.x + rows_[row].second * indent;
     return p.x >= x && p.x < x + indent;
 }
 
+void TreeWidget::rowStates(const Node* n, std::vector<const char*>& out) const {
+    if (n == current_) out.push_back("selected");
+    if (n == hover_ && isEnabled()) out.push_back("hover");
+    if (n->expandable || !n->children.empty()) out.push_back("has-children");
+    if (n->expanded) out.push_back("open");
+    if (n->bold) out.push_back("bold");
+}
+
 void TreeWidget::paint(Painter& p) {
-    const theme::Shades& sh = theme::shades();
-    p.fillRect(rect(), theme::c("base"));
-    int vw = width() - (bar_->isVisible() ? theme::SCROLLBAR_W : 0);
+    // as ListWidget's: its box, then each row's box (TreeWidget::item), its arrow (::branch, whose width is the
+    // indent of each level), its icon (::icon) and its text
+    if (readStyle()) syncBar();
+    const css::Style& st = computedStyle();
+    style::box(p, rect(), st);
+    Rect vr = viewRect(), inner = style::contents(rect(), st);
+    bool clip = inner != rect();
+    if (clip) {
+        p.save();
+        p.setClip(inner);
+    }
+    PartStyles parts(*this);
     Font f = theme::uiFont();
+    std::vector<const char*> states;
     int scroll = bar_->value();
     int first = std::max(0, scroll / std::max(1, rowHeight));
     for (int row = first; row < (int)rows_.size(); ++row) {
-        int y = row * rowHeight - scroll;
-        if (y >= height()) break;
+        int y = vr.y + row * rowHeight - scroll;
+        if (y >= vr.bottom()) break;
         Node* n = rows_[row].first;
         int depth = rows_[row].second;
-        Rect r(0, y, vw, rowHeight);
-        bool sel = n == current_;
-        if (sel) p.fillRect(r, theme::c("highlight"));
-        else if (n == hover_ && isEnabled()) p.fillRect(r, sh.itemHover);
-        int x = depth * indent;
-        Color tc = !isEnabled() ? theme::c("disabled_text") : sel ? theme::c("highlighted_text") : theme::c("text");
+        states.clear();
+        rowStates(n, states);
+        const css::Style& item = parts.get("item", states);
+        Rect r(vr.x, y, vr.w, rowHeight);
+        style::box(p, r, item);
+        Rect c = style::contents(r, item);
+        int x = c.x + depth * indent;
         if (n->expandable || !n->children.empty()) {
-            float ax = x + (indent - 10) / 2.f, ay = y + (rowHeight - 10) / 2.f;
-            Color ac = sel ? theme::c("highlighted_text") : theme::c("hint_text");
-            style::icon(p, ax, ay, 10, n->expanded ? "down" : "right", ac);
+            const css::Style& br = parts.get("branch", states, &item);
+            style::Insets pad = style::insets(br, "padding");
+            float size = (float)std::max(0, indent - pad.w());
+            style::icon(p, (float)(x + pad.left), c.y + (c.h - size) / 2.f, size, n->expanded ? "down" : "right",
+                        style::foreground(br));
         }
         x += indent;
         if (!n->icon.empty()) {
-            if (n->icon.width() <= 16 && n->icon.height() <= 16)
-                p.drawImage(Point(x, y + (rowHeight - n->icon.height()) / 2), n->icon);
+            const css::Style& ic = parts.get("icon", states, &item);
+            int iw = std::max(0, style::px(ic, "width", 16)), ih = std::max(0, style::px(ic, "height", 16));
+            x += style::px(ic, "margin-left");
+            if (n->icon.width() <= iw && n->icon.height() <= ih)
+                p.drawImage(Point(x, c.y + (c.h - n->icon.height()) / 2), n->icon);
             else
-                p.drawImage(RectF((float)x, y + (rowHeight - 16) / 2.f, 16, 16), n->icon);
-            x += 16 + 4;
+                p.drawImage(RectF((float)x, c.y + (c.h - ih) / 2.f, (float)iw, (float)ih), n->icon);
+            x += iw + style::px(ic, "margin-right", 4);
         }
-        style::text(p, Rect(x, y, std::max(0, vw - x - 4), rowHeight), AlignLeft | AlignVCenter, n->text,
-                    n->bold ? f.withBold(true) : f, tc, true);
+        style::text(p, Rect(x, c.y, std::max(0, c.right() - x), c.h), AlignLeft | AlignVCenter, n->text,
+                    parts.font(item, f), style::foreground(item), true);
     }
+    if (clip) p.restore();
 }
 
 bool TreeWidget::mousePress(MouseEvent& e) {
@@ -1093,7 +1383,7 @@ bool TreeWidget::keyPress(KeyEvent& e) {
     int n = (int)rows_.size();
     if (!n) return false;
     int row = current_ ? rowOf(current_) : -1;
-    int page = std::max(1, height() / std::max(1, rowHeight) - 1);
+    int page = std::max(1, viewRect().h / std::max(1, rowHeight) - 1);
     switch (e.key) {
     case plat::Key_Up: row = row < 0 ? 0 : std::max(0, row - 1); break;
     case plat::Key_Down: row = std::min(n - 1, row + 1); break;
