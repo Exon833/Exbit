@@ -46,7 +46,6 @@
 #include "plugins/wine.h"
 #include "ui/plugin_host.h"
 #include "ui/recording.h"
-#include "ui/skin_dialog.h"
 #include "ui/templates.h"
 #include "ui/theme.h"
 #include "ui/timeline.h"
@@ -137,7 +136,8 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     App::get().mainWindow = this;
     skin = skin::find(prefs.skin);  // before anything is built: widgets take its colours
     theme::rounded = prefs.roundedCorners;
-    skin::apply(skin);
+    skinProblems = skin::apply(skin);
+    skinStamp_ = skinFilesStamp();
     metronomeSettings = metronome_dialog::loadSettings();
     engine.blocksize = prefs.bufferSize;
     engine.cores = prefs.processingCores;
@@ -275,6 +275,9 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
         historyTimer_ = App::get().every(HISTORY_MS, [this, alive] {
             if (!alive.expired() && !closing) noteChanges();
         });
+        skinTimer_ = App::get().every(config::SKIN_WATCH_MS, [this, alive] {
+            if (!alive.expired() && !closing) checkSkinFile();
+        });
     }
     autosave::Host ah;  // (and crash recovery: autosave.h)
     ah.window = this;
@@ -297,6 +300,9 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     if (!start.empty()) startFromTemplate(start);
     closeRequested = [this] { return requestClose(); };
     timeline->setFocus();  // editing keys (Space, S, Delete…) work straight away
+    if (!skinProblems.empty())
+        showStatus("The skin " + skin.name + " has " + std::to_string(skinProblems.size()) +
+                       " problem(s): Options → Skin → Problems", 10000);
 }
 
 MainWindow::~MainWindow() {
@@ -311,6 +317,7 @@ MainWindow::~MainWindow() {
     if (frameId_ >= 0) App::get().removeFrame(frameId_);
     if (cpuTimer_ >= 0) App::get().cancelTimer(cpuTimer_);
     if (historyTimer_ >= 0) App::get().cancelTimer(historyTimer_);
+    if (skinTimer_ >= 0) App::get().cancelTimer(skinTimer_);
     for (auto& [key, w] : fxWindows) {
         (void)key;
         w->finished.disconnectAll();
@@ -656,7 +663,8 @@ void MainWindow::buildOptionsMenu() {
                           [this](bool on) { setColourOption("clips_follow_track", on); })
         ->tooltip = "Clips without a colour of their own are drawn in their track's colour";
     colours->addSeparator();
-    colours->addAction("&Default clip and row colours…", [this] { customizeSkin("Tracks and clips"); });
+    colours->addAction("&Default clip and row colours…", [this] { editSkin(); })->tooltip =
+        "They are the skin's variables (--clip-audio, --clip-midi, --row…): this edits the skin";
     applyColourOptions();
     skinMenu = menu->addMenu("&Skin");
     skinMenu->aboutToShow = [this](ui::Menu*) { fillSkinMenu(); };
@@ -720,7 +728,14 @@ void MainWindow::fillSkinMenu() {
         a->triggered = [this, s] { chooseSkin(s); };
     }
     menu->addSeparator();
-    menu->addAction("&Customize this skin…", [this] { customizeSkin(); });
+    menu->addAction("&Edit this skin…", [this] { editSkin(); })->tooltip =
+        "Opens its stylesheet in your text editor (one of the program's own: a copy of it, yours); what you save "
+        "shows at once";
+    ui::Action* problems = menu->addAction(
+        skinProblems.empty() ? std::string("Skin &problems") : "Skin &problems (" + std::to_string(skinProblems.size()) + ")…",
+        [this] { showSkinProblems(); });
+    problems->enabled = !skinProblems.empty();
+    problems->tooltip = "What the skin's stylesheets have that Tiny DAW left out (it keeps the default there)";
     menu->addAction("&Import skin…", [this] { importSkin(); });
     menu->addAction("&Export this skin…", [this] { exportSkin(); });
     menu->addAction("&Open the skins folder", [this] { openSkinsFolder(); });
@@ -735,9 +750,40 @@ void MainWindow::chooseSkin(const skin::Skin& s) {
 }
 
 void MainWindow::showSkin(const skin::Skin& s) {
-    // put a skin on the whole program at once (also while editing one)
-    skin::apply(s);
+    // put a skin on the whole program at once
+    skinProblems = skin::apply(s);
+    skinStamp_ = skinFilesStamp();
     restyle();
+}
+
+std::string MainWindow::skinFilesStamp() const {
+    std::string stamp;
+    for (const std::string& path : {skin.path, skin::defaultSheet()})
+        if (!path.empty()) stamp += std::to_string(util::fileMtime(path)) + ":" + std::to_string(util::fileSize(path)) + ";";
+    return stamp;
+}
+
+void MainWindow::checkSkinFile() {
+    // (every SKIN_WATCH_MS) the skin's stylesheet, or default.css, was saved: put it on again, so what is
+    // edited in a text editor shows at once
+    std::string now = skinFilesStamp();
+    if (now == skinStamp_) return;
+    skinStamp_ = now;
+    if (!skin.path.empty() && !util::fileExists(skin.path)) return;  // (being replaced, or gone: as it is until then)
+    skin::Skin s = skin;
+    std::vector<std::string> problems;
+    std::string err;
+    if (!skin.path.empty() && skin::read(skin.path, s, problems, err, skin.builtin) && s.name != skin.name) {
+        prefs.skin = s.name;  // (its --skin-name was changed: remembered under the new one)
+        prefs.save();
+    }
+    skin = s;
+    showSkin(s);
+    if (skinProblems.empty()) showStatus("Skin " + s.name + " reloaded", 4000);
+    else
+        showStatus("Skin " + s.name + " reloaded; " + std::to_string(skinProblems.size()) + " problem(s), the first: " +
+                       skinProblems[0],
+                   15000);
 }
 
 void MainWindow::restyle() {
@@ -780,14 +826,51 @@ void MainWindow::applyColourOptions() {
     restyle();
 }
 
-void MainWindow::customizeSkin(const std::string& tab) {
-    // the skin editor (Options → Skin → Customize, or Colours → Default colours: `tab`)
-    {
-        SkinDialog d(this, skin, [this](const skin::Skin& s) { showSkin(s); },
-                     [this](const skin::Skin& s) { chooseSkin(s); }, tab);
-        d.exec();
+void MainWindow::editSkin() {
+    // the skin's stylesheet in the system's text editor; one of the program's own is copied into your skins
+    // folder first (it is edited as yours). What is saved shows at once (checkSkinFile).
+    skin::Skin s = skin;
+    if (s.builtin || s.path.empty()) {
+        std::string name = s.name + " (mine)";
+        if (!ui::getText(this, "Edit this skin",
+                         s.name + " is one of Tiny DAW's own skins: you edit a copy of it, kept in your skins "
+                                  "folder. The copy's name:",
+                         name))
+            return;
+        name = util::trim(name);
+        if (name.empty()) return;
+        std::string target = util::joinPath(skin::userDir(), skin::fileName(name));
+        if (util::fileExists(target) &&
+            ui::msg::question(this, "Edit this skin",
+                              "You already have a skin called " + name + ". Replace it with a copy of " + s.name +
+                                  "?") != ui::msg::Yes)
+            return;
+        std::string err;
+        std::string path = skin::makeCopy(s, name, err);
+        skin::Skin copy;
+        std::vector<std::string> problems;
+        if (path.empty() || !skin::read(path, copy, problems, err)) {
+            ui::msg::warning(this, "Edit this skin", "Cannot make the copy.\n\n" + err);
+            return;
+        }
+        chooseSkin(copy);
+        s = copy;
     }
-    showSkin(skin);  // what was saved, or back to the skin as it was
+    if (skin::openInEditor(s.path))
+        showStatus("Editing " + s.path + " in your text editor: what you save shows at once", 10000);
+    else
+        ui::msg::information(this, "Edit this skin",
+                             "No editor could be started for it. Open it in a text editor yourself:\n\n" + s.path +
+                                 "\n\nWhat you save there shows in Tiny DAW at once.");
+}
+
+void MainWindow::showSkinProblems() {
+    if (skinProblems.empty()) return;
+    std::string list;
+    for (size_t i = 0; i < skinProblems.size() && i < 40; i++) list += (i ? "\n" : "") + skinProblems[i];
+    if (skinProblems.size() > 40) list += "\n… and " + std::to_string(skinProblems.size() - 40) + " more";
+    ui::msg::information(this, "Skin problems",
+                         "Tiny DAW left these out of the skin " + skin.name + " (the default stays there):\n\n" + list);
 }
 
 void MainWindow::importSkin() { skin::importSkin(this, [this](const skin::Skin& s) { chooseSkin(s); }); }

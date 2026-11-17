@@ -107,6 +107,7 @@ public:
 
     std::string projectPath;             // JSON file of the open project, once saved or opened ("" none)
     skin::Skin skin;
+    std::vector<std::string> skinProblems;  // what its stylesheets left out (Options → Skin → Problems)
     // a track's (or the master's) open plugins window, one per owner: (0, track) effects, (1, track)
     // its instrument patch panel, (0, nullptr) the master's
     std::map<std::pair<int, const void*>, PluginsDialog*> fxWindows;
@@ -206,7 +207,10 @@ public:
     void overviewResized(int height);
     void setColourOption(const std::string& attr, bool on);  // "random_track_colors" / "clips_follow_track"
     void applyColourOptions();
-    void customizeSkin(const std::string& tab = "");
+    void editSkin();          // Options → Skin → Edit this skin…: its stylesheet in your text editor
+    void showSkinProblems();  // what the skin's stylesheets left out
+    std::string skinFilesStamp() const;  // the skin's and default.css's times and sizes
+    void checkSkinFile();     // reloads the skin when its stylesheet (or default.css) was saved
     void importSkin();
     void exportSkin();
     void openSkinsFolder();
@@ -309,6 +313,7 @@ public:
     bool askBeforeClosing = true;        // (the test script's quit: false)
 
 private:
-    int frameId_ = -1, cpuTimer_ = -1, historyTimer_ = -1;
+    int frameId_ = -1, cpuTimer_ = -1, historyTimer_ = -1, skinTimer_ = -1;
+    std::string skinStamp_;  // skinFilesStamp() when the skin was last put on
     std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
 };

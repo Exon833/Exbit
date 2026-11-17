@@ -822,6 +822,15 @@ double Style::fontSizePx(double def) const {
     return detail::lengthText(it->second, ctx, px) ? px : def;
 }
 
+std::string unquote(const std::string& value) {
+    detail::Tokens t;
+    detail::tokenize(value, t);
+    size_t b = 0, e = t.size();
+    t.trim(b, e);
+    if (e == b + 1 && t[b].type == detail::Tok::String) return t[b].text;
+    return b < e ? t.text(b, e) : std::string();
+}
+
 std::optional<std::string> Style::variable(const std::string& name) const {
     auto it = vars_.find(name.compare(0, 2, "--") == 0 ? name : "--" + name);
     if (it == vars_.end()) return std::nullopt;

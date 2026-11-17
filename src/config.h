@@ -76,6 +76,7 @@ constexpr double CLIP_MIN_S = 0.01;
 
 // --- GUI refresh ---
 constexpr int CPU_REFRESH_MS = 250;
+constexpr int SKIN_WATCH_MS = 500;   // how often the skin's stylesheet is checked for changes (saved in an editor)
 constexpr double CPU_AVERAGE_SECONDS = 5.0;
 constexpr double METER_DECAY = 0.85;
 

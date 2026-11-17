@@ -59,6 +59,8 @@ struct Rgba {
 bool parseColor(const std::string& text, Rgba& out);
 // "#rrggbb" or "#rrggbbaa" (with alpha below 255)
 std::string hex(const Rgba& c);
+// a value that is one string ("a \"b\"" or 'x'): its text, escapes undone; any other value: as it is, trimmed
+std::string unquote(const std::string& value);
 
 // --- what selectors match ---
 // A node of the interface as the stylesheets see it: implemented by the widgets (ui/toolkit) and by the
