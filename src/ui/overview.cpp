@@ -9,14 +9,18 @@
 #include "ui/paint_helpers.h"
 #include "ui/theme.h"
 #include "ui/timeline.h"
+#include "ui/toolkit/style.h"
 
 using clip_painter::pixels;
 using overview::EDGE;
-using overview::PAD;
-using theme::c;
+using ui::style::box;
+
+int overview::standardHeight() { return theme::metric("--overview-height", config::OVERVIEW_H); }
+int overview::maxHeight() { return theme::metric("--overview-max-height", config::OVERVIEW_MAX_H); }
 
 Overview::Overview(Project& project_, audio::Engine& engine_, Timeline* timeline_, ui::ScrollArea* scroll_, int height)
     : project(project_), engine(engine_), timeline(timeline_), scroll(scroll_) {
+    setStyleType("Overview");
     setHeight(height);
     hPolicy = ui::SizePolicy::Expanding;
     setMouseTracking(true);  // (the cursor shows where the bottom edge can be dragged)
@@ -28,10 +32,13 @@ Overview::Overview(Project& project_, audio::Engine& engine_, Timeline* timeline
 }
 
 int Overview::setHeight(int height) {
-    height = std::max(config::OVERVIEW_H, std::min(config::OVERVIEW_MAX_H, height));
+    height = std::max(overview::standardHeight(), std::min(std::max(overview::standardHeight(), overview::maxHeight()), height));
     setFixedHeight(height);
     return height;
 }
+
+int Overview::padTop() const { return ui::style::px(computedStyle(), "padding-top", overview::PAD); }
+int Overview::padBottom() const { return ui::style::px(computedStyle(), "padding-bottom", overview::PAD); }
 
 bool Overview::onEdge(double y) const { return y >= this->height() - EDGE; }
 
@@ -54,12 +61,13 @@ std::vector<Lane> Overview::lanes() const {
 double Overview::rowScale() const {
     int total = 0;
     for (auto& lane : lanes()) total += lane.height;
-    return total ? (double)(height() - 2 * PAD) / total : 0;
+    return total ? (double)(height() - padTop() - padBottom()) / total : 0;
 }
 
 std::vector<double> Overview::contentKey(double span) const {
     // everything the tracks-and-clips image depends on
-    std::vector<double> key{(double)width(), (double)height(), std::nearbyint(span * 1000) / 1000};
+    std::vector<double> key{(double)width(), (double)height(), std::nearbyint(span * 1000) / 1000,
+                            (double)theme::styles().generation()};
     auto ptr = [](const void* p) { return (double)(uintptr_t)p; };
     auto text = [](const std::string& s) { return (double)(std::hash<std::string>()(s) & 0xffffffffffffULL); };
     for (auto& lane : lanes()) {
@@ -92,12 +100,13 @@ RectF Overview::viewRect(double span) const {
     double scale = rowScale();
     int lanesH = 0;
     for (auto& lane : lanes()) lanesH += lane.height;
-    int top = std::min(std::max(vbar->value() - config::RULER_H, 0), lanesH);
-    int bottom = std::min(std::max(vbar->value() + vp->height() - config::RULER_H, 0), lanesH);
-    double y0 = PAD, y1 = height() - PAD;
+    int top = std::min(std::max(vbar->value() - lanes::rulerHeight(), 0), lanesH);
+    int bottom = std::min(std::max(vbar->value() + vp->height() - lanes::rulerHeight(), 0), lanesH);
+    const int pad = padTop();
+    double y0 = pad, y1 = height() - padBottom();
     if (scale) {
-        y0 = PAD + top * scale;
-        y1 = PAD + bottom * scale;
+        y0 = pad + top * scale;
+        y1 = pad + bottom * scale;
     }
     return RectF((float)(hbar->value() * xScale), (float)y0, (float)(vp->width() * xScale), (float)std::max(y1 - y0, 2.0));
 }
@@ -123,30 +132,37 @@ void Overview::refresh() {
 
 void Overview::forgetImage() {
     hasImage_ = false;
+    int was = height();
+    if (setHeight(was) != was) resizedTo.emit(height());  // (the skin's limits changed)
     refresh();
 }
 
 // --- painting -----------------------------------------------------------------------------------
 
 Image Overview::renderContent(double span) const {
-    // the rows and clip blocks, as an image the size of the bar
-    Image image(std::max(1, width()), std::max(1, height()), c("overview_bg"));
+    // the bar (Overview: a box), the rows (Lane boxes) and the clip blocks, as an image the size of the bar
+    if (lookStamp_.stale(this)) laneLooks_.clear();
+    Image image(std::max(1, width()), std::max(1, height()), Color(0, 0, 0, 0));
     Painter p(image);
+    box(p, Rect(0, 0, image.width(), image.height()), computedStyle());
     double scale = rowScale(), xScale = width() / span / engine.sr;
+    const int pad = padTop();
     // track -> (y, height) of its own row / of its row in its group's header
     std::map<const Track*, std::pair<double, double>> rows, inHeader;
     int row = 0;
     for (auto& lane : lanes()) {
-        double y = PAD + lane.top * scale, h = lane.height * scale;
+        double y = pad + lane.top * scale, h = lane.height * scale;
         RectF area(0, (float)y, (float)width(), (float)h);
         if (lane.automation || lane.take) {
-            p.fillRect(pixels(area), c("automation_lane"));
+            box(p, pixels(area), laneLooks_.get(lane.automation ? LaneKind::Automation : LaneKind::Take).box);
         } else if (lane.track) {
-            p.fillRect(pixels(area), c(row % 2 ? "lane_alt" : "lane"));
+            box(p, pixels(area), laneLooks_.get(LaneKind::Track, row % 2 != 0).box);
             rows[lane.track.get()] = {y, h};
             ++row;
         } else {  // a group's header: its tracks' clips, each track a thinner row
-            p.fillRect(pixels(area), paint::groupFill(*lane.group));
+            const LaneLook& g = laneLooks_.get(LaneKind::Group);
+            Color own;
+            box(p, pixels(area), paint::groupColor(*lane.group, own) ? g.recolored.get(g.box, own) : g.box);
             auto members = project.members(lane.group);
             for (size_t i = 0; i < members.size(); ++i)
                 inHeader[members[i].get()] = {y + i * h / members.size(), h / members.size()};
@@ -174,14 +190,22 @@ void Overview::resized() { refresh(); }
 void Overview::paint(Painter& p) {
     if (!hasImage_ || marks_.size() < 6) refresh();
     if (!hasImage_ || marks_.size() < 6) return;
-    p.drawImage(Point(0, 0), image_);
+    p.drawImage(Point(0, 0), image_);  // (with its box: background and borders)
+    // the editor's view: a box (Overview::view) and its outline (outline-offset -1px: on its outermost pixels)
     RectF view((float)marks_[0], (float)marks_[1], (float)marks_[2], (float)marks_[3]);
-    p.fillRect(pixels(view), c("overview_view_fill"));
-    p.drawRect(pixels(view), c("overview_view"));
+    const css::Style& vs = computedStyle("view");
+    Rect viewBox = pixels(view);
+    box(p, viewBox, vs);
+    int outline = ui::style::px(vs, "outline-width", 0);
+    if (outline > 0 && vs.keyword("outline-style", "solid") != "none") {
+        int grow = outline + ui::style::px(vs, "outline-offset", 0);
+        p.drawRect(viewBox.adjusted(-grow, -grow, grow, grow), ui::style::color(vs, "outline-color"), outline);
+    }
+    // the cursors, down to its bottom border
     int playheadX = (int)marks_[4], cursorX = (int)marks_[5];
-    p.drawVLine(cursorX, 0, height() + 1, c("cursor"));
-    p.drawVLine(playheadX, 0, height() + 1, c("playhead"));
-    p.drawHLine(0, width() + 1, height() - 1, c("overview_edge"));
+    int bottom = height() - ui::style::insets(computedStyle(), "border-width").bottom;
+    paint::vline(p, cursorX, 0, bottom, paint::line(computedStyle("cursor"), theme::c("cursor")));
+    paint::vline(p, playheadX, 0, bottom, paint::line(computedStyle("playhead"), theme::c("playhead")));
 }
 
 // --- mouse: move the editor's view --------------------------------------------------------------
@@ -227,7 +251,7 @@ bool Overview::mouseRelease(ui::MouseEvent& e) {
 }
 
 bool Overview::mouseDoubleClick(ui::MouseEvent& e) {
-    if (e.button == plat::LeftButton && onEdge(e.pos.y)) resizedTo.emit(setHeight(config::OVERVIEW_H));
+    if (e.button == plat::LeftButton && onEdge(e.pos.y)) resizedTo.emit(setHeight(overview::standardHeight()));
     return true;
 }
 
@@ -236,5 +260,5 @@ void Overview::moveView(PointF pos, double span) {
     ui::ScrollBar* vbar = scroll->verticalScrollBar();
     hbar->setValue((int)std::nearbyint((pos.x - grabX_) * span / width() * timeline->pps));
     double scale = rowScale();
-    if (scale) vbar->setValue((int)std::nearbyint((pos.y - grabY_ - PAD) / scale + config::RULER_H));
+    if (scale) vbar->setValue((int)std::nearbyint((pos.y - grabY_ - padTop()) / scale + lanes::rulerHeight()));
 }

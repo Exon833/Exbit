@@ -100,6 +100,11 @@
 //   masterBelowView: true when the master lane is pinned under the view rather than over it (the
 //   timeline is then as tall as the lanes above the master lane's place).
 // The Timeline also re-fits itself when the viewport is resized (it chains the viewport's onEventFilter).
+//
+// STYLES: the Timeline is the stylesheets' `Timeline`; its ruler, lanes and clips are nodes under it (Ruler, Lane,
+// Clip): timeline_look.h and clip_painter.h list their parts, states and properties. The layout's sizes are :root
+// variables: --ruler-height, --group-height, --take-height (lanes.h), --automation-padding, --clip-header-height,
+// --clip-edge-width, --fade-handle-size, --link-badge-width / -height, --cursor-arrow-width / -height.
 #pragma once
 #include <cstdint>
 #include <functional>
@@ -114,8 +119,11 @@
 
 #include "audio/engine.h"
 #include "model/model.h"
+#include "ui/clip_painter.h"
 #include "ui/lanes.h"
+#include "ui/paint_helpers.h"
 #include "ui/selection.h"
+#include "ui/timeline_look.h"
 #include "ui/toolkit/controls.h"
 #include "ui/toolkit/menu.h"
 #include "ui/toolkit/widget.h"
@@ -124,7 +132,9 @@ class MasterLaneView;
 namespace pad_kit_dialog { class SliceDialog; }
 
 namespace timeline {
-constexpr int GROUP_PAD = 6;           // px above and below the miniature clips in a group's header lane
+constexpr int GROUP_PAD = 6;           // (default: Lane.group's padding) above and below the miniature clips in a group's header lane
+// px above and below the curve in an automation lane: --automation-padding (AUTOMATION_PAD)
+int automationPad();
 constexpr int LOOP_GRAB_PX = 5;        // how close to an end of the loop band the mouse must be to drag it
 constexpr int STEP_LINES_MAX = 16;     // a stepped parameter with up to this many steps gets a line at each value
 constexpr int STEP_LABEL_MIN_PX = 22;  // …and each value's name on its line, when the lines are this far apart
@@ -397,8 +407,12 @@ public:
     // --- painting ---
     void paint(Painter& p) override;
     void paintArea(Painter& p, const Rect& r);
-    // the master lane between y = top and bottom (master_lane draws it there); r in timeline x
-    void paintMaster(Painter& p, const Rect& r, int top, int bottom);
+    // the master lane's grid and cursors between y = top and bottom (master_lane draws it there, over its own box;
+    // `divider`: its top border, drawn again over the grid); r in timeline x
+    void paintMaster(Painter& p, const Rect& r, int top, int bottom, const paint::Line& divider = paint::Line{Color(), 0});
+    // what the stylesheets give its drawing (read again after they change)
+    const TimelineLook& look() const;
+    void refreshLook() const;  // (also when its own states changed: once per paint)
     void paintRuler(Painter& p, const Rect& r, bool ruler = true, int line0 = -1, int line1 = -1);
 
     // --- automation lanes ---
@@ -460,13 +474,14 @@ private:
     std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);  // (false once gone: the slice window's handlers)
     bool masterAlive() const;
     void paintLanes(Painter& p, const Rect& r, const std::vector<Lane>& lanes);
-    void paintAutomation(Painter& p, const Rect& r, const Lane& lane, bool background = true);
+    void paintAutomation(Painter& p, const Rect& r, const Lane& lane);
+    bool automationLocked(const Lane& lane) const;  // its curve can't be edited (frozen; no plugin or parameter)
     void paintGroupContents(Painter& p, const Rect& r, const Lane& lane);
     void paintBars(Painter& p, const Rect& r, bool ruler, int line0, int line1);
     void paintLoop(Painter& p);
     void paintMarkers(Painter& p, const Rect& r);
     void paintTempoChanges(Painter& p, const Rect& r);
-    void paintTake(Painter& p, const Rect& r, const Lane& lane, bool background = true);
+    void paintTake(Painter& p, const Rect& r, const Lane& lane);
     std::string editTime(const std::function<bool(std::string& note, std::string& error)>& edit, const std::string& done);
     PointF pressPos_;
     bool pastThreshold_ = true;
@@ -479,4 +494,9 @@ private:
     ui::Window* dialogParent() const;
     // rangeLabels() worked out once per plugin instance (Python keeps them on the Automation)
     mutable std::map<const Automation*, std::pair<const void*, std::pair<std::string, std::string>>> rangeText_;
+    // what the stylesheets give its drawing, kept until they (or its own states) change: look()
+    mutable TimelineLook look_;
+    mutable LaneLooks laneLooks_{this};
+    mutable clip_painter::Looks clipLooks_{this};
+    mutable paint::Stamp lookStamp_;
 };

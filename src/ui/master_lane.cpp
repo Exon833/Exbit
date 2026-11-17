@@ -1,18 +1,31 @@
 #include "ui/master_lane.h"
 
 #include "ui/timeline.h"
+#include "ui/toolkit/style.h"
 
-MasterLaneView::MasterLaneView(Timeline* tl) : timeline(tl) { setAcceptDrops(true); }
+MasterLaneView::MasterLaneView(Timeline* tl) : timeline(tl) {
+    setStyleType("MasterLane");
+    setAcceptDrops(true);
+}
 
 int MasterLaneView::offset() const { return timeline->scroll->horizontalScrollBar()->value(); }
 
 void MasterLaneView::paint(Painter& p) {
+    // its box (MasterLane: background, the divider above it as border-top), then the timeline's grid and
+    // cursors over it, and the divider again over the grid
+    const css::Style& st = computedStyle();
+    ui::style::box(p, rect(), st);
     int dx = offset();
     p.translate((float)-dx, 0);  // draw in timeline coordinates
-    timeline->paintMaster(p, p.clip(), 0, height());
+    paint::Line divider{ui::style::color(st, "border-top-color"), ui::style::px(st, "border-top-width")};
+    timeline->paintMaster(p, p.clip(), 0, height(), divider);
 }
 
-void MasterLaneView::updateLine(int x) { update(Rect(x - offset() - 1, 0, 3, height())); }
+void MasterLaneView::updateLine(int x) {
+    const TimelineLook& lk = timeline->look();
+    int line = std::max(lk.cursor.width, lk.playhead.width) / 2 + 1;
+    update(Rect(x - offset() - line, 0, 2 * line + 1, height()));
+}
 
 double MasterLaneView::timelineX(const Point& pos) const { return pos.x + offset(); }
 

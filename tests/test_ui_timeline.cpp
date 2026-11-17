@@ -1,7 +1,8 @@
 // The timeline, headless: snapping in beats and in seconds, hit testing of a clip's handle, body and
 // ends, moving clips (with and without Alt, between lanes), trimming limits, duplicating a range
 // again and again, splitting at the cursor, cutting a range out, drops on the grid and onto new
-// tracks, new MIDI clips, automation points, the loop band, keys, the tile cache, and the overview.
+// tracks, new MIDI clips, automation points, the loop band, keys, the tile cache, the overview, and
+// stylesheets restyling all of it (sizes, colours, clip parts).
 // Paints the timeline, the master lane and the overview into PNGs in build/ui-samples/timeline/.
 #include <cmath>
 #include <map>
@@ -1334,6 +1335,107 @@ void testControlLaneLabels() {
     CHECK(r.tl->valueText(*volume, 60.0 / 66.0) == "+0.0 dB");
 }
 
+// The stylesheets restyle the timeline: a sheet over the built-in default.css changes the ruler's height (and so
+// where the lanes start), an alternate lane's colour, a clip part (the selected clip's overlay) and the overview's
+// and master lane's boxes; theme::setSkin() brings everything back.
+void testStylesheets() {
+    Rig r(600, 300);
+    Timeline& tl = *r.tl;
+    auto t1 = r.project.addTrack(Kind::Audio);
+    auto t2 = r.project.addTrack(Kind::Audio);
+    auto clip = audioClip(r.project, t1, 1, 1);
+    tl.relayout();
+    auto picture = [&] {
+        ui::App::get().doLayouts();
+        Image img(tl.width(), tl.height());
+        Painter p(img);
+        tl.paintTree(p, tl.rect());
+        return img;
+    };
+    auto lanes = tl.lanes();
+    CHECK(lanes.size() == 3 && lanes[0].top == config::RULER_H);
+    Image before = picture();
+    int alternateY = lanes[1].top + lanes[1].height / 2;
+    Color lane = theme::c("lane_alt");
+    CHECK(before.pixel(462, alternateY) == lane.premul());  // (no clip, nor grid line, there)
+    CHECK(before.pixel(462, config::RULER_H + 2) == theme::c("lane").premul());
+    tl.selection.selectOnly(clip);
+    Image selected = picture();
+    RectF box = *tl.clipRect(*clip, tl.trackTops());
+    int clipX = (int)box.x + 30, clipY = (int)box.bottom() - 6;  // (in its body, under its waveform's middle)
+    Color body = Color::fromPremul(selected.pixel(clipX, clipY));
+
+    std::vector<css::Problem> problems;
+    std::string text;  // (default.css's rules read without a problem, and computing them finds none)
+    CHECK(util::readFile("data/skins/default.css", text));
+    css::parse(text, "default.css", problems);
+    CHECK(problems.empty());
+    theme::setStyles({theme::builtinSheet()}, &problems);
+    CHECK(problems.empty());
+    for (auto& pr : problems) std::printf("%s\n", pr.text().c_str());
+    Overview ov(r.project, r.engine, &tl, &r.scroll, 60);
+    ov.resize(600, 60);
+    auto sheet = css::parse(":root { --ruler-height: 30px; --clip-header-height: 20px; --overview-max-height: 50px; }\n"
+                            "Lane:alternate { background-color: #102030; }\n"
+                            "Clip:selected::overlay { background-color: #00ff00; }\n"
+                            "Ruler { background-color: #400000; }\n"
+                            "MasterLane { background-color: #004000; border-top-width: 3px; }\n"
+                            "Timeline::playhead { color: #0000ff; stroke-width: 3px; }\n",
+                            "test.css", problems);
+    CHECK(problems.empty());
+    theme::setStyles({theme::builtinSheet(), sheet});
+    CHECK(lanes::rulerHeight() == 30 && clip_painter::headerHeight() == 20);
+    lanes = tl.lanes();
+    CHECK(lanes[0].top == 30 && lanes[1].top == 30 + t1->height);  // (the lanes start under the taller ruler)
+    tl.relayout();
+    Image styled = picture();
+    CHECK(Color::fromPremul(styled.pixel(462, 27)) == Color(0x40, 0, 0));  // the ruler, taller and recoloured
+    CHECK(Color::fromPremul(styled.pixel(462, lanes[1].top + lanes[1].height / 2)) == Color(0x10, 0x20, 0x30));
+    CHECK(Color::fromPremul(styled.pixel(462, 32)) == theme::c("lane"));  // (the first lane: not alternate)
+    CHECK(Color::fromPremul(styled.pixel(clipX, clipY + 6)) == Color(0, 255, 0));  // the selected clip's overlay
+    // the clip's name strip is taller: a click 18 px under its top grabs it (the strip), not its body
+    RectF moved = *tl.clipRect(*clip, tl.trackTops());
+    CHECK(tl.hit(PointF(moved.x + 30, moved.y + 18)).second == ClipZone::Handle);
+    // the playhead, 3 px wide
+    tl.setPlayhead(r.sec(4));
+    Image wide = picture();
+    for (int dx = -1; dx <= 1; ++dx) CHECK(Color::fromPremul(wide.pixel(tl.playheadX + dx, 200)) == Color(0, 0, 255));
+    // the master lane's box: its background and a 3 px line above it
+    MasterLaneView master(&tl);
+    master.resize(300, 40);
+    Image ml(300, 40);
+    {
+        Painter p(ml);
+        master.paintTree(p, master.rect());
+    }
+    CHECK(Color::fromPremul(ml.pixel(5, 2)) == theme::c("master_divider"));
+    CHECK(Color::fromPremul(ml.pixel(5, 20)) == Color(0, 0x40, 0));
+
+    // the overview is kept within the skin's heights (and says so)
+    int resizedTo = 0;
+    ov.resizedTo.connect([&](int h) { resizedTo = h; });
+    ov.forgetImage();
+    CHECK(ov.height() == 50 && resizedTo == 50);
+    CHECK(ov.setHeight(200) == 50);
+
+    // back to the default look
+    theme::setSkin();
+    CHECK(lanes::rulerHeight() == config::RULER_H && clip_painter::headerHeight() == config::CLIP_HANDLE_H);
+    CHECK(ov.setHeight(200) == 200 && ov.setHeight(10) == config::OVERVIEW_H);
+    tl.setPlayhead(0);
+    tl.relayout();
+    Image again = picture();
+    CHECK(again.width() == selected.width() && again.height() == selected.height());
+    int differ = 0;
+    for (int y = 0; y < std::min(again.height(), selected.height()); ++y)
+        for (int x = 0; x < std::min(again.width(), selected.width()); ++x)
+            if (again.pixel(x, y) != selected.pixel(x, y)) ++differ;
+    CHECK(differ == 0);
+    CHECK(Color::fromPremul(again.pixel(clipX, clipY)) == body);
+    CHECK(tl.hit(PointF(box.x + 30, box.y + 18)).second == ClipZone::Body);
+    (void)t2;
+}
+
 int main() {
     ui::App::get().initHeadless();
     theme::setSkin();
@@ -1359,5 +1461,6 @@ int main() {
     testTakes();
     testTimeEdits();
     testMidiClipsAndExport();
+    testStylesheets();
     TEST_MAIN_END();
 }
