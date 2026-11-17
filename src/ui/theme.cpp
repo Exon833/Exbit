@@ -1,12 +1,11 @@
 #include "ui/theme.h"
 
+#include <cmath>
 #include <map>
 
-namespace theme {
+#include "core/util.h"
 
-const char* const FONT_LABEL_UI = "Interface font";
-const char* const FONT_LABEL_UI_SIZE = "Interface font size (pt)";
-const char* const FONT_LABEL_MONO = "Numbers font (times, LUFS)";
+namespace theme {
 
 bool rounded = true;
 
@@ -86,51 +85,152 @@ const std::vector<ColorInfo>& colors() {
 }
 
 namespace {
-std::map<std::string, Color> current;
+std::map<std::string, double> metrics;  // sizes asked for (NaN: not set)
+std::map<std::string, Color> current;  // colours by name: the table's, then what the stylesheets set
 Fonts currentFonts;
 Shades currentShades;
+css::Engine engine;
+bool ready = false;
 const Color kMissing(255, 0, 255);
-}  // namespace
 
-const Color& c(const std::string& name) {
-    if (current.empty()) setSkin();
-    auto it = current.find(name);
-    return it == current.end() ? kMissing : it->second;
+Color toColor(const css::Rgba& c) { return Color(c.r, c.g, c.b, c.a); }
+
+// a variable of :root as a colour; false if there's none or it isn't one
+bool rootColor(const std::string& variable, Color& out) {
+    std::optional<std::string> v = engine.root().variable(variable);
+    css::Rgba rgba;
+    if (!v || !css::parseColor(*v, rgba)) return false;
+    out = toColor(rgba);
+    return true;
 }
 
-void setSkin(const std::vector<std::pair<std::string, std::string>>& cols, const Fonts& f) {
+void refresh() {
     current.clear();
-    for (auto& info : colors()) current[info.name] = Color::fromHex(info.def);
-    for (auto& kv : cols) {
-        bool ok = false;
-        Color col = Color::fromHex(kv.second, &ok);
-        auto it = current.find(kv.first);
-        if (ok && it != current.end() && (kv.second.size() == 7 || kv.second.size() == 9)) it->second = col;
+    metrics.clear();
+    for (auto& info : colors()) {
+        Color col = Color::fromHex(info.def);
+        rootColor(variableName(info.name), col);
+        current[info.name] = col;
+    }
+    auto& q = current;
+    struct { Color Shades::*field; const char* var; const char* a; const char* b; float t; } mixes[] = {
+        {&Shades::hover, "--hover", "button", "button_text", 0.10f},
+        {&Shades::pressed, "--pressed", "button", "button_text", 0.18f},
+        {&Shades::disabled, "--disabled", "button", "window", 0.5f},
+        {&Shades::line, "--line", "window", "window_text", 0.10f},
+        {&Shades::fieldEdge, "--field-edge", "base", "text", 0.14f},
+        {&Shades::fieldHover, "--field-hover", "base", "text", 0.26f},
+        {&Shades::itemHover, "--item-hover", "base", "text", 0.07f},
+        {&Shades::panel, "--panel", "window", "base", 0.45f},
+        {&Shades::handle, "--handle", "window", "window_text", 0.22f},
+        {&Shades::handleHover, "--handle-hover", "window", "window_text", 0.38f},
+        {&Shades::accentHover, "--accent-hover", "accent", "accent_text", 0.15f},
+    };
+    for (auto& m : mixes)
+        if (!rootColor(m.var, currentShades.*m.field)) currentShades.*m.field = mixColor(q[m.a], q[m.b], m.t);
+
+    // fonts: font-family's first name ("system-ui" and the generic families: the system's own), font-size,
+    // --mono-font
+    const css::Style& root = engine.root();
+    Fonts f;
+    std::vector<std::string> families = root.list("font-family");
+    std::string family = families.empty() ? "" : families[0];
+    std::string generic = util::lower(family);
+    if (generic == "system-ui" || generic == "sans-serif" || generic == "serif" || generic == "ui-sans-serif")
+        family.clear();
+    f.ui = family;
+    if (root.has("font-size")) {
+        double pt = root.fontSizePx(12) * 0.75;  // (px are 1/96 in, pt 1/72)
+        if (pt > 0 && pt <= 40) f.uiSize = std::round(pt * 100) / 100;
+    }
+    if (std::optional<std::string> mono = root.variable("--mono-font")) {
+        std::string m = css::unquote(*mono);
+        if (util::lower(m) == "monospace") m = "Consolas";  // (Consolas falls back to a monospaced font)
+        if (!m.empty()) f.mono = m;
     }
     currentFonts = f;
-    auto& q = current;
-    Shades& s = currentShades;
-    s.hover = mixColor(q["button"], q["button_text"], 0.10f);
-    s.pressed = mixColor(q["button"], q["button_text"], 0.18f);
-    s.disabled = mixColor(q["button"], q["window"], 0.5f);
-    s.line = mixColor(q["window"], q["window_text"], 0.10f);
-    s.fieldEdge = mixColor(q["base"], q["text"], 0.14f);
-    s.fieldHover = mixColor(q["base"], q["text"], 0.26f);
-    s.itemHover = mixColor(q["base"], q["text"], 0.07f);
-    s.panel = mixColor(q["window"], q["base"], 0.45f);
-    s.handle = mixColor(q["window"], q["window_text"], 0.22f);
-    s.handleHover = mixColor(q["window"], q["window_text"], 0.38f);
-    s.accentHover = mixColor(q["accent"], q["accent_text"], 0.15f);
     Font::setDefaults(f.ui, f.uiSize > 0 ? f.uiSize : 9.0, f.mono.empty() ? "Consolas" : f.mono);
+    ready = true;
+}
+}  // namespace
+
+std::vector<std::string> colorVariables() {
+    std::vector<std::string> out;
+    for (auto& info : colors()) out.push_back(variableName(info.name));
+    for (const char* v : {"--hover", "--pressed", "--disabled", "--line", "--field-edge", "--field-hover", "--item-hover",
+                          "--panel", "--handle", "--handle-hover", "--accent-hover"})
+        out.push_back(v);
+    return out;
+}
+
+std::string variableName(const std::string& name) {
+    std::string v = "--" + name;
+    for (char& ch : v)
+        if (ch == '_') ch = '-';
+    return v;
+}
+
+const Color& c(const std::string& name) {
+    if (!ready) setSkin();
+    auto it = current.find(name);
+    if (it != current.end()) return it->second;
+    Color col;  // a variable the skin added (kept once found; the table's names are all there already)
+    if (!engine.sheets().empty() && rootColor(variableName(name), col)) return current.emplace(name, col).first->second;
+    return kMissing;
+}
+
+css::SheetPtr builtinSheet() {
+    static const css::SheetPtr sheet = [] {
+        static const char* const text =
+#include "default_css.inc"
+            ;
+        std::vector<css::Problem> problems;
+        return css::parse(text, "default.css (built in)", problems);
+    }();
+    return sheet;
+}
+
+void setStyles(std::vector<css::SheetPtr> sheets, std::vector<css::Problem>* problems) {
+    if (sheets.empty()) sheets.push_back(builtinSheet());
+    engine.setSheets(std::move(sheets));
+    refresh();
+    std::vector<css::Problem> found = engine.takeProblems();
+    if (problems) problems->insert(problems->end(), found.begin(), found.end());
+}
+
+void setSkin() { setStyles({}); }
+
+double metricF(const std::string& name, double def) {
+    if (!ready) setSkin();
+    std::string var = name.compare(0, 2, "--") == 0 ? name : "--" + name;
+    auto it = metrics.find(var);
+    if (it == metrics.end()) {
+        double v = std::nan("");
+        if (std::optional<std::string> text = engine.root().variable(var)) {
+            css::Style probe;  // (the variable's text as a property, read as a length)
+            probe.props_["width"] = *text;
+            probe.emPx_ = engine.root().emPx_;
+            if (probe.has("width")) v = probe.length("width", std::nan(""));
+        }
+        it = metrics.emplace(var, v).first;
+    }
+    return std::isnan(it->second) ? def : it->second;
+}
+
+int metric(const std::string& name, int def) { return (int)std::lround(metricF(name, def)); }
+
+const css::Engine& styles() {
+    if (!ready) setSkin();
+    return engine;
 }
 
 const Fonts& fonts() {
-    if (current.empty()) setSkin();
+    if (!ready) setSkin();
     return currentFonts;
 }
 
 const Shades& shades() {
-    if (current.empty()) setSkin();
+    if (!ready) setSkin();
     return currentShades;
 }
 

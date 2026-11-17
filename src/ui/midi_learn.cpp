@@ -267,7 +267,7 @@ LinksDialog::LinksDialog(ui::Window* parent, Learner& l)
     list->setToolTip("Each link: the controller's knob (its control number and channel), then what it moves");
     col->addWidget(list, 1);
     empty = add<ui::Label>("No links yet.");
-    empty->setProperty("style", "hint");
+    empty->setProperty("hint", "true");  // (the skin's hint colour: Label.hint)
     col->addWidget(empty);
     auto row = std::make_unique<ui::HBox>();
     removeButton = add<ui::Button>("Remove");

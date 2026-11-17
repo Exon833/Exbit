@@ -1,0 +1,1002 @@
+/* Tiny DAW's default stylesheet: every skin is this, with the variables (and rules) it changes.
+   The colours are variables of :root (--lane …), used by the rules below and by the program's own
+   drawing (theme::c("lane") reads --lane). docs/skins.md lists every selector, part and property. */
+
+:root {
+    --skin-name: "Dark";      /* the skin's name in Options → Skin */
+    font-family: system-ui;   /* the interface font (system-ui: the system's own) */
+    font-size: 9pt;           /* its size (also what em is, and the numbers font's) */
+    --mono-font: "Consolas";  /* numbers: times, LUFS (Consolas falls back to a monospaced font) */
+
+    /* Window */
+    --window: #2b2d31;             /* Window background */
+    --window-text: #dcdde0;        /* Window text */
+    --base: #1e1f22;               /* Fields and lists */
+    --alternate-base: #2b2d31;     /* Lists, every other row */
+    --text: #dcdde0;               /* Text in fields and lists */
+    --button: #36383d;             /* Buttons */
+    --button-text: #dcdde0;        /* Button text */
+    --highlight: #3d7ab8;          /* Selected items */
+    --highlighted-text: #ffffff;   /* Selected items' text */
+    --tooltip-base: #1e1f22;       /* Tooltips */
+    --tooltip-text: #dcdde0;       /* Tooltip text */
+    --disabled-text: #6b6e75;      /* Disabled text */
+    --hint-text: #9a9da5;          /* Hints */
+    --dimmed-text: #70737c;        /* Dimmed notes (updates) */
+    --accent: #3d7ab8;             /* Lit buttons (FX with plugins, Preview, Metronome…) */
+    --accent-text: #ffffff;        /* Text on lit buttons */
+    --frame-edge: #111111;         /* Thin edges */
+
+    /* Timeline */
+    --lane: #232529;               /* Track lane */
+    --lane-alt: #282a2f;           /* Track lane, every other */
+    --below-lanes: #1d1e22;        /* Below the last track */
+    --master-lane: #1e2530;        /* Master lane and row */
+    --master-divider: #465a78;     /* Line above the master */
+    --group-lane: #33363e;         /* Group header (no colour of its own) */
+    --group-accent: #a0a0af;       /* Bar beside a group's tracks */
+    --ruler-bg: #18191c;           /* Ruler */
+    --ruler-text: #9696a0;         /* Ruler text */
+    --grid-fine: #2d2f35;          /* Grid: finer lines */
+    --grid: #373a40;               /* Grid: beats (and seconds) */
+    --grid-bar: #484c56;           /* Grid: bars */
+    --playhead: #ff5050;           /* Playback cursor */
+    --cursor: #5fafff;             /* Selection cursor */
+    --selection-fill: #78aae62d;   /* Selected range */
+    --selection-edge: #96c3f5c8;   /* Selected range's edges */
+    --automation-lane: #1c1f24;    /* Automation lane (and its row) */
+    --automation-line: #e0a84a;    /* Automation curve and its points */
+    --loop: #e0a33cb4;             /* Loop range on the ruler (looping on) */
+    --loop-off: #e0a33c46;         /* Loop range on the ruler (looping off) */
+    --frozen-tint: #bee1ff46;      /* Over a frozen track's clips */
+    --overview-bg: #141518;        /* Overview bar */
+    --overview-view: #c8d2e1c8;    /* Overview: outline of the view */
+    --overview-view-fill: #c8d2e11c; /* Overview: inside the outline */
+    --overview-edge: #373a40;      /* Overview: line under it */
+
+    /* Tracks and clips */
+    --row: #232529;                /* Track rows in the right-hand panel */
+    --row-alt: #282a2f;            /* Track rows in the right-hand panel, every other */
+    --clip-audio: #326996;         /* Audio clips (no colour of their own) */
+    --clip-midi: #377d55;          /* MIDI clips (no colour of their own) */
+    --accent-audio: #5096d2;       /* Audio track stripe */
+    --accent-midi: #5abe78;        /* MIDI track stripe */
+    --accent-return: #d0913c;      /* Return track stripe */
+    --mute: #c0392b;               /* Mute (M) when on */
+    --solo: #d4a017;               /* Solo (S) when on */
+    --record: #d0433a;             /* Recording: ● Rec when on, the take as it grows */
+
+    /* Meters */
+    --meter-bg: #121316;           /* Meter background */
+    --meter-ok: #46c86e;           /* Meter: up to -12 dB (and CPU load) */
+    --meter-warn: #dcbe3c;         /* Meter: up to 0 dB */
+    --meter-hot: #dc3c32;          /* Meter: at 0 dB */
+
+    /* MIDI editor */
+    --keys-white: #e8e8ea;         /* White keys */
+    --keys-black: #1b1c1f;         /* Black keys */
+    --keys-line: #b8b9be;          /* Lines between keys */
+    --keys-label: #3a3c42;         /* Key names (C4…) */
+    --key-sounding: #5fafff96;     /* The key sounding */
+    --roll-shade: #0000006e;       /* Outside the clip */
+    --selected-note: #ffffff;      /* Selected notes */
+
+    /* Explorer */
+    --sample-wave: #78afe6;        /* Sample waveform */
+
+    /* shades worked out from the colours above (theme::shades()) */
+    --hover: color-mix(in srgb, var(--button) 90%, var(--button-text) 10%);  /* a control under the mouse */
+    --pressed: color-mix(in srgb, var(--button) 82%, var(--button-text) 18%);  /* pressed, or switched on */
+    --disabled: color-mix(in srgb, var(--button) 50%, var(--window) 50%);  /* a disabled button's fill */
+    --line: color-mix(in srgb, var(--window) 90%, var(--window-text) 10%);  /* dividing lines, edges of menus */
+    --field-edge: color-mix(in srgb, var(--base) 86%, var(--text) 14%);  /* the edge of fields */
+    --field-hover: color-mix(in srgb, var(--base) 74%, var(--text) 26%);  /* … under the mouse */
+    --item-hover: color-mix(in srgb, var(--base) 93%, var(--text) 7%);  /* list rows under the mouse */
+    --panel: color-mix(in srgb, var(--window) 55%, var(--base) 45%);  /* boxes grouping controls */
+    --handle: color-mix(in srgb, var(--window) 78%, var(--window-text) 22%);  /* scroll bar handles */
+    --handle-hover: color-mix(in srgb, var(--window) 62%, var(--window-text) 38%);  /* … under the mouse */
+    --accent-hover: color-mix(in srgb, var(--accent) 85%, var(--accent-text) 15%);  /* lit buttons under the mouse */
+}
+
+/* ---------------------------------------------------------------------------------------------------------
+   Controls. Every widget is a node: its type (Button; PushButton or ToolButton), its #objectName, its classes
+   (from the program's properties: .lit, .accent, .autoRaise, .toggle and .toggle-mute…) and its states
+   (:hover :pressed :checked :disabled :focus, and each control's own). docs/skins.md lists them all.
+   --------------------------------------------------------------------------------------------------------- */
+
+/* Buttons. :lit is accent-coloured (switched-on accent buttons, a dialog's default button…); :toggled is a
+   switched-on toggle with a role (.toggle-mute…: its --toggle-color). ::arrow is the drop-down part of a
+   split button, ::separator the line before it. */
+Button {
+    background-color: var(--button);
+    color: var(--button-text);
+    border: 1px solid transparent;
+    border-radius: 3px;
+}
+PushButton { padding: 4px 12px; }
+ToolButton { padding: 3px 5px; }
+ToolButton:icon { padding: 3px; }
+ToolButton.autoRaise { background-color: transparent; padding: 4px 7px; }
+ToolButton.autoRaise:icon { padding: 4px 5px; }
+Button:hover { background-color: var(--hover); }
+Button:pressed, Button:checked { background-color: var(--pressed); }
+Button:lit { background-color: var(--accent); color: var(--accent-text); }
+Button:lit:hover { background-color: var(--accent-hover); }
+Button:toggled { background-color: var(--toggle-color, var(--accent)); }
+Button:toggled:hover {
+    background-color: color-mix(in srgb, var(--toggle-color, var(--accent)) 85%, var(--accent-text) 15%);
+}
+Button:disabled { color: var(--disabled-text); }
+PushButton:disabled { background-color: var(--disabled); }
+ToolButton:disabled { background-color: var(--button); }
+ToolButton.autoRaise:disabled { background-color: transparent; }
+PushButton:focus { border-color: var(--accent); }
+PushButton:focus:lit, PushButton:focus:disabled { border-color: transparent; }
+Button::arrow { background-color: transparent; }
+Button:arrow-hover::arrow { background-color: var(--pressed); }
+Button::separator { background-color: var(--line); }
+.toggle-mute { --toggle-color: var(--mute); }
+.toggle-solo { --toggle-color: var(--solo); }
+.toggle-record { --toggle-color: var(--record); }
+.toggle-accent { --toggle-color: var(--accent); }
+
+/* ======================================== Basic controls ========================================
+   Label, CheckBox, TabWidget, GroupBox, Separator, SplitterHandle, StatusBar, Window, tooltips, dialogs */
+
+/* Sizes of the layout: a wrapped label's widest line, the narrowest an eliding or wrapping label gets; the room
+   in message boxes, getText / getItem (input dialogs) and progress windows */
+:root {
+    --label-wrap-width: 360px;         /* a wrapping label's width when nothing gives it one */
+    --label-min-width: 16px;           /* the least width of a label that elides its text */
+    --message-box-margin: 14px;        /* around its parts */
+    --message-box-spacing: 14px;       /* between the sign, the text and the buttons */
+    --message-box-text-spacing: 8px;   /* between the text and its details */
+    --input-dialog-margin: 12px;       /* around a question for a name or a number */
+    --input-dialog-spacing: 8px;       /* between its parts */
+    --input-dialog-button-gap: 4px;    /* more above the buttons */
+    --input-dialog-field-width: 280px; /* the field's least width */
+    --progress-dialog-margin: 12px;    /* around a progress window's parts */
+    --progress-dialog-spacing: 10px;   /* between them */
+    --progress-dialog-min-width: 320px; /* its least width */
+}
+
+/* Windows (Dialog, ProgressDialog, menus… are windows too): the background under their widgets. */
+Window { background-color: var(--window); }
+
+/* Tooltips: a box around the text. */
+ToolTip {
+    background-color: var(--tooltip-base);
+    color: var(--tooltip-text);
+    border: 1px solid var(--line);
+    padding: 4px;
+}
+
+/* The picture that follows a drag: its background, and the picture's opacity. */
+DragImage { background-color: var(--base); }
+DragImage::image { opacity: 0.8; }
+
+/* Labels. .hint and .dimmed (8 pt) from the program's properties; :link is a clickable link (underlined);
+   #time and #lufs (the transport's numbers) in the numbers font. ::image is a label's picture. */
+Label { color: var(--window-text); }
+Label.dimmed { color: var(--dimmed-text); font-size: 8pt; }
+Label.hint { color: var(--hint-text); }
+Label:link { color: var(--accent); text-decoration: underline; }
+Label:disabled { color: var(--disabled-text); }
+Label:disabled::image { opacity: 0.45; }
+Label#time { font-family: var(--mono-font); font-size: 12pt; }
+Label#lufs { font-family: var(--mono-font); font-size: 8pt; }
+
+/* Check boxes. ::indicator is the box (margin-right: the gap to the text), its check mark in its `color`. */
+CheckBox { color: var(--window-text); padding: 2px 0; }
+CheckBox:disabled { color: var(--disabled-text); }
+CheckBox::indicator {
+    width: 14px;
+    height: 14px;
+    margin-right: 6px;
+    padding: 1px;
+    background-color: var(--base);
+    border: 1px solid var(--field-hover);
+    border-radius: 3px;
+    color: var(--accent-text);
+}
+CheckBox:hover::indicator { border-color: var(--accent); }
+CheckBox:checked::indicator { background-color: var(--accent); border-color: var(--accent); }
+CheckBox:disabled::indicator { background-color: var(--disabled); border-color: var(--disabled); }
+
+/* Group boxes: the box starts margin-top down, its controls inside its padding; ::title above it. */
+GroupBox {
+    background-color: var(--panel);
+    border-radius: 3px;
+    margin-top: 20px;
+    padding: 8px 6px 6px;
+}
+GroupBox::title { color: var(--window-text); height: 18px; margin: 1px 4px; }
+GroupBox:disabled::title { color: var(--disabled-text); }
+
+/* Separators (:vertical, as in tool bars, or :horizontal): a line of `color`, line-width thick, with margin
+   around it. */
+Separator { color: var(--line); line-width: 1px; }
+Separator:vertical { margin: 6px 3px; }
+
+/* Splitter handles: :horizontal ones move sideways (their width), :vertical ones up and down (their height);
+   a line along the middle. */
+SplitterHandle { color: var(--line); line-width: 1px; }
+SplitterHandle:horizontal { width: 5px; }
+SplitterHandle:vertical { height: 5px; }
+SplitterHandle:hover, SplitterHandle:pressed { color: var(--accent); }
+
+/* Status bars: ::separator is the line along the top, ::permanent the text at the right end. */
+StatusBar { color: var(--window-text); padding: 4px 6px; }
+StatusBar::separator { height: 1px; background-color: var(--line); }
+StatusBar::permanent { padding: 0 6px; }
+
+/* Tabs. ::tab is each tab (:selected, :hover: the one under the pointer, :disabled), ::tab-line a line along
+   its bottom (the selected tab's), ::base the line under all the tabs. */
+TabWidget::base { height: 1px; background-color: var(--line); }
+TabWidget::tab { padding: 6px 12px 8px; color: var(--hint-text); }
+TabWidget::tab:hover { background-color: var(--hover); }
+TabWidget::tab:hover, TabWidget::tab:selected { color: var(--window-text); }
+TabWidget::tab:disabled { color: var(--disabled-text); }
+TabWidget::tab-line { height: 2px; }
+TabWidget::tab-line:selected { background-color: var(--accent); }
+
+/* Dialogs. ButtonBox: the row of OK / Cancel… (column-gap between them, each at least min-width wide).
+   MessageIcon: a message box's sign (.information .question .warning .critical). ProgressBar: a progress
+   window's bar, ::chunk the part done (min-width: the busy block's). */
+ButtonBox { column-gap: 6px; }
+ButtonBox > Button, ProgressDialog > Button { min-width: 80px; }
+MessageIcon { background-color: var(--accent); color: var(--accent-text); }
+MessageIcon.warning { background-color: var(--solo); }
+MessageIcon.critical { background-color: var(--mute); }
+ProgressBar {
+    width: 200px;
+    height: 20px;
+    background-color: var(--base);
+    color: var(--text);
+    border: 1px solid var(--field-edge);
+    border-radius: 3px;
+}
+ProgressBar::chunk { min-width: 20px; background-color: var(--accent); color: var(--accent-text); border-radius: 2px; }
+
+/* (end of Basic controls) */
+
+
+
+/* ======================================== Fields and values ========================================
+   LineEdit, SpinBox, ComboBox and its list */
+
+/* Text fields. Their padding is the room around the text (and their size; the text is centred in the height).
+   :frameless is a field inside a SpinBox or a ComboBox (theirs is the edge); :clear-hover is the clear button
+   under the mouse; :read-only. ::selection is a box behind the selected text (its padding reaches past the text),
+   ::cursor the caret, ::clear-button the × of search fields (icon-size: the cross; margin-left: the room before it). */
+LineEdit {
+    background-color: var(--base);
+    color: var(--text);
+    border: 1px solid var(--field-edge);
+    border-radius: 3px;
+    padding: 3px 5px;
+}
+LineEdit:frameless { background-color: transparent; border-width: 0; padding: 4px 5px; }
+LineEdit:hover { border-color: var(--field-hover); }
+LineEdit:focus { border-color: var(--accent); }
+LineEdit:disabled { border-color: var(--field-edge); color: var(--disabled-text); }
+LineEdit::placeholder { color: color-mix(in srgb, var(--text) 50%, transparent); }
+LineEdit::selection { background-color: var(--highlight); color: var(--highlighted-text); padding: 1px 0; }
+LineEdit::cursor { background-color: currentColor; width: 1px; }
+LineEdit::clear-button {
+    color: var(--hint-text);
+    width: 16px;
+    margin: 0 2px 0 1px;
+    icon-size: 7px;
+    stroke-width: 1.5px;
+}
+LineEdit:clear-hover::clear-button { color: var(--text); }
+
+/* Number fields. The padding gives the size around the widest number (the field inside is a LineEdit:frameless).
+   :focus is its field's. ::up-button and ::down-button: the ▴▾ column (its width), each a box over the inside of the
+   border (its corners: border-radius) clipped to the button; :up-hover / :down-hover, :up-pressed / :down-pressed;
+   :at-maximum / :at-minimum: the value at that end (not wrapping), that button off. */
+SpinBox {
+    background-color: var(--base);
+    color: var(--text);
+    border: 1px solid var(--field-edge);
+    border-radius: 3px;
+    padding: 3px 7px;
+}
+SpinBox:hover { border-color: var(--field-hover); }
+SpinBox:focus { border-color: var(--accent); }
+SpinBox:disabled { border-color: var(--field-edge); }
+SpinBox::up-button, SpinBox::down-button {
+    background-color: transparent;
+    width: 16px;
+    border-radius: 2px;
+    icon-size: 8px;
+    stroke-width: 1.2px;
+}
+SpinBox:up-hover::up-button, SpinBox:down-hover::down-button { background-color: var(--item-hover); }
+SpinBox:at-maximum::up-button, SpinBox:at-minimum::down-button,
+SpinBox:disabled::up-button, SpinBox:disabled::down-button { background-color: transparent; color: transparent; }
+
+/* Drop-down lists. The text starts at the padding's left (the padding gives the size); ::arrow is the box at the
+   right (its width, over the border), the ▾ at its padding-left. :open while its list is open; :editable. */
+ComboBox {
+    background-color: var(--base);
+    color: var(--text);
+    border: 1px solid var(--field-edge);
+    border-radius: 3px;
+    padding: 3px 7px 3px 5px;
+}
+ComboBox:hover { border-color: var(--field-hover); }
+ComboBox:focus, ComboBox:open { border-color: var(--accent); }
+ComboBox:disabled { border-color: var(--field-edge); color: var(--disabled-text); }
+ComboBox::arrow {
+    background-color: transparent;
+    width: 18px;
+    padding-left: 3px;
+    icon-size: 10px;
+    stroke-width: 1.5px;
+}
+
+/* A drop-down's list. ::item is a row (:hover and :selected the highlighted one, :disabled); ::separator a row of
+   its height with a line stroke-width thick across the middle, inside its margin. */
+ComboPopup {
+    background-color: var(--base);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 0;
+    padding: 2px;
+}
+ComboPopup::item { background-color: transparent; color: var(--text); padding: 3px 6px; }
+ComboPopup::item:selected { background-color: var(--highlight); color: var(--highlighted-text); }
+ComboPopup::item:disabled { color: var(--disabled-text); }
+ComboPopup::separator { background-color: var(--line); height: 7px; margin: 0 4px; stroke-width: 1px; }
+
+/* (end of Fields and values) */
+
+
+
+/* ======================================== Sliders, lists, scrolling and menus ========================================
+   Slider, ScrollBar, ScrollArea, ListWidget, TreeWidget, MenuBar, Menu, the file dialog */
+
+:root {
+    --scrollbar-width: 10px;   /* the thickness of scroll bars (and the room lists and scroll areas keep for them) */
+}
+
+/* Sliders: :horizontal / :vertical. width / height: the size it asks for; min-width (horizontal) or min-height
+   (vertical): its shortest. ::groove across the middle (its thickness: height when horizontal, width when
+   vertical), ::fill the groove below the value (as thick), ::handle (width / height; :hover and :pressed are the
+   handle's own: under the mouse, dragged; a radius of half its size makes it round). */
+Slider { width: 84px; height: 16px; min-width: 20px; min-height: 20px; }
+Slider:vertical { width: 16px; height: 84px; }
+Slider::groove { width: 4px; height: 4px; background-color: var(--field-edge); border-radius: 2px; }
+Slider::fill { background-color: var(--accent); border-radius: 2px; }
+Slider::fill:disabled { background-color: var(--field-hover); }
+Slider::handle { width: 10px; height: 10px; background-color: var(--button-text); border-radius: 5px; }
+Slider::handle:hover, Slider::handle:pressed { background-color: var(--accent); }
+Slider::handle:disabled { background-color: var(--disabled-text); }
+
+/* Scroll bars: :horizontal / :vertical; width / height: the size it asks for (across it: --scrollbar-width).
+   ::thumb (:hover and :pressed are its own: under the mouse, dragged): margin around it in the bar, its
+   shortest length min-height (vertical) or min-width (horizontal). */
+ScrollBar { background-color: var(--window); width: var(--scrollbar-width); height: 40px; }
+ScrollBar:horizontal { width: 40px; height: var(--scrollbar-width); }
+ScrollBar::thumb { background-color: var(--handle); margin: 2px; border-radius: 3px; min-width: 24px; min-height: 24px; }
+ScrollBar::thumb:hover, ScrollBar::thumb:pressed { background-color: var(--handle-hover); }
+
+/* Lists: the rows inside its border and padding; width / height: the size it asks for, min-width / min-height.
+   ::item, each row (height: all rows'; :selected :hover :alternate :disabled :checked :checkable :bold); an
+   item's own colour is its text's unless it is selected or disabled. ::indicator, the check box of checkable rows
+   (the mark inside its border and padding), ::icon (width / height: the box icons fit in; margins). */
+ListWidget { background-color: var(--base); width: 256px; height: 192px; min-width: 40px; min-height: 40px; }
+ListWidget::item { height: 22px; padding: 0 4px; color: var(--text); }
+ListWidget::item:alternate { background-color: var(--alternate-base); }
+ListWidget::item:hover { background-color: var(--item-hover); }
+ListWidget::item:selected { background-color: var(--highlight); color: var(--highlighted-text); }
+ListWidget::item:disabled { color: var(--disabled-text); }
+ListWidget::item:bold { font-weight: bold; }
+ListWidget::indicator {
+    width: 14px;
+    height: 14px;
+    margin-right: 6px;
+    padding: 1px;
+    background-color: var(--base);
+    border: 1px solid var(--field-hover);
+    border-radius: 3px;
+    color: var(--accent-text);
+}
+ListWidget::indicator:checked { background-color: var(--accent); border-color: var(--accent); }
+ListWidget::icon { width: 16px; height: 16px; margin-right: 4px; }
+
+/* Trees: as lists. ::item (:selected :hover :disabled :open :has-children :bold), ::branch the arrow of nodes
+   with children (its width: the indent of each level; the arrow inside its padding), ::icon. */
+TreeWidget { background-color: var(--base); width: 256px; height: 192px; min-width: 40px; min-height: 40px; }
+TreeWidget::item { height: 20px; padding: 0 4px 0 0; color: var(--text); }
+TreeWidget::item:hover { background-color: var(--item-hover); }
+TreeWidget::item:selected { background-color: var(--highlight); color: var(--highlighted-text); }
+TreeWidget::item:disabled { color: var(--disabled-text); }
+TreeWidget::item:bold { font-weight: bold; }
+TreeWidget::branch { width: 16px; padding: 0 3px; color: var(--hint-text); }
+TreeWidget::branch:selected { color: var(--highlighted-text); }
+TreeWidget::icon { width: 16px; height: 16px; margin-right: 4px; }
+
+/* The menu bar: ::item, each title (:hover, :open while its menu is open, :disabled). */
+MenuBar::item { padding: 4px 8px; color: var(--window-text); }
+MenuBar::item:hover { background-color: var(--hover); }
+MenuBar::item:open { background-color: var(--pressed); }
+MenuBar::item:disabled { color: var(--disabled-text); }
+
+/* Menus (the popups): min-width, the whole menu's narrowest. ::item (:hover :disabled :checkable :checked
+   :section :submenu; its padding: the text's place, the check mark and arrow are in it), ::separator (height,
+   inside its margins), ::check the check mark (width: its size; margin-left), ::shortcut (margin-left: the room
+   before the shortcuts), ::arrow of submenus (width; margin-right; margin-left: the room it adds to the menu). */
+Menu { background-color: var(--base); border: 1px solid var(--line); padding: 4px 0; min-width: 60px; }
+Menu::item { padding: 5px 24px; color: var(--text); }
+Menu::item:hover { background-color: var(--highlight); color: var(--highlighted-text); }
+Menu::item:disabled, Menu::item:section { color: var(--disabled-text); }
+Menu::item:section { font-weight: bold; }
+Menu::separator { height: 1px; margin: 4px 7px; background-color: var(--line); }
+Menu::check { width: 10px; margin-left: 7px; color: var(--text); }
+Menu::check:disabled { color: var(--disabled-text); }
+Menu::shortcut { margin-left: 24px; }
+Menu::arrow { width: 10px; margin-right: 6px; margin-left: 4px; }
+
+/* The file dialog's list of folders and files: --details-from (the size and date columns show when its rows are
+   wider). ::header, the column titles (padding around each), ::item (each row: height; :selected :hover :folder),
+   ::icon (the glyph: width, colour), ::detail (the size and date: padding; --spare, room beyond the widest
+   value), ::placeholder ("(empty)": height). */
+FileList { background-color: var(--base); width: 420px; height: 300px; min-width: 120px; min-height: 80px; --details-from: 360px; }
+FileList::header {
+    background-color: var(--window);
+    color: var(--hint-text);
+    border: 0 solid var(--line);
+    border-bottom-width: 1px;
+    padding: 3px 6px;
+}
+FileList::item { height: 22px; padding: 0 4px 0 6px; color: var(--text); }
+FileList::item:hover { background-color: var(--item-hover); }
+FileList::item:selected { background-color: var(--highlight); color: var(--highlighted-text); }
+FileList::icon { width: 14px; margin-right: 6px; color: var(--hint-text); }
+FileList::icon:selected { color: var(--highlighted-text); }
+FileList::detail { padding: 0 6px; --spare: 4px; color: var(--hint-text); }
+FileList::detail:selected { color: var(--highlighted-text); }
+FileList::placeholder { height: 60px; color: var(--hint-text); }
+
+/* (end of Sliders, lists, scrolling and menus) */
+
+
+
+/* ======================================== Timeline ========================================
+   the ruler, lanes, clips, automation, the overview, the track rows; the layout's sizes */
+
+/* The layout's sizes (also where the mouse grabs things). */
+:root {
+    --ruler-height: 24px;          /* the timeline's ruler (and the CPU monitor beside it) */
+    --master-height: 86px;         /* the master lane and its row */
+    --group-height: 52px;          /* a group's header lane and row */
+    --take-height: 46px;           /* a take lane and its row */
+    --automation-padding: 6px;     /* above and below the curve in an automation lane */
+    --panel-width: 250px;          /* the track rows' panel */
+    --overview-height: 44px;       /* the overview's standard height (the least it can be dragged to) */
+    --overview-max-height: 320px;  /* … the most */
+    --clip-header-height: 16px;    /* a clip's name strip (drag it to move the clip) */
+    --clip-edge-width: 6px;        /* a clip's ends (drag them to trim it) */
+    --fade-handle-size: 7px;       /* an audio clip's fade handles */
+    --link-badge-width: 14px;      /* a linked clip's chain mark */
+    --link-badge-height: 8px;      /* (its height) */
+    --cursor-arrow-width: 11px;    /* a cursor's arrow on the ruler */
+    --cursor-arrow-height: 7px;    /* (its height) */
+}
+
+/* The timeline: its grid's lines, both cursors (color, stroke-width), the selected range (a box over each lane,
+   and a line at each end), the take growing while recording, where slices start (the slice window: a line, and a
+   mark width x height at its top). */
+Timeline::grid-fine { color: var(--grid-fine); stroke-width: 1px; }
+Timeline::grid { color: var(--grid); stroke-width: 1px; }
+Timeline::grid-bar { color: var(--grid-bar); stroke-width: 1px; }
+Timeline::cursor { color: var(--cursor); stroke-width: 1px; }
+Timeline::playhead { color: var(--playhead); stroke-width: 1px; }
+Timeline::selection { background-color: var(--selection-fill); }
+Timeline::selection-edge { color: var(--selection-edge); stroke-width: 1px; }
+Timeline::recording { background-color: color-mix(in srgb, var(--record) 27.45%, transparent); }
+Timeline::slice { color: var(--selected-note); stroke-width: 1px; width: 5px; height: 3px; }
+
+/* The ruler (a box; color: its labels and ticks). baseline: a text's baseline from the ruler's top. A tick's
+   height runs up from the ruler's bottom (labelled lines cross all of it). The loop band (Ruler:looping while
+   looping is on) and the markers' flags fill the lower part of it (height); ::loop-edge marks the band's ends
+   (background-color unset: the band's colour, opaque). A flag is as wide as its name with padding-left at both
+   sides (padding-right when more); ::marker-line is its place across the ruler. */
+Ruler { background-color: var(--ruler-bg); color: var(--ruler-text); }
+Ruler::label { padding-left: 4px; baseline: 15px; }
+Ruler::tick { height: 6px; stroke-width: 1px; }
+Ruler::tick-fine { height: 3px; stroke-width: 1px; }
+Ruler::tick-beat { height: 6px; stroke-width: 1px; }
+Ruler::tick-bar { height: 10px; stroke-width: 1px; }
+Ruler::loop { background-color: var(--loop-off); height: 50%; }
+Ruler:looping::loop { background-color: var(--loop); }
+Ruler::loop-edge { width: 2px; }
+Ruler::marker { background-color: var(--accent); color: var(--accent-text); height: 50%; padding: 0 2px 0 5px; }
+Ruler::marker-line { background-color: var(--accent); width: 2px; }
+Ruler::tempo { color: var(--accent); margin-left: 6px; baseline: 15px; }
+
+/* Lanes (boxes as wide as the timeline): a track's (:alternate every other), a group's header (.group: in the
+   group's own colour when it has one; padding around its miniature clips), an automation lane's (.automation;
+   :armed while armed for writing, :locked when its curve can't be edited) and a take lane's (.take), and the room
+   under the last one (.below). ::overlay is a box over a lane. An automation lane's color is its curve's. */
+Lane { background-color: var(--lane); }
+Lane:alternate { background-color: var(--lane-alt); }
+Lane.group { background-color: var(--group-lane); border-top: 1px solid var(--ruler-bg); padding: 6px 0; }
+Lane.automation, Lane.take { background-color: var(--automation-lane); border-top: 1px solid var(--grid-bar); }
+Lane.below { background-color: var(--below-lanes); }
+Lane:armed::overlay { background-color: color-mix(in srgb, var(--record) 14.12%, transparent); }
+Lane.automation { color: var(--automation-line); }
+Lane.automation:locked { color: color-mix(in srgb, var(--automation-line) 43.14%, transparent); }
+Lane.automation::curve { stroke-width: 1.5px; }
+Lane.automation::level { stroke-width: 1px; }  /* the value now, dashed, while there are no points */
+Lane.automation::point { width: 4px; height: 4px; }
+Lane.automation::range { background-color: color-mix(in srgb, var(--automation-line) 5.49%, transparent); }
+Lane.automation::range-edge { color: color-mix(in srgb, var(--automation-line) 27.45%, transparent); stroke-width: 1px; }
+Lane.automation::guide { color: color-mix(in srgb, var(--automation-line) 15.69%, transparent); }  /* dotted */
+Lane.automation::label {  /* the values at the top and the bottom of the range */
+    color: color-mix(in srgb, var(--automation-line) 66.67%, transparent);
+    font-size: calc(1em - 2px);
+    padding: 2px 6px 1px;
+    width: 220px;
+    height: 14px;
+}
+Lane.automation::value {  /* a stepped parameter's values, on their lines */
+    background-color: var(--automation-lane);
+    color: color-mix(in srgb, var(--automation-line) 66.67%, transparent);
+    font-size: calc(1em - 2px);
+    padding: 0 4px 0 2px;
+    margin-left: 4px;
+}
+Lane.automation::hint { color: var(--ruler-text); padding-left: 8px; baseline: calc(50% + 4px); }
+
+/* Clips. Their colours are the clips' own (or --clip-audio / --clip-midi), with automatic contrast: ::body (all
+   of it) and ::header (the name strip) are boxes in them. stroke-width: the outline (padding: a switched-off
+   clip's, that far inside). States :selected :disabled :frozen :muted :linked :looping; classes .audio .midi. */
+Clip { stroke-width: 1.5px; }
+Clip:selected { stroke-width: 2px; }
+Clip:disabled { padding: 0.75px; }
+Clip:frozen::overlay { background-color: var(--frozen-tint); }
+Clip::name { padding: 3px 6px; }
+Clip::fade { background-color: rgba(0, 0, 0, 0.2745); stroke-width: 1.2px; }
+Clip::loop-start { stroke-width: 2px; height: calc(var(--clip-header-height) + 4px); }
+Clip::link { stroke-width: 1.6px; }
+
+/* The master lane, pinned under the tracks (its border-top: the line above it, over the grid). */
+MasterLane { background-color: var(--master-lane); border-top: 1px solid var(--master-divider); }
+
+/* The overview bar (padding: above and below its rows, which are Lane boxes), the editor's view on it, and the
+   cursors. */
+Overview {
+    background-color: var(--overview-bg);
+    border: 0 solid var(--overview-edge);  /* (a box's borders are drawn in one colour, its border-top-color) */
+    border-bottom-width: 1px;
+    padding: 3px 0;
+}
+Overview Lane.group, Overview Lane.automation, Overview Lane.take { border-top-width: 0; }
+Overview::view {
+    background-color: var(--overview-view-fill);
+    outline-color: var(--overview-view);
+    outline-style: solid;
+    outline-width: 1px;
+    outline-offset: -1px;
+}
+Overview::cursor { color: var(--cursor); stroke-width: 1px; }
+Overview::playhead { color: var(--playhead); stroke-width: 1px; }
+
+/* The track rows in the panel beside the lanes (TrackPanel): a track's (:alternate every other), an automation
+   lane's (:armed: a quarter of ::tint is mixed in), a take's, a group's header. border-left-color: the stripe
+   down a row's left; row-gap / column-gap: between its lines / its controls. */
+TrackRow { background-color: var(--row); padding: 5px 8px; row-gap: 4px; column-gap: 4px; }
+TrackRow:alternate { background-color: var(--row-alt); }
+TrackRow.audio { border-left-color: var(--accent-audio); }
+TrackRow.midi { border-left-color: var(--accent-midi); }
+TrackRow.return { border-left-color: var(--accent-return); }
+TrackRow.automation {
+    background-color: var(--automation-lane);
+    border-top-color: var(--grid-bar);
+    padding: 4px 8px 4px 14px;
+    row-gap: 2px;
+    column-gap: 2px;
+}
+TrackRow.automation:armed::tint { background-color: var(--record); }
+TrackRow.take { background-color: var(--automation-lane); padding: 4px 8px 4px 14px; column-gap: 4px; }
+TrackRow.group {
+    background-color: var(--group-lane);
+    border-left-color: var(--group-accent);
+    padding: 4px 8px 4px 4px;
+    row-gap: 3px;
+    column-gap: 3px;
+}
+TrackRow::group-bar { background-color: var(--group-accent); width: 5px; }
+
+/* (end of Timeline) */
+
+
+
+/* ======================================== Panels, meters and editors ========================================
+   the transport, meters, the master strip, the MIDI editor, Steps, the patch panel, the Explorer, effect windows */
+
+:root {
+    --meter-gap: 1px;              /* between a meter's bars */
+    --scope-height: 78px;          /* the master scope (with the gap above it) */
+    --explorer-width: 250px;       /* the Explorer's width at the start (it can be dragged) */
+    --dock-title-height: 22px;     /* the Explorer's title bar */
+    --dock-close-size: 18px;       /* its ✕ button */
+    --transport-button-size: 28px; /* the playback buttons (square) */
+    --transport-icon-size: 14px;   /* their icons */
+    --transport-time-width: 200px; /* the time display's room (less when the bar is short of room) */
+    --transport-separator-width: 7px;  /* an upright line between groups of controls, with the room around it */
+    --lufs-width: 62px;            /* the master's LUFS readout */
+    --row-button-height: 22px;     /* the buttons on a track's row (M, S, FX, the instrument, icons) */
+    --toggle-button-width: 26px;   /* M, S, ● and the like */
+    --fx-button-width: 28px;       /* FX */
+    --instrument-button-width: 40px;  /* a MIDI track's instrument (with its ▾) */
+    --icon-button-width: 22px;     /* a row's small icon buttons */
+    --sends-button-width: 20px;    /* → (the sends) */
+    --sends-button-height: 16px;   /* (its height) */
+    --output-selector-width: 58px; /* a row's outputs (1/2 ▾) */
+    --volume-slider-height: 14px;  /* a row's volume */
+    --db-reading-width: 44px;      /* its dB beside it */
+    --pan-knob-size: 22px;         /* a row's pan knob */
+    --send-slider-width: 150px;    /* a send's slider (its least width) */
+    --pre-button-width: 34px;      /* a send's Pre */
+    --curve-view-height: 130px;    /* an effect window's curve (its least height) */
+    --tuner-height: 120px;         /* the Tuner's display (its least height) */
+    --piano-keys-width: 56px;      /* the MIDI editor's keys (and the velocity lane's label column) */
+    --velocity-lane-height: 90px;  /* the lane under the notes */
+    --editor-ruler-height: 22px;   /* the MIDI editor's ruler */
+    --step-row-height: 22px;       /* a row of the Steps view */
+    --piano-roll-min-height: 200px; /* the notes' area (its least height) */
+    --explorer-button-size: 24px;      /* the Explorer's +, −, ⟳ and ■ buttons */
+    --explorer-row-height: 20px;       /* a row of the Explorer's list */
+    --explorer-indent: 16px;           /* a level of its folder tree */
+    --explorer-header-height: 22px;    /* its search results' header */
+    --sample-waveform-height: 76px;    /* the sample's waveform (the Explorer, the sampler, the Pad Kit) */
+    --pad-width: 116px;                /* a Pad Kit pad's least width */
+    --color-wheel-size: 200px;         /* the colour dialog's wheel */
+    --color-swatch-size: 22px;         /* its recent colours */
+}
+
+/* Level meters (every track row, group row and the master): ::track behind each bar; ::bar and ::peak (the held
+   peak's line) are :ok up to -12 dB, :warn up to 0 dB, :hot above; ::number is the loudest since Play. */
+LevelMeter::track { background-color: var(--meter-bg); }
+LevelMeter::bar:ok, LevelMeter::peak:ok { background-color: var(--meter-ok); }
+LevelMeter::bar:warn, LevelMeter::peak:warn { background-color: var(--meter-warn); }
+LevelMeter::bar:hot, LevelMeter::peak:hot { background-color: var(--meter-hot); }
+LevelMeter::peak { width: 2px; }
+LevelMeter::number { background-color: var(--meter-bg); color: var(--ruler-text); }
+LevelMeter::number:clipped { background-color: var(--meter-hot); color: var(--accent-text); }
+
+/* The transport bar (#Transport): its border is the line under it; padding around its three parts, column-gap
+   between its controls. IconButton is a playback button (a ToolButton): ::icon colours its icon. */
+Transport {
+    background-color: var(--window);
+    border-width: 0 0 1px 0;
+    border-style: solid;
+    border-color: var(--line);
+    padding: 2px;
+    column-gap: 2px;
+}
+IconButton::icon { color: var(--button-text); }
+IconButton:checked::icon { color: var(--accent-text); }
+IconButton:disabled::icon { color: var(--disabled-text); }
+
+/* The audio CPU monitor (top right): its left border is the line between it and the ruler; ::late is the late
+   buffers' warning (min-width: the room it keeps beside the average); ::track the bar along its bottom, ::bar the
+   load on it (:ok under 50 %, :warn under 80 %, :hot). Its size is the ruler's height and the panel's width. */
+CpuMonitor {
+    background-color: var(--ruler-bg);
+    color: var(--ruler-text);
+    border-width: 0 0 0 1px;
+    border-style: solid;
+    border-color: var(--meter-bg);
+    padding: 0 8px 3px 8px;
+}
+CpuMonitor::late { color: var(--meter-hot); min-width: 50px; }
+CpuMonitor::track { background-color: var(--meter-bg); height: 3px; }
+CpuMonitor::bar:ok { background-color: var(--meter-ok); }
+CpuMonitor::bar:warn { background-color: var(--meter-warn); }
+CpuMonitor::bar:hot { background-color: var(--meter-hot); }
+
+/* The master scope (under the master's controls): its box (margin-top: the gap above it); ::divider between the
+   left and right channels shown apart (margins: the gap it sits in); ::trace the waveform or the spectrum's line
+   (fill-opacity: under the spectrum); ::grid; ::caption the note heard or the time shown. */
+Scope {
+    background-color: var(--meter-bg);
+    border: 1px solid var(--frame-edge);
+    margin-top: 3px;
+}
+Scope::divider { color: var(--frame-edge); width: 1px; margin: 0 1px; }
+Scope::trace { color: var(--accent); stroke-width: 1.2px; fill-opacity: 0.2745; }
+Scope::grid { color: var(--grid); }
+Scope::caption {
+    color: var(--dimmed-text);
+    font-family: var(--mono-font);
+    font-size: 7pt;
+    padding: 1px 4px 0 4px;
+    height: 12px;
+}
+
+/* The MIDI editor (MidiEditor: its window), the piano roll (PianoRoll), the Steps view (Steps), the lane under the
+   notes (VelocityLane) and the editor's ruler (EditorRuler). The notes are the clip's colour (data); a part's
+   states are its own (:white, :black, :selected…). */
+MidiEditor::toolbar { padding: 2px 4px 0 4px; column-gap: 4px; }
+MidiEditor::scale { margin-left: 8px; }
+MidiEditor::hint { padding: 2px 4px; }
+
+PianoRoll::row:white { background-color: var(--lane-alt); }
+PianoRoll::row:black { background-color: var(--lane); }
+PianoRoll::row:outside { background-color: var(--roll-shade); }  /* over a row outside the scale */
+PianoRoll::row:tonic { background-color: color-mix(in srgb, var(--selected-note) 8.6275%, transparent); }
+PianoRoll::octave { background-color: var(--grid-bar); height: 1px; }
+PianoRoll::below { background-color: var(--ruler-bg); }  /* under the last row, folded */
+PianoRoll::shade, Steps::shade { background-color: var(--roll-shade); }  /* outside the clip */
+PianoRoll::grid, VelocityLane::grid { width: 1px; }
+PianoRoll::grid:fine, VelocityLane::grid:fine { color: var(--grid-fine); }
+PianoRoll::grid:beat, VelocityLane::grid:beat { color: var(--grid); }
+PianoRoll::grid:bar { color: var(--grid-bar); }
+VelocityLane::grid:middle { color: var(--grid-bar); }  /* pan and fine tuning: the middle line */
+PianoRoll::note, Steps::note { border-width: 1px; }
+PianoRoll::note:selected, Steps::note:selected { border: 2px solid var(--selected-note); }
+PianoRoll::slide, Steps::slide { stroke-width: 2px; }
+PianoRoll::slide-head, Steps::slide-head { stroke-width: 1.5px; }
+PianoRoll::loop-end { color: var(--selected-note); width: 1px; }  /* where each pass of a looping clip ends */
+PianoRoll::selection-box {
+    background-color: color-mix(in srgb, var(--selected-note) 15.6863%, transparent);
+    border-color: var(--selected-note);
+}
+PianoRoll::cursor, Steps::cursor, VelocityLane::cursor, EditorRuler::cursor { color: var(--cursor); width: 1px; }
+PianoRoll::playhead, Steps::playhead, VelocityLane::playhead, EditorRuler::playhead { color: var(--playhead); width: 1px; }
+PianoRoll::keys, Steps::keys { background-color: var(--keys-white); }
+PianoRoll::key-line, Steps::key-line { background-color: var(--keys-line); height: 1px; }
+PianoRoll::key-label, Steps::key-label { color: var(--keys-label); padding-right: 4px; }
+PianoRoll::key:black, Steps::key:black { background-color: var(--keys-black); }
+PianoRoll::key:black { width: 62%; }
+PianoRoll::key:black:folded { width: 40%; }
+PianoRoll::key:black:named { width: 18%; }  /* named after a Pad Kit's pad */
+Steps::key:black { width: 6px; }
+PianoRoll::key:sounding, Steps::key:sounding { background-color: var(--key-sounding); }
+PianoRoll::keys-edge, Steps::keys-edge { background-color: var(--ruler-bg); width: 1px; }
+
+Steps { background-color: var(--ruler-bg); }
+Steps::row { background-color: var(--lane); }
+Steps::pad { background-color: var(--lane-alt); border-radius: 2px; margin: 2px 1px; }
+Steps::pad:odd { --darken: 112; }  /* the pads of odd beats, darker (as QColor::darker) */
+Steps::note { margin: 3px 1px; }
+Steps::add-row { color: var(--ruler-text); padding: 0 2px 0 6px; }
+
+VelocityLane { background-color: var(--meter-bg); border-top: 1px solid var(--ruler-bg); }
+VelocityLane::bar { width: 4px; }
+VelocityLane::bar:selected { background-color: var(--selected-note); }
+VelocityLane::cap { width: 8px; height: 3px; }
+VelocityLane::label { background-color: var(--ruler-bg); color: var(--ruler-text); padding: 2px 2px 0 4px; height: 16px; }
+VelocityLane::chooser { margin: 4px 2px 0 2px; }
+
+EditorRuler { background-color: var(--ruler-bg); color: var(--ruler-text); }
+EditorRuler::tick { height: 4px; }
+EditorRuler::tick:bar { height: 8px; }
+EditorRuler::tick:second { height: 6px; }
+EditorRuler::label { padding-left: 4px; top: 15px; }  /* top: the labels' baseline */
+EditorRuler::corner { background-color: var(--ruler-bg); }  /* over the keys' column */
+
+/* The patch panel (an effects window's patch space, an instrument patch panel): units between rails, jacks and
+   cables. Its geometry (where units, jacks and lights go) is its own; colours, lines and fonts are here. The
+   cables take --cable-1 … --cable-6 in turn. */
+PatchPanel {
+    background-color: color-mix(in srgb, var(--base) 50%, var(--window) 50%);
+    --cable-1: #e0533d;
+    --cable-2: #e8b23a;
+    --cable-3: #4aa3df;
+    --cable-4: #5bbf6a;
+    --cable-5: #b07cd8;
+    --cable-6: #e57fb0;
+}
+PatchPanel::rail { background-color: var(--button); }
+PatchPanel::rail-edge { background-color: var(--frame-edge); height: 1px; }
+PatchPanel::screw {
+    background-color: color-mix(in srgb, var(--button) 72%, var(--window-text) 28%);
+    color: color-mix(in srgb, var(--button) 40%, var(--frame-edge) 60%);
+    width: 8px;
+    stroke-width: 1.4px;
+}
+PatchPanel::sources {
+    background-color: color-mix(in srgb, var(--base) 75%, var(--window) 25%);
+    border-top: 1px solid color-mix(in srgb, var(--base) 50%, var(--frame-edge) 50%);
+}
+PatchPanel::sources-title { color: var(--hint-text); font-weight: bold; font-size: calc(1em - 1.5pt); }
+PatchPanel::source { color: var(--button-text); font-size: calc(1em - 1pt); }
+PatchPanel::source:blocked { opacity: 0.35; }
+PatchPanel::jack {
+    background-color: var(--frame-edge);
+    border: 3px solid color-mix(in srgb, var(--button) 65%, var(--window-text) 35%);
+}
+PatchPanel::jack-ring { color: color-mix(in srgb, var(--accent) 58.82353%, transparent); stroke-width: 2px; }
+PatchPanel::jack-ring:hover { color: var(--accent); stroke-width: 3px; }
+PatchPanel::end-title { color: var(--hint-text); font-weight: bold; font-size: calc(1em - 1pt); }
+PatchPanel::end-label { color: var(--hint-text); font-size: calc(1em - 1pt); }
+PatchPanel::empty-hint { color: var(--hint-text); }
+PatchPanel::unit { background-color: var(--button); border-radius: 3px; }
+PatchPanel::unit:hover { background-color: color-mix(in srgb, var(--button) 94%, var(--window-text) 6%); }
+PatchPanel::unit:selected { outline-color: var(--accent); outline-width: 2px; }
+PatchPanel::picture { background-color: var(--base); }
+PatchPanel::picture:bypassed { opacity: 0.35; }
+PatchPanel::faceplate { color: color-mix(in srgb, var(--base) 65%, var(--hint-text) 35%); stroke-width: 1.6px; }
+PatchPanel::faceplate-text { color: color-mix(in srgb, var(--base) 30%, var(--hint-text) 70%); font-size: calc(1em - 1pt); }
+PatchPanel::wave { color: var(--accent); stroke-width: 3px; }
+PatchPanel::reload-shade { background-color: #0000006e; }
+PatchPanel::reload {
+    background-color: var(--button);
+    color: var(--button-text);
+    border-top: 1px solid var(--frame-edge);
+    border-radius: 4px;
+    font-weight: bold;
+}
+PatchPanel::reload:hover { background-color: var(--accent); color: var(--accent-text); }
+PatchPanel::name { color: var(--button-text); font-weight: bold; }
+PatchPanel::name:bypassed { color: var(--disabled-text); }
+PatchPanel::sidechain-label { color: var(--hint-text); font-weight: bold; font-size: calc(1em - 2pt); }
+PatchPanel::led { border-top: 1px solid var(--frame-edge); }
+PatchPanel::led:on { background-color: var(--meter-ok); }
+PatchPanel::led:idle { background-color: var(--meter-warn); }
+PatchPanel::led:bypassed { background-color: color-mix(in srgb, var(--button) 55%, var(--frame-edge) 45%); }
+PatchPanel::led:problem { background-color: var(--record); }
+PatchPanel::status { color: var(--hint-text); font-size: calc(1em - 1pt); }
+PatchPanel::status:hover { color: var(--button-text); }
+PatchPanel::groove { background-color: var(--frame-edge); border-radius: 2px; }
+PatchPanel::level { background-color: color-mix(in srgb, var(--accent) 75%, var(--button) 25%); }
+PatchPanel::level:bypassed { background-color: var(--disabled-text); }
+PatchPanel::zero-mark { color: var(--hint-text); stroke-width: 1px; }
+PatchPanel::knob {
+    background-color: color-mix(in srgb, var(--button) 45%, var(--window-text) 55%);
+    border-top: 1px solid var(--frame-edge);
+    border-radius: 3px;
+}
+PatchPanel::knob:hover { background-color: var(--accent); }
+PatchPanel::value { color: var(--hint-text); font-size: calc(1em - 1pt); }
+PatchPanel::value:hover { color: var(--button-text); }
+PatchPanel::mod-link {
+    color: var(--accent);
+    stroke-width: 2px;
+    font-weight: bold;
+    font-size: calc(1em - 1pt);
+}
+PatchPanel::mod-label { background-color: var(--base); }
+PatchPanel::cable { stroke-width: 3.6px; outline-width: 6px; }
+
+/* The Explorer's waveform (the selected sample): ::caption is the line with its name and length. */
+SampleWaveform { background-color: var(--meter-bg); color: var(--ruler-text); }
+SampleWaveform::caption { color: var(--ruler-text); height: 14px; padding-left: 4px; padding-right: 4px; column-gap: 6px; }
+SampleWaveform::wave { color: var(--sample-wave); }
+SampleWaveform::midline { background-color: var(--grid); height: 1px; }
+SampleWaveform::position { background-color: var(--playhead); width: 1px; }
+
+/* The Explorer: its rows (padding, row-gap), the folder row and the preview row (column-gap); FileView is its list
+   (the folder's tree, the search results with their ::header). */
+Explorer { padding: 6px; row-gap: 5px; }
+Explorer::folder-row { column-gap: 3px; }
+Explorer::preview-row { column-gap: 6px; }
+FileView { background-color: var(--base); color: var(--text); }
+FileView::row:hover { background-color: var(--item-hover); }
+FileView::row:selected { background-color: var(--highlight); color: var(--highlighted-text); }
+FileView::icon { color: var(--hint-text); fill-opacity: 0.353; }
+FileView::icon:selected { color: var(--highlighted-text); }
+FileView::header { background-color: var(--window); color: var(--hint-text); border-color: var(--line); border-width: 0 0 1px 0; }
+
+/* The colour dialog: the wheel's marker, the previews (a clip, a track's row: their colours are the chosen
+   colour's) and the recent colours' squares. */
+ColorWheel::marker { width: 12px; stroke-width: 2px; }
+ClipPreview { background-color: var(--window); padding: 2px; width: 170px; height: 64px; }
+ClipPreview::clip { min-height: 16px; border-top-width: 1.5px; }
+TrackPreview::stripe { background-color: var(--accent-audio); width: 3px; }
+TrackPreview::readout { font-family: var(--mono-font); font-size: 8pt; }
+TrackPreview::button { background-color: var(--button); }
+TrackPreview::meter { background-color: var(--meter-bg); }
+Swatch::chip { border-color: var(--frame-edge); border-radius: 3px; }
+
+/* The Pad Kit's pads (a PadView is a SampleWaveform: its ::wave too). :selected is the pad chosen, :dropping a pad
+   files are dragged over; --choke-1 to --choke-8 are the choke groups' colours (its tint, stripe and key). */
+PadView {
+    --choke-1: #e87040;
+    --choke-2: #50aae6;
+    --choke-3: #78c85a;
+    --choke-4: #dc5aaa;
+    --choke-5: #f0c83c;
+    --choke-6: #9678e6;
+    --choke-7: #3cc8be;
+    --choke-8: #c8c8c8;
+}
+PadView::choke-tint { opacity: 0.157; }
+PadView::empty { color: var(--disabled-text); }
+PadView::name { color: var(--ruler-text); }
+PadView::name:selected { font-weight: bold; }
+PadView::stripe { width: 3px; }
+PadView::frame { border-top: 1px solid var(--frame-edge); }
+PadView::frame:selected, PadView::frame:dropping { border-top: 2px solid var(--selected-note); }
+
+/* The sampler's waveform (a SampleWaveform): what is before its start and after its end, and their lines. */
+SamplerWaveform::outside { background-color: var(--roll-shade); }
+SamplerWaveform::marker { background-color: var(--selected-note); width: 1px; }
+
+/* The metronome window's envelope graphs: .bar (the click at the start of a bar) and .beat (the other beats). */
+EnvelopeGraph { background-color: var(--meter-bg); color: var(--accent); }
+EnvelopeGraph.bar { color: var(--solo); }
+EnvelopeGraph.beat { color: var(--accent-audio); }
+EnvelopeGraph::grid { color: var(--grid); stroke-width: 1px; }
+EnvelopeGraph::envelope { stroke-width: 2px; fill-opacity: 0.2353; }
+EnvelopeGraph::label { color: var(--ruler-text); }
+EnvelopeGraph::handle { background-color: var(--meter-bg); border-top: 2px solid currentColor; }
+EnvelopeGraph::handle:dragging { border-top-color: var(--accent-text); }
+
+/* A track's, group's or the master's row (LaneFrame, #lane): its own colour is the lane's or the track's (data).
+   ::stripe is the accent stripe down its left (in the track kind's colour), ::edge the line there without one,
+   ::current the selected row's edges, ::load the CPU bar along its bottom (Options → CPU per track) and ::load-bar
+   the share on it. The master's row is .master: its colour, padding and gaps; ::title, ::notice. */
+LaneFrame::stripe { width: 3px; }
+LaneFrame::edge { background-color: var(--frame-edge); width: 1px; }
+LaneFrame::current { border-width: 1px 1px 1px 0; border-color: var(--accent); }
+LaneFrame::load { background-color: var(--meter-bg); height: 2px; margin-bottom: 1px; }
+LaneFrame::load-bar:ok { background-color: var(--meter-ok); }
+LaneFrame::load-bar:warn { background-color: var(--meter-warn); }
+LaneFrame::load-bar:hot { background-color: var(--meter-hot); }
+LaneFrame.master { background-color: var(--master-lane); padding: 3px 8px; row-gap: 2px; column-gap: 2px; }
+LaneFrame.master::title { font-weight: bold; }
+LaneFrame.master::notice { margin-top: 2px; }
+NameLabel.group { font-weight: bold; }  /* a group's name on its row */
+.pin-cover { background-color: var(--window); }  /* under the pinned master row */
+
+/* A track's pan knob, and the sends' small window. */
+PanKnob { background-color: var(--button); padding: 3px; }
+PanKnob::pointer { color: var(--button-text); stroke-width: 1.5px; }
+PanKnob::arc { color: var(--accent); stroke-width: 2px; }
+SendsPanel {
+    background-color: var(--window);
+    border: 1px solid var(--line);
+    padding: 8px;
+    row-gap: 4px;
+    column-gap: 6px;
+}
+SendsPanel::title { font-weight: bold; }
+
+/* The update notice under the master's controls; ::link is the line under its link. */
+UpdateNotice { color: var(--dimmed-text); font-size: 8pt; }
+UpdateNotice::link { color: var(--dimmed-text); }
+
+/* A built-in effect's window: the curve (an EQ's response, with the analyzer's spectrum behind it), the meters,
+   the tuner. ::changed colours a parameter's name that differs from the kept settings (Compare). */
+EffectWindow { background-color: var(--window); padding: 9px; row-gap: 6px; column-gap: 6px; }
+EffectWindow::slider { min-width: 220px; }
+EffectWindow::value { min-width: 80px; }
+EffectWindow::changed { color: var(--accent); }
+CurveView { background-color: var(--base); }
+CurveView::grid { color: var(--grid); stroke-width: 1px; }
+CurveView::analyzer { color: var(--dimmed-text); fill-opacity: 0.2353; stroke-opacity: 0.5882; stroke-width: 1px; }
+CurveView::curve { color: var(--accent); stroke-width: 2px; }
+MeterView { color: var(--window-text); line-height: 20px; }
+MeterView::label { width: 110px; padding-right: 6px; }
+MeterView::track { background-color: var(--meter-bg); height: 12px; }
+MeterView::bar { background-color: var(--accent); }
+MeterView::value { width: 80px; padding-left: 6px; }
+Tuner { background-color: var(--base); }
+Tuner::note { color: var(--window-text); font-size: 40px; font-weight: bold; }
+Tuner::note:in-tune { color: var(--meter-ok); }
+Tuner::note:silent { color: var(--dimmed-text); }
+Tuner::scale { background-color: var(--meter-bg); height: 2px; margin-left: 24px; margin-right: 24px; top: 66px; }
+Tuner::tick { color: var(--dimmed-text); }
+Tuner::tick:centre { color: var(--window-text); }
+Tuner::needle { background-color: var(--accent); border-radius: 2px; }
+Tuner::needle:in-tune { background-color: var(--meter-ok); }
+Tuner::cents { color: var(--window-text); }
+Tuner::hz, Tuner::end-label { color: var(--dimmed-text); }
+
+/* A plugin's own window: ::plugin behind the plugin's drawing, ::stopped when the plugin stopped. */
+EditorWindow::plugin { background-color: #000000; }
+EditorWindow::stopped { background-color: var(--window); padding: 16px; row-gap: 10px; }
+
+/* Edit → History: ::undone colours the changes Redo would bring back. */
+HistoryWindow { padding: 11px; row-gap: 6px; min-width: 240px; min-height: 200px; }
+HistoryWindow::undone { color: var(--disabled-text); }
+
+/* (end of Panels, meters and editors) */

@@ -17,6 +17,9 @@ class Menu;
 class ComboPopup;
 
 // --- text ---
+// Styled as `Label` (default.css, Basic controls): its colour and font (color, font-*; .hint, .dimmed, #time, #lufs),
+// padding (inside `margin`), :link (a link: underlined while text-decoration is underline), ::image (an image's
+// opacity). setFont / setColor override the stylesheets'.
 class Label : public Widget {
 public:
     explicit Label(const std::string& text = "", Widget* parent = nullptr);
@@ -38,14 +41,15 @@ public:
     void setLink(const std::string& url) { link_ = url; setCursor(url.empty() ? Cursor::Arrow : Cursor::Hand); update(); }
     Signal<const std::string&> onLink;
     Signal<> doubleClicked;
-    Font font() const;
-    Color color() const;    // style: "hint" → hint_text, "dimmed" → dimmed_text (8 pt), else window_text
+    Font font() const;      // setFont's, else the stylesheets'
+    Color color() const;    // setColor's, else the stylesheets' (.hint: hint text, .dimmed: dimmed text, :link: accent)
     Point sizeHint() const override;
     Point minimumSizeHint() const override;
     void paint(Painter& p) override;
     bool mousePress(MouseEvent& e) override;
     bool mouseDoubleClick(MouseEvent& e) override;
-    int margin = 0;
+    void styleStates(std::vector<std::string>& out) const override;  // + :link
+    int margin = 0;         // px around it (added to the stylesheets' padding)
 private:
     std::string text_, link_;
     int align_ = AlignLeft | AlignVCenter;
@@ -105,6 +109,11 @@ public:
     // colours as the style gives them now (for custom-drawn buttons)
     Color fillColor() const;
     Color textColor() const;
+    // its states for stylesheets: hover (not while held off it), pressed (held on it, or its menu open), checked,
+    // default, lit (accent-coloured: lit / accent+checked / autoRaise+checked / toggle+checked / a dialog's
+    // default), toggled (a toggle role's colour: checked with a toggle role, neither lit nor accent), icon,
+    // arrow-hover (the split menu arrow under the mouse or open), disabled, focus
+    void styleStates(std::vector<std::string>& out) const override;
 private:
     std::string text_, iconSvg_;
     Image icon_;
@@ -126,6 +135,9 @@ Button* pushButton(Widget* parent, const std::string& text, std::function<void()
 Button* toolButton(Widget* parent, const std::string& text, std::function<void()> onClick = nullptr,
                    const std::string& tooltip = "");
 
+// Styled as `CheckBox`: its text (color, font-*), padding; ::indicator (the box: width, height, background-color,
+// border, border-radius, padding; its check mark in `color`, margin-right: the gap to the text); states :checked
+// :hover :disabled :focus.
 class CheckBox : public Widget {
 public:
     explicit CheckBox(const std::string& text = "", Widget* parent = nullptr);
@@ -144,12 +156,19 @@ public:
     bool keyPress(KeyEvent& e) override;
     void enter() override { update(); }
     void leave() override { update(); }
+    void styleStates(std::vector<std::string>& out) const override;  // + :checked
 private:
     std::string text_;
     bool checked_ = false, down_ = false;
 };
 
 // --- text entry ---
+// Stylesheets: LineEdit. Its box (background, border, radius); its padding is the room around the text (and gives
+// its size). States :hover :focus :disabled :pressed, :frameless (frame off: inside a SpinBox / ComboBox),
+// :read-only, :clear-hover (the clear button under the mouse). Parts ::placeholder (color), ::selection (a box:
+// background, border…; color: the selected text's; its padding reaches past the text), ::cursor (background-color,
+// width), ::clear-button (color; width; margin-left: the room before it; margin-right: after it; icon-size: the
+// cross; stroke-width). Its font is the stylesheets' unless the program set one (setFont).
 class LineEdit : public Widget {
 public:
     explicit LineEdit(const std::string& text = "", Widget* parent = nullptr);
@@ -202,11 +221,11 @@ public:
     void leave() override { update(); }
     Point minimumSizeHint() const override;
     Font font() const;
+    void styleStates(std::vector<std::string>& out) const override;
 private:
     std::string text_, placeholder_;
     std::vector<std::pair<std::string, size_t>> undo_, redo_;
     bool clearHover_ = false, dirty_ = false;
-    int textX() const;
     Rect textArea() const;
     Rect clearRect() const;
     void edited(const std::string& before, size_t beforeCursor);
@@ -225,7 +244,13 @@ private:
     void ensureCursorVisible();
 };
 
-// QSpinBox / QDoubleSpinBox: a number field with ▴▾ buttons, the wheel and the arrow keys
+// QSpinBox / QDoubleSpinBox: a number field with ▴▾ buttons, the wheel and the arrow keys.
+// Stylesheets: SpinBox (its editor is a LineEdit:frameless inside its border). Its box; its padding gives its size
+// around the widest number. States :hover :focus (its editor has the focus) :disabled :pressed, :up-hover
+// :down-hover (a button under the mouse), :up-pressed :down-pressed (held), :at-maximum :at-minimum (the value at
+// that end, not wrapping: that button is off). Parts ::up-button and ::down-button (a box drawn over the inside of
+// the border, clipped to the button; color: the arrow's; icon-size; stroke-width; width: the buttons' column, the
+// up button's).
 class SpinBox : public Widget {
 public:
     explicit SpinBox(Widget* parent = nullptr);
@@ -267,11 +292,13 @@ public:
     int decimals() const { return decimals_; }
     Point minimumSizeHint() const override { return sizeHint(); }
     bool mouseMove(MouseEvent& e) override;
+    void styleStates(std::vector<std::string>& out) const override;
     ~SpinBox() override;
 private:
     int hoverPart_ = 0, pressPart_ = 0;           // 1 up, -1 down
     float wheelAcc_ = 0;
     int partAt(Point p) const;
+    int buttonsWidth() const;                     // the ▴▾ column (0 when hidden)
     bool parse(const std::string& text, double& v) const;
     double clampRound(double v) const;
     void stopRepeat();
@@ -279,14 +306,20 @@ private:
     int decimals_ = 0;
     bool tracking_ = true, buttons_ = true, wrapping_ = false, wheelOn_ = true;
     std::string suffix_, prefix_;
-    LineEdit* edit_;
+    LineEdit* edit_ = nullptr;
     int repeatTimer_ = -1;
     void refresh();
     void commit();
     std::string format(double v) const;
 };
 
-// QComboBox: items (text + data); a drop-down list when clicked
+// QComboBox: items (text + data); a drop-down list when clicked.
+// Stylesheets: ComboBox. Its box; its text from its padding's left (the padding gives its size). States :hover
+// :focus :disabled :pressed, :open (its list is open), :editable. Part ::arrow (width: the right-hand box, over the
+// border; padding-left: the arrow's place in it; a box: background…; color; icon-size; stroke-width). Its list is
+// a ComboPopup: its box and padding; parts ::item (a box; padding; color; font; states :hover and :selected on the
+// highlighted row, :disabled on a disabled one: the popup's states while an item's style is computed) and
+// ::separator (height: its row; margin: the line's ends; a box: background…; stroke-width: the line's thickness).
 class ComboBox : public Widget {
 public:
     explicit ComboBox(Widget* parent = nullptr);
@@ -332,7 +365,9 @@ public:
     struct Item { std::string text, data; bool separator = false, enabled = true; };
     const std::vector<Item>& items() const { return items_; }
     void choose(int i);                          // as chosen in the list (currentIndexChanged, activated)
+    void styleStates(std::vector<std::string>& out) const override;
 private:
+    int arrowWidth() const;                      // ::arrow's width (the right-hand box)
     std::vector<Item> items_;
     int current_ = -1;
     bool wheelOn_ = true, editable_ = false;
@@ -344,7 +379,38 @@ private:
 
 enum class Orientation { Horizontal, Vertical };
 
-// QSlider (flat: a 4 px groove, the part below the value in the accent colour, a round handle)
+// The styles of the parts of a widget that have states of their own: a list's rows (ListWidget::item:selected),
+// a slider's handle and a scroll bar's thumb (Slider::handle:hover, ScrollBar::thumb:pressed), a menu's items
+// (Menu::item:hover). The part is matched as a node of its own: the widget's type, id, classes and ancestors,
+// with the part's states and the widget's own, but the widget's hover and pressed (a part's :hover and
+// :pressed are its own: the row, the handle under the mouse). It inherits from the widget's style, or from
+// another part's (Menu::shortcut from its Menu::item). Each combination of states is computed once and kept
+// for as long as the PartStyles: make one for a paint (a list's rows share a handful of styles) or an event.
+class PartStyles {
+public:
+    explicit PartStyles(const Widget& w);
+    ~PartStyles();
+    PartStyles(const PartStyles&) = delete;
+    PartStyles& operator=(const PartStyles&) = delete;
+    // `part` in these states (and the widget's), inheriting from `from` (null: the widget's style)
+    const css::Style& get(const std::string& part, const std::vector<const char*>& states = {},
+                          const css::Style* from = nullptr);
+    // the font of a style kept here (`def` with what the style changes of it), worked out once per style
+    const Font& font(const css::Style& st, const Font& def);
+    // a custom property of a style as a length in px ("--spare"): `def` when not set or not a length
+    static double lengthVar(const css::Style& st, const std::string& name, double def);
+private:
+    struct PartNode;
+    const Widget& w_;
+    std::vector<std::string> own_;  // the widget's states (but hover and pressed)
+    std::map<std::string, std::unique_ptr<css::Style>> cache_;
+    std::map<const css::Style*, Font> fonts_;
+};
+
+// QSlider (flat: a groove, the part below the value in the accent colour, a round handle). Styles (default.css):
+// Slider (:horizontal / :vertical; width / height: the size it asks for, min-width / min-height its shortest
+// length), Slider::groove (its thickness: height when horizontal, width when vertical), Slider::fill (the groove
+// below the value), Slider::handle (its own :hover and :pressed: under the mouse, dragged)
 class Slider : public Widget {
 public:
     explicit Slider(Orientation o = Orientation::Horizontal, Widget* parent = nullptr);
@@ -371,6 +437,7 @@ public:
     void enter() override { update(); }
     void leave() override { hoverHandle_ = false; update(); }
     Point minimumSizeHint() const override;
+    void styleStates(std::vector<std::string>& out) const override;
     void setSingleStep(int s) { single_ = std::max(1, s); }
     int sliderPosition() const { return pos_; }  // while dragging without tracking: where the handle is
     bool isSliderDown() const { return dragging_; }
@@ -383,9 +450,14 @@ private:
     float wheelAcc_ = 0;
     int valueAt(Point p) const;
     int handleCenter(int v) const;
+    Point handleSize() const;                    // (Slider::handle's width and height in its states now)
+    void handleStates(std::vector<const char*>& out) const;
     void stopRepeat();
 };
 
+// Styles: ScrollBar (:horizontal / :vertical; width / height: its size, the thickness from --scrollbar-width),
+// ScrollBar::thumb (its own :hover and :pressed; margin: around it in the bar; min-height / min-width: its
+// shortest length)
 class ScrollBar : public Widget {
 public:
     explicit ScrollBar(Orientation o = Orientation::Vertical, Widget* parent = nullptr);
@@ -408,7 +480,9 @@ public:
     void leave() override { hoverHandle_ = false; update(); }
     int singleStep() const { return single_; }
     Point minimumSizeHint() const override { return sizeHint(); }
-    Rect handleRect() const;
+    void styleStates(std::vector<std::string>& out) const override;
+    int thickness() const;                       // across it: its width when vertical, height when horizontal
+    Rect handleRect() const;                     // the thumb
     ~ScrollBar() override;
     Orientation orientation;
 private:
@@ -417,6 +491,8 @@ private:
     int dragOffset_ = 0, repeatTimer_ = -1;
     float wheelAcc_ = 0;
     void stopRepeat();
+    Rect slotRect() const;                       // the thumb with its margins (what the mouse takes)
+    void thumbStates(std::vector<const char*>& out) const;
 };
 
 // QScrollArea: shows a content widget through a viewport, with scroll bars as needed
@@ -455,7 +531,11 @@ private:
     bool resizable_ = true, placing_ = false;
 };
 
-// QListWidget: rows of text (and optional data, colour, icon); single or extended selection
+// QListWidget: rows of text (and optional data, colour, icon); single or extended selection. Styles: ListWidget
+// (its rows inside its border and padding; width / height: the size it asks for, min-width / min-height),
+// ListWidget::item (height: the rows'; states :selected :hover :alternate :disabled :checked :checkable :bold),
+// ListWidget::indicator (the check box of checkable rows: :checked…), ListWidget::icon (width / height: the box
+// icons are drawn in). An item's own colour (hasColor) is its text's, unless it is selected or disabled.
 class ListWidget : public Widget {
 public:
     explicit ListWidget(Widget* parent = nullptr);
@@ -478,9 +558,9 @@ public:
     std::vector<int> selectedRows() const;
     void setMultiSelection(bool on) { multi_ = on; }
     void setRowSelected(int row, bool on);
-    void setAlternatingColors(bool on) { alternate_ = on; }
+    void setAlternatingColors(bool on) { alternate_ = on; update(); }
     void scrollToRow(int row);
-    int rowHeight = 22;
+    int rowHeight = 22;                           // (read only: ListWidget::item's height, kept up to date)
     Signal<int> currentRowChanged;
     Signal<int> itemActivated;                    // double-click or Return
     Signal<int> itemClicked;
@@ -498,8 +578,8 @@ public:
     void leave() override { hoverRow_ = -1; update(); }
     std::string toolTipAt(Point p) const override;
     int rowAt(Point p) const;
-    Point sizeHint() const override { return Point(256, 192); }
-    Point minimumSizeHint() const override { return Point(40, 40); }
+    Point sizeHint() const override;
+    Point minimumSizeHint() const override;
     bool isRowSelected(int row) const;
     void clearSelection();
     void setItemText(int row, const std::string& t) { if (row >= 0 && row < count()) { items_[row].text = t; update(); } }
@@ -510,13 +590,19 @@ private:
     std::vector<bool> selected_;
     int current_ = -1, hoverRow_ = -1, anchor_ = -1, pressRow_ = -1;
     Rect checkRect(int row) const;
+    Rect viewRect() const;                        // where the rows are: inside its border and padding, the bar
+    void rowStates(int row, std::vector<const char*>& out) const;
+    bool readStyle();                             // rowHeight from the stylesheets (true: it changed)
     void select(int row, int mods);
     bool multi_ = false, alternate_ = false;
     ScrollBar* bar_;
     void syncBar();
 };
 
-// QTreeWidget: an expandable tree (the Explorer's folders); children filled when first expanded
+// QTreeWidget: an expandable tree (the Explorer's folders); children filled when first expanded. Styles:
+// TreeWidget (as ListWidget), TreeWidget::item (height: the rows'; :selected :hover :disabled :open
+// :has-children :bold), TreeWidget::branch (the arrow of nodes with children; width: the indent of each level,
+// the arrow inside its padding), TreeWidget::icon
 class TreeWidget : public Widget {
 public:
     explicit TreeWidget(Widget* parent = nullptr);
@@ -538,8 +624,8 @@ public:
     void setCurrent(Node* n);                     // emits currentChanged
     void refreshRows();                           // after adding/removing nodes
     void scrollToNode(Node* n);
-    int rowHeight = 20;
-    int indent = 16;
+    int rowHeight = 20;                           // (read only: TreeWidget::item's height, kept up to date)
+    int indent = 16;                              // (read only: TreeWidget::branch's width, kept up to date)
     Signal<Node*> currentChanged;
     Signal<Node*> activated;                      // double-click / Return
     Signal<Node*, MouseEvent&> nodeContextMenu;
@@ -558,14 +644,17 @@ public:
     void leave() override { hover_ = nullptr; update(); }
     std::string toolTipAt(Point p) const override;
     Node* nodeAt(Point p) const;
-    Point sizeHint() const override { return Point(256, 192); }
-    Point minimumSizeHint() const override { return Point(40, 40); }
+    Point sizeHint() const override;
+    Point minimumSizeHint() const override;
     int rowCount() const { return (int)rows_.size(); }
     Node* nodeAtRow(int row) const { return row >= 0 && row < (int)rows_.size() ? rows_[row].first : nullptr; }
     int rowOf(const Node* n) const;
     ScrollBar* scrollBar() const { return bar_; }
 private:
     bool onArrow(Point p, Node* n) const;
+    Rect viewRect() const;
+    void rowStates(const Node* n, std::vector<const char*>& out) const;
+    bool readStyle();
     Node root_;
     Node* current_ = nullptr;
     Node* hover_ = nullptr;
@@ -577,7 +666,10 @@ private:
     void syncBar();
 };
 
-// QTabWidget: tabs on top, one page shown
+// QTabWidget: tabs on top, one page shown. Styled as `TabWidget`: ::tab (each tab: a box (background-color, border,
+// border-radius) with padding around its title (color, font-*)); ::tab-line (a line along the tab's bottom, `height`
+// tall: the selected tab's accent); both with :selected, :hover (the tab under the pointer) and :disabled; ::base
+// (the line under all the tabs: its `height` and background-color).
 class TabWidget : public Widget {
 public:
     explicit TabWidget(Widget* parent = nullptr);
@@ -603,15 +695,22 @@ public:
     const std::string& tabText(int i) const { return titles_[i]; }
     void setTabText(int i, const std::string& t) { titles_[i] = t; update(); }
     int barHeight() const;
+    // (while one tab is being styled: that tab's states, :selected and :hover, instead of the widget's)
+    void styleStates(std::vector<std::string>& out) const override;
 private:
     std::vector<Widget*> pages_;
     std::vector<std::string> titles_;
     int current_ = -1, hoverTab_ = -1;
+    mutable int styledTab_ = -1;  // the tab styleStates() describes: -1 none (the widget), -2 no tab in particular
     int tabAt(Point p) const;
     Rect tabRect(int i) const;
+    // a part of tab i ("tab", "tab-line") in that tab's states (-2: no tab in particular: for sizes)
+    const css::Style& tabStyle(int i, const std::string& part) const;
 };
 
-// QGroupBox: a panel-coloured box with a title above
+// QGroupBox: a panel-coloured box with a title above. Styled as `GroupBox`: the box (background-color, border,
+// border-radius) starts margin-top below its top; its layout goes inside the box's padding; ::title (color, font-*,
+// height, margin: where the title goes above the box).
 class GroupBox : public Widget {
 public:
     explicit GroupBox(const std::string& title = "", Widget* parent = nullptr);
@@ -624,19 +723,21 @@ public:
     std::string title_;
 };
 
-// a thin line (QFrame HLine/VLine, or the toolbar separator)
+// a thin line (QFrame HLine/VLine, or the toolbar separator). Styled as `Separator`, :vertical or :horizontal: the
+// line's `color` and `line-width`, the empty space around it (margin: a vertical one, the toolbar separator, 6 px
+// above and below and 3 px beside; a horizontal one none).
 class Separator : public Widget {
 public:
     explicit Separator(Orientation o = Orientation::Horizontal, Widget* parent = nullptr);
     void paint(Painter& p) override;
     Point sizeHint() const override;
+    void styleStates(std::vector<std::string>& out) const override;  // + :vertical / :horizontal
     Orientation orientation;
-    // empty space around the line: a vertical one (the toolbar separator) 6 px above and below,
-    // 3 px beside; a horizontal one none
-    int marginAlong, marginAcross;
 };
 
-// a draggable divider between two widgets placed by the owner (the Explorer's width; overview height)
+// a draggable divider between two widgets placed by the owner (the Explorer's width; overview height). Styled as
+// `SplitterHandle`, :horizontal (moves sideways: its `width`) or :vertical (its `height`): the line along its middle
+// (color, line-width), :hover and :pressed.
 class SplitterHandle : public Widget {
 public:
     explicit SplitterHandle(Orientation o, Widget* parent = nullptr);
@@ -650,13 +751,16 @@ public:
     void enter() override { update(); }
     void leave() override { update(); }
     Point sizeHint() const override;
+    void styleStates(std::vector<std::string>& out) const override;  // + :horizontal / :vertical
     // Horizontal: it moves sideways (a vertical line between left and right; cursor ↔)
     Orientation orientation;
 private:
     Point start_;
 };
 
-// a status line at the bottom of a window (QStatusBar.showMessage)
+// a status line at the bottom of a window (QStatusBar.showMessage). Styled as `StatusBar`: a box (background-color,
+// border) with padding around its text (color, font-*: centred over the height below ::separator); ::separator (the
+// line along its top: `height`, background-color); ::permanent (the text at the right end: padding, color, font-*).
 class StatusBar : public Widget {
 public:
     explicit StatusBar(Widget* parent = nullptr);

@@ -110,6 +110,50 @@ void setLaneValue(Note& n, Lane lane, double value) {
     }
 }
 
+namespace {
+// the layout's sizes, read again only when the stylesheets change (asked for every note)
+struct Sizes {
+    int generation = -1;
+    int keysW = KEYS_W, velocityH = VELOCITY_H, rulerH = RULER_H, stepRowH = STEP_ROW_H;
+};
+const Sizes& sizes() {
+    static Sizes s;
+    int gen = theme::styles().generation();
+    if (gen != s.generation) {
+        s.keysW = std::max(1, theme::metric("piano-keys-width", KEYS_W));
+        s.velocityH = std::max(8, theme::metric("velocity-lane-height", VELOCITY_H));
+        s.rulerH = std::max(1, theme::metric("editor-ruler-height", RULER_H));
+        s.stepRowH = std::max(4, theme::metric("step-row-height", STEP_ROW_H));
+        s.generation = gen;
+    }
+    return s;
+}
+}  // namespace
+
+int keysW() { return sizes().keysW; }
+int velocityH() { return sizes().velocityH; }
+int rulerH() { return sizes().rulerH; }
+int stepRowH() { return sizes().stepRowH; }
+
+void NoteLook::read(panel_style::Parts& parts) {
+    const css::Style& note = parts.get("note");
+    const css::Style& chosen = parts.get("note", "selected");
+    selected = panel_style::color(chosen, "border-top-color");
+    selectedW = panel_style::lengthF(chosen, "border-top-width", 2);
+    edgeW = panel_style::lengthF(note, "border-top-width", 1);
+    slideW = panel_style::lengthF(parts.get("slide"), "stroke-width", 2);
+    headW = panel_style::lengthF(parts.get("slide-head"), "stroke-width", 1.5);
+    const char* strengths[] = {"fine", "beat", "bar"};
+    for (int i = 0; i < 3; ++i) grid[i] = panel_style::fg(parts.get("grid", strengths[i]));
+    gridW = std::max(1, panel_style::px(parts.get("grid", "fine"), "width", 1));
+    const css::Style& c = parts.get("cursor");
+    const css::Style& ph = parts.get("playhead");
+    cursor = panel_style::fg(c);
+    playhead = panel_style::fg(ph);
+    cursorW = std::max(1, panel_style::px(c, "width", 1));
+    playheadW = std::max(1, panel_style::px(ph, "width", 1));
+}
+
 }  // namespace midi_editor
 
 namespace {
@@ -124,10 +168,8 @@ Rect aliased(double x, double y, double w, double h) {
     return Rect(x0, y0, std::max(0, x1 - x0), std::max(0, y1 - y0));
 }
 
-const Color& grid(int strength) {
-    static const char* const NAMES[] = {"grid_fine", "grid", "grid_bar"};
-    return theme::c(NAMES[std::max(0, std::min(2, strength))]);
-}
+// a grid line's colour in a view's look (timing::BAR… strength)
+const Color& grid(const midi_editor::NoteLook& look, int strength) { return look.grid[std::max(0, std::min(2, strength))]; }
 
 bool startsWith(const std::string& s, const std::string& prefix) { return s.compare(0, prefix.size(), prefix) == 0; }
 
@@ -176,25 +218,27 @@ const char* const STEPS_HINT =
 
 // A note's box (the piano roll's and the Steps view's): its velocity in the fill's lightness, its chance in
 // the fill's opacity, its repeats as ticks across it; switched off: an outline.
-void paintNoteBox(Painter& p, const RectF& r, const Note& n, Color color, bool chosen, bool isOff) {
+void paintNoteBox(Painter& p, const RectF& r, const Note& n, Color color, bool chosen, bool isOff,
+                  const midi_editor::NoteLook& look) {
     Color fill = color.lighter(100 + (int)(n.velocity / 127 * 60));
     if (!isOff) p.fillRect(r, n.chance < 100 ? fill.withAlpha(70 + (int)(std::max(0.0, n.chance) / 100 * 185)) : fill);
     if (n.repeats > 1 && r.w >= 3.0f * (float)n.repeats)
         for (int k = 1; k < n.repeats; ++k)
             p.fillRect(RectF(r.x + r.w * (float)k / (float)n.repeats - 0.5f, r.y + 2, 1, std::max(1.0f, r.h - 4)),
                        fill.darker(170));
-    if (chosen) p.strokeRect(r, theme::c("selected_note"), 2);
-    else p.strokeRect(r, isOff ? fill : fill.darker(160), 1);
+    if (chosen) p.strokeRect(r, look.selected, look.selectedW);
+    else p.strokeRect(r, isOff ? fill : fill.darker(160), look.edgeW);
 }
 
 // a sliding note's tail: a short line from the pitch it glides from (`from`) into its start (`to`), arrowed
-void paintSlideTail(Painter& p, PointF from, PointF to, Color c) {
-    p.drawLine(from, to, c, 2, LineCap::Round);
+void paintSlideTail(Painter& p, PointF from, PointF to, Color c, const midi_editor::NoteLook& look) {
+    p.drawLine(from, to, c, look.slideW, LineCap::Round);
     float dx = to.x - from.x, dy = to.y - from.y, len = std::sqrt(dx * dx + dy * dy);
     if (len < 1) return;
     dx /= len, dy /= len;
     for (float side : {-1.0f, 1.0f})
-        p.drawLine(to, PointF(to.x - 5 * dx + side * 3 * dy, to.y - 5 * dy - side * 3 * dx), c, 1.5f, LineCap::Round);
+        p.drawLine(to, PointF(to.x - 5 * dx + side * 3 * dy, to.y - 5 * dy - side * 3 * dx), c, look.headW,
+                   LineCap::Round);
 }
 
 RectF normalized(Point a, Point b) {
@@ -225,6 +269,7 @@ MidiEditor::MidiEditor(ui::Window* parent, ClipPtr clip_, Project& project_, aud
       engine(engine_),
       onChange(std::move(onChange_)),
       timeline(std::move(timeline_)) {
+    setStyleType("MidiEditor");
     deleteOnClose = true;
     if (clip && clip->notes) notes = *clip->notes;  // the working copy
     takeMuted();
@@ -254,8 +299,12 @@ MidiEditor::MidiEditor(ui::Window* parent, ClipPtr clip_, Project& project_, aud
 
     ui::VBox* col = ui::vbox(this, 0, 0);
     auto tools = std::make_unique<ui::HBox>();
-    tools->setContentsMargins(4, 2, 4, 0);
-    tools->spacing = 4;
+    {
+        const css::Style& bar = computedStyle("toolbar");
+        ui::style::Insets m = ui::style::insets(bar, "padding");
+        tools->setContentsMargins(m.left, m.top, m.right, m.bottom);
+        tools->spacing = ui::style::px(bar, "column-gap", 4);
+    }
     stepsButton = ui::toolButton(this, "Steps", nullptr,
                                  "Show the clip as steps: a row per pitch it uses, a column per grid step. Click a "
                                  "pad to add or remove a note one step long; again for the piano roll");
@@ -264,7 +313,7 @@ MidiEditor::MidiEditor(ui::Window* parent, ClipPtr clip_, Project& project_, aud
     tools->addWidget(stepsButton);
     tools->addWidget(buildGhostsButton());
     tools->addWidget(buildStampButton());
-    tools->addSpacing(8);
+    tools->addSpacing(ui::style::px(computedStyle("scale"), "margin-left", 8));
     buildScaleTools(tools.get());
     tools->addStretch(1);
     quantizeButton = ui::toolButton(this, "Quantize", [this] { quantize(1.0); },
@@ -306,7 +355,10 @@ MidiEditor::MidiEditor(ui::Window* parent, ClipPtr clip_, Project& project_, aud
     tools->addWidget(expandButton);
     col->addLayout(std::move(tools));
     auto hintBox = std::make_unique<ui::HBox>();
-    hintBox->setContentsMargins(4, 2, 4, 2);
+    {
+        ui::style::Insets m = ui::style::insets(computedStyle("hint"), "padding");
+        hintBox->setContentsMargins(m.left, m.top, m.right, m.bottom);
+    }
     hintBox->addWidget(hint, 1);
     col->addLayout(std::move(hintBox));
 
@@ -327,7 +379,7 @@ MidiEditor::MidiEditor(ui::Window* parent, ClipPtr clip_, Project& project_, aud
     bottom->addSpacing(vbarW);
     col->addLayout(std::move(bottom));
     auto hrow = std::make_unique<ui::HBox>();
-    hrow->setContentsMargins(KEYS_W, 0, vbarW, 0);
+    hrow->setContentsMargins(keysW(), 0, vbarW, 0);
     hrow->addWidget(hbar, 1);
     col->addLayout(std::move(hrow));
 
@@ -373,8 +425,8 @@ double MidiEditor::lengthS() const {
     return end + 2 * stepS() * 8;
 }
 
-double MidiEditor::xOf(double t) const { return KEYS_W + (t * pps - hbar->value()); }
-double MidiEditor::tAt(double x) const { return (x - KEYS_W + hbar->value()) / pps; }
+double MidiEditor::xOf(double t) const { return keysW() + (t * pps - hbar->value()); }
+double MidiEditor::tAt(double x) const { return (x - keysW() + hbar->value()) / pps; }
 
 std::optional<Steps> MidiEditor::scale() const {
     const Timing& t = project.timing;
@@ -520,7 +572,7 @@ int MidiEditor::noteAt(double x, double y, bool* atEnd) const {
 void MidiEditor::fit() {
     double from, to;
     windowS(from, to);
-    double width = std::max(200, view()->width() - KEYS_W - 20);
+    double width = std::max(200, view()->width() - keysW() - 20);
     pps = std::min(2000.0, std::max(20.0, width / std::max(0.5, to - from)));
     if (stepsView) {  // (the rows from the top)
         updateRanges();
@@ -545,13 +597,13 @@ void MidiEditor::fit() {
 }
 
 void MidiEditor::updateRanges() {
-    int viewW = view()->width() - KEYS_W;
+    int viewW = view()->width() - keysW();
     hbar->setRange(0, std::max(0, (int)(lengthS() * pps) - viewW));
     hbar->setPageStep(std::max(1, viewW));
     if (stepsView) {  // (its rows, and "+ Row" under them)
-        vbar->setRange(0, std::max(0, ((int)stepRows().size() + 1) * STEP_ROW_H - steps->height()));
+        vbar->setRange(0, std::max(0, ((int)stepRows().size() + 1) * stepRowH() - steps->height()));
         vbar->setPageStep(std::max(1, steps->height()));
-        vbar->setSingleStep(STEP_ROW_H);
+        vbar->setSingleStep(stepRowH());
         return;
     }
     vbar->setRange(0, std::max(0, (int)rows().size() * rowH - roll->height()));
@@ -563,7 +615,7 @@ void MidiEditor::zoom(double factor, double x) {
     double t = tAt(x);
     pps = std::min(4000.0, std::max(10.0, pps * factor));
     updateRanges();
-    hbar->setValue((int)(t * pps - (x - KEYS_W)));
+    hbar->setValue((int)(t * pps - (x - keysW())));
     refresh();
 }
 
@@ -637,7 +689,8 @@ void MidiEditor::refresh() {
 }
 
 void MidiEditor::resized() {
-    int h = wrappedHeight(hint->text(), hint->font(), (float)std::max(40, width() - 8 - 2 * hint->margin));
+    int sides = ui::style::insets(computedStyle("hint"), "padding").w();  // (the hint's row's margins)
+    int h = wrappedHeight(hint->text(), hint->font(), (float)std::max(40, width() - sides - 2 * hint->margin));
     if (hint->height() != h + 2 * hint->margin) hint->setFixedHeight(h + 2 * hint->margin);
     updateRanges();
     if (refit_) {
@@ -696,11 +749,11 @@ void MidiEditor::followCursors() {
     }
 }
 
-void MidiEditor::paintCursorLines(Painter& p, int height) {
+void MidiEditor::paintCursorLines(Painter& p, int height, const NoteLook& look) {
     std::optional<double> c = cursorX();
-    if (c && *c >= KEYS_W) p.drawVLine((int)*c, 0, height + 1, theme::c("cursor"));
+    if (c && *c >= keysW()) p.fillRect(Rect((int)*c, 0, look.cursorW, height + 1), look.cursor);
     double ph = playheadX();
-    if (ph >= KEYS_W) p.drawVLine((int)ph, 0, height + 1, theme::c("playhead"));
+    if (ph >= keysW()) p.fillRect(Rect((int)ph, 0, look.playheadW, height + 1), look.playhead);
 }
 
 void MidiEditor::moveCursor(double x, int mods) {
@@ -1316,9 +1369,10 @@ void MidiEditor::fitToScale() {
 // =================================================================================================
 
 PianoRoll::PianoRoll(MidiEditor* editor) : ed_(editor) {
+    setStyleType("PianoRoll");
     setMouseTracking(true);
     setFocusPolicy(ui::FocusPolicy::Strong);
-    setMinimumHeight(200);
+    setMinimumHeight(theme::metric("piano-roll-min-height", 200));
     setSizePolicy(ui::SizePolicy::Expanding, ui::SizePolicy::Expanding);
 }
 
@@ -1338,37 +1392,78 @@ bool PianoRoll::overridesShortcut(const ui::KeyEvent& e) const {
     }
 }
 
+const PianoRoll::Look& PianoRoll::look() {
+    if (!parts_.refresh()) return look_;
+    Look l;
+    l.notes.read(parts_);
+    l.rowWhite = &parts_.get("row", "white");
+    l.rowBlack = &parts_.get("row", "black");
+    l.outside = &parts_.get("row", "outside");
+    l.tonic = &parts_.get("row", "tonic");
+    const css::Style& octave = parts_.get("octave");
+    l.octave = panel_style::bg(octave);
+    l.octaveH = std::max(0, panel_style::px(octave, "height", 1));
+    l.below = &parts_.get("below");
+    l.shade = &parts_.get("shade");
+    const css::Style& loopEnd = parts_.get("loop-end");
+    l.loopEnd = panel_style::fg(loopEnd);
+    l.loopEndW = std::max(1, panel_style::px(loopEnd, "width", 1));
+    l.selectionBox = &parts_.get("selection-box");
+    l.boxEdge = panel_style::color(*l.selectionBox, "border-top-color");
+    l.keys = &parts_.get("keys");
+    const css::Style& line = parts_.get("key-line");
+    l.keyLine = panel_style::bg(line);
+    l.keyLineH = std::max(0, panel_style::px(line, "height", 1));
+    const css::Style& label = parts_.get("key-label");
+    l.label = panel_style::fg(label);
+    l.labelPad = panel_style::px(label, "padding-right", 4);
+    l.font = ui::style::font(label, theme::uiFont());
+    double keys = keysW();
+    auto share = [&](const char* states, double def) {
+        return keys > 0 ? parts_.get("key", states).length("width", def * keys, keys) / keys : def;
+    };
+    l.keyBlack = &parts_.get("key", "black");
+    l.blackShare = share("black", 0.62);
+    l.foldedShare = share("black folded", 0.4);
+    l.namedShare = share("black named", 0.18);
+    l.sounding = &parts_.get("key", "sounding");
+    const css::Style& edge = parts_.get("keys-edge");
+    l.keysEdge = panel_style::bg(edge);
+    l.keysEdgeW = std::max(0, panel_style::px(edge, "width", 1));
+    look_ = l;
+    return look_;
+}
+
 void PianoRoll::paint(Painter& p) {
     MidiEditor& ed = *ed_;
+    const Look& look = this->look();
+    const int KEYS_W = keysW();
     int w = width(), h = height();
     const std::vector<int>& rows = ed.rows();
     std::optional<Steps> steps = ed.scale();
     int root = ed.project.timing.key;
-    Color rootTint = theme::c("selected_note").withAlpha(ROOT_TINT_ALPHA);
-    Color black = theme::c("lane"), white = theme::c("lane_alt"), shade = theme::c("roll_shade");
     int first, last;
     ed.visibleRows(h, first, last);
     for (int i = first; i < last; ++i) {  // rows: black keys darker, a line between octaves; outside the scale shaded
         int pitch = rows[i], y = i * ed.rowH - ed.vbar->value();
         Rect row(KEYS_W, y, w, ed.rowH);
-        p.fillRect(row, isBlackKey(pitch) ? black : white);
+        ui::style::box(p, row, isBlackKey(pitch) ? *look.rowBlack : *look.rowWhite);
         if (steps) {
-            if (!steps->count(pitch % 12)) p.fillRect(row, shade);
-            else if (pitch % 12 == root) p.fillRect(row, rootTint);
+            if (!steps->count(pitch % 12)) ui::style::box(p, row, *look.outside);
+            else if (pitch % 12 == root) ui::style::box(p, row, *look.tonic);
         }
-        if (i > 0 && rows[i - 1] / 12 != pitch / 12) p.fillRect(Rect(KEYS_W, y, w, 1), grid(timing::BAR));
+        if (i > 0 && rows[i - 1] / 12 != pitch / 12) p.fillRect(Rect(KEYS_W, y, w, look.octaveH), look.octave);
     }
     int below = (int)rows.size() * ed.rowH - ed.vbar->value();  // (folded: no rows under the last one)
-    if (below < h) p.fillRect(Rect(KEYS_W, below, w, h - below), theme::c("ruler_bg"));
+    if (below < h) ui::style::box(p, Rect(KEYS_W, below, w, h - below), *look.below);
     paintGrid(p, std::min(h, below));
     double lo, hi;  // shade what the clip doesn't play
     ed.windowS(lo, hi);
-    p.fillRect(aliased(KEYS_W, 0, std::max(0.0, ed.xOf(lo) - KEYS_W), h), shade);
-    p.fillRect(aliased(ed.xOf(hi), 0, w, h), shade);
+    ui::style::box(p, aliased(KEYS_W, 0, std::max(0.0, ed.xOf(lo) - KEYS_W), h), *look.shade);
+    ui::style::box(p, aliased(ed.xOf(hi), 0, w, h), *look.shade);
     paintGhosts(p, w);
     paintRepeats(p, w, h);
     Color color = ed.color();
-    Color selectedC = theme::c("selected_note");
     for (size_t i = 0; i < ed.notes.size(); ++i) {
         const Note& n = ed.notes[i];
         std::optional<double> y = ed.yOf(n.pitch);
@@ -1376,7 +1471,7 @@ void PianoRoll::paint(Painter& p) {
         RectF r((float)ed.xOf(n.start), (float)(*y + 1), (float)std::max(NOTE_MIN_PX, (n.end - n.start) * ed.pps),
                 (float)(ed.rowH - 2));
         if (r.right() < KEYS_W || r.x > w || r.bottom() < 0 || r.y > h) continue;
-        paintNoteBox(p, r, n, color, ed.selected.count((int)i) > 0, ed.off.count((int)i) > 0);
+        paintNoteBox(p, r, n, color, ed.selected.count((int)i) > 0, ed.off.count((int)i) > 0, look.notes);
     }
     std::vector<note_props::Slide> slid = note_props::slides(ed.notes);  // sliding notes: a tail into each
     for (size_t i = 0; i < ed.notes.size(); ++i) {
@@ -1393,27 +1488,31 @@ void PianoRoll::paint(Painter& p) {
         }
         float most = 3.0f * (float)ed.rowH;  // (a long way: just its start)
         from = std::min(mid + most, std::max(mid - most, from));
-        paintSlideTail(p, PointF(x - 14, from), PointF(x + 1, mid), color.lighter(170));
+        paintSlideTail(p, PointF(x - 14, from), PointF(x + 1, mid), color.lighter(170), look.notes);
     }
-    ed.paintCursorLines(p, h);
+    ed.paintCursorLines(p, h, look.notes);
     if (ed.drag.kind == MidiEditor::Drag::Box) {  // (Shift+drag: the selection box)
         RectF box = normalized(ed.drag.startPos, ed.drag.pos);
-        p.fillRect(box, selectedC.withAlpha(40));
-        dashedBox(p, box, selectedC);
+        // (whole pixels: the mouse's positions) its fill as a box, then its dashed edge in border-color
+        ui::style::box(p, Rect((int)box.x, (int)box.y, (int)box.w, (int)box.h), *look.selectionBox);
+        dashedBox(p, box, look.boxEdge);
     }
     paintKeys(p, h);
 }
 
 void PianoRoll::paintRepeats(Painter& p, int w, int h) {
     MidiEditor& ed = *ed_;
+    const int KEYS_W = keysW();
     const Clip& clip = *ed.clip;
     if (!clip.loop || clip.lengthS <= 0) return;
     double lo, hi;
     ed.windowS(lo, hi);
-    Color line = theme::c("selected_note");
+    Color line = look_.loopEnd;
+    float lineW = (float)look_.loopEndW;
     for (int k = 1; k * clip.lengthS < hi && k < 4096; ++k) {  // where each pass ends
         int x = (int)ed.xOf(k * clip.lengthS);
-        if (KEYS_W <= x && x <= w) p.drawDashedLine(PointF(x + 0.5f, 0), PointF(x + 0.5f, (float)h), line, 1, 4, 2);
+        if (KEYS_W <= x && x <= w)
+            p.drawDashedLine(PointF(x + lineW / 2, 0), PointF(x + lineW / 2, (float)h), line, lineW, 4, 2);
     }
     Color fill = ed.color().withAlpha(GHOST_ALPHA);  // the passes after the first, faintly (as written: before
     double t0 = ed.tAt(KEYS_W), t1 = ed.tAt(w);         // the track's MIDI effects)
@@ -1430,7 +1529,7 @@ void PianoRoll::paintRepeats(Painter& p, int w, int h) {
 
 void PianoRoll::paintGhosts(Painter& p, int w) {
     MidiEditor& ed = *ed_;
-    double t0 = ed.tAt(KEYS_W), t1 = ed.tAt(w);
+    double t0 = ed.tAt(keysW()), t1 = ed.tAt(w);
     for (const MidiEditor::Ghost& g : ed.ghosts()) {
         Color fill = colors::clipColors(g.color).fill.lighter(125).withAlpha(GHOST_ALPHA);
         for (const Note& n : g.notes) {
@@ -1448,52 +1547,57 @@ void PianoRoll::paintGhosts(Painter& p, int w) {
 
 void PianoRoll::paintGrid(Painter& p, int h) {
     MidiEditor& ed = *ed_;
-    double t0 = ed.tAt(KEYS_W), t1 = ed.tAt(width());
+    const NoteLook& look = look_.notes;
+    double t0 = ed.tAt(keysW()), t1 = ed.tAt(width());
     const Timing& timing = ed.project.timing;
     if (h <= 0) return;
     if (timing.beats) {
         double origin = ed.originS();
         for (const GridLine& line : timing.lines(std::max(0.0, origin + t0), origin + t1, ed.pps)) {
             int x = (int)ed.xOf(line.seconds - origin);
-            p.drawVLine(x, 0, h + 1, grid(line.strength));
+            p.fillRect(Rect(x, 0, look.gridW, h + 1), grid(look, line.strength));
         }
     } else {  // the ruler's steps from 0 s (as the ruler counts them), and fainter quarters of them (where
               // Quantize and new notes go: stepS)
         double step = fmt::rulerStep(ed.pps) / 4, origin = ed.originS();
         for (int k = (int)(std::max(0.0, origin + t0) / step); k < (int)((origin + t1) / step) + 2; ++k) {
             int x = (int)ed.xOf(k * step - origin);
-            p.drawVLine(x, 0, h + 1, k % 4 == 0 ? theme::c("grid") : grid(0));
+            p.fillRect(Rect(x, 0, look.gridW, h + 1), k % 4 == 0 ? look.grid[1] : grid(look, 0));
         }
     }
 }
 
 void PianoRoll::paintKeys(Painter& p, int h) {
     MidiEditor& ed = *ed_;
+    const Look& look = look_;
+    const int KEYS_W = keysW();
     const std::vector<int>& rows = ed.rows();
     std::optional<Steps> steps = ed.scale();
     int root = ed.project.timing.key;
     bool folded = rows.size() < 128;
     int below = (int)rows.size() * ed.rowH - ed.vbar->value();
-    p.fillRect(Rect(0, 0, KEYS_W, std::min(h, below)), theme::c("keys_white"));
-    if (below < h) p.fillRect(Rect(0, below, KEYS_W, h - below), theme::c("ruler_bg"));  // (folded: no keys there)
-    Font font = theme::uiFont();
+    ui::style::box(p, Rect(0, 0, KEYS_W, std::min(h, below)), *look.keys);  // (the white keys)
+    if (below < h) ui::style::box(p, Rect(0, below, KEYS_W, h - below), *look.below);  // (folded: no keys there)
+    const Font& font = look.font;
     int first, last;
     ed.visibleRows(h, first, last);
     for (int i = first; i < last; ++i) {
         int pitch = rows[i], y = i * ed.rowH - ed.vbar->value();
         std::string label = ed.keyLabel(pitch);  // (a Pad Kit's pad: its name on every key that has one)
         if (isBlackKey(pitch))  // (folded or named after a pad, narrower: its name right of it)
-            p.fillRect(aliased(0, y, KEYS_W * (!label.empty() ? 0.18 : folded ? 0.4 : 0.62), ed.rowH),
-                       theme::c("keys_black"));
+            ui::style::box(p,
+                           aliased(0, y, KEYS_W * (!label.empty() ? look.namedShare : folded ? look.foldedShare : look.blackShare),
+                                   ed.rowH),
+                           *look.keyBlack);
         if (!isBlackKey(pitch) || folded)  // (folded: a line under every key, none are next to theirs)
-            p.fillRect(Rect(0, y + ed.rowH - 1, KEYS_W, 1), theme::c("keys_line"));
-        if (ed.held && *ed.held == pitch) p.fillRect(Rect(0, y, KEYS_W, ed.rowH), theme::c("key_sounding"));
+            p.fillRect(Rect(0, y + ed.rowH - look.keyLineH, KEYS_W, look.keyLineH), look.keyLine);
+        if (ed.held && *ed.held == pitch) ui::style::box(p, Rect(0, y, KEYS_W, ed.rowH), *look.sounding);
         bool named = pitch % 12 == 0 || folded || (steps && pitch % 12 == root) || !label.empty();
         if (named && ed.rowH >= 9)
-            p.drawText(RectF(0, (float)y, KEYS_W - 4, (float)ed.rowH), AlignRight | AlignVCenter,
-                       label.empty() ? noteName(pitch) : label, font, theme::c("keys_label"), !label.empty());
+            p.drawText(RectF(0, (float)y, (float)(KEYS_W - look.labelPad), (float)ed.rowH), AlignRight | AlignVCenter,
+                       label.empty() ? noteName(pitch) : label, font, look.label, !label.empty());
     }
-    p.fillRect(Rect(KEYS_W - 1, 0, 1, h), theme::c("ruler_bg"));
+    p.fillRect(Rect(KEYS_W - look.keysEdgeW, 0, look.keysEdgeW, h), look.keysEdge);
 }
 
 bool PianoRoll::mousePress(ui::MouseEvent& e) {
@@ -1501,7 +1605,7 @@ bool PianoRoll::mousePress(ui::MouseEvent& e) {
     using K = MidiEditor::Drag::Kind;
     Point pos = e.pos;
     if (pos.y + ed.vbar->value() >= (int)ed.rows().size() * ed.rowH) return true;  // (below the last row, folded)
-    if (pos.x < KEYS_W) {  // a key: it sounds while held; dragging over the keys plays each one passed
+    if (pos.x < keysW()) {  // a key: it sounds while held; dragging over the keys plays each one passed
         if (e.button == plat::LeftButton) {
             ed.hold(ed.pitchAt(pos.y));
             ed.drag = MidiEditor::Drag();
@@ -1588,7 +1692,7 @@ bool PianoRoll::mouseMove(ui::MouseEvent& e) {
     using K = MidiEditor::Drag::Kind;
     if (ed.drag.kind == K::None) {
         bool atEnd = false;
-        int index = pos.x >= KEYS_W ? ed.noteAt(pos.x, pos.y, &atEnd) : -1;
+        int index = pos.x >= keysW() ? ed.noteAt(pos.x, pos.y, &atEnd) : -1;
         setCursor(index < 0 ? ui::Cursor::Arrow : atEnd ? ui::Cursor::SizeHor : ui::Cursor::OpenHand);
         return true;
     }
@@ -1669,7 +1773,8 @@ void PianoRoll::resized() { ed_->updateRanges(); }
 // =================================================================================================
 
 VelocityLane::VelocityLane(MidiEditor* editor) : ed_(editor) {
-    setFixedHeight(VELOCITY_H);
+    setStyleType("VelocityLane");
+    setFixedHeight(velocityH());
     setSizePolicy(ui::SizePolicy::Expanding, ui::SizePolicy::Fixed);
     chooser = ui::toolButton(this, laneInfo(Lane::Velocity).name, nullptr,
                              "What this lane shows and edits: each note's velocity, chance (how often it plays), "
@@ -1692,11 +1797,12 @@ VelocityLane::VelocityLane(MidiEditor* editor) : ed_(editor) {
 void VelocityLane::resized() {
     if (!chooser) return;  // (while it is being made)
     Point hint = chooser->sizeHint();
-    chooser->setGeometry(Rect(2, 4, KEYS_W - 4, hint.y));
+    const ui::style::Insets& m = look().chooserMargin;
+    chooser->setGeometry(Rect(m.left, m.top, keysW() - m.w(), hint.y));
 }
 
 std::string VelocityLane::toolTipAt(Point p) const {
-    if (p.x < KEYS_W) return "";
+    if (p.x < keysW()) return "";
     const LaneInfo& info = laneInfo(ed_->lane);
     return std::string("Each note's ") + (info.lane == Lane::Fine ? "fine tuning" : info.name) +
            ": click or drag across the bars to set it; drag a selected note's bar to change every selected "
@@ -1720,12 +1826,37 @@ double VelocityLane::valueAt(int y, bool rounded) const {
     return laneValue(n, info.lane);
 }
 
+const VelocityLane::Look& VelocityLane::look() {
+    if (!parts_.refresh()) return look_;
+    Look l;
+    l.notes.read(parts_);
+    l.self = &parts_.get("");
+    l.middle = panel_style::fg(parts_.get("grid", "middle"));
+    const css::Style& bar = parts_.get("bar");
+    l.barW = std::max(1, panel_style::px(bar, "width", 4));
+    l.selected = panel_style::bg(parts_.get("bar", "selected"));
+    const css::Style& cap = parts_.get("cap");
+    l.capW = std::max(1, panel_style::px(cap, "width", 8));
+    l.capH = std::max(1, panel_style::px(cap, "height", 3));
+    const css::Style& label = parts_.get("label");
+    l.label = &label;
+    l.labelText = panel_style::fg(label);
+    l.labelPad = ui::style::insets(label, "padding");
+    l.labelH = std::max(1, panel_style::px(label, "height", 16));
+    l.font = ui::style::font(label, theme::uiFont());
+    l.chooserMargin = ui::style::insets(parts_.get("chooser"), "margin");
+    look_ = l;
+    return look_;
+}
+
 void VelocityLane::paint(Painter& p) {
     MidiEditor& ed = *ed_;
+    const Look& look = this->look();
+    const NoteLook& nl = look.notes;
+    const int KEYS_W = keysW();
     const LaneInfo& info = laneInfo(ed.lane);
     int w = width(), h = height();
-    p.fillRect(rect(), theme::c("meter_bg"));
-    p.fillRect(Rect(0, 0, w, 1), theme::c("ruler_bg"));
+    ui::style::box(p, rect(), *look.self);  // (its top border: the line under the notes)
     // where a value's bar reaches (0…1 of the height); velocity counts from 0, as it always has
     auto along = [&](double v) {
         return info.lane == Lane::Velocity ? v / 127 : (v - info.low) / (info.high - info.low);
@@ -1733,33 +1864,35 @@ void VelocityLane::paint(Painter& p) {
     if (info.lane == Lane::Velocity) {
         for (int level : {32, 64, 96, 127}) {
             int y = (int)(h - 3 - level / 127.0 * (h - 6));
-            p.fillRect(Rect(KEYS_W, y, w, 1), level != 127 ? theme::c("grid") : theme::c("grid_fine"));
+            p.fillRect(Rect(KEYS_W, y, w, nl.gridW), level != 127 ? nl.grid[1] : nl.grid[0]);
         }
     } else {
         for (double part : {0.25, 0.5, 0.75, 1.0}) {
             int y = (int)(h - 3 - part * (h - 6));
-            p.fillRect(Rect(KEYS_W, y, w, 1),
-                       part == 1.0 ? theme::c("grid_fine") : info.centred && part == 0.5 ? theme::c("grid_bar")
-                                                                                          : theme::c("grid"));
+            p.fillRect(Rect(KEYS_W, y, w, nl.gridW),
+                       part == 1.0 ? nl.grid[0] : info.centred && part == 0.5 ? look.middle : nl.grid[1]);
         }
     }
     Color color = ed.color();
     Color light = color.lighter(130), dark = color.darker(150);
     double base = info.centred ? 0.5 : 0.0;  // (pan and fine: from the middle line, up or down)
+    double capOut = (look.capW - look.barW) / 2.0;  // (the cap sticks out on both sides)
     for (size_t i = 0; i < ed.notes.size(); ++i) {
         const Note& n = ed.notes[i];
         double x = ed.xOf(n.start);
         if (x < KEYS_W - 4 || x > w || !ed.shows(n)) continue;  // (folded away: not in the roll, nor here)
         double top = along(laneValue(n, info.lane)) * (h - 6), bottom = base * (h - 6);
         double hi = std::max(top, bottom), lo = std::min(top, bottom);
-        Color fill = ed.selected.count((int)i) ? theme::c("selected_note") : !ed.off.count((int)i) ? light : dark;
-        p.fillRect(aliased(x, h - 3 - hi, 4, hi - lo), fill);
-        p.fillRect(aliased(x - 2, h - 5 - top, 8, 3), fill);
+        Color fill = ed.selected.count((int)i) ? look.selected : !ed.off.count((int)i) ? light : dark;
+        p.fillRect(aliased(x, h - 3 - hi, look.barW, hi - lo), fill);
+        p.fillRect(aliased(x - capOut, h - 2 - look.capH - top, look.capW, look.capH), fill);
     }
-    ed.paintCursorLines(p, h);
-    p.fillRect(Rect(0, 0, KEYS_W, h), theme::c("ruler_bg"));
-    p.drawText(RectF(4, (float)(chooser->y() + chooser->height() + 2), KEYS_W - 6, 16), AlignLeft | AlignTop,
-               info.range, theme::uiFont(), theme::c("ruler_text"));
+    ed.paintCursorLines(p, h, nl);
+    ui::style::box(p, Rect(0, 0, KEYS_W, h), *look.label);
+    const ui::style::Insets& pad = look.labelPad;
+    p.drawText(RectF((float)pad.left, (float)(chooser->y() + chooser->height() + pad.top), (float)(KEYS_W - pad.w()),
+                     (float)look.labelH),
+               AlignLeft | AlignTop, info.range, look.font, look.labelText);
 }
 
 std::vector<int> VelocityLane::barsUnder(Point pos) const {
@@ -1815,7 +1948,7 @@ bool VelocityLane::mousePress(ui::MouseEvent& e) {
         context->popup(e.globalPos, this);
         return true;
     }
-    if (e.button != plat::LeftButton || e.pos.x < KEYS_W) return true;
+    if (e.button != plat::LeftButton || e.pos.x < keysW()) return true;
     std::vector<int> under = barsUnder(e.pos);
     int chosen = 0;
     for (int i : ed.selected) chosen += i < (int)ed.notes.size();
@@ -1870,51 +2003,75 @@ bool VelocityLane::wheel(ui::WheelEvent& e) {
 // =================================================================================================
 
 EditorRuler::EditorRuler(MidiEditor* editor) : ed_(editor) {
-    setFixedHeight(RULER_H);
+    setStyleType("EditorRuler");
+    setFixedHeight(rulerH());
     setSizePolicy(ui::SizePolicy::Expanding, ui::SizePolicy::Fixed);
     setCursor(ui::Cursor::Hand);
     setToolTip("Click or drag to move the selection cursor (where Play starts)");
 }
 
+const EditorRuler::Look& EditorRuler::look() {
+    if (!parts_.refresh()) return look_;
+    Look l;
+    const css::Style& self = parts_.get("");
+    l.self = &self;
+    l.text = panel_style::fg(self);
+    l.font = ui::style::font(self, theme::uiFont());
+    l.tick = std::max(0, panel_style::px(parts_.get("tick"), "height", 4));
+    l.barTick = std::max(0, panel_style::px(parts_.get("tick", "bar"), "height", 8));
+    l.secondTick = std::max(0, panel_style::px(parts_.get("tick", "second"), "height", 6));
+    const css::Style& label = parts_.get("label");
+    l.labelPad = panel_style::px(label, "padding-left", 4);
+    l.baseline = panel_style::px(label, "top", 15);
+    l.corner = &parts_.get("corner");
+    l.cursor = panel_style::fg(parts_.get("cursor"));
+    l.playhead = panel_style::fg(parts_.get("playhead"));
+    look_ = l;
+    return look_;
+}
+
 void EditorRuler::paint(Painter& p) {
     MidiEditor& ed = *ed_;
+    const Look& look = this->look();
+    const int KEYS_W = keysW();
     int w = width(), h = height();
-    p.fillRect(rect(), theme::c("ruler_bg"));
+    ui::style::box(p, rect(), *look.self);
     double t0 = ed.tAt(KEYS_W), t1 = ed.tAt(w);
     const Timing& timing = ed.project.timing;
     double origin = ed.originS();
-    Color text = theme::c("ruler_text");
-    Font font = theme::uiFont();
+    Color text = look.text;
+    const Font& font = look.font;
+    float pad = (float)look.labelPad, baseline = (float)look.baseline;
     if (timing.beats) {
         for (const GridLine& line : timing.lines(std::max(0.0, origin + t0 - 1), origin + t1, ed.pps)) {
             int x = (int)ed.xOf(line.seconds - origin);
             if (x < KEYS_W - 40) continue;
             bool label = !line.label.empty();
-            p.drawVLine(x, label ? 0 : h - (line.strength == timing::BAR ? 8 : 4), h + 1, text);
-            if (label) p.drawText(PointF((float)x + 4, 15), line.label, font, text);
+            p.drawVLine(x, label ? 0 : h - (line.strength == timing::BAR ? look.barTick : look.tick), h + 1, text);
+            if (label) p.drawText(PointF((float)x + pad, baseline), line.label, font, text);
         }
     } else {
         double step = fmt::rulerStep(ed.pps);
         for (int k = (int)(std::max(0.0, origin + t0) / step); k < (int)((origin + t1) / step) + 2; ++k) {
             int x = (int)ed.xOf(k * step - origin);
-            p.drawVLine(x, h - 6, h + 1, text);
-            p.drawText(PointF((float)x + 4, 15), fmt::time(k * step, fmt::stepDecimals(step)), font, text);
+            p.drawVLine(x, h - look.secondTick, h + 1, text);
+            p.drawText(PointF((float)x + pad, baseline), fmt::time(k * step, fmt::stepDecimals(step)), font, text);
         }
     }
     std::optional<double> c = ed.cursorX();
-    if (c && *c >= KEYS_W) paint::cursor(p, (int)*c, theme::c("cursor"), h);
+    if (c && *c >= KEYS_W) paint::cursor(p, (int)*c, look.cursor, h);
     double ph = ed.playheadX();
-    if (ph >= KEYS_W) paint::cursor(p, (int)ph, theme::c("playhead"), h);
-    p.fillRect(Rect(0, 0, KEYS_W, h), theme::c("ruler_bg"));  // (labels left of the notes area stay hidden)
+    if (ph >= KEYS_W) paint::cursor(p, (int)ph, look.playhead, h);
+    ui::style::box(p, Rect(0, 0, KEYS_W, h), *look.corner);  // (labels left of the notes area stay hidden)
 }
 
 bool EditorRuler::mousePress(ui::MouseEvent& e) {
-    if (e.button == plat::LeftButton && e.pos.x >= KEYS_W) ed_->moveCursor(e.pos.x, e.mods);
+    if (e.button == plat::LeftButton && e.pos.x >= keysW()) ed_->moveCursor(e.pos.x, e.mods);
     return true;
 }
 
 bool EditorRuler::mouseMove(ui::MouseEvent& e) {
-    if ((e.buttons & plat::LeftButton) && e.pos.x >= KEYS_W) ed_->moveCursor(e.pos.x, e.mods);
+    if ((e.buttons & plat::LeftButton) && e.pos.x >= keysW()) ed_->moveCursor(e.pos.x, e.mods);
     return true;
 }
 
@@ -1996,7 +2153,7 @@ void MidiEditor::setStepsView(bool on) {
     if (on != stepsView) {
         drag = Drag();
         release();
-        double from = tAt(KEYS_W);
+        double from = tAt(keysW());
         if (on) {
             rollScroll_ = vbar->value();
             stepsView = true;
@@ -2081,9 +2238,9 @@ void MidiEditor::addStepRow(int pitch) {
     updateRanges();
     std::vector<int> rows = stepRows();
     int row = (int)(std::find(rows.begin(), rows.end(), pitch) - rows.begin());
-    int y = row * STEP_ROW_H;
+    int y = row * stepRowH();
     if (y < vbar->value()) vbar->setValue(y);  // (scrolled to it)
-    else if (y + STEP_ROW_H > vbar->value() + steps->height()) vbar->setValue(y + STEP_ROW_H - steps->height());
+    else if (y + stepRowH() > vbar->value() + steps->height()) vbar->setValue(y + stepRowH() - steps->height());
     soundBriefly(pitch, lastVelocity, NOTE_SOUND_S);
     refresh();
 }
@@ -2091,9 +2248,10 @@ void MidiEditor::addStepRow(int pitch) {
 // --- the Steps view's widget ---
 
 StepGrid::StepGrid(MidiEditor* editor) : ed_(editor) {
+    setStyleType("Steps");
     setMouseTracking(true);
     setFocusPolicy(ui::FocusPolicy::Strong);
-    setMinimumHeight(200);
+    setMinimumHeight(theme::metric("piano-roll-min-height", 200));
     setSizePolicy(ui::SizePolicy::Expanding, ui::SizePolicy::Expanding);
     rowMenu = widgets::ownedMenu(this);
     rowMenu->aboutToShow = [this](ui::Menu* menu) {  // a pitch for the new row: next to the rows, or any
@@ -2116,14 +2274,14 @@ StepGrid::StepGrid(MidiEditor* editor) : ed_(editor) {
 }
 
 int StepGrid::rowAt(int y) const {
-    int r = (int)std::floor((double)(y + ed_->vbar->value()) / STEP_ROW_H);
+    int r = (int)std::floor((double)(y + ed_->vbar->value()) / stepRowH());
     if (r < 0 || r > (int)ed_->stepRows().size()) return -1;
     return r;
 }
 
 std::optional<int> StepGrid::yOfRow(int row) const {
-    int y = row * STEP_ROW_H - ed_->vbar->value();
-    if (y + STEP_ROW_H < 0 || y > height()) return std::nullopt;
+    int y = row * stepRowH() - ed_->vbar->value();
+    if (y + stepRowH() < 0 || y > height()) return std::nullopt;
     return y;
 }
 
@@ -2134,19 +2292,62 @@ bool StepGrid::overridesShortcut(const ui::KeyEvent& e) const { return ed_->roll
 std::string StepGrid::toolTipAt(Point p) const {
     int r = rowAt(p.y);
     if (r < 0) return "";
-    if (r == (int)ed_->stepRows().size()) return p.x < KEYS_W ? "Add a row for another pitch" : "";
-    if (p.x < KEYS_W) return "Press to hear this pitch";
+    if (r == (int)ed_->stepRows().size()) return p.x < keysW() ? "Add a row for another pitch" : "";
+    if (p.x < keysW()) return "Press to hear this pitch";
     return "Click to add a note one step long here (or remove the one here); drag along to paint. Ctrl+click: "
            "select its notes; right-click: delete them";
 }
 
+const StepGrid::Look& StepGrid::look() {
+    if (!parts_.refresh()) return look_;
+    Look l;
+    l.notes.read(parts_);
+    l.self = &parts_.get("");
+    l.row = &parts_.get("row");
+    const css::Style& pad = parts_.get("pad");
+    l.pad = panel_style::bg(pad);
+    l.padRadius = (float)std::max(0.0, pad.length("border-top-left-radius", 2));
+    l.padMargin = ui::style::insets(pad, "margin");
+    std::optional<std::string> darken = parts_.get("pad", "odd").variable("--darken");
+    l.padDarken = 112;
+    if (darken) {
+        css::Style probe;  // (the variable's text as a number)
+        probe.props_["x"] = *darken;
+        l.padDarken = std::max(1, (int)std::lround(probe.number("x", 112)));
+    }
+    l.shade = &parts_.get("shade");
+    l.noteMargin = ui::style::insets(parts_.get("note"), "margin");
+    l.keys = &parts_.get("keys");
+    const css::Style& line = parts_.get("key-line");
+    l.keyLine = panel_style::bg(line);
+    l.keyLineH = std::max(0, panel_style::px(line, "height", 1));
+    const css::Style& label = parts_.get("key-label");
+    l.label = panel_style::fg(label);
+    l.labelPad = panel_style::px(label, "padding-right", 4);
+    l.font = ui::style::font(label, theme::uiFont());
+    l.keyBlack = &parts_.get("key", "black");
+    l.keyBlackW = std::max(0, panel_style::px(*l.keyBlack, "width", 6));
+    l.sounding = &parts_.get("key", "sounding");
+    const css::Style& add = parts_.get("add-row");
+    l.addRow = panel_style::fg(add);
+    l.addRowPad = ui::style::insets(add, "padding");
+    l.addRowFont = ui::style::font(add, theme::uiFont());
+    const css::Style& edge = parts_.get("keys-edge");
+    l.keysEdge = panel_style::bg(edge);
+    l.keysEdgeW = std::max(0, panel_style::px(edge, "width", 1));
+    look_ = l;
+    return look_;
+}
+
 void StepGrid::paint(Painter& p) {
     MidiEditor& ed = *ed_;
+    const Look& look = this->look();
+    const int KEYS_W = keysW(), STEP_ROW_H = stepRowH();
     int w = width(), h = height();
     std::vector<int> rows = ed.stepRows();
     const Timing& timing = ed.project.timing;
     double origin = ed.originS();
-    p.fillRect(rect(), theme::c("ruler_bg"));
+    ui::style::box(p, rect(), *look.self);
     // the steps in view, and whether each is in an even beat (pads shaded by beats, as a drum machine's)
     std::vector<std::pair<double, double>> cells;
     std::vector<bool> even;
@@ -2159,63 +2360,68 @@ void StepGrid::paint(Painter& p) {
         even.push_back(((int64_t)beat) % 2 == 0);
         t = c.second + 1e-7;
     }
-    Color band = theme::c("lane"), pad = theme::c("lane_alt");
-    Color padOdd = pad.darker(112);
+    Color pad = look.pad;  // (the pads: rounded fills of fractional rectangles, not boxes)
+    Color padOdd = pad.darker(look.padDarken);
+    const ui::style::Insets& pm = look.padMargin;
+    float padRadius = look.padRadius;
     int rowsDown = (int)rows.size() * STEP_ROW_H - ed.vbar->value();
     for (size_t r = 0; r < rows.size(); ++r) {
         std::optional<int> y = yOfRow((int)r);
         if (!y) continue;
-        p.fillRect(Rect(KEYS_W, *y, w, STEP_ROW_H), band);
+        ui::style::box(p, Rect(KEYS_W, *y, w, STEP_ROW_H), *look.row);
         for (size_t k = 0; k < cells.size(); ++k) {
             double x0 = ed.xOf(std::max(0.0, cells[k].first)), x1 = ed.xOf(cells[k].second);
-            p.fillRoundedRect(RectF((float)x0 + 1, (float)*y + 2, (float)std::max(1.0, x1 - x0 - 2), STEP_ROW_H - 4), 2,
-                              even[k] ? pad : padOdd);
+            p.fillRoundedRect(RectF((float)x0 + pm.left, (float)*y + pm.top, (float)std::max(1.0, x1 - x0 - pm.w()),
+                                    (float)(STEP_ROW_H - pm.h())),
+                              padRadius, even[k] ? pad : padOdd);
         }
     }
     double lo, hi;  // shade what the clip doesn't play
     ed.windowS(lo, hi);
     int bottom = std::min(h, rowsDown);
     if (bottom > 0) {
-        Color shade = theme::c("roll_shade");
-        p.fillRect(aliased(KEYS_W, 0, std::max(0.0, ed.xOf(lo) - KEYS_W), bottom), shade);
-        p.fillRect(aliased(ed.xOf(hi), 0, w, bottom), shade);
+        ui::style::box(p, aliased(KEYS_W, 0, std::max(0.0, ed.xOf(lo) - KEYS_W), bottom), *look.shade);
+        ui::style::box(p, aliased(ed.xOf(hi), 0, w, bottom), *look.shade);
     }
     std::map<int, int> rowOf;
     for (size_t r = 0; r < rows.size(); ++r) rowOf[rows[r]] = (int)r;
     Color color = ed.color();
+    const ui::style::Insets& nm = look.noteMargin;
     for (size_t i = 0; i < ed.notes.size(); ++i) {
         const Note& n = ed.notes[i];
         std::optional<int> y = yOfRow(rowOf[(int)n.pitch]);
         if (!y) continue;
         double x0 = ed.xOf(n.start), x1 = ed.xOf(n.end);
         if (x1 < KEYS_W || x0 > w) continue;
-        RectF r((float)x0 + 1, (float)*y + 3, (float)std::max(NOTE_MIN_PX, x1 - x0 - 2), STEP_ROW_H - 6);
-        paintNoteBox(p, r, n, color, ed.selected.count((int)i) > 0, ed.off.count((int)i) > 0);
+        RectF r((float)x0 + nm.left, (float)*y + nm.top, (float)std::max(NOTE_MIN_PX, x1 - x0 - nm.w()),
+                (float)(STEP_ROW_H - nm.h()));
+        paintNoteBox(p, r, n, color, ed.selected.count((int)i) > 0, ed.off.count((int)i) > 0, look.notes);
         if (n.slide)  // (a tail into it, as in the piano roll)
             paintSlideTail(p, PointF((float)x0 - 9, (float)*y + STEP_ROW_H - 3), PointF((float)x0 + 2, (float)*y + STEP_ROW_H / 2.0f),
-                           color.lighter(170));
+                           color.lighter(170), look.notes);
     }
-    ed.paintCursorLines(p, h);
+    ed.paintCursorLines(p, h, look.notes);
     // the rows' names (the piano roll's keys), and "+ Row"
-    p.fillRect(Rect(0, 0, KEYS_W, std::min(h, rowsDown)), theme::c("keys_white"));
-    Font font = theme::uiFont();
+    ui::style::box(p, Rect(0, 0, KEYS_W, std::min(h, rowsDown)), *look.keys);
+    const Font& font = look.font;
     for (size_t r = 0; r <= rows.size(); ++r) {
         std::optional<int> y = yOfRow((int)r);
         if (!y) continue;
         if (r == rows.size()) {
-            p.drawText(RectF(6, (float)*y, KEYS_W - 8, STEP_ROW_H), AlignLeft | AlignVCenter, "+ Row", font,
-                       theme::c("ruler_text"));
+            const ui::style::Insets& ap = look.addRowPad;
+            p.drawText(RectF((float)ap.left, (float)*y, (float)(KEYS_W - ap.w()), (float)STEP_ROW_H), AlignLeft | AlignVCenter,
+                       "+ Row", look.addRowFont, look.addRow);
             continue;
         }
         int pitch = rows[r];
-        if (ed.held && *ed.held == pitch) p.fillRect(Rect(0, *y, KEYS_W, STEP_ROW_H), theme::c("key_sounding"));
-        else if (isBlackKey(pitch)) p.fillRect(Rect(0, *y, 6, STEP_ROW_H), theme::c("keys_black"));
-        p.fillRect(Rect(0, *y + STEP_ROW_H - 1, KEYS_W, 1), theme::c("keys_line"));
+        if (ed.held && *ed.held == pitch) ui::style::box(p, Rect(0, *y, KEYS_W, STEP_ROW_H), *look.sounding);
+        else if (isBlackKey(pitch)) ui::style::box(p, Rect(0, *y, look.keyBlackW, STEP_ROW_H), *look.keyBlack);
+        p.fillRect(Rect(0, *y + STEP_ROW_H - look.keyLineH, KEYS_W, look.keyLineH), look.keyLine);
         std::string label = ed.keyLabel(pitch);
-        p.drawText(RectF(0, (float)*y, KEYS_W - 4, STEP_ROW_H), AlignRight | AlignVCenter,
-                   label.empty() ? noteName(pitch) : label, font, theme::c("keys_label"), !label.empty());
+        p.drawText(RectF(0, (float)*y, (float)(KEYS_W - look.labelPad), (float)STEP_ROW_H), AlignRight | AlignVCenter,
+                   label.empty() ? noteName(pitch) : label, font, look.label, !label.empty());
     }
-    p.fillRect(Rect(KEYS_W - 1, 0, 1, h), theme::c("ruler_bg"));
+    p.fillRect(Rect(KEYS_W - look.keysEdgeW, 0, look.keysEdgeW, h), look.keysEdge);
 }
 
 bool StepGrid::mousePress(ui::MouseEvent& e) {
@@ -2224,12 +2430,12 @@ bool StepGrid::mousePress(ui::MouseEvent& e) {
     int r = rowAt(e.pos.y);
     if (r < 0) return true;
     if (r == (int)rows.size()) {  // "+ Row"
-        if (e.button == plat::LeftButton && e.pos.x < KEYS_W)
-            rowMenu->popup(mapToGlobal(Point(0, *yOfRow(r) + STEP_ROW_H)), this);
+        if (e.button == plat::LeftButton && e.pos.x < keysW())
+            rowMenu->popup(mapToGlobal(Point(0, *yOfRow(r) + stepRowH())), this);
         return true;
     }
     int pitch = rows[(size_t)r];
-    if (e.pos.x < KEYS_W) {  // a row's name: it sounds while held
+    if (e.pos.x < keysW()) {  // a row's name: it sounds while held
         if (e.button == plat::LeftButton) {
             ed.hold(pitch);
             ed.drag = MidiEditor::Drag();
@@ -2278,13 +2484,13 @@ bool StepGrid::mouseMove(ui::MouseEvent& e) {
         if (onRow) ed.hold(rows[(size_t)r]);
         ed.refresh();
     } else if (ed.drag.kind == MidiEditor::Drag::Cells) {
-        if (onRow && e.pos.x >= KEYS_W && ed.setCell(rows[(size_t)r], ed.tAt(e.pos.x), ed.drag.lighting)) {
+        if (onRow && e.pos.x >= keysW() && ed.setCell(rows[(size_t)r], ed.tAt(e.pos.x), ed.drag.lighting)) {
             ed.drag.changed = true;
             if (ed.drag.lighting) ed.hold(rows[(size_t)r]);
             ed.refresh();
         }
     } else {
-        setCursor(onRow && e.pos.x >= KEYS_W ? ui::Cursor::Hand : ui::Cursor::Arrow);
+        setCursor(onRow && e.pos.x >= keysW() ? ui::Cursor::Hand : ui::Cursor::Arrow);
     }
     return true;
 }

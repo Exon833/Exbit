@@ -8,6 +8,7 @@
 #include "ui/presets_ui.h"
 #include "ui/theme.h"
 #include "ui/toolkit/layout.h"
+#include "ui/toolkit/style.h"
 #include "ui/widgets.h"
 
 void EffectWindow::addPresetsButton(ui::HBox* row) {
@@ -47,7 +48,7 @@ void EffectWindow::showDifferences() {
         if (!label) continue;
         bool differs = std::find(marked.begin(), marked.end(), (int)i) != marked.end();
         if (differs) {
-            label->setColor(theme::c("accent"));
+            label->setColor(ui::style::foreground(computedStyle("changed")));  // (EffectWindow::changed)
             presets::Compare* c = presets::compareOf(slot.get());
             label->setToolTip(std::string("Differs from the ") + (c && c->onKept ? "settings of Now" : "kept settings"));
         } else {

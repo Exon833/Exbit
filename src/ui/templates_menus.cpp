@@ -64,7 +64,7 @@ void setDefault(MainWindow& window, const std::string& path) {
 }
 
 std::string writeTemplate(MainWindow& window, const std::string& name, std::string& error) {
-    std::string path = util::joinPath(userDir(), skin::fileName(name));
+    std::string path = util::joinPath(userDir(), skin::safeName(name) + ".json");
     if (util::fileExists(path)) {  // (its old audio goes with it)
         util::removeFile(path);
         std::string audio = project_io::audioFolder(path);
@@ -84,7 +84,7 @@ std::string saveAsTemplate(MainWindow& window) {
     if (!ui::getText(&window, "Save as template", "Name of the template:", name)) return "";
     name = util::trim(name);
     if (name.empty()) return "";
-    std::string path = util::joinPath(userDir(), skin::fileName(name));
+    std::string path = util::joinPath(userDir(), skin::safeName(name) + ".json");
     if (util::fileExists(path) &&
         ui::msg::question(&window, "Save as template",
                           "There is a template called " + name + " already. Replace it?") != ui::msg::Yes)

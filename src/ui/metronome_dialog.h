@@ -13,6 +13,7 @@
 
 #include "audio/metronome.h"
 #include "core/json.h"
+#include "ui/panel_style.h"
 #include "ui/toolkit/controls.h"
 #include "ui/toolkit/dialogs.h"
 
@@ -38,11 +39,15 @@ void testClick(audio::Engine& engine, const metronome::Click& click);
 
 // Attack-sustain-release of one click: time across (GRAPH_MS), level up (MIN_DB..MAX_DB).
 // Drag a point: the attack end (also the level), the sustain end (also the level), the release end.
+// Styled as EnvelopeGraph (default.css), with the class of its click (.bar, .beat): its background-color and
+// color (the envelope's); ::grid (color, stroke-width), ::envelope (stroke-width; fill-opacity: inside it),
+// ::label (color, font), ::handle (background-color, border-top-color, border-top-width) and ::handle:dragging.
 class EnvelopeGraph : public ui::Widget {
 public:
-    EnvelopeGraph(metronome::Click* click, Color color);
+    // role: its class ("bar", "beat"), which gives it its colour
+    EnvelopeGraph(metronome::Click* click, const std::string& role);
     metronome::Click* click;
-    Color color;
+    Color color() const;           // the envelope's, from the stylesheets
     int dragging = 0;              // the point being dragged (1..3), 0 none
     ui::Signal<> changed;
     RectF area() const;
@@ -54,13 +59,25 @@ public:
     bool mouseMove(ui::MouseEvent& e) override;
     bool mouseRelease(ui::MouseEvent& e) override;
     Point sizeHint() const override { return Point(240, 120); }
+
+private:
+    struct Look {
+        const css::Style* self = nullptr;  // (its box; kept until parts_.refresh() answers true)
+        Color color, grid, label, handle, handleEdge, handleDragging;
+        float gridW = 1, lineW = 2, handleW = 2;
+        int fillAlpha = 60;
+        Font font;
+    };
+    const Look& look() const;
+    mutable panel_style::Parts parts_{*this};
+    mutable Look look_;
 };
 
 // One click: its envelope graph, its values as numbers, pitch, waveform, and Test.
 class ClickEditor : public ui::GroupBox {
 public:
-    // test(click): play it once
-    ClickEditor(const std::string& title, metronome::Click* click, Color color,
+    // test(click): play it once; role: the graph's class ("bar", "beat")
+    ClickEditor(const std::string& title, metronome::Click* click, const std::string& role,
                 std::function<void(const metronome::Click&)> test);
     metronome::Click* click;
     EnvelopeGraph* graph;

@@ -291,7 +291,7 @@ bool Timeline::mousePress(ui::MouseEvent& e) {
     } else {  // ruler, empty lane space or a clip's body
         int64_t frame = snappedFrameAt(pos.x, e.mods);
         setCursor(frame);
-        if (pos.y < config::RULER_H && engine.playing.load()) seek(frame);  // the ruler: playback jumps there too
+        if (pos.y < lanes::rulerHeight() && engine.playing.load()) seek(frame);  // the ruler: playback jumps there too
         TrackPtr track = trackAt(pos.y);
         if (track) {  // not over the ruler, a group's header or the master lane
             RangeDrag d;
@@ -517,7 +517,7 @@ void Timeline::updateCursor(PointF pos) {
 }
 
 bool Timeline::contextMenu(ui::MouseEvent& e) {
-    if (e.pos.y < config::RULER_H) {
+    if (e.pos.y < lanes::rulerHeight()) {
         rulerMenu(e.globalPos, PointF(e.pos));
         return true;
     }

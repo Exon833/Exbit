@@ -11,6 +11,7 @@
 #include "ui/theme.h"
 #include "ui/toolkit/controls.h"
 #include "ui/toolkit/layout.h"
+#include "ui/toolkit/style.h"
 
 plat::WindowOptions EditorWindow::options(ui::Window* parent, const std::string& title, bool invisible) {
     plat::WindowOptions o;
@@ -31,7 +32,8 @@ EditorWindow::EditorWindow(ui::Window* parent, SlotPtr slot_, const std::string&
     : ui::Window(options(parent, title, invisible_)), slot(std::move(slot_)), invisible(invisible_) {
     deleteOnClose = true;
     setScale(1);  // (a plugin draws its window at its own size, whatever the interface size)
-    setBackground(Color(0, 0, 0));
+    setStyleType("EditorWindow");
+    setBackground(ui::style::background(computedStyle("plugin")));  // (behind the plugin's own window)
     setAcceptDrops(true);  // (files, for a Windows plugin: dragEnter)
 }
 
@@ -134,8 +136,9 @@ void EditorWindow::idle() {
 void EditorWindow::showStopped() {
     if (stoppedShown_) return;
     stoppedShown_ = true;
-    setBackground(theme::c("window"));
-    auto* lay = ui::vbox(this, 16, 10);
+    const css::Style& st = computedStyle("stopped");
+    setBackground(ui::style::background(st));
+    auto* lay = ui::vbox(this, ui::style::px(st, "padding-top", 16), ui::style::px(st, "row-gap", 10));
     auto* text = add<ui::Label>(slot->name + " stopped" + (slot->error.empty() ? "." : ": " + slot->error) +
                                 (reloadable ? "\nReload starts it afresh, with the settings it last had." : ""));
     text->setWordWrap(true);

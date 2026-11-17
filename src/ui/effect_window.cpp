@@ -7,6 +7,7 @@
 
 #include "audio/automation.h"
 #include "ui/theme.h"
+#include "ui/toolkit/style.h"
 #include "ui/toolkit/layout.h"
 
 using effect_window::REFRESH_MS;
@@ -30,7 +31,8 @@ public:
 // --- the curve ---
 
 CurveView::CurveView(std::shared_ptr<effects::Effect> e) : effect(std::move(e)) {
-    setMinimumHeight(130);
+    setStyleType("CurveView");
+    setMinimumHeight(theme::metric("curve-view-height", 130));
     setSizePolicy(ui::SizePolicy::Expanding, ui::SizePolicy::Fixed);
 }
 
@@ -39,38 +41,61 @@ void CurveView::refresh() {
     update();
 }
 
+const CurveView::Look& CurveView::look() {
+    if (!parts_.refresh()) return look_;
+    Look l;
+    l.self = &parts_.get("");
+    const css::Style& grid = parts_.get("grid");
+    l.grid = panel_style::fg(grid);
+    l.gridW = panel_style::lengthF(grid, "stroke-width", 1);
+    l.font = ui::style::font(grid, theme::uiFont());
+    const css::Style& analyzer = parts_.get("analyzer");
+    Color shade = panel_style::fg(analyzer);
+    auto alpha = [&](const char* property, double def) {
+        return (int)std::lround(std::clamp(analyzer.number(property, def), 0.0, 1.0) * shade.a);
+    };
+    l.analyzerFill = shade.withAlpha(alpha("fill-opacity", 60 / 255.0));
+    l.analyzerLine = shade.withAlpha(alpha("stroke-opacity", 150 / 255.0));
+    l.analyzerW = panel_style::lengthF(analyzer, "stroke-width", 1);
+    const css::Style& curve = parts_.get("curve");
+    l.curve = panel_style::fg(curve);
+    l.curveW = panel_style::lengthF(curve, "stroke-width", 2);
+    look_ = l;
+    return look_;
+}
+
 void CurveView::paint(Painter& p) {
+    const Look& look = this->look();
     int w = width(), h = height();
-    p.fillRect(rect(), theme::c("base"));
+    ui::style::box(p, rect(), *look.self);
     auto toXY = [&](double x, double y) { return PointF((float)(x * (w - 1)), (float)((1 - (y + 1) / 2) * (h - 1))); };
-    Color grid = theme::c("grid");
-    Font font = theme::uiFont();
+    Color grid = look.grid;
+    const Font& font = look.font;
     if (effect) {
         for (const auto& g : effect->curveYGrid) {
             PointF a = toXY(0, g.pos), b = toXY(1, g.pos);
-            p.drawLine(PointF(a.x, a.y + 0.5f), PointF(b.x, b.y + 0.5f), grid, 1);
+            p.drawLine(PointF(a.x, a.y + 0.5f), PointF(b.x, b.y + 0.5f), grid, look.gridW);
             p.drawText(PointF(4, a.y - 2), g.label, font, grid);
         }
         for (const auto& g : effect->curveXGrid) {
             PointF a = toXY(g.pos, -1), b = toXY(g.pos, 1);
-            p.drawLine(PointF(a.x + 0.5f, a.y), PointF(b.x + 0.5f, b.y), grid, 1);
+            p.drawLine(PointF(a.x + 0.5f, a.y), PointF(b.x + 0.5f, b.y), grid, look.gridW);
             p.drawText(PointF(toXY(g.pos, 0).x + 3, (float)h - 4), g.label, font, grid);
         }
     }
     if (spectrum.size() > 1) {  // (the analyzer: a soft filled shape behind the response)
-        Color shade = theme::c("dimmed_text");
         std::vector<PointF> outline, fill;
         for (const auto& pt : spectrum) outline.push_back(toXY(pt.x, std::max(-1.0, std::min(1.0, pt.y))));
         fill = outline;
         fill.push_back(PointF(outline.back().x, (float)h));
         fill.push_back(PointF(outline.front().x, (float)h));
-        p.fillPolygon(fill, shade.withAlpha(60));
-        p.drawPolyline(outline, shade.withAlpha(150), 1, LineCap::Round, LineJoin::Round);
+        p.fillPolygon(fill, look.analyzerFill);
+        p.drawPolyline(outline, look.analyzerLine, look.analyzerW, LineCap::Round, LineJoin::Round);
     }
     if (!points.empty()) {
         std::vector<PointF> line;
         for (const auto& pt : points) line.push_back(toXY(pt.x, std::max(-1.0, std::min(1.0, pt.y))));
-        p.drawPolyline(line, theme::c("accent"), 2, LineCap::Round, LineJoin::Round);
+        p.drawPolyline(line, look.curve, look.curveW, LineCap::Round, LineJoin::Round);
     }
 }
 
@@ -85,8 +110,9 @@ void CurveView::refreshSpectrum(double dt) {
 // --- the meters ---
 
 MeterView::MeterView(std::shared_ptr<effects::Effect> e) : effect(std::move(e)) {
+    setStyleType("MeterView");
     if (effect) values = effect->meters();
-    setMinimumHeight(20 * std::max<int>(1, (int)values.size()));
+    setMinimumHeight(rowH() * std::max<int>(1, (int)values.size()));
     setSizePolicy(ui::SizePolicy::Expanding, ui::SizePolicy::Fixed);
 }
 
@@ -95,52 +121,118 @@ void MeterView::refresh() {
     update();
 }
 
+const MeterView::Look& MeterView::look() const {
+    if (!parts_.refresh()) return look_;
+    Look l;
+    const css::Style& self = parts_.get("");
+    l.text = ui::style::foreground(self);
+    l.font = ui::style::font(self, theme::uiFont());
+    l.rowH = std::max(1, panel_style::px(self, "line-height", 20));
+    const css::Style& label = parts_.get("label");
+    l.labelW = panel_style::px(label, "width", 110);
+    l.labelPad = panel_style::px(label, "padding-right", 6);
+    l.track = &parts_.get("track");
+    l.trackH = panel_style::px(*l.track, "height", 12);
+    l.bar = panel_style::bg(parts_.get("bar"));
+    const css::Style& value = parts_.get("value");
+    l.valueW = panel_style::px(value, "width", 80);
+    l.valuePad = panel_style::px(value, "padding-left", 6);
+    look_ = l;
+    return look_;
+}
+
 void MeterView::paint(Painter& p) {
-    const int labelW = 110;
-    Font font = theme::uiFont();
+    const Look& look = this->look();
+    const int labelW = look.labelW, rowH = look.rowH;
+    const Font& font = look.font;
+    int textH = rowH - 4, trackY = (rowH - look.trackH) / 2;  // (16 and 4 px in a 20 px row, a 12 px bar)
     for (size_t i = 0; i < values.size(); i++) {
         const auto& m = values[i];
-        float y = (float)(i * 20 + 2);
-        p.drawText(RectF(0, y, labelW - 6, 16), AlignVCenter | AlignRight, m.label, font, theme::c("window_text"));
-        RectF bar((float)labelW, y + 2, (float)std::max(0, width() - labelW - 80), 12);
-        p.fillRect(bar, theme::c("meter_bg"));
+        int y = (int)i * rowH + 2;
+        p.drawText(RectF(0, (float)y, (float)(labelW - look.labelPad), (float)textH), AlignVCenter | AlignRight, m.label,
+                   font, look.text);
+        Rect bar(labelW, (int)i * rowH + trackY, std::max(0, width() - labelW - look.valueW), look.trackH);
+        ui::style::box(p, bar, *look.track);
         float fraction = (float)std::max(0.0, std::min(1.0, m.fraction));
-        p.fillRect(RectF(bar.x, bar.y, bar.w * fraction, bar.h), theme::c("accent"));
-        p.drawText(RectF(bar.right() + 6, y, 74, 16), AlignVCenter | AlignLeft, m.text, font, theme::c("window_text"));
+        p.fillRect(RectF((float)bar.x, (float)bar.y, bar.w * fraction, (float)bar.h), look.bar);
+        p.drawText(RectF((float)(bar.right() + look.valuePad), (float)y, (float)(look.valueW - look.valuePad), (float)textH),
+                   AlignVCenter | AlignLeft, m.text, font, look.text);
     }
 }
 
 // --- the tuner ---
 
-TunerView::TunerView(std::shared_ptr<effects::Effect> e) : MeterView(std::move(e)) { setMinimumHeight(120); }
+TunerView::TunerView(std::shared_ptr<effects::Effect> e) : MeterView(std::move(e)) {
+    setStyleType("Tuner");
+    setMinimumHeight(theme::metric("tuner-height", 120));
+}
+
+const TunerView::TunerLook& TunerView::tunerLook() {
+    if (!tparts_.refresh()) return tunerLook_;
+    TunerLook l;
+    l.self = &tparts_.get("");
+    const char* noteStates[] = {"", "in-tune", "silent"};
+    Font big = theme::uiFont().withPixelSize(40).withBold(true), small = theme::uiFont();
+    for (int i = 0; i < 3; ++i) {
+        l.note[i] = &tparts_.get("note", noteStates[i]);
+        l.noteFont[i] = ui::style::font(*l.note[i], big);
+    }
+    const css::Style& scale = tparts_.get("scale");
+    l.scale = panel_style::bg(scale);
+    l.scaleH = panel_style::px(scale, "height", 2);
+    l.scaleLeft = panel_style::px(scale, "margin-left", 24);
+    l.scaleRight = panel_style::px(scale, "margin-right", 24);
+    l.scaleTop = panel_style::px(scale, "top", 66);
+    l.tick = panel_style::fg(tparts_.get("tick"));
+    l.tickCentre = panel_style::fg(tparts_.get("tick", "centre"));
+    const css::Style& needle = tparts_.get("needle");
+    l.needle = panel_style::bg(needle);
+    l.needleR = (float)needle.length("border-top-left-radius", 2);
+    l.needleInTune = panel_style::bg(tparts_.get("needle", "in-tune"));
+    const css::Style& cents = tparts_.get("cents");
+    l.cents = panel_style::fg(cents);
+    l.centsFont = ui::style::font(cents, small);
+    const css::Style& hz = tparts_.get("hz");
+    l.hz = panel_style::fg(hz);
+    l.hzFont = ui::style::font(hz, small);
+    const css::Style& ends = tparts_.get("end-label");
+    l.endLabel = panel_style::fg(ends);
+    l.endFont = ui::style::font(ends, small);
+    tunerLook_ = l;
+    return tunerLook_;
+}
 
 void TunerView::paint(Painter& p) {
+    const TunerLook& look = tunerLook();
     int w = width(), h = height();
-    p.fillRect(rect(), theme::c("base"));
-    Color text = theme::c("window_text"), dim = theme::c("dimmed_text"), accent = theme::c("accent");
+    ui::style::box(p, rect(), *look.self);
     std::string note = values.size() > 0 ? values[0].text : "—";
     double fraction = values.size() > 1 ? values[1].fraction : 0.5;
     std::string cents = values.size() > 1 ? values[1].text : "", hz = values.size() > 2 ? values[2].text : "";
     bool heard = values.size() > 0 && values[0].fraction > 0;
     bool inTune = heard && std::fabs(fraction - 0.5) * 100 <= 5;
-    Font big = theme::uiFont().withPixelSize(40).withBold(true), small = theme::uiFont();
-    p.drawText(RectF(0, 4, (float)w, 48), AlignCenter, note, big, heard ? (inTune ? theme::c("meter_ok") : text) : dim);
+    int state = heard ? (inTune ? 1 : 0) : 2;
+    p.drawText(RectF(0, 4, (float)w, 48), AlignCenter, note, look.noteFont[state], ui::style::foreground(*look.note[state]));
     // the scale: −50…+50 cents, a tick every 10, the middle longer
-    float left = 24, right = (float)w - 24, y = 66;
-    p.fillRect(RectF(left, y, right - left, 2), theme::c("meter_bg"));
+    float left = (float)look.scaleLeft, right = (float)(w - look.scaleRight), y = (float)look.scaleTop;
+    p.fillRect(RectF(left, y, right - left, (float)look.scaleH), look.scale);
     for (int c = -50; c <= 50; c += 10) {
         float x = left + (right - left) * (c + 50) / 100.0f;
         float tall = c == 0 ? 12 : 6;
-        p.fillRect(RectF(x - 0.5f, y - tall + 1, 1, tall * 2), c == 0 ? text : dim);
+        p.fillRect(RectF(x - 0.5f, y - tall + 1, 1, tall * 2), c == 0 ? look.tickCentre : look.tick);
     }
-    p.drawText(RectF(left - 20, y + 8, 40, 14), AlignCenter, "−50", small, dim);
-    p.drawText(RectF(right - 20, y + 8, 40, 14), AlignCenter, "+50", small, dim);
+    p.drawText(RectF(left - 20, y + 8, 40, 14), AlignCenter, "−50", look.endFont, look.endLabel);
+    p.drawText(RectF(right - 20, y + 8, 40, 14), AlignCenter, "+50", look.endFont, look.endLabel);
     if (heard) {
         float x = left + (right - left) * (float)std::max(0.0, std::min(1.0, fraction));
-        p.fillRoundedRect(RectF(x - 2, y - 14, 4, 30), 2, inTune ? theme::c("meter_ok") : accent);
+        float r = look.needleR;  // (rounded whatever Options → Rounded corners says, as it always was)
+        RectF needle(x - 2, y - 14, 4, 30);
+        if (r > 0.01f) p.fillRoundedRect(needle, r, inTune ? look.needleInTune : look.needle);
+        else p.fillRect(needle, inTune ? look.needleInTune : look.needle);
     }
-    p.drawText(RectF(0, (float)h - 22, (float)w / 2 - 8, 18), AlignVCenter | AlignRight, cents, small, text);
-    p.drawText(RectF((float)w / 2 + 8, (float)h - 22, (float)w / 2 - 8, 18), AlignVCenter | AlignLeft, hz, small, dim);
+    p.drawText(RectF(0, (float)h - 22, (float)w / 2 - 8, 18), AlignVCenter | AlignRight, cents, look.centsFont, look.cents);
+    p.drawText(RectF((float)w / 2 + 8, (float)h - 22, (float)w / 2 - 8, 18), AlignVCenter | AlignLeft, hz, look.hzFont,
+               look.hz);
 }
 
 // --- the window ---
@@ -165,7 +257,9 @@ EffectWindow::EffectWindow(ui::Window* parent, SlotPtr slot_, const std::string&
     deleteOnClose = true;
     setTitle(title);
     if (slot) effect = std::dynamic_pointer_cast<effects::Effect>(std::atomic_load(&slot->instance));
-    ui::VBox* col = ui::vbox(this, 9, 6);
+    setStyleType("EffectWindow");
+    const css::Style& st = computedStyle();
+    ui::VBox* col = ui::vbox(this, ui::style::px(st, "padding-top", 9), ui::style::px(st, "row-gap", 6));
     if (!effect) return;
     if (effect->hasCurve()) {
         curveView = add<CurveView>(effect);
@@ -195,8 +289,8 @@ EffectWindow::EffectWindow(ui::Window* parent, SlotPtr slot_, const std::string&
     auto gridOwner = std::make_unique<ui::GridLayout>();
     ui::GridLayout* grid = gridOwner.get();
     grid->setColumnStretch(1, 1);
-    grid->hSpacing = 6;
-    grid->vSpacing = 6;
+    grid->hSpacing = ui::style::px(st, "column-gap", 6);
+    grid->vSpacing = ui::style::px(st, "row-gap", 6);
     const auto& params = effect->params();
     for (int i = 0; i < (int)params.size(); i++) {
         const auto& param = params[i];
@@ -217,14 +311,14 @@ EffectWindow::EffectWindow(ui::Window* parent, SlotPtr slot_, const std::string&
         } else {
             auto* slider = add<DefaultSlider>(param.toNormal(param.def));
             slider->setRange(0, SLIDER_STEPS);
-            slider->setMinimumWidth(220);
+            slider->setMinimumWidth(ui::style::px(computedStyle("slider"), "min-width", 220));
             slider->setSizePolicy(ui::SizePolicy::Expanding, ui::SizePolicy::Fixed);
             slider->valueChanged.connect([this, i](int v) { edit(i, (double)v / SLIDER_STEPS); });
             // --- writing automation: the slider held is one touch of its armed lane (automation_write.h) ---
             slider->sliderPressed.connect([this, i] { if (watcher) watcher->grab((uint32_t)i); });
             slider->sliderReleased.connect([this, i] { if (watcher) watcher->letGo((uint32_t)i); });
             auto* text = add<ui::Label>();
-            text->setMinimumWidth(80);
+            text->setMinimumWidth(ui::style::px(computedStyle("value"), "min-width", 80));
             grid->addWidget(slider, i, 1);
             grid->addWidget(text, i, 2);
             controls.push_back({i, slider, text});
@@ -300,7 +394,7 @@ void EffectWindow::follow() {
 
 Image EffectWindow::snapshot() {
     ui::App::get().doLayouts();
-    Image img(std::max(1, width()), std::max(1, height()), theme::c("window"));
+    Image img(std::max(1, width()), std::max(1, height()), ui::style::background(computedStyle()));
     Painter p(img);
     paintTree(p, rect());
     return img;

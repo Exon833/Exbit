@@ -15,6 +15,7 @@
 #include "ui/colors.h"
 #include "ui/master_lane.h"
 #include "ui/pad_kit_dialog.h"
+#include "ui/theme.h"
 #include "ui/toolkit/dialogs.h"
 
 namespace {
@@ -24,8 +25,11 @@ struct FilterGuard {
 };
 }  // namespace
 
+int timeline::automationPad() { return theme::metric("--automation-padding", config::AUTOMATION_PAD); }
+
 Timeline::Timeline(Project& project_, audio::Engine& engine_, ui::ScrollArea* scroll_)
     : project(project_), engine(engine_), scroll(scroll_) {
+    setStyleType("Timeline");
     setAcceptDrops(true);
     setFocusPolicy(ui::FocusPolicy::Strong);
     setMouseTracking(true);  // to show which zone of a clip is under the mouse
@@ -87,7 +91,7 @@ int64_t Timeline::snappedFrameAt(double x, int mods) const {
     return (int64_t)std::nearbyint(t.snap(x / pps, pps) * engine.sr);
 }
 
-std::vector<Lane> Timeline::lanes() const { return lanes::layout(project, config::RULER_H); }
+std::vector<Lane> Timeline::lanes() const { return lanes::layout(project, lanes::rulerHeight()); }
 
 std::map<const Track*, int> Timeline::trackTops() const {
     std::map<const Track*, int> tops;
@@ -104,7 +108,7 @@ std::vector<TrackPtr> Timeline::visibleTracks() const {
 }
 
 std::optional<Lane> Timeline::laneAt(double y) const {
-    if (y < config::RULER_H) return std::nullopt;
+    if (y < lanes::rulerHeight()) return std::nullopt;
     auto ls = lanes();
     for (auto& lane : ls)
         if (y < lane.bottom()) return lane;
@@ -117,7 +121,7 @@ TrackPtr Timeline::trackAt(double y) const {
 }
 
 std::pair<TrackPtr, AutomationPtr> Timeline::laneEdgeAt(double y) const {
-    if (y < config::RULER_H) return {};
+    if (y < lanes::rulerHeight()) return {};
     for (auto& lane : lanes())
         if ((lane.track || lane.automation) && std::fabs(y - lane.bottom()) <= config::LANE_EDGE_GRAB_PX)
             return {lane.track, lane.automation};
@@ -137,21 +141,21 @@ bool containsQt(const RectF& r, PointF p) { return p.x >= r.x && p.x <= r.right(
 }  // namespace
 
 std::pair<ClipPtr, ClipZone> Timeline::hit(PointF pos) const {
-    if (pos.y < config::RULER_H) return {nullptr, ClipZone::None};
+    if (pos.y < lanes::rulerHeight()) return {nullptr, ClipZone::None};
     auto tops = trackTops();
     auto& clips = *project.clips;
     for (auto it = clips.rbegin(); it != clips.rend(); ++it) {
         auto rect = clipRect(**it, tops);
         if (rect && !(*it)->track->frozen && containsQt(rect->adjusted(0, -2, 0, 2), pos))
-            return {*it, pos.y < rect->y + config::CLIP_HANDLE_H ? ClipZone::Handle : ClipZone::Body};
+            return {*it, pos.y < rect->y + clip_painter::headerHeight() ? ClipZone::Handle : ClipZone::Body};
     }
     return {nullptr, ClipZone::None};
 }
 
 std::pair<ClipPtr, ClipSide> Timeline::edgeAt(PointF pos) const {
-    if (pos.y < config::RULER_H) return {nullptr, ClipSide::None};
+    if (pos.y < lanes::rulerHeight()) return {nullptr, ClipSide::None};
     auto tops = trackTops();
-    const float grab = config::CLIP_EDGE_PX;
+    const float grab = (float)clip_painter::edgeWidth();
     auto& clips = *project.clips;
     for (auto it = clips.rbegin(); it != clips.rend(); ++it) {
         auto rect = clipRect(**it, tops);
@@ -552,9 +556,11 @@ void Timeline::moveLine(int& line, int x) {
 }
 
 void Timeline::updateLine(int x) {
-    int half = config::CURSOR_ARROW_W / 2 + 2;
-    update(Rect(x - 1, 0, 3, height()));
-    update(Rect(x - half, 0, 2 * half + 1, config::CURSOR_ARROW_H + 2));
+    const TimelineLook& lk = look();
+    int line = std::max(lk.cursor.width, lk.playhead.width) / 2 + 1;  // (either cursor's line, centred on x)
+    int half = std::max(line, paint::cursorArrowWidth() / 2 + 2);
+    update(Rect(x - line, 0, 2 * line + 1, height()));
+    update(Rect(x - half, 0, 2 * half + 1, paint::cursorArrowHeight() + 2));
 }
 
 void Timeline::zoom(double factor, double anchorX) {
@@ -593,7 +599,7 @@ bool Timeline::loopXs(int& x0, int& x1) const {
 
 int Timeline::loopEndAt(PointF pos) const {
     int xs[2];
-    if (!loopXs(xs[0], xs[1]) || pos.y >= config::RULER_H) return -1;
+    if (!loopXs(xs[0], xs[1]) || pos.y >= lanes::rulerHeight()) return -1;
     int best = -1;
     double bestD = 0;
     for (int i = 0; i < 2; ++i) {

@@ -10,6 +10,7 @@
 
 #include "ui/theme.h"
 #include "ui/toolkit/layout.h"
+#include "ui/toolkit/style.h"
 
 namespace ui {
 
@@ -359,8 +360,113 @@ bool Widget::hasFocus() const {
 }
 
 void Widget::setProperty(const std::string& key, const std::string& value) {
+    auto it = props_.find(key);
+    if (it != props_.end() && it->second == value) return;
     props_[key] = value;
+    classesVersion_++;
     update();
+}
+
+// --- style ---
+void Widget::setStyleType(const std::string& name) {
+    if (types_.back() != name) types_.push_back(name);
+    classesVersion_++;
+}
+
+void Widget::replaceStyleType(const std::string& was, const std::string& now) {
+    for (auto& t : types_)
+        if (t == was) {
+            t = now;
+            classesVersion_++;
+            return;
+        }
+    setStyleType(now);
+}
+
+bool Widget::isType(const std::string& name) const {
+    for (auto& t : types_)
+        if (t == name) return true;
+    return false;
+}
+
+bool Widget::hasClass(const std::string& name) const {
+    for (auto& c : classes_)
+        if (c == name) return true;
+    for (auto& [key, value] : props_) {
+        if (value.empty() || value == "false" || value == "0") continue;
+        if (name == key) return true;
+        // .key-value (toggle=mute: .toggle-mute)
+        if (value != "true" && name.size() == key.size() + 1 + value.size() && name.compare(0, key.size(), key) == 0 &&
+            name[key.size()] == '-' && name.compare(key.size() + 1, std::string::npos, value) == 0)
+            return true;
+    }
+    return false;
+}
+
+void Widget::addStyleClass(const std::string& name) {
+    for (auto& c : classes_)
+        if (c == name) return;
+    classes_.push_back(name);
+    classesVersion_++;
+    update();
+}
+
+void Widget::removeStyleClass(const std::string& name) {
+    auto it = std::find(classes_.begin(), classes_.end(), name);
+    if (it == classes_.end()) return;
+    classes_.erase(it);
+    classesVersion_++;
+    update();
+}
+
+void Widget::styleStates(std::vector<std::string>& out) const {
+    if (hovered_) out.push_back("hover");
+    if (pressed_) out.push_back("pressed");
+    if (!isEnabled()) out.push_back("disabled");
+    if (hasFocus()) out.push_back("focus");
+}
+
+bool Widget::hasState(const std::string& name) const {
+    std::vector<std::string> states;
+    styleStates(states);
+    for (auto& s : states)
+        if (s == name) return true;
+    return false;
+}
+
+std::shared_ptr<const css::Style> Widget::styleShared(const std::string& part) const {
+    const css::Engine& engine = theme::styles();
+    std::vector<std::string> states;
+    styleStates(states);
+    std::string key;
+    for (auto& s : states) key += s + " ";
+    // the parent's style first (it is what this one inherits from, and changes with the parent's own states)
+    std::shared_ptr<const css::Style> up = parent_ ? parent_->styleShared("") : nullptr;
+    int gen = engine.generation();
+    for (size_t i = 0; i < styles_.size(); i++) {
+        StyleEntry& e = styles_[i];
+        if (e.part == part && e.states == key && e.parent == up && e.generation == gen && e.classes == classesVersion_) {
+            if (i > 0) std::rotate(styles_.begin(), styles_.begin() + i, styles_.begin() + i + 1);  // (most recent first)
+            return styles_[0].style;
+        }
+    }
+    StyleEntry e;
+    e.part = part;
+    e.states = key;
+    e.parent = up;
+    e.generation = gen;
+    e.classes = classesVersion_;
+    // a part inherits from its node (Slider::handle from Slider)
+    std::shared_ptr<const css::Style> base = part.empty() ? up : styleShared("");
+    e.style = std::make_shared<const css::Style>(engine.compute(*this, base.get(), part));
+    styles_.insert(styles_.begin(), std::move(e));
+    if (styles_.size() > 12) styles_.pop_back();  // (states and parts of it seen lately)
+    return styles_[0].style;
+}
+
+const css::Style& Widget::computedStyle(const std::string& part) const {
+    // (the entry keeps it alive until it is pushed out: what callers hold is used at once, in one paint)
+    return *styleShared(part);
 }
 
 std::string Widget::property(const std::string& key) const {
@@ -444,13 +550,15 @@ void Widget::startDrag(const DragData& data, const Image* picture) {
         o.resizable = false;
         o.w = picture->width();
         o.h = picture->height();
+        // (style type DragImage: its box, and ::image's opacity)
         struct Pic : Window {
             Image img;
-            explicit Pic(const plat::WindowOptions& o) : Window(o) {}
+            explicit Pic(const plat::WindowOptions& o) : Window(o) { setStyleType("DragImage"); }
             void paint(Painter& p) override {
-                p.fillRect(rect(), theme::c("base"));
+                style::box(p, rect(), computedStyle());
+                float opacity = (float)computedStyle("image").number("opacity", 1);
                 p.save();
-                p.setOpacity(0.8f);
+                p.setOpacity(std::max(0.f, std::min(1.f, opacity)));
                 p.drawImage(Point(0, 0), img);
                 p.restore();
             }
@@ -602,13 +710,17 @@ Shortcut::~Shortcut() {
 // ============================================================================================
 
 namespace {
-// the tooltip window
+// the tooltip window (style type ToolTip: a box (background-color, border) with padding around the text (color,
+// font-*); default.css: a 1 px edge and 4 px of padding)
 class TipWindow : public Window {
 public:
-    explicit TipWindow(const plat::WindowOptions& o) : Window(o) {}
+    explicit TipWindow(const plat::WindowOptions& o) : Window(o) { setStyleType("ToolTip"); }
     std::string text;
-    static Point measure(const std::string& text) {
-        Font f = theme::uiFont();
+    // its size for that text
+    Point measure(const std::string& text) const {
+        const css::Style& st = computedStyle();
+        Font f = style::font(st, theme::uiFont());
+        style::Insets b = style::insets(st, "border-width"), pad = style::insets(st, "padding");
         float w = 0;
         int lines = 0;
         size_t start = 0;
@@ -621,19 +733,20 @@ public:
             start = nl + 1;
         }
         int h = (int)std::ceil(lines * f.lineSpacing() - (f.lineSpacing() - f.height()));
-        return Point((int)std::ceil(w) + 10, h + 10);
+        return Point((int)std::ceil(w) + b.w() + pad.w(), h + b.h() + pad.h());
     }
     void paint(Painter& p) override {
-        const theme::Shades& sh = theme::shades();
-        p.fillRect(rect(), sh.line);
-        p.fillRect(rect().adjusted(1, 1, -1, -1), theme::c("tooltip_base"));
-        Font f = theme::uiFont();
-        float y = 5;
+        const css::Style& st = computedStyle();
+        style::box(p, rect(), st);
+        Rect content = style::contents(rect(), st);
+        Font f = style::font(st, theme::uiFont());
+        Color tc = style::foreground(st);
+        float y = (float)content.y;
         size_t start = 0;
         while (true) {
             size_t nl = text.find('\n', start);
             std::string line = text.substr(start, nl == std::string::npos ? std::string::npos : nl - start);
-            p.drawText(PointF(5, y + f.ascent()), line, f, theme::c("tooltip_text"));
+            p.drawText(PointF((float)content.x, y + f.ascent()), line, f, tc);
             y += f.lineSpacing();
             if (nl == std::string::npos) break;
             start = nl + 1;
@@ -643,6 +756,7 @@ public:
 }  // namespace
 
 Window::Window(const plat::WindowOptions& opts) : Widget(nullptr), opts_(opts) {
+    setStyleType("Window");
     App& app = App::get();
     scale_ = app.scale();
     hgeom_ = Rect(opts.x < 0 ? 100 : opts.x, opts.y < 0 ? 100 : opts.y, std::max(1, opts.w), std::max(1, opts.h));
@@ -854,7 +968,7 @@ void Window::flush() {
         int fh = native_ ? std::max(1, physH_) : std::max(1, toDevice(height()));
         if (fb_.width() != fw || fb_.height() != fh) {
             fb_.resize(fw, fh);
-            fb_.fill(theme::c("window"));
+            fb_.fill(style::background(computedStyle()));
             dirty_ = rect();
         }
         if (dirty_.empty()) return;
@@ -863,7 +977,7 @@ void Window::flush() {
         if (d.empty()) return;
         Painter p(fb_, scale_);
         p.setClip(d);
-        p.fillRect(d, theme::c("window"));
+        paintBackground(p);
         paintTree(p, d);
         if (native_) native_->present(fb_, toDeviceRect(d).intersected(fb_.rect()));
         return;
@@ -878,9 +992,17 @@ void Window::flush() {
     if (d.empty()) return;
     Painter p(fb_);
     p.setClip(d);
-    p.fillRect(d, theme::c("window"));
+    paintBackground(p);
     paintTree(p, d);
     if (native_) native_->present(fb_, d);
+}
+
+void Window::paintBackground(Painter& p) {
+    // (the painter is clipped to what is repainted; a see-through background goes over black: nothing shows
+    // through a window)
+    const css::Style& st = computedStyle();
+    if (style::background(st).a < 255) p.fillRect(rect(), Color(0, 0, 0));
+    style::box(p, rect(), st);
 }
 
 void Window::invalidate(const Rect& r) {
@@ -1588,6 +1710,7 @@ void App::repaintAll() {
         w->update();
         std::function<void(Widget*)> all = [&](Widget* x) {
             x->updateGeometry();
+            x->resized();  // (when its size doesn't change, the layout won't call it: its insides may move anyway)
             for (auto& c : x->children()) all(c.get());
         };
         all(w);
@@ -1755,7 +1878,7 @@ void App::showToolTip(Point g, const std::string& text, Widget* owner) {
     auto* tw = static_cast<TipWindow*>(tip_.get());
     tw->text = text;
     tipText_ = text;
-    Point sz = TipWindow::measure(text);
+    Point sz = tw->measure(text);
     Rect scr = screenAt(g);
     int x = g.x + 2, y = g.y + 18;
     if (x + sz.x > scr.right()) x = std::max(scr.x, scr.right() - sz.x);

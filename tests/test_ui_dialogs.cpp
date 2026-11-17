@@ -1,5 +1,5 @@
-// The dialogs and skins (headless): skin files (parse, validate, write, the library), the colour
-// picker (wheel mapping, recent colours, tones), the skin editor, the metronome settings, Audio
+// The dialogs and skins (headless): skins (stylesheets: the library, default.css, converting JSON skins, copies
+// to edit), the colour picker (wheel mapping, recent colours, tones), the metronome settings, Audio
 // properties, recording helpers (input choices, count-in, take placement), freezing / bouncing
 // and rendering the mix to a file, the History window and the hint line. Pictures of every dialog go to
 // build/ui-samples/dialogs/.
@@ -9,6 +9,9 @@
 #include <cmath>
 #include <cstdio>
 #include <string>
+#include <cctype>
+#include <cstring>
+#include <set>
 
 #include "audio/engine.h"
 #include "audio/sound_file.h"
@@ -27,7 +30,6 @@
 #include "ui/record_offset_dialog.h"
 #include "ui/recording.h"
 #include "ui/skin.h"
-#include "ui/skin_dialog.h"
 #include "ui/theme.h"
 #include "ui/track_render.h"
 #include "ui/toolkit/layout.h"
@@ -82,87 +84,268 @@ ClipPtr audioClipOf(int64_t start, int64_t frames, float value, int sr) {
 static void testSkinFiles() {
     skin::setBuiltinDir("data/skins");
     skin::setUserDir(TMP + "/skins");
-    // the shipped skins read without problems, and write back the same
-    for (const char* name : {"dark", "light", "midnight", "oled"}) {
+    util::makeDirs(TMP + "/skins");
+    for (auto& e : util::listDir(TMP + "/skins"))
+        if (!e.isDir) util::removeFile(TMP + "/skins/" + e.name);
+    auto same = [](const Color& a, const Color& b) { return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a; };
+
+    // default.css has every colour of theme's table, at its default (what is used without stylesheets)
+    {
+        std::vector<std::string> problems = skin::apply(skin::Skin{"", "", true});
+        CHECK(problems.empty());
+        for (auto& info : theme::colors()) {
+            std::optional<std::string> v = theme::styles().root().variable(theme::variableName(info.name));
+            CHECK(v.has_value());
+            css::Rgba rgba;
+            CHECK(v && css::parseColor(*v, rgba) && css::hex(rgba) == info.def);
+            if (!v || !css::parseColor(*v, rgba) || css::hex(rgba) != info.def) printf("  default.css: %s\n", info.name);
+        }
+        CHECK(theme::fonts().ui.empty() && theme::fonts().uiSize == 9 && theme::fonts().mono == "Consolas");
+    }
+
+    // the program's own skins: read without problems; Dark first; default.css isn't one
+    std::vector<skin::Skin> lib = skin::library();
+    CHECK(lib.size() == 5 && lib[0].name == "Dark" && lib[0].builtin);
+    std::vector<std::string> names;
+    for (auto& s : lib) names.push_back(s.name);
+    CHECK((names == std::vector<std::string>{"Dark", "High contrast", "Light", "Midnight", "OLED"}));
+    for (auto& s : lib) {
+        std::vector<std::string> problems = skin::apply(s);
+        CHECK(problems.empty());
+        for (auto& p : problems) printf("  %s\n", p.c_str());
+        // the shades are default.css's color-mix() of the skin's colours: exactly the program's own mix
+        auto q = [](const char* n) { return theme::c(n); };
+        const theme::Shades& sh = theme::shades();
+        CHECK(same(sh.hover, mixColor(q("button"), q("button_text"), 0.10f)));
+        CHECK(same(sh.pressed, mixColor(q("button"), q("button_text"), 0.18f)));
+        CHECK(same(sh.disabled, mixColor(q("button"), q("window"), 0.5f)));
+        CHECK(same(sh.line, mixColor(q("window"), q("window_text"), 0.10f)));
+        CHECK(same(sh.fieldEdge, mixColor(q("base"), q("text"), 0.14f)));
+        CHECK(same(sh.fieldHover, mixColor(q("base"), q("text"), 0.26f)));
+        CHECK(same(sh.itemHover, mixColor(q("base"), q("text"), 0.07f)));
+        CHECK(same(sh.panel, mixColor(q("window"), q("base"), 0.45f)));
+        CHECK(same(sh.handle, mixColor(q("window"), q("window_text"), 0.22f)));
+        CHECK(same(sh.handleHover, mixColor(q("window"), q("window_text"), 0.38f)));
+        CHECK(same(sh.accentHover, mixColor(q("accent"), q("accent_text"), 0.15f)));
+    }
+    skin::apply(skin::find("Light"));
+    CHECK(theme::c("window").hex() == "#eceef1");
+    CHECK(theme::c("no_such_colour").hex() == "#ff00ff");  // (magenta, so it shows)
+
+    // a skin of yours: what it names changes, the rest is default.css's; shades follow its colours; fonts;
+    // variables of its own; problems with where they are
+    std::string mine = TMP + "/skins/Mine.css";
+    util::writeFile(mine, ":root {\n"
+                          "    --skin-name: \"Bob's \\\"own\\\"\";\n"
+                          "    --button: #102030;\n"
+                          "    --lane: blu;\n"
+                          "    --my-thing: rgb(1 2 3 / 50%);\n"
+                          "    font-family: \"DejaVu Sans\", sans-serif;\n"
+                          "    font-size: 10pt;\n"
+                          "    --mono-font: \"DejaVu Sans Mono\";\n"
+                          "}\n"
+                          "Button { color: ; }\n");
+    {
         skin::Skin s;
         std::vector<std::string> problems;
         std::string err;
-        CHECK(skin::read(std::string("data/skins/") + name + ".json", s, problems, err, true));
-        CHECK(problems.empty());
-        CHECK(!s.name.empty() && s.builtin);
-        std::string path = TMP + "/roundtrip-" + name + ".json";
-        CHECK(skin::write(s, path));
-        skin::Skin back;
-        CHECK(skin::read(path, back, problems, err));
-        CHECK(problems.empty());
-        CHECK(back.name == s.name);
-        CHECK(back.completeColors() == s.completeColors());
-        CHECK(back.fonts.ui == s.fonts.ui && back.fonts.uiSize == s.fonts.uiSize && back.fonts.mono == s.fonts.mono);
-        // written complete: every colour of theme
-        CHECK(back.colors.size() == theme::colors().size());
-        Json j = skin::toJson(s);
-        CHECK(j["format"].toString() == "tinydaw-skin" && j["version"].toInt() == 1);
+        CHECK(skin::read(mine, s, problems, err));
+        CHECK(s.name == "Bob's \"own\"" && !s.builtin && s.path == mine);
+        problems = skin::apply(s);
+        CHECK(!problems.empty());
+        bool located = false, notColour = false;
+        for (auto& p : problems) {
+            located = located || util::startsWith(p, "Mine.css:10:");  // (Button { color: ; })
+            notColour = notColour || p == "Mine.css:4:5: --lane: 'blu' is not a colour (the default is used)";
+        }
+        CHECK(located && notColour);
+        if (!located || !notColour)
+            for (auto& p : problems) printf("  %s\n", p.c_str());
+        CHECK(theme::c("button").hex() == "#102030");
+        CHECK(theme::c("lane").hex() == "#232529");  // (not a colour: default.css's)
+        CHECK(same(theme::shades().hover, mixColor(Color::fromHex("#102030"), theme::c("button_text"), 0.10f)));
+        CHECK(theme::c("my_thing") == Color(1, 2, 3, 128) || theme::c("my_thing") == Color(1, 2, 3, 127));
+        CHECK(theme::fonts().ui == "DejaVu Sans" && theme::fonts().uiSize == 10 &&
+              theme::fonts().mono == "DejaVu Sans Mono");
     }
-    // the library: the program's own first, Dark first of them
-    std::vector<skin::Skin> lib = skin::library();
-    CHECK(lib.size() >= 4);
-    CHECK(!lib.empty() && lib[0].name == "Dark" && lib[0].builtin);
-    // problems: unknown names and values that aren't colours are left out, with a message
-    util::writeFile(TMP + "/odd.json",
-                    R"({"format": "tinydaw-skin", "name": "  Odd one ", "colors": {"lane": "#ABCDEF", "nope": "#000000",)"
-                    R"( "playhead": "red", "cursor": 12, "loop": "#11223344"}, "fonts": {"ui_size": 99, "mono": 3, "x": 1}})");
-    skin::Skin odd;
-    std::vector<std::string> problems;
-    std::string err;
-    CHECK(skin::read(TMP + "/odd.json", odd, problems, err));
-    CHECK(odd.name == "Odd one");
-    CHECK(odd.colors.size() == 2 && odd.colors["lane"] == "#abcdef" && odd.colors["loop"] == "#11223344");
-    CHECK(problems.size() == 6);
-    bool sawUnknown = false, sawRed = false, sawNumber = false, sawSize = false, sawMono = false, sawFont = false;
-    for (auto& p : problems) {
-        sawUnknown = sawUnknown || p == "unknown colour name: nope";
-        sawRed = sawRed || p == "playhead: not a colour ('red'; use \"#rrggbb\" or \"#rrggbbaa\")";
-        sawNumber = sawNumber || p == "cursor: not a colour (12; use \"#rrggbb\" or \"#rrggbbaa\")";
-        sawSize = sawSize || p == "ui_size: not a size in points (99)";
-        sawMono = sawMono || p == "mono: not a font name (3)";
-        sawFont = sawFont || p == "unknown font setting: x";
-    }
-    CHECK(sawUnknown && sawRed && sawNumber && sawSize && sawMono && sawFont);
-    CHECK(odd.color("playhead") == "#ff5050");  // (the default)
-    // not a skin / not JSON
-    util::writeFile(TMP + "/notskin.json", R"({"name": "x"})");
-    CHECK(!skin::read(TMP + "/notskin.json", odd, problems, err));
-    CHECK(err == "Not a Tiny DAW skin (it needs \"format\": \"tinydaw-skin\").");
-    util::writeFile(TMP + "/broken.json", "{\"format\": ");
-    CHECK(!skin::read(TMP + "/broken.json", odd, problems, err));
-    CHECK(util::startsWith(err, "Not valid JSON: "));
-    // no name: the file's
-    util::writeFile(TMP + "/Nameless.json", R"({"format": "tinydaw-skin"})");
-    CHECK(skin::read(TMP + "/Nameless.json", odd, problems, err) && odd.name == "Nameless");
-    // file names
-    CHECK(skin::fileName("My skin") == "My skin.json");
-    CHECK(skin::fileName("a/b:c?") == "a_b_c_.json");
-    CHECK(skin::fileName("  ") == "skin.json");
-    CHECK(skin::fileName("Dark (mine)") == "Dark _mine_.json");
-    // yours first, then the program's; unknown -> Dark
-    skin::Skin mine = skin::find("Midnight");
-    mine.builtin = false;
-    mine.colors["lane"] = "#010203";
-    CHECK(skin::write(mine, skin::userDir() + "/Midnight.json"));
-    skin::Skin found = skin::find("Midnight");
-    CHECK(!found.builtin && found.color("lane") == "#010203");
-    CHECK(skin::find("No such skin").name == "Dark");
     lib = skin::library();
-    CHECK(lib.back().name == "Midnight" && !lib.back().builtin);
-    util::removeFile(skin::userDir() + "/Midnight.json");
-    // apply: the theme's colours, the hooks
+    CHECK(lib.size() == 6 && lib.back().name == "Bob's \"own\"" && !lib.back().builtin);
+    // yours first, under the same name as one of the program's own
+    util::writeFile(TMP + "/skins/Midnight.css", ":root { --skin-name: \"Midnight\"; --lane: #010203; }");
+    CHECK(!skin::find("Midnight").builtin && skin::find("Midnight").path == TMP + "/skins/Midnight.css");
+    util::removeFile(TMP + "/skins/Midnight.css");
+    CHECK(skin::find("Midnight").builtin);
+    CHECK(skin::find("No such skin").name == "Dark");
+    // a file without --skin-name: named after the file
+    util::writeFile(TMP + "/skins/Nameless.css", ":root { --lane: #010203; }");
+    CHECK(skin::find("Nameless").path == TMP + "/skins/Nameless.css");
+    util::removeFile(TMP + "/skins/Nameless.css");
+    // an unreadable file
+    {
+        skin::Skin s;
+        std::vector<std::string> problems;
+        std::string err;
+        CHECK(!skin::read(TMP + "/skins/missing.css", s, problems, err) && err == "Can't read the file.");
+    }
+
+    CHECK(skin::fileName("My skin") == "My skin.css");
+    CHECK(skin::fileName("a/b:c?") == "a_b_c_.css");
+    CHECK(skin::fileName("  ") == "skin.css");
+    CHECK(skin::safeName("Dark (mine)") == "Dark _mine_");
+    CHECK(skin::quoted("a \"b\" \\ c") == "\"a \\\"b\\\" \\\\ c\"");
+    CHECK(css::unquote(skin::quoted("a \"b\" \\ c")) == "a \"b\" \\ c");
+
+    // Edit this skin…: one of the program's own is copied (its colours, a name of yours)
+    {
+        std::string err;
+        std::string path = skin::makeCopy(skin::find("Midnight"), "Night \"owl\" */", err);
+        CHECK(path == TMP + "/skins/Night _owl_ _.css");
+        skin::Skin copy;
+        std::vector<std::string> problems;
+        CHECK(skin::read(path, copy, problems, err) && problems.empty());
+        CHECK(copy.name == "Night \"owl\" */" && !copy.builtin);
+        skin::apply(skin::find("Midnight"));
+        std::vector<Color> want;
+        for (auto& info : theme::colors()) want.push_back(theme::c(info.name));
+        CHECK(skin::apply(copy).empty());
+        size_t i = 0, differ = 0;
+        for (auto& info : theme::colors()) differ += !same(theme::c(info.name), want[i++]);
+        CHECK(differ == 0);
+        std::string text;
+        util::readFile(path, text);
+        CHECK(text.find("Midnight: a skin of Tiny DAW") == std::string::npos);  // (its header: a new one)
+        CHECK(text.find("your own skin, made from Midnight") != std::string::npos);
+        util::removeFile(path);
+        // a copy of a skin without --skin-name gets one
+        util::writeFile(TMP + "/skins/plain.css", "Button { padding: 1px }");
+        path = skin::makeCopy(skin::Skin{"plain", TMP + "/skins/plain.css", false}, "Plain two", err);
+        CHECK(skin::read(path, copy, problems, err) && copy.name == "Plain two");
+        util::removeFile(path);
+        util::removeFile(TMP + "/skins/plain.css");
+    }
+
+    // JSON skins of earlier versions become stylesheets once (the JSON goes to "old JSON skins")
+    {
+        util::writeFile(TMP + "/skins/odd.json",
+                        R"({"format": "tinydaw-skin", "version": 1, "name": "  Odd one ", "colors": {"lane": "#ABCDEF", "nope": "#000000",)"
+                        R"( "playhead": "red", "selection_fill": "#11223344"}, "fonts": {"ui": "Noto Sans", "ui_size": 10.5,)"
+                        R"( "mono": "Consolas", "weird": 1}})");
+        util::writeFile(TMP + "/skins/notskin.json", R"({"name": "x"})");
+        lib = skin::library();
+        CHECK(util::fileExists(TMP + "/skins/odd.css") && !util::fileExists(TMP + "/skins/odd.json"));
+        CHECK(util::fileExists(TMP + "/skins/old JSON skins/odd.json"));
+        CHECK(util::fileExists(TMP + "/skins/notskin.json"));  // (not a skin: left alone)
+        skin::Skin odd = skin::find("Odd one");
+        CHECK(odd.path == TMP + "/skins/odd.css");
+        CHECK(skin::apply(odd).empty());
+        CHECK(theme::c("lane").hex() == "#abcdef" && theme::c("selection_fill").hex() == "#11223344");
+        CHECK(theme::c("playhead").hex() == "#ff5050");  // ("red" wasn't a JSON skin's colour: the default)
+        CHECK(theme::fonts().ui == "Noto Sans" && theme::fonts().uiSize == 10.5);
+        std::string text;
+        util::readFile(odd.path, text);
+        CHECK(text.find("unknown colour nope") != std::string::npos && text.find("font setting weird") != std::string::npos);
+        // again: nothing more to do; a second JSON of the same name keeps the stylesheet there and is moved aside
+        CHECK(skin::convertOldSkins(TMP + "/skins").empty());
+        util::writeFile(TMP + "/skins/odd.json", R"({"format": "tinydaw-skin", "name": "Other"})");
+        CHECK(skin::convertOldSkins(TMP + "/skins").empty());
+        CHECK(util::fileExists(TMP + "/skins/old JSON skins/odd (2).json") && skin::find("Odd one").path == odd.path);
+        std::string css, err;
+        CHECK(!skin::cssFromJson("not json", "x", css, err));
+        CHECK(skin::cssFromJson(R"({"format": "tinydaw-skin"})", "Fallback", css, err) &&
+              css.find("--skin-name: \"Fallback\"") != std::string::npos);
+        util::removeFile(odd.path);
+        util::removeFile(TMP + "/skins/notskin.json");
+    }
+
+    // without the program's own stylesheet: the table's defaults, and a problem saying so
+    skin::setBuiltinDir(TMP + "/no-skins-here");
+    {
+        std::vector<std::string> problems = skin::apply(skin::Skin{"Dark", "", true});
+        CHECK(problems.size() == 1 && problems[0].find("default.css") != std::string::npos);
+        CHECK(theme::c("lane").hex() == "#232529");
+        CHECK(same(theme::shades().hover, mixColor(theme::c("button"), theme::c("button_text"), 0.10f)));
+    }
+    skin::setBuiltinDir("data/skins");
+
     int hooked = 0;
     int hook = skin::onApply([&] { hooked++; });
     skin::apply(skin::find("Light"));
     CHECK(hooked == 1);
     skin::removeOnApply(hook);
-    CHECK(theme::c("window") == Color::fromHex(skin::find("Light").color("window")));
+    util::removeFile(mine);
     skin::apply(skin::find("Dark"));
+}
+
+// docs/skins.md lists everything that can be styled: every style type the program sets (setStyleType), every
+// type, part and state default.css uses, and every :root variable; and its CSS examples read without problems
+static void testSkinsReference() {
+    std::string doc, css;
+    CHECK(util::readFile("docs/skins.md", doc) && util::readFile("data/skins/default.css", css));
+    auto missing = [&](const std::string& what) {
+        if (doc.find(what) != std::string::npos) return false;
+        printf("  docs/skins.md doesn't mention %s\n", what.c_str());
+        return true;
+    };
+    int gaps = 0;
+    // the style types set in the program's code
+    util::walkFiles("src", [&](const std::string& path) {
+        std::string text;
+        if (!util::endsWith(path, ".cpp") && !util::endsWith(path, ".h")) return true;
+        if (!util::readFile(path, text)) return true;
+        for (const char* call : {"setStyleType(\"", "replaceStyleType(\"PushButton\", \"", "replaceStyleType(\"ToolButton\", \""})
+            for (size_t at = text.find(call); at != std::string::npos; at = text.find(call, at + 1)) {
+                size_t b = at + std::strlen(call), e = text.find('"', b);
+                if (e != std::string::npos && e > b) gaps += missing("`" + text.substr(b, e - b) + "`");
+            }
+        return true;
+    });
+    // default.css's selectors: their types, parts and states (comments and declarations left out)
+    std::string selectors;
+    {
+        bool comment = false;
+        int depth = 0;
+        for (size_t i = 0; i < css.size(); i++) {
+            if (!comment && css.compare(i, 2, "/*") == 0) { comment = true; i++; continue; }
+            if (comment) { if (css.compare(i, 2, "*/") == 0) { comment = false; i++; } continue; }
+            if (css[i] == '{') { depth++; selectors += '\n'; continue; }
+            if (css[i] == '}') { depth--; continue; }
+            if (depth == 0) selectors += css[i];
+        }
+    }
+    std::set<std::string> names;
+    for (size_t i = 0; i < selectors.size();) {
+        char c = selectors[i];
+        bool part = selectors.compare(i, 2, "::") == 0, state = !part && c == ':';
+        bool type = !part && !state && std::isupper((unsigned char)c) &&
+                    (i == 0 || std::strchr(" \n\t,>(", selectors[i - 1]));
+        if (!part && !state && !type) { i++; continue; }
+        size_t b = i + (part ? 2 : state ? 1 : 0), e = b;
+        while (e < selectors.size() && (std::isalnum((unsigned char)selectors[e]) || selectors[e] == '-')) e++;
+        std::string word = selectors.substr(b, e - b);
+        if (!word.empty() && word != "root") names.insert(part ? "::" + word : state ? ":" + word : "`" + word + "`");
+        i = std::max(e, i + 1);
+    }
+    for (auto& n : names) gaps += missing(n);
+    // the :root variables
+    for (size_t at = css.find("\n    --"); at != std::string::npos; at = css.find("\n    --", at + 1)) {
+        size_t b = at + 5, e = css.find(':', b);
+        if (e != std::string::npos) gaps += missing("`" + css.substr(b, e - b) + "`");
+    }
+    CHECK(gaps == 0);
+    CHECK(names.size() > 150);  // (the parser above found the selectors)
+    // the examples: no problems, over default.css
+    int examples = 0;
+    for (size_t at = doc.find("```css\n"); at != std::string::npos; at = doc.find("```css\n", at + 1)) {
+        size_t b = at + 7, e = doc.find("```", b);
+        std::vector<css::Problem> problems;
+        css::SheetPtr sheet = css::parse(doc.substr(b, e - b), "example", problems);
+        theme::setStyles({theme::builtinSheet(), sheet}, &problems);
+        CHECK(problems.empty());
+        for (auto& p : problems) printf("  docs/skins.md example: %s\n", p.text().c_str());
+        examples++;
+    }
+    CHECK(examples >= 3);
+    theme::setSkin();
 }
 
 // ------------------------------------------------------------------------------------------
@@ -275,79 +458,6 @@ static void testColorPickerDialog() {
 }
 
 // ------------------------------------------------------------------------------------------
-static void testSkinDialog() {
-    skin::Skin dark = skin::find("Dark");
-    int applied = 0, savedCount = 0;
-    skin::Skin lastSaved;
-    {
-        SkinDialog d(nullptr, dark, [&](const skin::Skin&) { applied++; },
-                     [&](const skin::Skin& s) { savedCount++, lastSaved = s; }, "Tracks and clips");
-        CHECK(d.title() == "Customize skin");
-        CHECK(d.tabs->tabText(d.tabs->currentIndex()) == "Tracks and clips");
-        CHECK(d.tabs->count() == 7);  // Window, Timeline, Tracks and clips, Meters, MIDI editor, Explorer, Fonts
-        CHECK(d.tabs->tabText(d.tabs->count() - 1) == "Fonts");
-        CHECK(d.buttons.size() == theme::colors().size());
-        CHECK(!d.saveButton->isEnabled());
-        CHECK(d.saveButton->toolTip() == "The program's own skins can't be changed: use Save as new skin");
-        picture(d, "skin-dialog-tracks");
-        d.tabs->setCurrentIndex(0);
-        picture(d, "skin-dialog-window");
-        d.tabs->setCurrentIndex(d.tabs->count() - 1);
-        picture(d, "skin-dialog-fonts");
-        CHECK(d.systemFont->isChecked() && !d.uiFont->isEnabled());
-        CHECK(d.uiSize->text() == "The system's own");
-        // a change shows at once, and is unsaved (a builtin skin: Save stays off)
-        d.setColor("lane", "#102030");
-        CHECK(applied == 1 && d.dirty && d.working.colors["lane"] == "#102030");
-        CHECK(!d.saveButton->isEnabled());
-        d.uiSize->setValue(10);
-        CHECK(applied == 2 && d.working.fonts.uiSize == 10);
-        CHECK(d.current().name == "Dark");
-        d.revert();
-        CHECK(!d.dirty && d.working.colors["lane"] == dark.color("lane") && d.working.fonts.uiSize == 0);
-        CHECK(applied == 3);
-    }
-    {
-        // your own skin: saved in place
-        skin::Skin mine = dark;
-        mine.name = "Mine";
-        mine.builtin = false;
-        mine.path = skin::userDir() + "/Mine.json";
-        CHECK(skin::write(mine, mine.path));
-        SkinDialog d(nullptr, mine, [&](const skin::Skin&) {}, [&](const skin::Skin& s) { savedCount++, lastSaved = s; });
-        d.setColor("playhead", "#00ff0080");
-        CHECK(d.saveButton->isEnabled());
-        d.nameEdit->setText("Mine too");
-        CHECK(d.save());
-        CHECK(savedCount == 1 && lastSaved.name == "Mine too" && !d.dirty);
-        skin::Skin back;
-        std::vector<std::string> problems;
-        std::string err;
-        CHECK(skin::read(mine.path, back, problems, err));
-        CHECK(back.name == "Mine too" && back.color("playhead") == "#00ff0080");
-        d.reject();  // nothing unsaved: closes without asking
-        CHECK(d.result() == Dialog::Rejected);
-        util::removeFile(mine.path);
-    }
-    // the colour chooser of one colour (with opacity for see-through ones)
-    {
-        CHECK(skin_dialog::offersTransparency("selection_fill") && !skin_dialog::offersTransparency("lane"));
-        SkinColorDialog c(nullptr, "Selected range", "#78aae62d", true);
-        CHECK(c.opacity && c.opacity->value() == 0x2d);
-        CHECK(c.value == "#78aae62d");
-        picture(c, "skin-color-chooser");
-        c.opacity->setValue(255);
-        CHECK(c.value == "#78aae6");
-        c.hexEdit->setText("#11223380");
-        c.hexEdit->editingFinished.emit();
-        CHECK(c.value == "#11223380" && c.opacity->value() == 0x80);
-        SkinColorDialog solid(nullptr, "Track lane", "#232529", false);
-        CHECK(!solid.opacity);
-        solid.hexEdit->setText("#11223380");  // no transparency here
-        solid.hexEdit->editingFinished.emit();
-        CHECK(solid.value == "#232529");
-    }
-}
 
 // ------------------------------------------------------------------------------------------
 static void testMetronome() {
@@ -1000,18 +1110,13 @@ static void testHighContrast() {
     skin::Skin s;
     std::vector<std::string> problems;
     std::string err;
-    CHECK(skin::read("data/skins/high_contrast.json", s, problems, err, true));
-    CHECK(problems.empty() && s.name == "High contrast" && s.colors.at("window") == "#000000");
+    CHECK(skin::read("data/skins/high_contrast.css", s, problems, err, true));
+    CHECK(problems.empty() && s.name == "High contrast");
     bool listed = false;
     for (auto& k : skin::library()) listed = listed || k.name == "High contrast";
     CHECK(listed);
-    // "colors" and "fonts" must be names with their values
-    util::writeFile(TMP + "/bad_colors.json", R"({"format": "tinydaw-skin", "colors": ["#000000"]})");
-    CHECK(!skin::read(TMP + "/bad_colors.json", s, problems, err));
-    CHECK(err == "Its \"colors\" must be names with their values: {\"name\": value, …}.");
-    util::writeFile(TMP + "/no_fonts.json", R"({"format": "tinydaw-skin", "fonts": null, "colors": {}})");
-    CHECK(skin::read(TMP + "/no_fonts.json", s, problems, err));
     skin::apply(skin::find("High contrast"));
+    CHECK(theme::c("window").hex() == "#000000");
     {
         metronome::MetronomeSettings ms;
         MetronomeDialog m(nullptr, ms, nullptr, nullptr);
@@ -1262,10 +1367,10 @@ int main() {
     util::makeDirs(TMP);
     settings::setPath(TMP + "/settings.json");
     testSkinFiles();
+    testSkinsReference();
     testColorWheel();
     testRecentColours();
     testColorPickerDialog();
-    testSkinDialog();
     testMetronome();
     testAudioDialog();
     testRecordingHelpers();

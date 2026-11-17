@@ -68,7 +68,7 @@ ClipPtr Timeline::linkBadgeAt(PointF pos) const {
         auto rect = clipRect(*c, tops);
         RectF badge;
         if (!rect || !clip_painter::linkBadge(*rect, badge)) continue;
-        if (pos.x >= badge.x - 2 && pos.x <= badge.right() + 2 && pos.y >= rect->y && pos.y <= rect->y + config::CLIP_HANDLE_H)
+        if (pos.x >= badge.x - 2 && pos.x <= badge.right() + 2 && pos.y >= rect->y && pos.y <= rect->y + clip_painter::headerHeight())
             return c;
     }
     return nullptr;

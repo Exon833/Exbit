@@ -89,7 +89,8 @@ ScopeSettings ScopeSettings::fromJson(const Json& j) {
 }
 
 ScopeView::ScopeView(audio::Engine& engine) : engine_(engine) {
-    setFixedHeight(config::SCOPE_H);
+    setStyleType("Scope");
+    setFixedHeight(theme::metric("scope-height", config::SCOPE_H));
     hPolicy = ui::SizePolicy::Expanding;
     setToolTip("What the master plays. Right-click: waveform or spectrum, channels, and their options");
     frameId_ = ui::App::get().onFrame([this] { frame(); });
@@ -170,23 +171,54 @@ std::string ScopeView::label(int channel) const {
 
 double ScopeView::pitchHz(int channel) const { return panes_[std::clamp(channel, 0, 1)].pitch.hz; }
 
+const ScopeView::Look& ScopeView::look() {
+    if (!parts_.refresh()) return look_;
+    Look l;
+    l.self = &parts_.get("");
+    l.gap = std::max(0, panel_style::px(*l.self, "margin-top", GAP));
+    l.inside = ui::style::insets(*l.self, "border-width");
+    ui::style::Insets pad = ui::style::insets(*l.self, "padding");
+    l.inside = {l.inside.left + pad.left, l.inside.top + pad.top, l.inside.right + pad.right, l.inside.bottom + pad.bottom};
+    const css::Style& divider = parts_.get("divider");
+    l.divider = panel_style::fg(divider);
+    l.dividerW = std::max(0, panel_style::px(divider, "width", 1));
+    l.paneGap = std::max(l.dividerW, panel_style::px(divider, "margin-left", 1) + l.dividerW +
+                                         panel_style::px(divider, "margin-right", 1));
+    const css::Style& trace = parts_.get("trace");
+    l.trace = panel_style::fg(trace);
+    l.traceW = panel_style::lengthF(trace, "stroke-width", 1.2);
+    l.fill = l.trace.withAlpha((int)std::lround(std::clamp(trace.number("fill-opacity", 70 / 255.0), 0.0, 1.0) * 255));
+    l.grid = panel_style::fg(parts_.get("grid"));
+    const css::Style& caption = parts_.get("caption");
+    l.text = panel_style::fg(caption);
+    l.font = ui::style::font(caption, theme::monoFont(7));
+    l.caption = ui::style::insets(caption, "padding");
+    l.captionH = panel_style::px(caption, "height", 12);
+    look_ = l;
+    return look_;
+}
+
 void ScopeView::paint(Painter& p) {
-    Rect box(0, GAP, width(), height() - GAP);  // (a gap above it: the controls' row is SCOPE_H shorter without it)
-    p.fillRect(box, theme::c("meter_bg"));
-    p.drawRect(box, theme::c("frame_edge"));
-    RectF all(1, box.y + 1, width() - 2, box.h - 2);
-    if (settings.separate) {
-        float half = (all.w - 3) / 2;
+    const Look& look = this->look();
+    Rect box(0, look.gap, width(), height() - look.gap);  // (a gap above it: the controls' row is SCOPE_H shorter without it)
+    ui::style::box(p, box, *look.self);
+    Rect in = ui::style::inside(box, look.inside);
+    RectF all((float)in.x, (float)in.y, (float)in.w, (float)in.h);
+    if (settings.separate) {  // (the divider between the panes, in the middle of the gap)
+        float half = (all.w - look.paneGap) / 2;
+        int left = (look.paneGap - look.dividerW) / 2;
         paintPane(p, panes_[0], RectF(all.x, all.y, half, all.h), "L");
-        p.drawVLine((int)(all.x + half + 1), box.y + 1, box.y + box.h - 1, theme::c("frame_edge"));
-        paintPane(p, panes_[1], RectF(all.x + half + 3, all.y, half, all.h), "R");
+        if (look.dividerW > 0)
+            p.fillRect(Rect((int)(all.x + half + left), in.y, look.dividerW, in.h), look.divider);
+        paintPane(p, panes_[1], RectF(all.x + half + look.paneGap, all.y, half, all.h), "R");
     } else {
         paintPane(p, panes_[0], all, "");
     }
 }
 
 void ScopeView::paintPane(Painter& p, const Pane& pane, const RectF& r, const std::string& name) {
-    Color line = theme::c("accent"), grid = theme::c("grid"), text = theme::c("dimmed_text");
+    const Look& look = look_;
+    Color line = look.trace, grid = look.grid, text = look.text;
     p.save();
     p.setClip(Rect((int)r.x, (int)r.y, (int)std::ceil(r.w), (int)std::ceil(r.h)));
     if (settings.spectrum) {
@@ -207,8 +239,8 @@ void ScopeView::paintPane(Painter& p, const Pane& pane, const RectF& r, const st
             fill.push_back({r.x + r.w, r.y + r.h});
             fill.push_back({r.x, r.y + r.h});
             fill.insert(fill.begin(), PointF{r.x, top.front().y});
-            p.fillPolygon(fill, line.withAlpha(70));
-            p.drawPolyline(top, line, 1.2f);
+            p.fillPolygon(fill, look.fill);
+            p.drawPolyline(top, line, look.traceW);
         }
     } else {
         float mid = r.y + r.h / 2, half = r.h / 2 - 2;
@@ -227,7 +259,7 @@ void ScopeView::paintPane(Painter& p, const Pane& pane, const RectF& r, const st
             std::vector<PointF> pts;
             for (size_t i = 0; i < s.size(); i++)
                 pts.push_back({(float)(r.x + r.w * i / (s.size() - 1)), mid - std::clamp(s[i], -1.0f, 1.0f) * half});
-            p.drawPolyline(pts, line, 1.2f);
+            p.drawPolyline(pts, line, look.traceW);
         }
     }
     std::string caption = name.empty() ? "" : name + "  ";
@@ -235,7 +267,8 @@ void ScopeView::paintPane(Painter& p, const Pane& pane, const RectF& r, const st
                                                                  util::format(" %.0f Hz", pane.pitch.hz)
                                                            : captureName(settings.captureMs));
     if (!caption.empty())
-        p.drawText(RectF(r.x + 4, r.y + 1, r.w - 8, 12), AlignLeft | AlignTop, caption, theme::monoFont(7), text);
+        p.drawText(RectF(r.x + look.caption.left, r.y + look.caption.top, r.w - look.caption.w(), (float)look.captionH),
+                   AlignLeft | AlignTop, caption, look.font, text);
     p.restore();
 }
 

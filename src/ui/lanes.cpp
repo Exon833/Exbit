@@ -1,19 +1,22 @@
 #include "ui/lanes.h"
 
+#include "ui/theme.h"
+
 namespace lanes {
 
 std::vector<Lane> layout(const Project& project, int top) {
     std::vector<Lane> out;
     int y = top;
+    const int groupH = groupHeight(), takeH = takeHeight();
     GroupPtr current;
     for (auto& track : project.tracks) {
         if (track->group && track->group != current) {
             Lane l;
             l.top = y;
-            l.height = config::GROUP_H;
+            l.height = groupH;
             l.group = track->group;
             out.push_back(l);
-            y += config::GROUP_H;
+            y += groupH;
         }
         current = track->group;
         if (current && current->folded) continue;
@@ -38,11 +41,11 @@ std::vector<Lane> layout(const Project& project, int top) {
             for (auto& take : track->takes) {
                 Lane tl;
                 tl.top = y;
-                tl.height = config::TAKE_H;
+                tl.height = takeH;
                 tl.take = take;
                 tl.owner = track;
                 out.push_back(tl);
-                y += config::TAKE_H;
+                y += takeH;
             }
         }
     }
@@ -57,7 +60,10 @@ namespace {
 int scopeHeight = 0;
 }
 
-int masterHeight() { return config::MASTER_H + scopeHeight; }
+int masterHeight() { return theme::metric("--master-height", config::MASTER_H) + scopeHeight; }
+int groupHeight() { return theme::metric("--group-height", config::GROUP_H); }
+int takeHeight() { return theme::metric("--take-height", config::TAKE_H); }
+int rulerHeight() { return theme::metric("--ruler-height", config::RULER_H); }
 
 void setMasterScopeHeight(int px) { scopeHeight = px > 0 ? px : 0; }
 

@@ -2,6 +2,10 @@
 // output in use), and volume. Its row stays at the bottom of the screen, over the tracks (the main
 // window pins it there with PinToBottom). Under the controls, slightly dimmed: the update notice
 // (update_notice.h; MASTER_FOOTER_H tall).
+//
+// Its row is a LaneFrame of the class .master (default.css): its background-color (the master lane's colour), its
+// padding and row-gap / column-gap (around and between its controls); ::title ("Master": its font) and ::notice
+// (margin-top: above the update notice).
 #pragma once
 #include <functional>
 #include <memory>

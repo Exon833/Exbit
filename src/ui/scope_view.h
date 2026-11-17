@@ -9,6 +9,11 @@
 //   for the spectrum: the FFT size, the window function, how fast it falls back, the slope (dB per
 //   octave) and the range shown.
 // Options → Master scope shows or hides it (the master's row is SCOPE_H shorter without it).
+//
+// Styled as Scope (default.css): its box (background-color, border, padding; margin-top: the gap above it);
+// ::divider between separate channels (color, width; margin-left and margin-right: the gap around it); ::trace,
+// the waveform and the spectrum's line (color, stroke-width; fill-opacity: under the spectrum's line); ::grid
+// (color); ::caption (color, font, padding, height). Its height is :root's --scope-height.
 #pragma once
 #include <functional>
 #include <string>
@@ -16,6 +21,7 @@
 
 #include "audio/scope.h"
 #include "core/json.h"
+#include "ui/panel_style.h"
 #include "ui/toolkit/widget.h"
 
 namespace audio {
@@ -72,4 +78,16 @@ private:
     uint64_t lastHeard_ = 0;
     bool wasOn_ = false;
     std::vector<float> left_, right_, mixed_;
+    // what it is drawn with (kept: it repaints every frame)
+    struct Look {
+        const css::Style* self = nullptr;  // (its box)
+        ui::style::Insets inside, caption;  // (inside: its border and padding)
+        int gap = 3, dividerW = 1, paneGap = 3, captionH = 12;
+        Color divider, trace, fill, grid, text;
+        float traceW = 1.2f;
+        Font font;
+    };
+    const Look& look();
+    panel_style::Parts parts_{*this};
+    Look look_;
 };

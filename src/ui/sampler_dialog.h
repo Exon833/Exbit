@@ -63,12 +63,23 @@ struct SoundControls {
                                const std::string& tip = "");
 };
 
-// the sample's waveform, the parts before its start and after its end shaded (they don't play)
+// the sample's waveform, the parts before its start and after its end shaded (they don't play). Styled as
+// SamplerWaveform (a SampleWaveform): ::outside (the shade: background-color), ::marker (the start's and end's
+// lines: background-color, width); the lines go from SampleWaveform::caption's height down.
 class SamplerWaveform : public SampleWaveform {
 public:
-    using SampleWaveform::SampleWaveform;
+    explicit SamplerWaveform(ui::Widget* parent = nullptr);
     double start = 0, end = 1;
     void paint(Painter& p) override;
+
+private:
+    struct Look {
+        const css::Style* outside = nullptr;  // (the shades' boxes; kept until ownParts_.refresh() answers true)
+        Color marker;
+        int top = 14, markerW = 1;
+    };
+    panel_style::Parts ownParts_{*this};  // (apart from SampleWaveform's: each refreshes its own)
+    Look look_;
 };
 
 class SamplerDialog : public ui::Dialog {

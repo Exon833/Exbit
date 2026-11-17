@@ -10,6 +10,7 @@
 #include "config.h"
 #include "model/model.h"
 #include "ui/toolkit/controls.h"
+#include "ui/panel_style.h"
 #include "ui/toolkit/menu.h"
 
 // A frame exactly one lane tall, coloured like the timeline lane next to it (or the track's colour)
@@ -17,6 +18,11 @@
 // edge (the track kind's colour), else a 1 px frame_edge line; `text` colours every Label in it.
 // A selected track's row (setCurrent) has a 1 px accent edge at its top, right and bottom; an
 // automation row a line above it (topLine). Its layout fills the inside of those edges.
+// Styled as LaneFrame (#lane; the master's row .master: its background-color is the master lane's colour, its
+// padding and row-gap its controls'): ::stripe (width: the accent stripe, in its data colour), ::edge (the line
+// down its left without one: background-color, width), ::current (the selected row's edges: border-color,
+// border-width per side), ::load (the CPU bar: background-color, height, margin-bottom) and ::load-bar :ok /
+// :warn / :hot. The row's own colour is data (the lane's or the track's).
 class LaneFrame : public ui::Widget {
 public:
     LaneFrame(Color color, std::optional<Color> accent = std::nullopt, int height = config::TRACK_H,
@@ -47,6 +53,16 @@ private:
     std::optional<Color> accent_, text_, topLine_;
     bool current_ = false;
     double load_ = -1;
+    // what it is drawn with (kept: every row repaints its CPU bar)
+    struct Look {
+        int stripeW = 3, edgeW = 1, loadH = 2, loadBelow = 1;
+        ui::style::Insets current{0, 1, 1, 1};
+        Color edge, currentEdge, load[3];
+        const css::Style* loadTrack = nullptr;
+    };
+    const Look& look() const;
+    mutable panel_style::Parts parts_{*this};
+    mutable Look look_;
 };
 
 // Keeps `widget` across the bottom of `viewport` (a scroll area's), `margin` px above its bottom
@@ -63,6 +79,7 @@ public:
     PinToBottom& operator=(const PinToBottom&) = delete;
     void place();
     void setHeight(int height);  // (the master's row: taller while the master scope is shown)
+    void setMargin(int margin);  // (room kept free on the right: a scroll bar's width, after a skin change)
     ui::Widget* widget() const { return widget_; }
     ui::Widget* cover() const { return cover_; }
 
@@ -82,7 +99,8 @@ private:
 // a timeline whose master lane is pinned over its view counts that lane's place in its height
 // (Timeline::masterBelowView = false).
 
-// A track's or group's name; double-click it to rename (its doubleClicked signal). bold: a group's.
+// A track's or group's name; double-click it to rename (its doubleClicked signal). bold: a group's (NameLabel.group:
+// its font).
 class NameLabel : public ui::Label {
 public:
     explicit NameLabel(const std::string& text = "", bool bold = false);
@@ -106,7 +124,8 @@ public:
 
 // A track's pan (-1 left … 1 right) as a small knob: drag up or right to turn it right, down or left
 // to turn it left (Shift: finer); double-click to centre it. Ignores the mouse wheel, as the volume
-// slider does. slot(pan) when the user turns it (rounded to 0.01).
+// slider does. slot(pan) when the user turns it (rounded to 0.01). Styled as PanKnob: background-color (the
+// knob's), padding (around it); ::arc (the turn from the centre) and ::pointer: color, stroke-width.
 class PanKnob : public ui::Widget {
 public:
     static constexpr int PIXELS = 100;  // of dragging, from the centre to one side
@@ -132,7 +151,8 @@ private:
 
 // The sliders of SendsButton's small window: "<track> sends to", then a row per return track
 // (its name, a volume slider, its dB, and Pre: the send taken before the track's fader and pan, after its
-// effects; model.h Send). Paintable without a window (tests).
+// effects; model.h Send). Paintable without a window (tests). Styled as SendsPanel: its box (background-color,
+// border), padding, row-gap and column-gap; ::title (its font).
 class SendsPanel : public ui::Widget {
 public:
     SendsPanel(TrackPtr track, std::vector<TrackPtr> returns, std::function<void(const TrackPtr&, double)> setLevel,

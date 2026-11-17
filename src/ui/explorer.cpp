@@ -153,7 +153,7 @@ std::string resultFolder(const std::string& path, const std::vector<std::string>
 namespace {
 
 // small pictures for the rows: a folder, a file
-void folderIcon(Painter& p, float x, float y, Color c) {
+void folderIcon(Painter& p, float x, float y, Color c, int fillAlpha) {
     Path path;
     path.moveTo(x + 1.5f, y + 4);
     path.lineTo(x + 6, y + 4);
@@ -162,7 +162,7 @@ void folderIcon(Painter& p, float x, float y, Color c) {
     path.lineTo(x + 14.5f, y + 13);
     path.lineTo(x + 1.5f, y + 13);
     path.close();
-    p.fillPath(path, c.withAlpha(90));
+    p.fillPath(path, c.withAlpha(fillAlpha));
     p.strokePath(path, c, 1);
 }
 
@@ -234,7 +234,12 @@ private:
 
 }  // namespace
 
+int FileView::headerH() { return theme::metric("explorer-header-height", HEADER_H); }
+
 FileView::FileView(Mode mode, ui::Widget* parent) : ui::Widget(parent), mode_(mode) {
+    setStyleType("FileView");
+    rowHeight = std::max(1, theme::metric("explorer-row-height", rowHeight));
+    indent = std::max(0, theme::metric("explorer-indent", indent));
     bar_ = add<ui::ScrollBar>(ui::Orientation::Vertical);
     bar_->setVisible(false);
     bar_->valueChanged.connect([this](int) { update(); });
@@ -359,7 +364,7 @@ void FileView::addResult(const std::string& path, const std::string& folderText)
 }
 
 void FileView::resizeColumnToContents() {
-    Font f = theme::uiFont();
+    const Font& f = look().font;
     int w = ui::style::textWidth(f, "Name") + 12;
     for (Item* r : rows_) w = std::max(w, ui::style::textWidth(f, r->name) + 12);
     col0_ = w;
@@ -386,7 +391,7 @@ int FileView::rowOf(const Item* item) const {
     return -1;
 }
 
-int FileView::viewWidth() const { return width() - (bar_->isVisible() ? theme::SCROLLBAR_W : 0); }
+int FileView::viewWidth() const { return width() - (bar_->isVisible() ? theme::scrollbarWidth() : 0); }
 
 FileView::Item* FileView::itemAt(Point p) const {
     if (p.x < 0 || p.x >= viewWidth() || p.y < top() || p.y >= height()) return nullptr;
@@ -398,7 +403,7 @@ void FileView::syncBar() {
     int total = (int)rows_.size() * rowHeight, vh = height() - top();
     bool need = total > vh && vh > 0;
     bar_->setVisible(need);
-    bar_->setGeometry(width() - theme::SCROLLBAR_W, top(), theme::SCROLLBAR_W, std::max(0, vh));
+    bar_->setGeometry(width() - theme::scrollbarWidth(), top(), theme::scrollbarWidth(), std::max(0, vh));
     bar_->setPageStep(std::max(1, vh));
     bar_->setSingleStep(rowHeight);
     bar_->setRange(0, std::max(0, total - vh));
@@ -446,11 +451,37 @@ void FileView::setCurrent(Item* item, int mods) {
     if (changed) currentChanged.emit(item->path);
 }
 
+const FileView::Look& FileView::look() {
+    if (!parts_.refresh()) return look_;
+    Look l;
+    const css::Style& self = parts_.get("");
+    l.self = &self;
+    l.text = ui::style::foreground(self);
+    l.font = ui::style::font(self, theme::uiFont());
+    const css::Style& hover = parts_.get("row", "hover");
+    l.hover = &hover;
+    l.hoverText = ui::style::foreground(hover);
+    const css::Style& selected = parts_.get("row", "selected");
+    l.selected = &selected;
+    l.selectedText = ui::style::foreground(selected);
+    const css::Style& icon = parts_.get("icon");
+    l.icon = ui::style::foreground(icon);
+    l.iconSelected = ui::style::foreground(parts_.get("icon", "selected"));
+    l.folderAlpha = (int)std::lround(std::min(1.0, std::max(0.0, icon.number("fill-opacity", 90 / 255.0))) * 255);
+    const css::Style& header = parts_.get("header");
+    l.header = &header;  // (its bottom border: the line under it)
+    l.headerText = ui::style::foreground(header);
+    l.headerFont = ui::style::font(header, theme::uiFont());
+    l.headerEdgeH = std::max(0, panel_style::px(header, "border-bottom-width", 1));
+    look_ = l;
+    return look_;
+}
+
 void FileView::paint(Painter& p) {
-    const theme::Shades& sh = theme::shades();
-    p.fillRect(rect(), theme::c("base"));
+    const Look& look = this->look();
+    ui::style::box(p, rect(), *look.self);
     int vw = viewWidth();
-    Font f = theme::uiFont();
+    const Font& f = look.font;
     int scroll = bar_->value();
     int head = top();
     p.save();
@@ -462,18 +493,16 @@ void FileView::paint(Painter& p) {
         Item* it = rows_[row];
         Rect r(0, y, vw, rowHeight);
         bool sel = selected_.count(it) > 0;
-        if (sel) p.fillRect(r, theme::c("highlight"));
-        else if (it == hover_) p.fillRect(r, sh.itemHover);
-        Color tc = sel ? theme::c("highlighted_text") : theme::c("text");
+        if (sel) ui::style::box(p, r, *look.selected);
+        else if (it == hover_) ui::style::box(p, r, *look.hover);
+        Color tc = sel ? look.selectedText : it == hover_ ? look.hoverText : look.text;
         if (mode_ == Mode::Tree) {
             int x = it->depth * indent;
-            if (it->isDir && !(it->filled && it->children.empty())) {
-                Color ac = sel ? theme::c("highlighted_text") : theme::c("hint_text");
-                ui::style::icon(p, x + (indent - 10) / 2.f, y + (rowHeight - 10) / 2.f, 10, it->expanded ? "down" : "right", ac);
-            }
+            Color ic = sel ? look.iconSelected : look.icon;
+            if (it->isDir && !(it->filled && it->children.empty()))
+                ui::style::icon(p, x + (indent - 10) / 2.f, y + (rowHeight - 10) / 2.f, 10, it->expanded ? "down" : "right", ic);
             x += indent;
-            Color ic = sel ? theme::c("highlighted_text") : theme::c("hint_text");
-            if (it->isDir) folderIcon(p, (float)x, y + (rowHeight - 16) / 2.f, ic);
+            if (it->isDir) folderIcon(p, (float)x, y + (rowHeight - 16) / 2.f, ic, look.folderAlpha);
             else fileIcon(p, (float)x, y + (rowHeight - 16) / 2.f, ic);
             x += 16 + 4;
             ui::style::text(p, Rect(x, y, std::max(0, vw - x - 4), rowHeight), AlignLeft | AlignVCenter, it->name, f, tc, true);
@@ -487,12 +516,13 @@ void FileView::paint(Painter& p) {
     p.restore();
     if (mode_ == Mode::Results) {  // the header: QHeaderView::section
         int c0 = std::min(col0_, std::max(40, vw - 40));
-        p.fillRect(Rect(0, 0, width(), head), theme::c("window"));
-        p.fillRect(Rect(0, head - 1, width(), 1), sh.line);
-        Color hc = theme::c("hint_text");
-        ui::style::text(p, Rect(6, 0, std::max(0, c0 - 12), head - 1), AlignLeft | AlignVCenter, "Name", f, hc, true);
-        ui::style::text(p, Rect(c0 + 6, 0, std::max(0, width() - c0 - 12), head - 1), AlignLeft | AlignVCenter, "Folder",
-                        f, hc, true);
+        int edge = look.headerEdgeH;
+        ui::style::box(p, Rect(0, 0, width(), head), *look.header);  // (its bottom border: the line under it)
+        Color hc = look.headerText;
+        const Font& hf = look.headerFont;
+        ui::style::text(p, Rect(6, 0, std::max(0, c0 - 12), head - edge), AlignLeft | AlignVCenter, "Name", hf, hc, true);
+        ui::style::text(p, Rect(c0 + 6, 0, std::max(0, width() - c0 - 12), head - edge), AlignLeft | AlignVCenter,
+                        "Folder", hf, hc, true);
     }
 }
 
@@ -656,13 +686,15 @@ std::string FileView::toolTipAt(Point p) const {
 namespace {
 ui::Button* smallButton(ui::Widget* parent, const std::string& text, const std::string& tip, std::function<void()> slot) {
     ui::Button* b = ui::toolButton(parent, text, std::move(slot), tip);
-    b->setFixedSize(explorer::SMALL_BUTTON, explorer::SMALL_BUTTON);
+    int size = theme::metric("explorer-button-size", explorer::SMALL_BUTTON);
+    b->setFixedSize(size, size);
     return b;
 }
 }  // namespace
 
 Explorer::Explorer(std::function<void(const std::string&)> addFile_, audio::Engine& engine_, ui::Widget* parent)
     : ui::Widget(parent), addFile(std::move(addFile_)), engine(engine_), life_(std::make_shared<int>(0)) {
+    setStyleType("Explorer");
     waveform = add<SampleWaveform>();
     waveform->clicked.connect([this](double f) { playFrom(f); });
     folders = explorer::loadFolders();
@@ -682,7 +714,7 @@ Explorer::Explorer(std::function<void(const std::string&)> addFile_, audio::Engi
         reindex();
     });
     auto top = std::make_unique<ui::HBox>();
-    top->spacing = 3;
+    top->spacing = ui::style::px(computedStyle("folder-row"), "column-gap", 3);
     top->addWidget(folderBox, 1);
     for (ui::Button* b : {addButton, removeButton, rescanButton}) top->addWidget(b);
 
@@ -723,7 +755,7 @@ Explorer::Explorer(std::function<void(const std::string&)> addFile_, audio::Engi
     loopButton->setProperty("accent", "true");
     loopButton->toggled.connect([this](bool on) { setLoopOn(on); });
     auto previewRow = std::make_unique<ui::HBox>();
-    previewRow->spacing = 6;
+    previewRow->spacing = ui::style::px(computedStyle("preview-row"), "column-gap", 6);
     previewRow->addWidget(previewButton);
     previewRow->addWidget(loopButton);
     previewRow->addWidget(stopButton);
@@ -732,7 +764,10 @@ Explorer::Explorer(std::function<void(const std::string&)> addFile_, audio::Engi
     hint = add<WrapLabel>("Click a sample to hear it. Drag samples onto a track, or double-click to add it at the cursor.");
     hint->setEnabled(false);  // dimmed
 
-    ui::VBox* col = ui::vbox(this, 6, 5);
+    const css::Style& own = computedStyle();
+    ui::VBox* col = ui::vbox(this, 0, ui::style::px(own, "row-gap", 5));
+    ui::style::Insets pad = ui::style::insets(own, "padding");
+    col->setContentsMargins(pad.left, pad.top, pad.right, pad.bottom);
     col->addWidget(waveform);
     col->addLayout(std::move(top));
     col->addWidget(searchBox);

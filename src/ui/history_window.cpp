@@ -2,13 +2,16 @@
 
 #include "ui/theme.h"
 #include "ui/toolkit/layout.h"
+#include "ui/toolkit/style.h"
 
 const char* const HistoryWindow::START = "Opened";
 
 HistoryWindow::HistoryWindow(ui::Window* parent, const history::History& history,
                              std::function<void(int position)> jump)
     : Dialog(parent, "History", 300, 360), history_(history), jump_(std::move(jump)) {
-    ui::VBox* box = ui::vbox(this, 11, 6);
+    setStyleType("HistoryWindow");
+    const css::Style& st = computedStyle();
+    ui::VBox* box = ui::vbox(this, ui::style::px(st, "padding-top", 11), ui::style::px(st, "row-gap", 6));
     list = add<ui::ListWidget>();
     list->setToolTip("Every change to the project, oldest at the top. Click one to go back (or forward) to just "
                      "after it; the greyed ones are what Redo would bring back.");
@@ -18,7 +21,7 @@ HistoryWindow::HistoryWindow(ui::Window* parent, const history::History& history
     auto* bb = add<ui::ButtonBox>(ui::ButtonBox::Close);
     bb->rejected.connect([this] { reject(); });
     box->addWidget(bb);
-    setMinimumSize(240, 200);
+    setMinimumSize(ui::style::px(st, "min-width", 240), ui::style::px(st, "min-height", 200));
     rebuild();
 }
 
@@ -38,7 +41,7 @@ void HistoryWindow::rebuild() {
         it.bold = row == at;
         if (row > at) {  // (undone: what Redo would bring back)
             it.hasColor = true;
-            it.color = theme::c("disabled_text");
+            it.color = ui::style::foreground(computedStyle("undone"));
         }
         list->addItem(std::move(it));
     }

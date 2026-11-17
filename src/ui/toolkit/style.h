@@ -1,6 +1,9 @@
-// (internal to the toolkit) drawing helpers for the flat look of theme.py's stylesheet, and the
-// base of popup windows (menus, drop-down lists).
+// (internal to the toolkit) drawing helpers: what the skin's stylesheets give a widget (Widget::computedStyle) turned
+// into colours, boxes, padding and fonts; the flat look's small drawings; and the base of popup windows (menus,
+// drop-down lists).
 #pragma once
+#include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <functional>
 #include <string>
@@ -53,6 +56,99 @@ inline void icon(Painter& p, float x, float y, float size, const char* kind, Col
     std::vector<PointF> v;
     for (int i = 0; i < 3; ++i) v.push_back(PointF(x + pts[i * 2] * s, y + pts[i * 2 + 1] * s));
     p.drawPolyline(v, c, 1.5f * s, LineCap::Round, LineJoin::Round);
+}
+
+// --- what the stylesheets give (Widget::computedStyle(part)) ---
+inline Color toColor(const css::Rgba& c) { return Color(c.r, c.g, c.b, c.a); }
+inline css::Rgba toRgba(const Color& c) { return css::Rgba{c.r, c.g, c.b, c.a}; }
+// a colour property (color, background-color, border-top-color…); `def` when not set or not a colour
+inline Color color(const css::Style& s, const std::string& property, Color def = Color(0, 0, 0, 0)) {
+    return toColor(s.color(property, toRgba(def)));
+}
+inline Color background(const css::Style& s) { return color(s, "background-color"); }
+inline Color foreground(const css::Style& s) { return color(s, "color", theme::c("window_text")); }
+// a length in px (rounded to whole pixels, as the toolkit places things)
+inline int px(const css::Style& s, const std::string& property, int def = 0) {
+    return (int)std::lround(s.length(property, def));
+}
+// padding / margin / border-width as whole pixels: (left, top, right, bottom) to take off a rect
+struct Insets {
+    int left = 0, top = 0, right = 0, bottom = 0;
+    int w() const { return left + right; }
+    int h() const { return top + bottom; }
+};
+inline Insets insets(const css::Style& s, const std::string& prefix) {
+    css::Edges e = s.edges(prefix, css::Edges());
+    return Insets{(int)std::lround(e.left), (int)std::lround(e.top), (int)std::lround(e.right), (int)std::lround(e.bottom)};
+}
+inline Rect inside(const Rect& r, const Insets& i) { return r.adjusted(i.left, i.top, -i.right, -i.bottom); }
+// the area for its content: inside its border and padding
+inline Rect contents(const Rect& r, const css::Style& s) {
+    return inside(inside(r, insets(s, "border-width")), insets(s, "padding"));
+}
+// its corners' radius (one for all four: border-top-left-radius), 0 when Options → Rounded corners is off
+inline float radius(const css::Style& s) {
+    return theme::rounded ? (float)std::max(0.0, s.length("border-top-left-radius", 0)) : 0.f;
+}
+// What a box is drawn from, worked out once per style (kept in the style's memo: drawing a box every frame
+// costs a pointer check, not parsing): its background, its border's colour and widths, its corners' radius.
+struct BoxLook {
+    Color bg, edge;
+    Insets border;
+    float radius = 0;  // (before Options → Rounded corners)
+    bool fillOnly = true;  // no border to draw (none, transparent, or of the background's colour)
+};
+inline const BoxLook& boxLook(const css::Style& s) {
+    if (!s.memo_.value) {
+        auto look = std::make_shared<BoxLook>();
+        look->bg = background(s);
+        look->border = insets(s, "border-width");
+        look->edge = color(s, "border-top-color", foreground(s));
+        look->radius = (float)std::max(0.0, s.length("border-top-left-radius", 0));
+        look->fillOnly = (look->border.w() == 0 && look->border.h() == 0) || look->edge.a == 0 || look->edge == look->bg;
+        s.memo_.value = look;
+    }
+    return *static_cast<const BoxLook*>(s.memo_.value.get());
+}
+// A box as CSS draws one: its background, inside its border (one colour: border-top-color; a side of 0 px has
+// none), with rounded corners. (A border of the background's colour, or transparent, is drawn as the fill alone.)
+inline void box(Painter& p, const Rect& r, const css::Style& s) {
+    const BoxLook& b = boxLook(s);
+    float rad = theme::rounded ? b.radius : 0.f;
+    if (b.fillOnly) {
+        fill(p, r, b.bg, rad);
+        return;
+    }
+    fill(p, r, b.edge, rad);
+    int most = std::max(std::max(b.border.left, b.border.right), std::max(b.border.top, b.border.bottom));
+    fill(p, inside(r, b.border), b.bg, std::max(0.f, rad - (float)most));
+}
+// the font it is drawn in: `def` (the control's own) with what the stylesheets change of it: font-family (its
+// first name; system-ui and sans-serif: the interface font, monospace: the numbers font), font-size, font-weight
+inline Font font(const css::Style& s, const Font& def) {
+    Font f = def;
+    std::vector<std::string> families = s.list("font-family");
+    if (!families.empty()) {
+        std::string first = families[0], key;
+        for (char ch : first) key += (char)std::tolower((unsigned char)ch);
+        std::string family = key == "system-ui" || key == "sans-serif" || key == "ui-sans-serif" ? Font::ui().family()
+                             : key == "monospace" || key == "ui-monospace" ? Font::mono().family()
+                                                                           : first;
+        if (family != f.family()) f = Font(family, f.pixelSize(), f.bold());
+    }
+    if (s.has("font-size")) {
+        float size = (float)s.fontSizePx(f.pixelSize());
+        if (size > 0 && std::fabs(size - f.pixelSize()) > 0.01f) f = f.withPixelSize(size);
+    }
+    if (s.has("font-weight")) {
+        std::string w = s.keyword("font-weight", "");
+        double n = s.number("font-weight", 0);
+        bool bold = w == "bold" || w == "bolder" || n >= 600;
+        if (w == "normal" || w == "lighter" || (n > 0 && n < 600)) bold = false;
+        else if (!bold) bold = f.bold();
+        if (bold != f.bold()) f = f.withBold(bold);
+    }
+    return f;
 }
 
 inline int textHeight(const Font& f) { return (int)std::ceil(f.ascent() + f.descent()); }

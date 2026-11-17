@@ -82,6 +82,36 @@
 //
 // It is a normal (non-modal) window: the program keeps playing and editing while it is open, and the
 // transport's application-wide shortcuts (Space, Home…) work in it.
+//
+// Styles (default.css, "Panels, meters and editors"; the parts' states are their own, see ui/panel_style.h):
+//   PianoRoll   ::row:white / :black (the lanes behind the notes), ::row:outside (over a row outside the scale),
+//               ::row:tonic (over the scale's root rows), ::octave (the line between octaves: background-color,
+//               height), ::below (under the last row when folded), ::shade (outside the clip), ::grid:fine / :beat /
+//               :bar (color, width), ::note (border-width: the outline), ::note:selected (border-color, border-width),
+//               ::slide and ::slide-head (stroke-width: a sliding note's tail and its arrow), ::loop-end (a looping
+//               clip's pass ends: color, width), ::selection-box (background-color, border-color), ::cursor and
+//               ::playhead (color, width); the keys: ::keys (the keyboard: the white keys), ::key:black (width, a
+//               share of the keys' width) with :folded and :named, ::key:sounding, ::key-line (the line under a key:
+//               background-color, height), ::key-label (its name: color, font, padding-right), ::keys-edge (the
+//               line right of the keys: background-color, width).
+//   Steps       (the Steps view, a box) ::row, ::pad (background-color, border-radius, margin) and ::pad:odd
+//               (--darken: the pads of odd beats, as QColor::darker), ::shade, ::note (margin; border-width) and
+//               ::note:selected, ::slide, ::slide-head, ::cursor, ::playhead; ::keys, ::key:black (width),
+//               ::key:sounding, ::key-line, ::key-label, ::keys-edge as the piano roll's; ::add-row ("+ Row":
+//               color, font, padding).
+// Surfaces (rows, shades, keys, the lane's and ruler's backgrounds, label column and corner, the selection box's
+// fill) are boxes (ui::style::box: background, border, border-radius); lines, grid lines, notes and the Steps
+// pads (fractional rectangles) are plain fills.
+//   VelocityLane (background-color, border-top), ::grid:fine / :beat / :bar, ::grid:middle (pan and fine's middle
+//               line), ::bar (width) and ::bar:selected (background-color), ::cap (the bar's top: width, height),
+//               ::label (the left column: background-color, color, font, padding, height), ::chooser (Lane ▾:
+//               margin), ::cursor, ::playhead.
+//   EditorRuler (background-color, color, font), ::tick (height) with :bar and :second, ::label (padding-left;
+//               top: the labels' baseline), ::corner (over the keys' column), ::cursor, ::playhead.
+//   MidiEditor  (the window) ::toolbar (padding; column-gap), ::scale (margin-left: before the scale tools),
+//               ::hint (padding).
+// The layout's sizes are :root's --piano-keys-width, --velocity-lane-height, --editor-ruler-height and
+// --step-row-height (keysW() … below).
 #pragma once
 #include <cstdint>
 #include <functional>
@@ -95,6 +125,7 @@
 #include "audio/engine.h"
 #include "model/model.h"
 #include "ui/toolkit/controls.h"
+#include "ui/panel_style.h"
 #include "ui/toolkit/menu.h"
 #include "ui/toolkit/widget.h"
 
@@ -162,6 +193,27 @@ void setLaneValue(Note& n, Lane lane, double value);  // kept in its range, roun
 constexpr int STEP_ROW_H = 22;        // px: a row of the Steps view
 constexpr int STEP_FIRST_PITCH = 60;  // the Steps view's row for a clip without notes
 constexpr double STEP_CELL_PX = 24;   // px a step is wide when the Steps view opens
+
+// the layout's sizes as the stylesheets set them (:root's variables; the constants above when not set). Kept
+// until the stylesheets change: cheap enough to ask for every note.
+int keysW();      // --piano-keys-width (KEYS_W)
+int velocityH();  // --velocity-lane-height (VELOCITY_H)
+int rulerH();     // --editor-ruler-height (RULER_H)
+int stepRowH();   // --step-row-height (STEP_ROW_H)
+
+// what the piano roll, the Steps view and the velocity lane draw their notes, grid and cursors with (from their
+// parts: ::note, ::slide, ::grid, ::cursor…)
+struct NoteLook {
+    Color selected;                  // ::note:selected border-color
+    float selectedW = 2, edgeW = 1;  // ::note:selected and ::note border-width
+    float slideW = 2, headW = 1.5f;  // ::slide and ::slide-head stroke-width
+    Color grid[3];                   // ::grid:fine, :beat, :bar color
+    int gridW = 1;                   // ::grid width
+    Color cursor, playhead;          // ::cursor, ::playhead color
+    int cursorW = 1, playheadW = 1;  // … width
+    // from these parts of `parts`' widget
+    void read(panel_style::Parts& parts);
+};
 }  // namespace midi_editor
 
 class MidiEditor;
@@ -185,6 +237,22 @@ private:
     void paintKeys(Painter& p, int h);
     void paintGhosts(Painter& p, int w);
     void paintRepeats(Painter& p, int w, int h);
+    // what it is drawn with (kept: it repaints at frame rate while playing)
+    struct Look {
+        midi_editor::NoteLook notes;
+        // the surfaces, drawn as boxes (ui::style::box): their styles, kept by parts_
+        const css::Style *rowWhite = nullptr, *rowBlack = nullptr, *outside = nullptr, *tonic = nullptr,
+                         *below = nullptr, *shade = nullptr, *selectionBox = nullptr, *keys = nullptr,
+                         *keyBlack = nullptr, *sounding = nullptr;
+        Color octave, loopEnd, boxEdge, keyLine, label, keysEdge;
+        int octaveH = 1, loopEndW = 1;
+        int keyLineH = 1, labelPad = 4, keysEdgeW = 1;
+        double blackShare = 0.62, foldedShare = 0.4, namedShare = 0.18;  // of the keys' width
+        Font font;
+    };
+    const Look& look();
+    panel_style::Parts parts_{*this};
+    Look look_;
 };
 
 // A bar per note at its start, as tall as its velocity (or the property Lane ▾ chose); click or drag across
@@ -210,6 +278,18 @@ public:
     ui::Menu* context = nullptr;    // its right-click menu
 private:
     MidiEditor* ed_;
+    struct Look {
+        midi_editor::NoteLook notes;
+        const css::Style* self = nullptr;   // (background and border)
+        const css::Style* label = nullptr;  // (the left column: a box)
+        Color middle, selected, labelText;
+        int barW = 4, capW = 8, capH = 3, labelH = 16;
+        ui::style::Insets labelPad, chooserMargin;
+        Font font;
+    };
+    const Look& look();
+    panel_style::Parts parts_{*this};
+    Look look_;
 };
 
 // The Steps view: the clip's notes as pads, a row per pitch, a column per grid step (see the top).
@@ -230,6 +310,20 @@ public:
     ui::Menu* rowMenu = nullptr;  // "+ Row": the pitches to add a row for
 private:
     MidiEditor* ed_;
+    struct Look {
+        midi_editor::NoteLook notes;
+        // the surfaces, drawn as boxes (ui::style::box): their styles, kept by parts_
+        const css::Style *self = nullptr, *row = nullptr, *shade = nullptr, *keys = nullptr, *keyBlack = nullptr,
+                         *sounding = nullptr;
+        Color pad, keyLine, label, addRow, keysEdge;  // (the pads: rounded fills of fractional rectangles)
+        int padDarken = 112, keyBlackW = 6, keyLineH = 1, labelPad = 4, keysEdgeW = 1;
+        float padRadius = 2;
+        ui::style::Insets padMargin, noteMargin, addRowPad;
+        Font font, addRowFont;
+    };
+    const Look& look();
+    panel_style::Parts parts_{*this};
+    Look look_;
 };
 
 // Bars and beats (or seconds) over the piano roll, with both cursors and their arrows. Click or
@@ -244,6 +338,15 @@ public:
     bool wheel(ui::WheelEvent& e) override;
 private:
     MidiEditor* ed_;
+    struct Look {
+        const css::Style *self = nullptr, *corner = nullptr;  // (boxes: its background, the keys' column)
+        Color text, cursor, playhead;
+        int tick = 4, barTick = 8, secondTick = 6, labelPad = 4, baseline = 15;
+        Font font;
+    };
+    const Look& look();
+    panel_style::Parts parts_{*this};
+    Look look_;
 };
 
 // Edits clip->notes (and clip->mutedNotes); onChange() is called after each change that went into the clip.
@@ -363,7 +466,8 @@ public:
     double playheadX() const;                // x of the playback cursor (what is heard)
     // redraw when a cursor moved, or the clips or the song's scale changed elsewhere (every CURSOR_MS)
     void followCursors();
-    void paintCursorLines(Painter& p, int height);
+    // both cursors' lines down a view, in its colours (look: the view's)
+    void paintCursorLines(Painter& p, int height, const midi_editor::NoteLook& look);
     void moveCursor(double x, int mods);     // the ruler was clicked at x
 
     void updateTitle();

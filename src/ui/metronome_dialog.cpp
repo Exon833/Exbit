@@ -113,7 +113,9 @@ using metronome_dialog::HANDLE_R;
 // ---------------------------------------------------------------------------------------------
 // EnvelopeGraph
 
-EnvelopeGraph::EnvelopeGraph(m::Click* c, Color col) : click(c), color(col) {
+EnvelopeGraph::EnvelopeGraph(m::Click* c, const std::string& role) : click(c) {
+    setStyleType("EnvelopeGraph");
+    if (!role.empty()) addStyleClass(role);
     setMinimumSize(240, 120);
     setSizePolicy(SizePolicy::Expanding, SizePolicy::Expanding);
     setMouseTracking(true);
@@ -143,30 +145,57 @@ std::vector<PointF> EnvelopeGraph::points() const {
             PointF((float)xOf(c.attackMs + c.sustainMs + c.releaseMs), bottom)};
 }
 
+const EnvelopeGraph::Look& EnvelopeGraph::look() const {
+    if (!parts_.refresh()) return look_;
+    Look l;
+    const css::Style& self = parts_.get("");
+    l.self = &self;
+    l.color = panel_style::fg(self);
+    const css::Style& grid = parts_.get("grid");
+    l.grid = panel_style::fg(grid);
+    l.gridW = panel_style::lengthF(grid, "stroke-width", 1);
+    const css::Style& envelope = parts_.get("envelope");
+    l.lineW = panel_style::lengthF(envelope, "stroke-width", 2);
+    l.fillAlpha = (int)std::lround(std::min(1.0, std::max(0.0, envelope.number("fill-opacity", 60 / 255.0))) * 255);
+    const css::Style& label = parts_.get("label");
+    l.label = panel_style::fg(label);
+    l.font = ui::style::font(label, theme::uiFont());
+    const css::Style& handle = parts_.get("handle");
+    l.handle = panel_style::bg(handle);
+    l.handleEdge = panel_style::color(handle, "border-top-color", l.color);
+    l.handleW = panel_style::lengthF(handle, "border-top-width", 2);
+    l.handleDragging = panel_style::color(parts_.get("handle", "dragging"), "border-top-color", l.handleEdge);
+    look_ = l;
+    return look_;
+}
+
+Color EnvelopeGraph::color() const { return look().color; }
+
 void EnvelopeGraph::paint(Painter& p) {
+    const Look& look = this->look();
     RectF a = area();
-    p.fillRect(rect(), theme::c("meter_bg"));
-    Color grid = theme::c("grid");
+    ui::style::box(p, rect(), *look.self);
+    Color grid = look.grid;
     for (int ms = 0; ms <= GRAPH_MS; ms += 50) {  // a line every 50 ms
         float x = (float)xOf(ms);
-        p.drawLine(PointF(x, a.y), PointF(x, a.y + a.h), grid);
+        p.drawLine(PointF(x, a.y), PointF(x, a.y + a.h), grid, look.gridW);
     }
     for (int db : {-30, -20, -10, 0}) {
         float y = (float)yOf(db);
-        p.drawLine(PointF(a.x, y), PointF(a.x + a.w, y), grid);
+        p.drawLine(PointF(a.x, y), PointF(a.x + a.w, y), grid, look.gridW);
     }
     std::vector<PointF> pts = points();
     Path path;
     path.moveTo(pts[0].x, pts[0].y);
     for (size_t i = 1; i < pts.size(); i++) path.lineTo(pts[i].x, pts[i].y);
-    p.fillPath(path, color.withAlpha(60));
-    p.strokePath(path, color, 2);
+    p.fillPath(path, look.color.withAlpha(look.fillAlpha));
+    p.strokePath(path, look.color, look.lineW);
     p.drawText(RectF(a.x + 4, a.y + 2, a.w - 8, a.h - 4), AlignRight | AlignTop, std::to_string(GRAPH_MS) + " ms",
-               theme::uiFont(), theme::c("ruler_text"));
+               look.font, look.label);
     for (int i = 1; i < (int)pts.size(); i++) {
         RectF dot(pts[i].x - HANDLE_R, pts[i].y - HANDLE_R, 2 * HANDLE_R, 2 * HANDLE_R);
-        p.fillEllipse(dot, theme::c("meter_bg"));
-        p.strokeEllipse(dot, i == dragging ? theme::c("accent_text") : color, 2);
+        p.fillEllipse(dot, look.handle);
+        p.strokeEllipse(dot, i == dragging ? look.handleDragging : look.handleEdge, look.handleW);
     }
 }
 
@@ -226,9 +255,10 @@ double* fieldOf(m::Click& c, const std::string& attr) {
 }
 }  // namespace
 
-ClickEditor::ClickEditor(const std::string& title, m::Click* c, Color color, std::function<void(const m::Click&)> test)
+ClickEditor::ClickEditor(const std::string& title, m::Click* c, const std::string& role,
+                         std::function<void(const m::Click&)> test)
     : GroupBox(title), click(c) {
-    graph = add<EnvelopeGraph>(c, color);
+    graph = add<EnvelopeGraph>(c, role);
     graph->changed.connect([this] { fromGraph(); });
     auto* col = vbox(this, 0, 6);
     col->addWidget(graph, 1);
@@ -308,8 +338,8 @@ MetronomeDialog::MetronomeDialog(Window* parent, m::MetronomeSettings& s, Apply 
     auto rowOwner = std::make_unique<HBox>();  // the two envelopes right next to each other
     HBox* row = rowOwner.get();
     row->setSpacing(6);
-    editors.push_back(add<ClickEditor>("Start of the bar", &settings.bar, theme::c("solo"), test));
-    editors.push_back(add<ClickEditor>("Other beats", &settings.beat, theme::c("accent_audio"), test));
+    editors.push_back(add<ClickEditor>("Start of the bar", &settings.bar, "bar", test));
+    editors.push_back(add<ClickEditor>("Other beats", &settings.beat, "beat", test));
     for (ClickEditor* e : editors) {
         e->changed.connect([this] { changed(); });
         row->addWidget(e, 1);

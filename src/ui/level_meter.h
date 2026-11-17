@@ -9,11 +9,17 @@
 // loudest peak since Play as a number (dBFS); it turns red, and stays red, once the sound went over
 // full scale (CLIP_DB: the master warns from -0.1 dB) until it is clicked or Play is pressed again
 // (resetPeaks).
+//
+// Styled as LevelMeter (default.css): ::track behind each bar; ::bar and ::peak (the held peak's line, and its
+// width) :ok, :warn and :hot for the three ranges; ::number (the loudest since Play: background-color, color,
+// font-family, font-weight; its size follows the meter's height) and ::number:clipped. :root's --meter-gap: px
+// between the bars.
 #pragma once
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "ui/panel_style.h"
 #include "ui/toolkit/widget.h"
 
 namespace level_meter {
@@ -66,4 +72,14 @@ private:
     double loudest_ = 0.0;
     bool clipped_ = false;
     void showTooltip();
+    // what it is drawn with, from the stylesheets (kept: meters repaint at frame rate)
+    struct Look {
+        const css::Style *track = nullptr, *number = nullptr, *clipped = nullptr;  // (boxes: style::box)
+        Color bar[3], peak[3], numberText, clippedText;  // [ok, warn, hot]
+        int peakW = 2, gap = level_meter::GAP;
+        Font font, clippedFont;
+    };
+    const Look& look() const;
+    mutable panel_style::Parts parts_{*this};
+    mutable Look look_;
 };

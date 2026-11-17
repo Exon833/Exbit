@@ -1,13 +1,15 @@
 // Menus (QMenu / QAction / QMenuBar): each open menu is a popup window; submenus open on hover
 // after a short delay, a press outside closes the whole chain, the keyboard moves through them.
-// The look: theme.py's QMenu rules (base fill, 1 px line edge, 4 px above and below, items with
-// 5 px 24 px padding, the highlight colour under the pointer, separators 1 px with 4 px 8 px
-// margins, a check mark at the left, the shortcut right-aligned, ▸ for submenus).
+// The look is default.css's (Lists, scrolling, tabs and menus): Menu (the popup: its box, padding, min-width),
+// Menu::item (:hover :disabled :checkable :checked :section :submenu), Menu::separator, Menu::check (the check
+// mark at the left), Menu::shortcut (right-aligned), Menu::arrow (of submenus); MenuBar and MenuBar::item
+// (:hover :open :disabled).
 #include "ui/toolkit/menu.h"
 
 #include <algorithm>
 #include <cmath>
 
+#include "ui/toolkit/controls.h"
 #include "ui/toolkit/style.h"
 
 namespace ui {
@@ -46,7 +48,10 @@ bool selectable(const Action* a) { return a->visible && !a->separator && !a->sec
 
 class MenuPopup : public PopupWindow {
 public:
-    explicit MenuPopup(Menu* m) : menu(m) { setMouseTracking(true); }
+    explicit MenuPopup(Menu* m) : menu(m) {
+        setStyleType("Menu");
+        setMouseTracking(true);
+    }
     ~MenuPopup() override {
         if (subTimer >= 0) App::get().cancelTimer(subTimer);
     }
@@ -56,38 +61,64 @@ public:
     MenuPopup* child = nullptr;
     int hover = -1, subTimer = -1, childIndex = -1;
     std::vector<Rect> rects;  // per action (empty: not shown)
-    int itemH = 24;
 
-    static Font font() { return theme::uiFont(); }
+    // an item's states (Menu::item, and its ::check, ::shortcut and ::arrow): hover (chosen by the mouse or the
+    // keys), disabled, checkable, checked, section (a heading), submenu
+    void itemStates(const Action* a, bool hot, std::vector<const char*>& out) const {
+        if (hot) out.push_back("hover");
+        if (!a->enabled) out.push_back("disabled");
+        if (a->checkable) out.push_back("checkable");
+        if (a->checkable && a->checked) out.push_back("checked");
+        if (a->section) out.push_back("section");
+        if (a->submenu) out.push_back("submenu");
+    }
 
+    // (default.css: a 1 px edge and 4 px above and below; items 5 px 24 px, their text, then 24 px and the
+    // shortcuts; 4 px more with submenus; separators 1 px between 4 px 7 px margins; at least 60 px wide)
     Point measure() {
-        Font f = font();
-        itemH = style::textHeight(f) + 10;
-        int textW = 0, scW = 0;
-        bool anySub = false;
+        const css::Style& ms = computedStyle();
+        PartStyles parts(*this);
+        Font base = theme::uiFont();
+        style::Insets border = style::insets(ms, "border-width"), pad = style::insets(ms, "padding");
+        int textCol = 0, scW = 0, padR = 0, gap = 0, arrowRoom = 0;
         auto& acts = menu->actions();
         rects.assign(acts.size(), Rect());
-        for (auto& a : acts) {
-            if (!a->visible || a->separator) continue;
-            Font ff = a->section ? f.withBold(true) : f;
-            textW = std::max(textW, style::textWidth(ff, stripAmp(leftPart(a->text))));
-            if (!a->shortcut.empty()) scW = std::max(scW, style::textWidth(f, a->shortcut.text()));
-            if (!rightPart(a->text).empty()) scW = std::max(scW, style::textWidth(f, rightPart(a->text)));
-            if (a->submenu) anySub = true;
-        }
-        int w = 1 + 24 + textW + (scW ? 24 + scW : 0) + 24 + 1;
-        if (anySub) w += 4;
-        w = std::max(w, menu->minimumWidth);
-        w = std::max(w, 60);
-        int y = 1 + 4;
+        std::vector<int> heights(acts.size(), 0);
+        std::vector<const char*> states;
         for (size_t i = 0; i < acts.size(); ++i) {
             const Action* a = acts[i].get();
             if (!a->visible) continue;
-            int h = a->separator ? 9 : itemH;
-            rects[i] = Rect(1, y, w - 2, h);
-            y += h;
+            if (a->separator) {
+                const css::Style& sep = parts.get("separator");
+                heights[i] = std::max(0, style::px(sep, "height", 1)) + style::insets(sep, "margin").h();
+                continue;
+            }
+            states.clear();
+            itemStates(a, false, states);
+            const css::Style& item = parts.get("item", states);
+            const Font& f = parts.font(item, base);
+            style::Insets ip = style::insets(item, "padding"), ib = style::insets(item, "border-width");
+            textCol = std::max(textCol, ib.left + ip.left + style::textWidth(f, stripAmp(leftPart(a->text))));
+            padR = std::max(padR, ip.right + ib.right);
+            heights[i] = style::textHeight(f) + ip.h() + ib.h();
+            std::string right = !a->shortcut.empty() ? a->shortcut.text() : rightPart(a->text);
+            if (!right.empty()) {
+                const css::Style& sc = parts.get("shortcut", states, &item);
+                scW = std::max(scW, style::textWidth(parts.font(sc, base), right));
+                gap = std::max(gap, style::px(sc, "margin-left", 24));
+            }
+            if (a->submenu) arrowRoom = std::max(arrowRoom, style::px(parts.get("arrow", states, &item), "margin-left", 4));
         }
-        return Point(w, y + 4 + 1);
+        int w = border.left + pad.left + textCol + (scW ? gap + scW : 0) + padR + pad.right + border.right + arrowRoom;
+        w = std::max(w, menu->minimumWidth);
+        w = std::max(w, style::px(ms, "min-width", 60));
+        int y = border.top + pad.top;
+        for (size_t i = 0; i < acts.size(); ++i) {
+            if (!acts[i]->visible) continue;
+            rects[i] = Rect(border.left + pad.left, y, std::max(0, w - border.w() - pad.w()), heights[i]);
+            y += heights[i];
+        }
+        return Point(w, y + pad.bottom + border.bottom);
     }
 
     int itemAt(Point p) const {
@@ -97,31 +128,50 @@ public:
     }
 
     void paint(Painter& p) override {
-        const theme::Shades& sh = theme::shades();
-        p.fillRect(rect(), sh.line);
-        p.fillRect(rect().adjusted(1, 1, -1, -1), theme::c("base"));
-        Font f = font();
+        // its box (Menu), each separator's (Menu::separator, inside its margins) and item's (Menu::item in its
+        // states): its check mark (::check), text, shortcut (::shortcut) and submenu arrow (::arrow)
+        style::box(p, rect(), computedStyle());
+        PartStyles parts(*this);
+        Font base = theme::uiFont();
         auto& acts = menu->actions();
+        std::vector<const char*> states;
         for (size_t i = 0; i < acts.size() && i < rects.size(); ++i) {
             const Action* a = acts[i].get();
             Rect r = rects[i];
             if (r.empty()) continue;
             if (a->separator) {
-                p.fillRect(Rect(r.x + 8 - 1, r.y + 4, r.w - 16 + 2, 1), sh.line);
+                const css::Style& sep = parts.get("separator");
+                Rect line = style::inside(r, style::insets(sep, "margin"));
+                line.h = std::max(0, style::px(sep, "height", 1));
+                style::box(p, line, sep);
                 continue;
             }
-            bool hot = (int)i == hover && selectable(a);
-            if (hot) p.fillRect(r, theme::c("highlight"));
-            Color tc = !a->enabled || a->section ? theme::c("disabled_text") : hot ? theme::c("highlighted_text") : theme::c("text");
-            if (a->checkable && a->checked)
-                style::icon(p, r.x + 6 + 1.f, r.y + (r.h - 12) / 2.f + 1, 10, "check",
-                            a->enabled ? theme::c("text") : theme::c("disabled_text"));
-            Rect tr(r.x + 24, r.y, std::max(0, r.w - 48), r.h);
-            style::text(p, tr, AlignLeft | AlignVCenter, stripAmp(leftPart(a->text)), a->section ? f.withBold(true) : f, tc);
+            states.clear();
+            itemStates(a, (int)i == hover && selectable(a), states);
+            const css::Style& item = parts.get("item", states);
+            style::box(p, r, item);
+            Rect in = style::inside(r, style::insets(item, "border-width"));
+            Rect c = style::contents(r, item);
+            Color tc = style::foreground(item);
+            if (a->checkable && a->checked) {
+                const css::Style& ck = parts.get("check", states, &item);
+                float size = (float)std::max(0, style::px(ck, "width", 10));
+                style::icon(p, (float)(in.x + style::px(ck, "margin-left", 7)), in.y + (in.h - size) / 2.f, size, "check",
+                            style::foreground(ck));
+            }
+            style::text(p, c, AlignLeft | AlignVCenter, stripAmp(leftPart(a->text)), parts.font(item, base), tc);
             std::string right = !a->shortcut.empty() ? a->shortcut.text() : rightPart(a->text);
-            if (!right.empty())
-                style::text(p, Rect(r.x, r.y, r.w - 24, r.h), AlignRight | AlignVCenter, right, f, tc);
-            if (a->submenu) style::icon(p, (float)(r.right() - 6 - 10), r.y + (r.h - 10) / 2.f, 10, "right", tc);
+            if (!right.empty()) {
+                const css::Style& sc = parts.get("shortcut", states, &item);
+                style::text(p, Rect(in.x, c.y, std::max(0, c.right() - in.x), c.h), AlignRight | AlignVCenter, right,
+                            parts.font(sc, base), style::foreground(sc));
+            }
+            if (a->submenu) {
+                const css::Style& ar = parts.get("arrow", states, &item);
+                int aw = std::max(0, style::px(ar, "width", 10));
+                style::icon(p, (float)(in.right() - style::px(ar, "margin-right", 6) - aw), in.y + (in.h - aw) / 2.f,
+                            (float)aw, "right", style::foreground(ar));
+            }
         }
     }
 
@@ -185,7 +235,10 @@ public:
         Point sz = c->measure();
         Rect me = screenGeometry();
         Rect r = rects[i];
-        int x = me.right() - 3, y = me.y + r.y - 5;
+        // (its first item level with this one: above it by its edge and padding)
+        const css::Style& cs = c->computedStyle();
+        int above = style::insets(cs, "border-width").top + style::insets(cs, "padding").top;
+        int x = me.right() - 3, y = me.y + r.y - above;
         Rect scr = App::get().screenAt(Point(me.x + me.w / 2, me.y + r.y));
         if (x + sz.x > scr.right()) x = std::max(scr.x, me.x - sz.x + 3);
         if (y + sz.y > scr.bottom()) y = std::max(scr.y, scr.bottom() - sz.y);
@@ -542,6 +595,7 @@ void Menu::registerShortcuts(Widget* owner, ShortcutScope scope) {
 // ============================================================================================
 
 MenuBar::MenuBar(Widget* parent) : Widget(parent) {
+    setStyleType("MenuBar");
     setMouseTracking(true);
     vPolicy = SizePolicy::Fixed;
 }
@@ -562,41 +616,72 @@ Menu* MenuBar::addMenu(const std::string& title) {
     return raw;
 }
 
-Rect MenuBar::itemRect(int i) const {
-    Font f = theme::uiFont();
+void MenuBar::itemStates(int i, std::vector<const char*>& out) const {
+    if (i == hover_ && isEnabled()) out.push_back("hover");
+    if (i == open_) out.push_back("open");
+}
+
+std::vector<Rect> MenuBar::itemRects() const {
+    // each title with its padding and border (default.css: 8 px either side), as tall as the bar
+    PartStyles parts(*this);
+    Font base = theme::uiFont();
+    std::vector<Rect> out;
+    std::vector<const char*> states;
     int x = 0;
     for (int k = 0; k < (int)menus_.size(); ++k) {
-        int w = style::textWidth(f, stripAmp(menus_[k]->title)) + 16;
-        if (k == i) return Rect(x, 0, w, height());
+        states.clear();
+        itemStates(k, states);
+        const css::Style& item = parts.get("item", states);
+        int w = style::textWidth(parts.font(item, base), stripAmp(menus_[k]->title)) + style::insets(item, "padding").w() +
+                style::insets(item, "border-width").w();
+        out.push_back(Rect(x, 0, w, height()));
         x += w;
     }
-    return Rect();
+    return out;
+}
+
+Rect MenuBar::itemRect(int i) const {
+    std::vector<Rect> r = itemRects();
+    return i >= 0 && i < (int)r.size() ? r[i] : Rect();
+}
+
+int MenuBar::itemAt(Point p) const {
+    std::vector<Rect> r = itemRects();
+    int i = -1;
+    for (int k = 0; k < (int)r.size(); ++k)
+        if (r[k].contains(p)) i = k;
+    return i;
 }
 
 Point MenuBar::sizeHint() const {
-    Font f = theme::uiFont();
+    // (default.css: the titles' height and 4 px above and below)
+    PartStyles parts(*this);
+    const css::Style& item = parts.get("item");
+    Font f = style::font(item, theme::uiFont());
     int w = 0;
-    for (auto& m : menus_) w += style::textWidth(f, stripAmp(m->title)) + 16;
-    return Point(w, style::textHeight(f) + 8);
+    for (const Rect& r : itemRects()) w += r.w;
+    return Point(w, style::textHeight(f) + style::insets(item, "padding").h() + style::insets(item, "border-width").h());
 }
 
 void MenuBar::paint(Painter& p) {
-    const theme::Shades& sh = theme::shades();
-    Font f = theme::uiFont();
-    for (int i = 0; i < (int)menus_.size(); ++i) {
-        Rect r = itemRect(i);
-        if (i == open_) p.fillRect(r, sh.pressed);
-        else if (i == hover_ && isEnabled()) p.fillRect(r, sh.hover);
-        style::text(p, r, AlignCenter, stripAmp(menus_[i]->title), f,
-                    isEnabled() ? theme::c("window_text") : theme::c("disabled_text"));
+    style::box(p, rect(), computedStyle());
+    PartStyles parts(*this);
+    Font base = theme::uiFont();
+    std::vector<Rect> rects = itemRects();
+    std::vector<const char*> states;
+    for (int i = 0; i < (int)menus_.size() && i < (int)rects.size(); ++i) {
+        states.clear();
+        itemStates(i, states);
+        const css::Style& item = parts.get("item", states);
+        style::box(p, rects[i], item);
+        style::text(p, style::contents(rects[i], item), AlignCenter, stripAmp(menus_[i]->title), parts.font(item, base),
+                    style::foreground(item));
     }
 }
 
 bool MenuBar::mousePress(MouseEvent& e) {
     if (e.button != plat::LeftButton) return false;
-    int i = -1;
-    for (int k = 0; k < (int)menus_.size(); ++k)
-        if (itemRect(k).contains(e.pos)) i = k;
+    int i = itemAt(e.pos);
     if (i < 0) return false;
     if (open_ == i) {
         menus_[i]->close();
@@ -609,9 +694,7 @@ bool MenuBar::mousePress(MouseEvent& e) {
 }
 
 bool MenuBar::mouseMove(MouseEvent& e) {
-    int i = -1;
-    for (int k = 0; k < (int)menus_.size(); ++k)
-        if (itemRect(k).contains(e.pos)) i = k;
+    int i = itemAt(e.pos);
     if (i != hover_) {
         hover_ = i;
         update();

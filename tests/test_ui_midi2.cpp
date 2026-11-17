@@ -2,8 +2,8 @@
 // folding, Fit to scale), the chord stamp, box select, arrow keys, copy / paste across clips, Ctrl+drag
 // copies, Quantize amounts, switched-off notes, loops lengthened by whole bars; the computer keyboard,
 // MIDI input routing (sustain pedal), Capture's phrases and placement, MIDI export (read back), the MIDI
-// effects window and the sampler window. Paints PNGs into build/ui-samples/midi2/. No sound: the engine
-// is never opened.
+// effects window and the sampler window; a stylesheet restyling a meter's and the piano roll's parts and sizes.
+// Paints PNGs into build/ui-samples/midi2/. No sound: the engine is never opened.
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -19,6 +19,7 @@
 #include "model/model.h"
 #include "ui/capture.h"
 #include "ui/computer_keyboard.h"
+#include "ui/level_meter.h"
 #include "ui/midi_editor.h"
 #include "ui/midi_effects_dialog.h"
 #include "ui/midi_export.h"
@@ -1019,6 +1020,68 @@ static void testPaintScaleShading() {
     ed.close();
 }
 
+// The stylesheets reach what the panels and editors draw: a stylesheet over the built-in one recolours a level
+// meter's bar (LevelMeter::bar:ok) and the piano roll's keyboard (PianoRoll::keys), and changes a size
+// (--piano-keys-width, --meter-gap); theme::setSkin() puts all of it back.
+static void testPanelStylesheet() {
+    auto sheet = [](const char* text) {
+        std::vector<css::Problem> problems;
+        css::SheetPtr s = css::parse(text, "test.css", problems);
+        CHECK(problems.empty());
+        return s;
+    };
+    theme::setSkin();
+    // a meter: two bars, the top one at -20 dB (green: up to -12 dB), 2 px thick with a 1 px gap
+    LevelMeter meter(2);
+    meter.setGeometry(0, 0, 60, 5);
+    meter.push(std::vector<float>{0.1f, 0.1f});
+    auto meterAt = [&](int x, int y) {
+        Image img(60, 5, Color(0, 0, 0));
+        Painter p(img);
+        meter.paint(p);
+        return img.colorAt(x, y);
+    };
+    std::vector<std::pair<int, int>> bars = meter.barRects();
+    CHECK(bars.size() == 2 && bars[1].first - bars[0].first - bars[0].second == 1);  // (the default gap)
+    int barY = bars.empty() ? 0 : bars[0].first;
+    CHECK(meterAt(2, barY) == theme::c("meter_ok"));
+    CHECK(meterAt(55, barY) == theme::c("meter_bg"));  // (the track beyond the level)
+    // the piano roll's keyboard
+    Fixture f;
+    MidiEditor ed(nullptr, f.clip, f.project, f.engine, [&] { f.changes++; }, f.link());
+    ed.showWindow();
+    auto keyAt = [&]() {  // a white key's colour, at the keyboard's left edge (C4's row: a white key)
+        ed.update();
+        App::get().tick();
+        std::optional<double> y = ed.yOf(60);
+        CHECK(y.has_value());
+        Point at = ed.roll->mapToWindow(Point(1, (int)(y ? *y : 0) + 3));
+        return ed.framebuffer().colorAt(at.x, at.y);
+    };
+    CHECK(keyAt() == theme::c("keys_white"));
+    CHECK(keysW() == KEYS_W);
+
+    theme::setStyles({theme::builtinSheet(), sheet("LevelMeter::bar:ok { background-color: #ff00ff; }\n"
+                                                   "LevelMeter::track { background-color: rgb(0, 0, 255); }\n"
+                                                   "PianoRoll::keys { background-color: #00ff00; }\n"
+                                                   ":root { --piano-keys-width: 80px; --meter-gap: 0px; }")});
+    CHECK(meterAt(2, barY) == Color(255, 0, 255));
+    CHECK(meterAt(55, barY) == Color(0, 0, 255));
+    bars = meter.barRects();
+    CHECK(bars.size() == 2 && bars[1].first == bars[0].first + bars[0].second);  // (no gap now)
+    CHECK(keyAt() == Color(0, 255, 0));
+    CHECK(keysW() == 80);
+
+    theme::setSkin();
+    CHECK(meterAt(2, barY) == theme::c("meter_ok"));
+    CHECK(meterAt(55, barY) == theme::c("meter_bg"));
+    bars = meter.barRects();
+    CHECK(bars.size() == 2 && bars[1].first - bars[0].first - bars[0].second == 1);
+    CHECK(keyAt() == theme::c("keys_white"));
+    CHECK(keysW() == KEYS_W);
+    ed.close();
+}
+
 int main() {
     App::get().initHeadless();
     util::makeDirs("build/test-midi2");
@@ -1041,6 +1104,7 @@ int main() {
     testMidiEffectsDialog();
     testSamplerDialog();
     testPaintScaleShading();
+    testPanelStylesheet();
     App::get().collectGarbage();
     TEST_MAIN_END();
 }

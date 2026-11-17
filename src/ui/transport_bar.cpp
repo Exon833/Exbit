@@ -70,6 +70,8 @@ std::string iconFolder;
 
 std::string iconDir() { return iconFolder.empty() ? plat::dataDir() + "/icons" : iconFolder; }
 
+int timeW() { return std::max(0, theme::metric("transport-time-width", TIME_W)); }
+
 const Image& tinted(const std::string& name, Color color, int px) {
     // (icon, colour, px) -> image, or an empty one if its file is missing
     static std::map<std::tuple<std::string, uint32_t, int>, Image> cache;
@@ -91,7 +93,9 @@ const Image& tinted(const std::string& name, Color color, int px) {
 
 IconButton::IconButton(const std::string& icon, const std::string& glyph) : icon_(icon), glyph_(glyph) {
     setStyle(ui::Button::Style::Tool);
-    setFixedSize(config::TRANSPORT_BUTTON_PX, config::TRANSPORT_BUTTON_PX);
+    setStyleType("IconButton");
+    int px = theme::metric("transport-button-size", config::TRANSPORT_BUTTON_PX);
+    setFixedSize(px, px);
 }
 
 void IconButton::setIcon(const std::string& icon, const std::string& glyph) {
@@ -102,9 +106,9 @@ void IconButton::setIcon(const std::string& icon, const std::string& glyph) {
 
 void IconButton::paint(Painter& p) {
     ui::Button::paint(p);  // the skin's button only (it has no text): the icon is drawn below
-    const char* role = !isEnabled() ? "disabled_text" : isChecked() ? "accent_text" : "button_text";
-    Color color = theme::c(role);
-    int px = config::TRANSPORT_ICON_PX;
+    // (IconButton::icon in its states: :checked, :disabled…; it repaints only when they change)
+    Color color = ui::style::foreground(computedStyle("icon"));
+    int px = std::max(1, theme::metric("transport-icon-size", config::TRANSPORT_ICON_PX));
     const Image& img = transport_bar::tinted(icon_, color, px);
     if (!img.empty()) {
         p.drawImage(Point((width() - px) / 2, (height() - px) / 2), img);
@@ -132,12 +136,12 @@ void openMenuOnClick(ui::Button* b, ui::Menu* menu) {
 ui::Widget* separator(ui::Widget* parent) {
     auto* line = parent->add<ui::Separator>(ui::Orientation::Vertical);
     line->objectName = "separator";
-    line->setFixedWidth(7);  // (the line is 1 px: the margins take the rest)
+    line->setFixedWidth(theme::metric("transport-separator-width", 7));  // (the line is 1 px: the margins take the rest)
     return line;
 }
 
-ui::HBox* partLayout(ui::Widget* holder) {
-    ui::HBox* row = ui::hbox(holder, 0, 2);
+ui::HBox* partLayout(ui::Widget* holder, int spacing) {
+    ui::HBox* row = ui::hbox(holder, 0, spacing);
     return row;
 }
 
@@ -150,12 +154,14 @@ std::string g(double v) {
 
 TransportBar::TransportBar() {
     objectName = "Transport";
+    setStyleType("Transport");
     left_ = add<ui::Widget>();
     middle_ = add<ui::Widget>();
     right_ = add<ui::Widget>();
-    ui::HBox* left = partLayout(left_);
-    partLayout(middle_);
-    ui::HBox* right = partLayout(right_);
+    int spacing = std::max(0, ui::style::px(computedStyle(), "column-gap", 2));  // (between its controls)
+    ui::HBox* left = partLayout(left_, spacing);
+    partLayout(middle_, spacing);
+    ui::HBox* right = partLayout(right_, spacing);
 
     // (each action's text is for menus, its icon text for its button)
     addFileAction = button(left_, "Add file…", "Add file");
@@ -221,7 +227,7 @@ TransportBar::TransportBar() {
     right->addStretch(1);
     timeLabel = right_->add<ui::Label>();
     timeLabel->objectName = "time";  // the skin's numbers font
-    timeLabel->setMinimumWidth(transport_bar::TIME_W);
+    timeLabel->setMinimumWidth(transport_bar::timeW());
     timeLabel->setAlignment(AlignCenter);
     right->addWidget(timeLabel);
     timeSeparator = separator(right_);
@@ -459,17 +465,17 @@ int TransportBar::narrowestWidth() {
 
 Point TransportBar::minimumSizeHint() const {
     int w = const_cast<TransportBar*>(this)->narrowestWidth();
-    return Point(w + 2 * 2, sizeHint().y);
+    return Point(w + frame().w(), sizeHint().y);
 }
 
 void TransportBar::sizeTimeLabel() {
     // TIME_W, or (short of room) enough for a few minutes or bars
-    int width = transport_bar::TIME_W;
+    int width = transport_bar::timeW();
     if (compactTime) {
         std::string sample = beatsShown ? "88.8.8   8:88.888" : "88:88.888";
         width = (int)std::ceil(timeLabel->font().width(sample)) + 12;
     }
-    timeLabel->setMinimumWidth(std::min(width, transport_bar::TIME_W));
+    timeLabel->setMinimumWidth(std::min(width, transport_bar::timeW()));
 }
 
 void TransportBar::showGridName() {
@@ -622,8 +628,11 @@ void TransportBar::setTime(double seconds, const Timing& timing) {
 
 // --- the toolbar ---------------------------------------------------------------------------
 
-namespace {
-constexpr int PAD = 2;  // QToolBar { padding: 2px }
+// its border and padding together (default.css: padding 2px, the line under it a 1 px border)
+ui::style::Insets TransportBar::frame() const {
+    const css::Style& st = computedStyle();
+    ui::style::Insets b = ui::style::insets(st, "border-width"), p = ui::style::insets(st, "padding");
+    return {b.left + p.left, b.top + p.top, b.right + p.right, b.bottom + p.bottom};
 }
 
 Point TransportBar::sizeHint() const {
@@ -633,7 +642,8 @@ Point TransportBar::sizeHint() const {
         h = std::max(h, s.y);
         w += s.x;
     }
-    return Point(w + 2 * PAD, h + 2 * PAD + 1);  // (+ the line under it)
+    ui::style::Insets f = frame();
+    return Point(w + f.w(), h + f.h());
 }
 
 void TransportBar::resized() {
@@ -644,7 +654,9 @@ void TransportBar::resized() {
 void TransportBar::arrange() {
     // the left and right parts are equally wide, so the middle is centred; when they don't fit
     // beside it that way, each keeps its own width and the middle goes between them
-    int W = width() - 2 * PAD, H = height() - 2 * PAD - 1;
+    ui::style::Insets f = frame();
+    const int PAD = f.left, TOP = f.top;
+    int W = width() - f.w(), H = height() - f.h();
     auto hint = [](ui::Widget* part) { return part->layout() ? part->layout()->sizeHint().x : 0; };
     int lw = hint(left_), mw = hint(middle_), rw = hint(right_);
     int side = (W - mw) / 2;
@@ -667,12 +679,11 @@ void TransportBar::arrange() {
         lx = PAD;
         rx = mx + mw;
     }
-    left_->setGeometry(lx, PAD, std::max(0, lwid), H);
-    middle_->setGeometry(mx, PAD, mw, H);
-    right_->setGeometry(rx, PAD, std::max(0, rwid), H);
+    left_->setGeometry(lx, TOP, std::max(0, lwid), H);
+    middle_->setGeometry(mx, TOP, mw, H);
+    right_->setGeometry(rx, TOP, std::max(0, rwid), H);
 }
 
 void TransportBar::paint(Painter& p) {
-    p.fillRect(rect(), theme::c("window"));
-    p.fillRect(Rect(0, height() - 1, width(), 1), theme::shades().line);
+    ui::style::box(p, rect(), computedStyle());  // (its background, and the line under it: its border)
 }

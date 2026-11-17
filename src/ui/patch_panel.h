@@ -26,6 +26,28 @@
 // reach the transport (they are not used here).
 // Colours come from the skin when painting; the cables have their own colours, like real ones.
 //
+// Styled as PatchPanel (default.css): its background-color, and --cable-1 … --cable-6 (the cables' colours, in
+// turn). Parts: ::rail (background-color) and ::rail-edge (background-color, height: the line under / over a
+// rail); ::screw (background-color, color: the slot, width: across, stroke-width: the slot's); ::sources (the
+// other tracks' row: background-color, border-top-color / border-top-width: the line above it), ::sources-title
+// and ::source (color, font) with ::source:blocked (opacity); ::jack (background-color: the hole, border-color /
+// border-width: the ring around it), ::jack-ring and ::jack-ring:hover (where a cable can go: color,
+// stroke-width); ::end-title and ::end-label (IN / OUT: color, font); ::empty-hint (color, font); ::unit,
+// ::unit:hover (boxes) and ::unit:selected (outline-color, outline-width: drawn over all of it); ::picture (background-color) and ::picture:bypassed (opacity); ::faceplate (no picture: color,
+// stroke-width) and ::faceplate-text (color, font); ::wave (a modulator's mark: color, stroke-width); ::reload
+// and ::reload:hover (background-color, color, font, border-top-color, border-top-width, border-radius),
+// ::reload-shade (background-color, over the picture); ::name and ::name:bypassed (color, font);
+// ::sidechain-label (color, font); ::led (border-top-color, border-top-width) :on / :idle / :bypassed /
+// :problem (background-color); ::status and ::status:hover (color, font); the fader: ::groove (background-color,
+// border-radius), ::level and ::level:bypassed (background-color), ::zero-mark (color, stroke-width), ::knob and
+// ::knob:hover (background-color, border-top-color, border-top-width, border-radius), ::value and ::value:hover
+// (color, font); ::mod-link (color, stroke-width, font) and ::mod-label (a box behind its label); ::cable
+// (stroke-width, outline-width: with its darker edge). Fonts are read in their plain state; the geometry
+// (patch_panel:: below: where units, jacks and lights are) is the panel's own, as saved unit places use it.
+// Boxes (drawn as CSS draws a box: ui::style::box) are the panel itself, ::rail, ::sources (its top border is
+// the line above it), ::unit / ::unit:hover, ::picture, ::reload-shade and ::mod-label. The reload button, the
+// fader's groove, level and knob are drawn as before (a stroked edge, fractional places, a radius of their own).
+//
 // A MIDI track's instrument patch panel uses the same panel with instruments=true: IN is the
 // track's notes and OUT goes on to its effects; cables only run from IN to an instrument's input and
 // from its output to OUT (no sidechains, no other tracks), and each unit has a volume fader under
@@ -41,6 +63,7 @@
 
 #include "gfx/image.h"
 #include "gfx/painter.h"
+#include "ui/panel_style.h"
 #include "ui/toolkit/widget.h"
 
 namespace ui { class ScrollArea; }
@@ -259,5 +282,47 @@ private:
     void paintFaceplate(Painter& p, const Rect& pic);
     void paintCable(Painter& p, PointF a, PointF b, Color cable);
     void paintWiring(Painter& p);
+    // what it is drawn with, from the stylesheets (kept: it repaints while a cable or unit is dragged)
+    struct Look {
+        // (the boxes it draws: their styles, kept until parts_.refresh() answers true)
+        const css::Style *self = nullptr, *railBox = nullptr, *sourcesBox = nullptr, *unitBox = nullptr,
+                         *unitHoverBox = nullptr, *pictureBox = nullptr, *reloadShadeBox = nullptr, *modLabelBox = nullptr;
+        Color railEdge, screw, screwSlot;
+        int railEdgeH = 1;
+        float screwR = 4, screwSlotW = 1.4f;
+        Color sourcesTitle, source;
+        float blockedOpacity = 0.35f;
+        Font sourcesTitleFont, sourceFont;
+        Color jack, jackRing, ring, ringHot;
+        float jackRingW = 3, ringW = 2, ringHotW = 3;
+        Color endTitle, endLabel, emptyHint;
+        Font endTitleFont, endLabelFont, emptyHintFont;
+        Color selected;
+        float unitRadius = 3, selectedW = 2;
+        float bypassedOpacity = 0.35f;
+        Color faceplate, faceplateText, wave;
+        float faceplateW = 1.6f, waveW = 3;
+        Font faceplateFont;
+        Color reload, reloadHot, reloadEdge, reloadText, reloadHotText;
+        float reloadRadius = 4, reloadEdgeW = 1;
+        Font reloadFont;
+        Color name, nameBypassed, sidechain;
+        Font nameFont, sidechainFont;
+        Color led[4], ledEdge;  // on, idle, bypassed, problem
+        float ledEdgeW = 1;
+        Color status, statusHot;
+        Font statusFont;
+        Color groove, level, levelBypassed, zeroMark, knob, knobHot, knobEdge, value, valueHot;
+        float grooveRadius = 2, zeroMarkW = 1, knobRadius = 3, knobEdgeW = 1;
+        Font valueFont;
+        Color modLink;
+        float modLinkW = 2;
+        Font modFont;
+        Color cables[patch_panel::CABLE_COLOURS];
+        float cableW = 3.6f, cableOutlineW = 6;
+    };
+    const Look& look() const;
+    mutable panel_style::Parts parts_{*this};
+    mutable Look look_;
     void paintModLinks(Painter& p);
 };

@@ -32,6 +32,30 @@ bool printable(const KeyEvent& e) {
     if (alt && !ctrl) return false;
     return true;
 }
+
+// a style's border and padding together: the room from its edge to its content
+style::Insets around(const css::Style& st) {
+    style::Insets b = style::insets(st, "border-width"), p = style::insets(st, "padding");
+    return style::Insets{b.left + p.left, b.top + p.top, b.right + p.right, b.bottom + p.bottom};
+}
+
+// an icon's size (icon-size) and its lines' width (stroke-width; else 1.5 px at 10 px, as style::icon draws)
+float iconSize(const css::Style& st, float def) { return (float)st.length("icon-size", def); }
+float strokeWidth(const css::Style& st, float size) {
+    return st.has("stroke-width") ? (float)std::max(0.0, st.length("stroke-width", 0)) : 1.5f * (size / 10.f);
+}
+
+// style::icon's ▴ / ▾ with the stroke width the stylesheets give (the same points)
+void arrowIcon(Painter& p, float x, float y, float size, bool up, Color c, float stroke) {
+    if (c.a == 0 || stroke <= 0 || size <= 0) return;
+    static const float downPts[] = {2, 3.5f, 5, 6.5f, 8, 3.5f};
+    static const float upPts[] = {2, 6.5f, 5, 3.5f, 8, 6.5f};
+    const float* pts = up ? upPts : downPts;
+    float s = size / 10.f;
+    std::vector<PointF> v;
+    for (int i = 0; i < 3; ++i) v.push_back(PointF(x + pts[i * 2] * s, y + pts[i * 2 + 1] * s));
+    p.drawPolyline(v, c, stroke, LineCap::Round, LineJoin::Round);
+}
 }  // namespace
 
 // ============================================================================================
@@ -39,6 +63,7 @@ bool printable(const KeyEvent& e) {
 // ============================================================================================
 
 LineEdit::LineEdit(const std::string& text, Widget* parent) : Widget(parent), text_(text) {
+    setStyleType("LineEdit");
     cursor_ = anchor_ = text_.size();
     setFocusPolicy(FocusPolicy::Strong);
     setCursor(Cursor::IBeam);
@@ -50,22 +75,45 @@ LineEdit::~LineEdit() {
     if (blinkTimer_ >= 0) App::get().cancelTimer(blinkTimer_);
 }
 
-Font LineEdit::font() const { return hasFont_ ? font_ : theme::uiFont(); }
+// (the program's own font, else the stylesheets')
+Font LineEdit::font() const { return hasFont_ ? font_ : style::font(computedStyle(), theme::uiFont()); }
 
-int LineEdit::textX() const { return frame ? 6 : 5; }
+void LineEdit::styleStates(std::vector<std::string>& out) const {
+    Widget::styleStates(out);
+    if (!frame) out.push_back("frameless");
+    if (readOnly_) out.push_back("read-only");
+    if (clearHover_) out.push_back("clear-hover");
+}
 
-Rect LineEdit::clearRect() const { return Rect(width() - (frame ? 1 : 0) - 18, 0, 16, height()); }
+// the clear button: ::clear-button's width, its margin-right inside the border, the whole height
+// (default.css: 16 px, 2 px from the border)
+Rect LineEdit::clearRect() const {
+    int right = width() - style::insets(computedStyle(), "border-width").right;
+    const css::Style& cb = computedStyle("clear-button");
+    int w = std::max(0, style::px(cb, "width", 16));
+    return Rect(right - style::px(cb, "margin-right") - w, 0, w, height());
+}
 
+// the text's room: inside the border and padding (left and right; the text is centred in the whole height),
+// up to the clear button's margin-left when it shows
 Rect LineEdit::textArea() const {
-    int x = textX();
-    int right = width() - x;
-    if (clearButton_ && !text_.empty()) right = clearRect().x - 1;
+    style::Insets a = around(computedStyle());
+    int x = a.left;
+    int right = width() - a.right;
+    if (clearButton_ && !text_.empty()) right = clearRect().x - style::px(computedStyle("clear-button"), "margin-left");
     return Rect(x, 0, std::max(0, right - x), height());
 }
 
 Point LineEdit::sizeHint() const {
+    // 17 'x' inside the border and padding (default.css: 1px + 3px 5px; frameless 4px 5px), and the clear button
     Font f = font();
-    Point h((int)std::ceil(17 * f.charWidth('x')) + 2 * textX() + (clearButton_ ? 18 : 0), style::textHeight(f) + 8);
+    style::Insets a = around(computedStyle());
+    int clear = 0;
+    if (clearButton_) {
+        const css::Style& cb = computedStyle("clear-button");
+        clear = std::max(0, style::px(cb, "width", 16)) + style::px(cb, "margin-right");
+    }
+    Point h((int)std::ceil(17 * f.charWidth('x')) + a.w() + clear, style::textHeight(f) + a.h());
     Point mn = minimumSize(), mx = maximumSize();
     if (mn.x == mx.x) h.x = mn.x;
     if (mn.y == mx.y) h.y = mn.y;
@@ -74,7 +122,8 @@ Point LineEdit::sizeHint() const {
 
 Point LineEdit::minimumSizeHint() const {
     Font f = font();
-    return Point(2 * textX() + (int)std::ceil(f.charWidth('x') * 2), style::textHeight(f) + 8);
+    style::Insets a = around(computedStyle());
+    return Point(a.w() + (int)std::ceil(f.charWidth('x') * 2), style::textHeight(f) + a.h());
 }
 
 void LineEdit::setText(const std::string& t) {
@@ -244,18 +293,16 @@ size_t LineEdit::posAt(int x) const {
 }
 
 void LineEdit::paint(Painter& p) {
-    const theme::Shades& sh = theme::shades();
     bool en = isEnabled();
-    if (frame) {
-        Color edge = !en ? sh.fieldEdge : hasFocus() ? theme::c("accent") : underMouse() ? sh.fieldHover : sh.fieldEdge;
-        style::frame(p, rect(), theme::c("base"), edge, (float)theme::radius());
-    }
+    // its box (frameless: none); its colours read at once (the parts' styles are computed after)
+    const css::Style& st = computedStyle();
+    style::box(p, rect(), st);
+    Color tc = style::foreground(st);  // (default.css: --text; disabled: --disabled-text)
     Font f = font();
     Rect area = textArea();
     float asc = f.ascent(), th = f.ascent() + f.descent();
     float top = std::round((height() - th) / 2.f);
     float base = top + asc;
-    Color tc = en ? theme::c("text") : theme::c("disabled_text");
     float tw = f.width(text_);
     float off = 0;
     if (tw < area.w) {
@@ -266,8 +313,7 @@ void LineEdit::paint(Painter& p) {
     p.save();
     p.setClip(Rect(area.x - 1, 1, area.w + 2, std::max(0, height() - 2)));
     if (text_.empty() && !placeholder_.empty()) {
-        Color pc = theme::c("text");
-        pc.a = 128;
+        Color pc = style::foreground(computedStyle("placeholder"));
         float pw = f.width(placeholder_);
         float px = area.x;
         if (pw < area.w) {
@@ -278,35 +324,47 @@ void LineEdit::paint(Painter& p) {
     } else {
         p.drawText(PointF(x0, base), text_, f, tc);
         if (hasSelection()) {
+            // ::selection: a box over the selected text (its padding reaches past it: default.css 1px above and
+            // below), the text again in its colour
+            const css::Style& ss = computedStyle("selection");
+            style::Insets pad = style::insets(ss, "padding");
             size_t a = std::min(cursor_, anchor_), b = std::max(cursor_, anchor_);
             float sx0 = x0 + f.width(text_.substr(0, a)), sx1 = x0 + f.width(text_.substr(0, b));
-            Rect sel((int)std::floor(sx0), (int)top - 1, (int)std::ceil(sx1) - (int)std::floor(sx0), (int)std::ceil(th) + 2);
+            Rect sel((int)std::floor(sx0) - pad.left, (int)top - pad.top,
+                     (int)std::ceil(sx1) - (int)std::floor(sx0) + pad.w(), (int)std::ceil(th) + pad.h());
             p.save();
             p.setClip(sel);
-            p.fillRect(sel, theme::c("highlight"));
-            p.drawText(PointF(x0, base), text_, f, theme::c("highlighted_text"));
+            style::box(p, sel, ss);
+            p.drawText(PointF(x0, base), text_, f, style::foreground(ss));
             p.restore();
         }
     }
-    // the caret
+    // the caret (::cursor: its colour, default.css the text's, and its width)
     Window* win = window();
     bool active = win && (win->isActiveWindow() || App::get().headless());
     if (hasFocus() && active && en && !readOnly_) {
         double t = App::get().now() - blinkStart_;
         if (std::fmod(t, 1.0) < 0.5) {
+            const css::Style& cs = computedStyle("cursor");
+            int cw = std::max(1, style::px(cs, "width", 1));
             float cx = x0 + f.width(text_.substr(0, cursor_));
             int ix = (int)std::floor(cx);
-            if (ix >= area.right()) ix = area.right() - 1;
-            p.fillRect(Rect(ix, (int)top, 1, (int)std::ceil(th)), tc);
+            if (ix >= area.right()) ix = area.right() - cw;
+            p.fillRect(Rect(ix, (int)top, cw, (int)std::ceil(th)), style::background(cs));
         }
     }
     p.restore();
     if (clearButton_ && !text_.empty() && en) {
+        // ::clear-button: a cross icon-size across, stroke-width, in its colour (:clear-hover under the mouse)
         Rect cr = clearRect();
-        Color xc = clearHover_ ? theme::c("text") : theme::c("hint_text");
-        float cx = cr.x + cr.w / 2.f, cy = cr.y + cr.h / 2.f, d = 3.5f;
-        p.drawLine(PointF(cx - d, cy - d), PointF(cx + d, cy + d), xc, 1.5f, LineCap::Round);
-        p.drawLine(PointF(cx - d, cy + d), PointF(cx + d, cy - d), xc, 1.5f, LineCap::Round);
+        const css::Style& cb = computedStyle("clear-button");
+        Color xc = style::foreground(cb);
+        float d = iconSize(cb, 7) / 2.f, sw = strokeWidth(cb, 10);
+        float cx = cr.x + cr.w / 2.f, cy = cr.y + cr.h / 2.f;
+        if (xc.a && sw > 0) {
+            p.drawLine(PointF(cx - d, cy - d), PointF(cx + d, cy + d), xc, sw, LineCap::Round);
+            p.drawLine(PointF(cx - d, cy + d), PointF(cx + d, cy - d), xc, sw, LineCap::Round);
+        }
     }
 }
 
@@ -558,6 +616,7 @@ void LineEdit::focusOut() {
 // ============================================================================================
 
 SpinBox::SpinBox(Widget* parent) : Widget(parent) {
+    setStyleType("SpinBox");
     edit_ = add<LineEdit>();
     edit_->frame = false;
     focusProxy = edit_;
@@ -698,14 +757,36 @@ void SpinBox::stepBy(int steps) {
     if (edit_->hasFocus()) edit_->selectAll();
 }
 
-void SpinBox::resized() { edit_->setGeometry(1, 1, std::max(0, width() - 2 - (buttons_ ? 16 : 0)), std::max(0, height() - 2)); }
+void SpinBox::styleStates(std::vector<std::string>& out) const {
+    Widget::styleStates(out);
+    // :focus is its editor's (the focus proxy)
+    out.erase(std::remove(out.begin(), out.end(), std::string("focus")), out.end());
+    if (edit_ && edit_->hasFocus()) out.push_back("focus");
+    if (hoverPart_ == 1) out.push_back("up-hover");
+    if (hoverPart_ == -1) out.push_back("down-hover");
+    if (pressPart_ == 1) out.push_back("up-pressed");
+    if (pressPart_ == -1) out.push_back("down-pressed");
+    if (!wrapping_ && value_ >= hi_) out.push_back("at-maximum");
+    if (!wrapping_ && value_ <= lo_) out.push_back("at-minimum");
+}
+
+// the ▴▾ column's width: ::up-button's width (default.css 16 px)
+int SpinBox::buttonsWidth() const { return buttons_ ? std::max(0, style::px(computedStyle("up-button"), "width", 16)) : 0; }
+
+// the editor fills the inside of its border, but for the buttons
+void SpinBox::resized() {
+    style::Insets b = style::insets(computedStyle(), "border-width");
+    edit_->setGeometry(b.left, b.top, std::max(0, width() - b.w() - buttonsWidth()), std::max(0, height() - b.h()));
+}
 
 Point SpinBox::sizeHint() const {
+    // the widest number inside its border and padding (default.css: 1px + 3px 7px), and the buttons
     Font f = edit_->font();
     int w = std::max(style::textWidth(f, format(lo_)), style::textWidth(f, format(hi_)));
     w = std::max(w, style::textWidth(f, format(value_)));
     w = std::min(w, style::textWidth(f, "000000000000000000"));
-    Point h(w + 2 + 12 + (buttons_ ? 16 : 0) + 2, style::textHeight(f) + 8);
+    style::Insets a = around(computedStyle());
+    Point h(w + a.w() + buttonsWidth(), style::textHeight(f) + a.h());
     Point mn = minimumSize(), mx = maximumSize();
     if (mn.x == mx.x) h.x = mn.x;
     if (mn.y == mx.y) h.y = mn.y;
@@ -713,32 +794,33 @@ Point SpinBox::sizeHint() const {
 }
 
 int SpinBox::partAt(Point p) const {
-    if (!buttons_ || !rect().contains(p) || p.x < width() - 17) return 0;
+    if (!buttons_ || !rect().contains(p)) return 0;
+    if (p.x < width() - style::insets(computedStyle(), "border-width").right - buttonsWidth()) return 0;
     return p.y < height() / 2 ? 1 : -1;
 }
 
 void SpinBox::paint(Painter& p) {
-    const theme::Shades& sh = theme::shades();
-    bool en = isEnabled();
-    float rad = (float)theme::radius();
-    Color edge = !en ? sh.fieldEdge : edit_->hasFocus() ? theme::c("accent") : underMouse() ? sh.fieldHover : sh.fieldEdge;
-    style::frame(p, rect(), theme::c("base"), edge, rad);
+    const css::Style& st = computedStyle();
+    style::box(p, rect(), st);
     if (!buttons_) return;
-    int bx = width() - 1 - 16;
-    int ih = height() - 2;
-    Rect up(bx, 1, 16, ih / 2), down(bx, 1 + ih / 2, 16, ih - ih / 2);
-    Rect inner = rect().adjusted(1, 1, -1, -1);
-    auto part = [&](const Rect& r, int which, const char* kind, bool off) {
-        if (en && hoverPart_ == which && !off) {
-            p.save();
-            p.setClip(r);
-            style::fill(p, inner, sh.itemHover, std::max(0.f, rad - 1));
-            p.restore();
-        }
-        if (en && !off) style::icon(p, r.x + (r.w - 8) / 2.f, r.y + (r.h - 8) / 2.f, 8, kind, theme::c("text"));
+    // the buttons: the column inside the border at the right, halved; each part's box is the inside of the border
+    // (its corners), clipped to the button; its arrow centred (:at-maximum / :at-minimum / :disabled: none)
+    Rect inner = style::inside(rect(), style::insets(st, "border-width"));
+    int bw = buttonsWidth();
+    int bx = inner.right() - bw;
+    int ih = inner.h;
+    Rect up(bx, inner.y, bw, ih / 2), down(bx, inner.y + ih / 2, bw, ih - ih / 2);
+    auto part = [&](const Rect& r, const char* name, bool isUp) {
+        const css::Style& ps = computedStyle(name);
+        p.save();
+        p.setClip(r);
+        style::box(p, inner, ps);
+        p.restore();
+        float size = iconSize(ps, 8);
+        arrowIcon(p, r.x + (r.w - size) / 2.f, r.y + (r.h - size) / 2.f, size, isUp, style::foreground(ps), strokeWidth(ps, size));
     };
-    part(up, 1, "up", !wrapping_ && value_ >= hi_);
-    part(down, -1, "down", !wrapping_ && value_ <= lo_);
+    part(up, "up-button", true);
+    part(down, "down-button", false);
 }
 
 bool SpinBox::mousePress(MouseEvent& e) {
@@ -746,6 +828,7 @@ bool SpinBox::mousePress(MouseEvent& e) {
     int part = partAt(e.pos);
     if (!part) return false;
     pressPart_ = part;
+    update();  // (:up-pressed / :down-pressed)
     stepBy(part);
     stopRepeat();
     repeatTimer_ = App::get().singleShot(300, [this] {
@@ -759,6 +842,7 @@ bool SpinBox::mousePress(MouseEvent& e) {
 bool SpinBox::mouseRelease(MouseEvent& e) {
     if (e.button != plat::LeftButton) return false;
     stopRepeat();
+    if (pressPart_) update();
     pressPart_ = 0;
     return true;
 }
@@ -797,9 +881,13 @@ void SpinBox::focusOut() {}
 // ComboBox and its list
 // ============================================================================================
 
+// Stylesheets: ComboPopup (its box and padding; parts ::item and ::separator: see ComboBox in controls.h). An
+// item's states (:hover and :selected the highlighted row, :disabled a disabled one) are the popup's own while
+// that item's style is computed (itemStyle).
 class ComboPopup : public PopupWindow {
 public:
     explicit ComboPopup(ComboBox* c) : combo(c) {
+        setStyleType("ComboPopup");
         setMouseTracking(true);
         bar = add<ScrollBar>(Orientation::Vertical);
         bar->setVisible(false);
@@ -810,16 +898,45 @@ public:
     }
     ComboBox* combo;
     ScrollBar* bar;
-    int hover = -1, scrollY = 0, viewH = 0, rowH = 20;
+    int hover = -1, scrollY = 0, viewH = 0, rowH = 20, sepH = 7;
     bool armed = false;
     std::vector<int> ys, hs;
-    static const int kPad = 2;
+    // room so that the widest item is never cut short (beyond the item's padding)
+    static const int kSlack = 4;
 
-    int itemH(int i) const { return combo->isSeparator(i) ? 7 : rowH; }
+    enum ItemMode { NotItem, Item, Highlighted, Disabled };
+    mutable ItemMode itemMode_ = NotItem;
+    void styleStates(std::vector<std::string>& out) const override {
+        if (itemMode_ == NotItem) {
+            PopupWindow::styleStates(out);
+            return;
+        }
+        if (itemMode_ == Highlighted) {
+            out.push_back("hover");
+            out.push_back("selected");
+        } else if (itemMode_ == Disabled) {
+            out.push_back("disabled");
+        }
+    }
+    // ::item as an item in that mode looks (a copy: kept while every row is drawn)
+    css::Style itemStyle(ItemMode mode) const {
+        itemMode_ = mode;
+        css::Style s = computedStyle("item");
+        itemMode_ = NotItem;
+        return s;
+    }
+
+    int itemH(int i) const { return combo->isSeparator(i) ? sepH : rowH; }
 
     void openFor() {
-        Font f = theme::uiFont();
-        rowH = style::textHeight(f) + 6;
+        // its size: the rows (an item: its font's height and padding; a separator: its height) inside its border
+        // and padding (default.css: 1px + 2px; items 3px 6px; separators 7px), as wide as the widest item
+        style::Insets around0 = around(computedStyle());
+        css::Style item = itemStyle(Item);
+        style::Insets itemAround = around(item);
+        Font f = style::font(item, theme::uiFont());
+        rowH = style::textHeight(f) + itemAround.h();
+        sepH = std::max(0, style::px(computedStyle("separator"), "height", 7));
         int n = combo->count();
         ys.assign(n, 0);
         hs.assign(n, 0);
@@ -836,10 +953,10 @@ public:
         for (int i = 0; i < visRows; ++i) limit += hs[i];
         viewH = std::min(total, std::max(limit, rowH));
         bool needBar = total > viewH;
-        int w = std::max(combo->width(), maxW + 12 + 2 * kPad + 2 + (needBar ? theme::SCROLLBAR_W : 0) + 4);
-        int h = viewH + 2 * kPad + 2;
+        int w = std::max(combo->width(), maxW + itemAround.w() + around0.w() + (needBar ? theme::scrollbarWidth() : 0) + kSlack);
+        int h = viewH + around0.h();
         bar->setVisible(needBar);
-        bar->setGeometry(w - 1 - kPad - theme::SCROLLBAR_W, 1 + kPad, theme::SCROLLBAR_W, viewH);
+        bar->setGeometry(w - around0.right - theme::scrollbarWidth(), around0.top, theme::scrollbarWidth(), viewH);
         bar->setRange(0, std::max(0, total - viewH));
         bar->setPageStep(viewH);
         bar->setSingleStep(rowH);
@@ -862,7 +979,10 @@ public:
         scrollY = bar->value();
     }
     int rowAt(Point p) const {
-        Rect view(1, 1 + kPad, width() - 2, viewH);
+        // (the whole width inside its border, the rows' height inside its padding)
+        const css::Style& st = computedStyle();
+        style::Insets b = style::insets(st, "border-width"), a = around(st);
+        Rect view(b.left, a.top, width() - b.w(), viewH);
         if (!view.contains(p)) return -1;
         int y = p.y - view.y + scrollY;
         for (size_t i = 0; i < ys.size(); ++i)
@@ -870,12 +990,18 @@ public:
         return -1;
     }
     void paint(Painter& p) override {
-        const theme::Shades& sh = theme::shades();
-        p.fillRect(rect(), sh.line);
-        p.fillRect(rect().adjusted(1, 1, -1, -1), theme::c("base"));
-        Font f = theme::uiFont();
-        int right = width() - 1 - kPad - (bar->isVisible() ? theme::SCROLLBAR_W : 0);
-        Rect view(1 + kPad, 1 + kPad, right - 1 - kPad, viewH);
+        const css::Style& st = computedStyle();
+        style::box(p, rect(), st);
+        style::Insets a = around(st);
+        // each kind of row's style once (not per row)
+        css::Style sep = computedStyle("separator");
+        css::Style looks[3] = {itemStyle(Item), itemStyle(Highlighted), itemStyle(Disabled)};
+        Font fonts[3];
+        for (int k = 0; k < 3; ++k) fonts[k] = style::font(looks[k], theme::uiFont());
+        style::Insets sepMargin = style::insets(sep, "margin");
+        int sepLine = std::max(0, style::px(sep, "stroke-width", 1));
+        int right = width() - a.right - (bar->isVisible() ? theme::scrollbarWidth() : 0);
+        Rect view(a.left, a.top, right - a.left, viewH);
         p.save();
         p.setClip(view);
         for (int i = 0; i < (int)ys.size(); ++i) {
@@ -883,14 +1009,19 @@ public:
             if (y + hs[i] < view.y || y > view.bottom()) continue;
             Rect r(view.x, y, view.w, hs[i]);
             if (combo->isSeparator(i)) {
-                p.fillRect(Rect(r.x + 4, r.y + r.h / 2, r.w - 8, 1), sh.line);
+                // a line stroke-width thick across the middle, inside its margin
+                Rect line(r.x + sepMargin.left, r.y + (r.h - sepLine) / 2, r.w - sepMargin.w(), sepLine);
+                if (sepLine > 0) style::box(p, line, sep);
                 continue;
             }
             bool en = combo->isItemEnabled(i);
-            bool sel = i == hover && en;
-            if (sel) p.fillRect(r, theme::c("highlight"));
-            Color tc = !en ? theme::c("disabled_text") : sel ? theme::c("highlighted_text") : theme::c("text");
-            style::text(p, r.adjusted(6, 0, -6, 0), AlignLeft | AlignVCenter, combo->itemText(i), f, tc, true);
+            int k = !en ? 2 : i == hover ? 1 : 0;
+            const css::Style& is = looks[k];
+            style::box(p, r, is);
+            // the text inside its padding's left and right, centred in the row's height
+            style::Insets ia = around(is);
+            style::text(p, r.adjusted(ia.left, 0, -ia.right, 0), AlignLeft | AlignVCenter, combo->itemText(i), fonts[k],
+                        style::foreground(is), true);
         }
         p.restore();
     }
@@ -982,9 +1113,19 @@ public:
 };
 
 ComboBox::ComboBox(Widget* parent) : Widget(parent) {
+    setStyleType("ComboBox");
     setFocusPolicy(FocusPolicy::Strong);
     vPolicy = SizePolicy::Fixed;
 }
+
+void ComboBox::styleStates(std::vector<std::string>& out) const {
+    Widget::styleStates(out);
+    if (isPopupOpen()) out.push_back("open");
+    if (edit_) out.push_back("editable");
+}
+
+// the arrow's box: the right-hand ::arrow width (default.css 18 px, over the border)
+int ComboBox::arrowWidth() const { return std::max(0, style::px(computedStyle("arrow"), "width", 18)); }
 
 ComboBox::~ComboBox() {
     if (popup_ && popup_->isOpen()) App::get().closePopup(popup_.get());
@@ -1099,8 +1240,11 @@ void ComboBox::setEditable(bool on) {
     update();
 }
 
+// an editable one's editor fills the inside of its border, but for the arrow's width
 void ComboBox::resized() {
-    if (edit_) edit_->setGeometry(1, 1, std::max(0, width() - 2 - 18), std::max(0, height() - 2));
+    if (!edit_) return;
+    style::Insets b = style::insets(computedStyle(), "border-width");
+    edit_->setGeometry(b.left, b.top, std::max(0, width() - b.w() - arrowWidth()), std::max(0, height() - b.h()));
 }
 
 bool ComboBox::isPopupOpen() const { return popup_ && popup_->isOpen(); }
@@ -1129,11 +1273,14 @@ int ComboBox::step(int from, int dir) const {
 }
 
 Point ComboBox::sizeHint() const {
-    Font f = theme::uiFont();
+    // the widest item inside its border and padding (default.css: 1px + 3px 7px 3px 5px), and the arrow's box
+    const css::Style& st = computedStyle();
+    Font f = style::font(st, theme::uiFont());
+    style::Insets a = around(st);
     int w = style::textWidth(f, "xxxxx");
     for (auto& it : items_)
         if (!it.separator) w = std::max(w, style::textWidth(f, it.text));
-    Point h(w + 6 + 6 + 18 + 2, style::textHeight(f) + 8);
+    Point h(w + a.w() + arrowWidth(), style::textHeight(f) + a.h());
     Point mn = minimumSize(), mx = maximumSize();
     if (mn.x == mx.x) h.x = mn.x;
     if (mn.y == mx.y) h.y = mn.y;
@@ -1141,18 +1288,24 @@ Point ComboBox::sizeHint() const {
 }
 
 void ComboBox::paint(Painter& p) {
-    const theme::Shades& sh = theme::shades();
-    bool en = isEnabled();
-    bool open = isPopupOpen();
-    Color edge = !en ? sh.fieldEdge : (hasFocus() || open) ? theme::c("accent") : underMouse() ? sh.fieldHover : sh.fieldEdge;
-    style::frame(p, rect(), theme::c("base"), edge, (float)theme::radius());
+    const css::Style& st = computedStyle();
+    style::box(p, rect(), st);
+    Color tc = style::foreground(st);
+    Font f = style::font(st, theme::uiFont());
+    int textX = around(st).left;
+    // ::arrow: its box at the right (over the border), the ▾ at its padding-left, centred in the height
+    const css::Style& as = computedStyle("arrow");
+    int aw = std::max(0, style::px(as, "width", 18));
+    Rect ar(width() - aw, 0, aw, height());
     if (!edit_) {
-        Rect tr(6, 0, std::max(0, width() - 6 - 18), height());
-        style::text(p, tr, AlignLeft | AlignVCenter, currentText(), theme::uiFont(),
-                    en ? theme::c("text") : theme::c("disabled_text"), true);
+        // the text from the padding's left up to the arrow's box, centred in the whole height
+        Rect tr(textX, 0, std::max(0, ar.x - textX), height());
+        style::text(p, tr, AlignLeft | AlignVCenter, currentText(), f, tc, true);
     }
-    style::icon(p, (float)(width() - 18 + 3), (height() - 10) / 2.f, 10, "down",
-                en ? theme::c("text") : theme::c("disabled_text"));
+    style::box(p, ar, as);
+    float size = iconSize(as, 10);
+    arrowIcon(p, (float)(ar.x + style::insets(as, "padding").left), (height() - size) / 2.f, size, false,
+              style::foreground(as), strokeWidth(as, size));
 }
 
 bool ComboBox::mousePress(MouseEvent& e) {

@@ -1218,6 +1218,401 @@ static void gallery() {
     w.hideWindow();
 }
 
+// Stylesheets style the controls: a skin's rules over default.css change sizes, colours and corners; widgets
+// are matched by type (and the types they count as), #objectName, classes from properties, and states
+static void testStylesheets() {
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(300, 60);
+    auto* push = w.add<Button>("Push me");
+    push->objectName = "big";
+    auto* m = w.add<Button>("M");
+    m->setStyle(Button::Style::Tool);
+    m->setCheckable(true);
+    m->setProperty("toggle", "mute");
+    m->setChecked(true);
+    auto* lit = w.add<Button>("Lit");
+    lit->setStyle(Button::Style::Tool);
+    lit->setProperty("lit", "true");
+    // what the stylesheets see
+    CHECK(push->type() == "PushButton" && push->isType("Button") && push->isType("Widget") && !push->isType("ToolButton"));
+    CHECK(m->type() == "ToolButton" && !m->isType("PushButton"));
+    CHECK(m->hasClass("toggle") && m->hasClass("toggle-mute") && !m->hasClass("toggle-solo") && !m->hasClass("lit"));
+    CHECK(lit->hasClass("lit") && m->hasState("checked") && m->hasState("toggled") && m->hasState("lit"));
+    CHECK(push->id() == "big" && push->parent() == &w && !push->hasState("checked"));
+    push->setProperty("lit", "false");  // ("false": no class)
+    CHECK(!push->hasClass("lit"));
+    push->addStyleClass("extra");
+    CHECK(push->hasClass("extra"));
+    push->removeStyleClass("extra");
+    CHECK(!push->hasClass("extra"));
+
+    Point before = push->sizeHint();
+    std::vector<css::Problem> problems;
+    css::SheetPtr extra = css::parse(
+        ":root { --button: #203040; }\n"
+        "PushButton { padding: 6px 20px; }\n"
+        "#big { border-radius: 0; }\n"
+        ".toggle-mute { --toggle-color: #00ff00; }\n"
+        "Button.lit { background-color: rgb(10 20 30); color: white; }\n",
+        "test.css", problems);
+    CHECK(problems.empty());
+    theme::setStyles({theme::builtinSheet(), extra});
+    Point after = push->sizeHint();
+    CHECK(after.x == before.x + 16 && after.y == before.y + 4);
+    push->setGeometry(10, 10, after.x, after.y);
+    m->setGeometry(140, 10, 26, 22);
+    lit->setGeometry(180, 10, 40, 22);
+    w.showWindow();
+    App::get().tick();
+    const Image& fb = w.framebuffer();
+    CHECK(fb.colorAt(10, 10) == Color::fromHex("#203040"));  // (square: the corner pixel is the fill)
+    CHECK(fb.colorAt(145, 14) == Color::fromHex("#00ff00"));
+    CHECK(fb.colorAt(183, 13) == Color(10, 20, 30));
+    CHECK(lit->textColor() == Color(255, 255, 255));
+    // sizes of the layout: :root's variables, as lengths
+    {
+        std::vector<css::Problem> pr;
+        theme::setStyles({theme::builtinSheet(), css::parse(":root { --test-size: 30px; --test-pt: 9pt; --test-calc: calc(10px * 2 + 1em); --test-bad: red; }", "m.css", pr)});
+        CHECK(theme::metric("test-size", 5) == 30 && theme::metric("--test-size", 5) == 30);
+        CHECK(theme::metric("test-pt", 5) == 12 && theme::metric("test-calc", 5) == 32);
+        CHECK(theme::metric("test-bad", 5) == 5 && theme::metric("no-such-size", 7) == 7);
+        CHECK(std::fabs(theme::metricF("test-pt", 0) - 12.0) < 1e-9);
+    }
+    // back to the default: the button's colour and size are default.css's again (its style isn't kept)
+    theme::setSkin();
+    CHECK(push->sizeHint().x == before.x && push->sizeHint().y == before.y);
+    CHECK(push->fillColor() == theme::c("button"));
+    w.hideWindow();
+}
+
+// the fields take their look from the stylesheets: LineEdit (padding, ::selection, ::clear-button), SpinBox
+// (:up-hover::up-button, the buttons' width, :focus from its editor), ComboBox (::arrow, :open) and its list
+// (ComboPopup::item:selected / :disabled, ::separator)
+static void testFieldStylesheets() {
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(400, 200);
+    w.moveWindow(100, 100);
+    auto* le = w.add<LineEdit>("Hello world");
+    le->setClearButton(true);
+    auto* sp = w.add<SpinBox>();
+    sp->setRange(0, 10);
+    sp->setValue(5);
+    auto* cb = w.add<ComboBox>();
+    cb->addItem("One");
+    cb->addItem("Two");
+    cb->insertSeparator();
+    cb->addItem("Three");
+    cb->setItemEnabled(3, false);
+    // what the stylesheets see
+    CHECK(le->type() == "LineEdit" && sp->type() == "SpinBox" && cb->type() == "ComboBox");
+    CHECK(sp->editor()->hasState("frameless") && !le->hasState("frameless"));
+    CHECK(!sp->hasState("at-maximum") && !sp->hasState("at-minimum"));
+    sp->setValue(10);
+    CHECK(sp->hasState("at-maximum"));
+    sp->setValue(5);
+    Point leBefore = le->sizeHint(), spBefore = sp->sizeHint(), cbBefore = cb->sizeHint();
+
+    std::vector<css::Problem> problems;
+    css::SheetPtr extra = css::parse(
+        "LineEdit { padding: 3px 9px; background-color: #102030; }\n"
+        "LineEdit::selection { background-color: #ff0000; }\n"
+        "LineEdit::clear-button { width: 20px; }\n"
+        "SpinBox { border-color: #00ff00; border-radius: 0; }\n"
+        "SpinBox::up-button, SpinBox::down-button { width: 20px; }\n"
+        "SpinBox:up-hover::up-button { background-color: #0000ff; border-radius: 0; }\n"
+        "SpinBox:focus { border-color: #ffffff; }\n"
+        "ComboBox::arrow { width: 30px; }\n"
+        "ComboBox:open { border-color: #ff00ff; }\n"
+        "ComboPopup { padding: 4px; }\n"
+        "ComboPopup::item:selected { background-color: #00ffff; }\n"
+        "ComboPopup::item:disabled { color: #ffff00; }\n"
+        "ComboPopup::separator { background-color: #ff8000; stroke-width: 3px; }\n",
+        "fields.css", problems);
+    CHECK(problems.empty());
+    theme::setStyles({theme::builtinSheet(), extra});
+    // sizes: the padding (+8), the clear button (+4), the buttons' column (+4), the arrow's box (+12)
+    CHECK(le->sizeHint().x == leBefore.x + 8 + 4 && le->sizeHint().y == leBefore.y);
+    CHECK(sp->sizeHint().x == spBefore.x + 4 && cb->sizeHint().x == cbBefore.x + 12);
+    le->setGeometry(10, 10, 200, 24);
+    sp->setGeometry(10, 50, 80, 24);
+    cb->setGeometry(10, 90, 150, 24);
+    w.showWindow();
+    App::get().doLayouts();
+    // the editor sits inside the border, short of the wider buttons
+    CHECK(sp->editor()->geometry().x == 1 && sp->editor()->geometry().w == 80 - 2 - 20);
+    w.setFocusWidget(le);
+    le->selectAll();
+    App::get().tick();
+    {
+        const Image& fb = w.framebuffer();
+        CHECK(fb.colorAt(10 + 5, 10 + 12) == Color::fromHex("#102030"));        // the field's own fill
+        CHECK(fb.colorAt(10 + 9, 10 + 12) == Color::fromHex("#ff0000") ||
+              fb.colorAt(10 + 10, 10 + 12) == Color::fromHex("#ff0000"));      // the selection, from the padding
+        CHECK(fb.colorAt(10, 50 + 12) == Color::fromHex("#00ff00"));            // the spin box's own border
+    }
+    // the up button under the mouse: its hover box (over the inside of the border, clipped to the button)
+    moveTo(w, 10 + 80 - 3, 50 + 4);
+    CHECK(sp->hasState("up-hover") && !sp->hasState("down-hover"));
+    App::get().tick();
+    CHECK(w.framebuffer().colorAt(10 + 80 - 19, 50 + 2) == Color::fromHex("#0000ff"));
+    CHECK(w.framebuffer().colorAt(10 + 80 - 19, 50 + 20) != Color::fromHex("#0000ff"));
+    // the spin box's focus is its editor's
+    sp->editor()->setFocus();
+    CHECK(sp->hasState("focus"));
+    App::get().tick();
+    CHECK(w.framebuffer().colorAt(10, 50 + 12) == Color::fromHex("#ffffff"));
+    // the combo's list: open, the highlighted row, the disabled one, the separator
+    cb->showPopup();
+    CHECK(cb->isPopupOpen() && cb->hasState("open"));
+    App::get().tick();
+    CHECK(w.framebuffer().colorAt(10, 90 + 12) == Color::fromHex("#ff00ff"));
+    Window* pop = App::get().popups().back();
+    CHECK(pop->type() == "ComboPopup" && !pop->hasState("selected"));
+    pop->update();
+    App::get().tick();
+    {
+        const Image& fb = pop->framebuffer();
+        Font uf = theme::uiFont();
+        int rowH = (int)std::ceil(uf.ascent() + uf.descent()) + 6;  // (its font's height and the item's 3px 6px)
+        CHECK(fb.colorAt(1 + 4 + 2, 1 + 4 + rowH / 2) == Color::fromHex("#00ffff"));  // "One": the current one
+        CHECK(fb.colorAt(1 + 4 + 2, 1 + 4 + rowH + rowH / 2) != Color::fromHex("#00ffff"));
+        int sepY = 1 + 4 + 2 * rowH + (7 - 3) / 2;                                     // a 3 px line across 7 px
+        CHECK(fb.colorAt(1 + 4 + 4, sepY) == Color::fromHex("#ff8000") && fb.colorAt(1 + 4 + 4, sepY + 2) == Color::fromHex("#ff8000"));
+        CHECK(fb.colorAt(1 + 4 + 3, sepY) != Color::fromHex("#ff8000"));            // (its margin)
+        bool yellow = false;  // "Three" (disabled) is drawn in its colour (anti-aliased: yellow-ish pixels)
+        for (int y = 1 + 4 + 2 * rowH + 7; y < 1 + 4 + 3 * rowH + 7 && !yellow; ++y)
+            for (int x = 1 + 4; x < 60 && !yellow; ++x) {
+                Color c = fb.colorAt(x, y);
+                yellow = c.r > 150 && c.g > 150 && c.b < 90;
+            }
+        CHECK(yellow);
+    }
+    cb->hidePopup();
+    CHECK(!cb->hasState("open"));
+
+    // back to the default: sizes as before
+    theme::setSkin();
+    CHECK(le->sizeHint().x == leBefore.x && sp->sizeHint().x == spBefore.x && cb->sizeHint().x == cbBefore.x);
+    w.hideWindow();
+}
+
+// the basic controls (Label, CheckBox, GroupBox, Separator, SplitterHandle, StatusBar, TabWidget, ButtonBox), windows
+// and tooltips take their sizes and colours from the stylesheets: default.css's are today's, a sheet over it changes them
+static void testBasicControlStyles() {
+    theme::setSkin();
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(400, 300);
+    auto* lab = w.add<Label>("Hint");
+    lab->setProperty("hint", "true");
+    auto* link = w.add<Label>("A link");
+    link->setLink("https://example.org");
+    auto* cb = w.add<CheckBox>("Check");
+    cb->setChecked(true);
+    auto* gb = w.add<GroupBox>("Group");
+    gb->setGeometry(200, 10, 150, 80);
+    auto* sb = w.add<StatusBar>();
+    auto* tabs = w.add<TabWidget>();
+    tabs->addTab(std::make_unique<Widget>(), "One");
+    tabs->addTab(std::make_unique<Widget>(), "Two");
+    auto* sep = w.add<Separator>(Orientation::Vertical);
+    auto* split = w.add<SplitterHandle>(Orientation::Horizontal);
+    Canvas canvas;
+    ButtonBox bb(ButtonBox::Ok | ButtonBox::Cancel);
+    // what the stylesheets see
+    CHECK(w.type() == "Window" && canvas.type() == "Canvas" && lab->type() == "Label" && cb->type() == "CheckBox");
+    CHECK(gb->type() == "GroupBox" && sb->type() == "StatusBar" && tabs->type() == "TabWidget" && bb.type() == "ButtonBox");
+    CHECK(sep->type() == "Separator" && sep->hasState("vertical") && !sep->hasState("horizontal"));
+    CHECK(split->type() == "SplitterHandle" && split->hasState("horizontal"));
+    CHECK(lab->hasClass("hint") && link->hasState("link") && !lab->hasState("link") && cb->hasState("checked"));
+    CHECK(!tabs->hasState("selected"));  // (a tab's states only while that tab is styled)
+    // default.css: today's sizes and colours
+    int th = (int)std::ceil(Font::ui().ascent() + Font::ui().descent());
+    CHECK(lab->color() == theme::c("hint_text") && link->color() == theme::c("accent"));
+    Point cbBefore = cb->sizeHint();
+    CHECK(cbBefore.y == std::max(th, 14) + 4);
+    CHECK(gb->contentsRect().x == 6 && gb->contentsRect().y == 28 && gb->contentsRect().w == 138 && gb->contentsRect().h == 46);
+    CHECK(sep->sizeHint().x == 7 && sep->sizeHint().y == 13 && split->sizeHint().x == 5);
+    CHECK(tabs->barHeight() == th + 14 && sb->sizeHint().y == th + 9);
+    Point bbBefore = bb.sizeHint();
+    App::get().showToolTip(Point(100, 100), "Tip", lab);
+    int tipBefore = App::get().toolTipWindow()->width();
+    App::get().hideToolTip();
+
+    std::vector<css::Problem> problems;
+    css::SheetPtr extra = css::parse(
+        "Window { background-color: #123456; }\n"
+        "Label.hint { color: #102030; }\n"
+        "CheckBox { padding: 5px 0; }\n"
+        "CheckBox:checked::indicator { background-color: #00ff00; border-color: #00ff00; }\n"
+        "GroupBox { margin-top: 30px; padding: 10px; }\n"
+        "Separator:vertical { margin: 2px 1px; line-width: 3px; }\n"
+        "SplitterHandle:horizontal { width: 9px; }\n"
+        "TabWidget::tab { padding: 10px 20px 12px; }\n"
+        "TabWidget::tab-line:selected { background-color: #ff0000; height: 4px; }\n"
+        "StatusBar::separator { height: 3px; background-color: #0000ff; }\n"
+        "ToolTip { padding: 10px; }\n"
+        "ButtonBox { column-gap: 20px; }\n",
+        "basic.css", problems);
+    CHECK(problems.empty());
+    theme::setStyles({theme::builtinSheet(), extra});
+    CHECK(lab->color() == Color::fromHex("#102030") && link->color() == theme::c("accent"));
+    CHECK(cb->sizeHint().y == cbBefore.y + 6 && cb->sizeHint().x == cbBefore.x);
+    CHECK(gb->contentsRect().x == 10 && gb->contentsRect().y == 40 && gb->contentsRect().w == 130 && gb->contentsRect().h == 30);
+    CHECK(sep->sizeHint().x == 5 && sep->sizeHint().y == 5 && split->sizeHint().x == 9);
+    CHECK(tabs->barHeight() == th + 22 && sb->sizeHint().y == th + 11);
+    CHECK(bb.sizeHint().x == bbBefore.x + 14);
+    App::get().showToolTip(Point(100, 100), "Tip", lab);
+    CHECK(App::get().toolTipWindow()->width() == tipBefore + 12);
+    App::get().hideToolTip();
+    // drawn so
+    cb->setGeometry(10, 10, 100, cb->sizeHint().y);
+    tabs->setGeometry(10, 100, 180, 80);
+    sb->setGeometry(0, 270, 400, sb->sizeHint().y);
+    lab->setGeometry(10, 200, 60, 20);
+    link->setGeometry(80, 200, 60, 20);
+    sep->setGeometry(150, 200, 5, 20);
+    split->setGeometry(160, 200, 9, 20);
+    w.showWindow();
+    App::get().tick();
+    const Image& fb = w.framebuffer();
+    int indY = 10 + (cb->height() - 14) / 2;
+    CHECK(fb.colorAt(10, indY + 7) == Color::fromHex("#00ff00"));                    // the box's edge (checked)
+    CHECK(fb.colorAt(15, 100 + tabs->barHeight() - 2) == Color::fromHex("#ff0000"));  // the selected tab's line
+    CHECK(fb.colorAt(380, 150) == Color::fromHex("#123456"));                         // the window's background
+    CHECK(fb.colorAt(50, 271) == Color::fromHex("#0000ff"));                          // the status bar's line
+    CHECK(fb.colorAt(150 + 1, 210) == theme::c("line"));                              // the 3 px separator line
+    CHECK(fb.colorAt(160 + 4, 210) == theme::c("line"));                              // the handle's line
+    // back to the default
+    theme::setSkin();
+    CHECK(lab->color() == theme::c("hint_text") && cb->sizeHint().y == cbBefore.y && tabs->barHeight() == th + 14);
+    CHECK(gb->contentsRect().y == 28 && sep->sizeHint().x == 7 && bb.sizeHint().x == bbBefore.x);
+    w.update();
+    App::get().tick();
+    CHECK(fb.colorAt(380, 150) == theme::c("window"));
+    w.hideWindow();
+    App::get().advanceTimers(1.5);  // (a tooltip hidden just now would make the next one quick)
+}
+
+// a skin change re-places what controls place themselves, even when their own size stays: a SpinBox whose
+// buttons get wider keeps its size (fixed) but its editor narrows at once
+static void testRestyleRelayout() {
+    theme::setSkin();
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(200, 60);
+    auto* sp = w.add<SpinBox>();
+    sp->setGeometry(10, 10, 120, 26);
+    w.showWindow();
+    App::get().tick();
+    int before = sp->editor()->width();
+    std::vector<css::Problem> problems;
+    theme::setStyles({theme::builtinSheet(),
+                      css::parse("SpinBox::up-button, SpinBox::down-button { width: 40px; }", "wide.css", problems)});
+    App::get().repaintAll();
+    App::get().tick();
+    CHECK(sp->width() == 120 && sp->editor()->width() < before - 15);
+    theme::setSkin();
+    App::get().repaintAll();
+    App::get().tick();
+    CHECK(sp->editor()->width() == before);
+    w.hideWindow();
+}
+
+// lists, scroll bars, sliders, menus and the menu bar take their sizes and colours (and their parts', in the
+// parts' own states) from the stylesheets
+static void testListAndMenuStylesheets() {
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(320, 200);
+    auto* list = w.add<ListWidget>();
+    for (const char* t : {"one", "two", "three", "four"}) list->addItem(t);
+    list->setAlternatingColors(true);
+    list->setGeometry(0, 0, 120, 150);
+    list->setCurrentRow(1);
+    auto* bar = w.add<ScrollBar>(Orientation::Vertical);
+    bar->setRange(0, 100);
+    bar->setPageStep(50);
+    auto* slider = w.add<Slider>();
+    slider->setRange(0, 100);
+    slider->setValue(50);
+    auto* mb = w.add<MenuBar>();
+    mb->addMenu("File");
+    // the defaults: default.css's
+    CHECK(list->type() == "ListWidget" && bar->hasState("vertical") && slider->hasState("horizontal"));
+    CHECK(bar->sizeHint().x == 10 && slider->sizeHint() == Point(84, 16) && list->sizeHint() == Point(256, 192));
+    Point barBefore = mb->sizeHint();
+    w.showWindow();
+    App::get().tick();
+    CHECK(list->rowHeight == 22);
+    CHECK(w.framebuffer().colorAt(60, 33) == theme::c("highlight"));       // row 1: selected
+    CHECK(w.framebuffer().colorAt(60, 77) == theme::c("alternate_base"));  // row 3: every other
+
+    std::vector<css::Problem> problems;
+    css::SheetPtr extra = css::parse(
+        ":root { --scrollbar-width: 14px; }\n"
+        "ListWidget::item { height: 30px; }\n"
+        "ListWidget::item:alternate { background-color: #0000ff; }\n"
+        "ListWidget::item:hover { background-color: #00ffff; }\n"
+        "ListWidget::item:selected { background-color: #ff0000; }\n"
+        "ScrollBar::thumb { background-color: #00ff00; margin: 0; border-radius: 0; }\n"
+        "ScrollBar::thumb:hover { background-color: #008000; }\n"
+        "Slider { height: 24px; }\n"
+        "Slider::handle { width: 16px; height: 16px; background-color: #ffff00; border-radius: 0; }\n"
+        "MenuBar::item { padding: 10px 8px; }\n"
+        "Menu { border-width: 0; }\n"
+        "Menu::item { padding: 8px 24px; }\n"
+        "Menu::item:hover { background-color: #ff00ff; }\n",
+        "lists.css", problems);
+    CHECK(problems.empty());
+    theme::setStyles({theme::builtinSheet(), extra});
+    App::get().repaintAll();  // (as a skin change does)
+    // sizes
+    CHECK(bar->sizeHint().x == 14 && slider->sizeHint() == Point(84, 24));
+    CHECK(mb->sizeHint().y == barBefore.y + 12);
+    bar->setGeometry(200, 0, 14, 100);
+    slider->setGeometry(220, 120, 60, 24);
+    mb->setGeometry(0, 160, 100, mb->sizeHint().y);
+    App::get().tick();  // (the list reads its rows' height again when painted)
+    CHECK(list->rowHeight == 30);
+    const Image& fb = w.framebuffer();
+    CHECK(fb.colorAt(60, 45) == Color(255, 0, 0));   // row 1 (30..60): selected (and every other: selected wins)
+    CHECK(fb.colorAt(60, 105) == Color(0, 0, 255));  // row 3 (90..120): every other
+    CHECK(fb.colorAt(60, 75) == theme::c("base"));   // row 2: plain
+    CHECK(fb.colorAt(203, 10) == Color(0, 255, 0));  // the thumb: no margin, green
+    CHECK(fb.colorAt(220 + 30, 120 + 12) == Color(255, 255, 0));  // the handle, 16 x 16 in the middle
+    CHECK(fb.colorAt(220 + 30 - 7, 120 + 5) == Color(255, 255, 0) && fb.colorAt(220 + 30 - 9, 120 + 5) != Color(255, 255, 0));
+    // the parts' own :hover: the row and the thumb under the mouse (not the whole list, or bar)
+    w.onEvent(nullptr, mouseEv(plat::Event::MouseMove, 60, 75, 0, 0));
+    App::get().tick();
+    CHECK(fb.colorAt(60, 75) == Color(0, 255, 255) && fb.colorAt(60, 105) == Color(0, 0, 255));
+    w.onEvent(nullptr, mouseEv(plat::Event::MouseMove, 205, 10, 0, 0));
+    App::get().tick();
+    CHECK(fb.colorAt(203, 10) == Color(0, 128, 0));
+    w.onEvent(nullptr, mouseEv(plat::Event::MouseMove, 205, 90, 0, 0));  // (on the bar, below the thumb)
+    App::get().tick();
+    CHECK(fb.colorAt(203, 10) == Color(0, 255, 0));
+    // a menu: its items 8 px above and below, no edge; the item under the mouse magenta
+    Menu menu;
+    menu.addAction("First");
+    menu.addAction("Second");
+    menu.popup(Point(100, 100), &w);
+    CHECK(menu.isOpen() && !App::get().popups().empty());
+    Window* mp = App::get().popups().back();
+    int lineH = (barBefore.y - 8);  // (the font's line: the bar was it and 4 px above and below)
+    CHECK(mp->height() == 4 + 2 * (lineH + 16) + 4);
+    mp->onEvent(nullptr, mouseEv(plat::Event::MouseMove, 40, 4 + lineH + 16 + 5, 0, 0));
+    App::get().tick();
+    CHECK(mp->framebuffer().colorAt(40, 4 + lineH + 16 + 5) == Color(255, 0, 255));
+    CHECK(mp->framebuffer().colorAt(40, 4 + 5) == theme::c("base"));
+    CHECK(mp->framebuffer().colorAt(0, 0) == theme::c("base"));  // (no edge)
+    menu.close();
+    // back to the default skin: default.css's sizes again
+    theme::setSkin();
+    App::get().repaintAll();
+    App::get().tick();
+    CHECK(list->rowHeight == 22 && bar->sizeHint().x == 10 && slider->sizeHint() == Point(84, 16));
+    CHECK(mb->sizeHint() == barBefore);
+    w.hideWindow();
+}
+
 int main() {
     App::get().initHeadless();
     util::makeDirs("build/toolkit-samples");
@@ -1225,6 +1620,11 @@ int main() {
     testSignalsAndKeys();
     testLayouts();
     testPaintingColours();
+    testStylesheets();
+    testFieldStylesheets();
+    testBasicControlStyles();
+    testRestyleRelayout();
+    testListAndMenuStylesheets();
     testButtonsAndClicks();
     testLineEdit();
     testSpinBox();
