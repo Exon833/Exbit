@@ -5,6 +5,7 @@
 
 #include "platform/platform.h"
 #include "ui/theme.h"
+#include "ui/toolkit/style.h"
 #include "version.h"
 
 UpdateChecker::~UpdateChecker() { *alive_ = false; }
@@ -54,6 +55,7 @@ std::string noticeTip(const update_check::Result* result) {
 }  // namespace update_notice
 
 UpdateNotice::UpdateNotice() {
+    setStyleType("UpdateNotice");
     setProperty("dimmed", "true");  // the skin's dimmed text
     setMouseTracking(true);
     setNotice(update_notice::noticeText(nullptr));
@@ -65,8 +67,10 @@ void UpdateNotice::setNotice(const update_notice::Text& t) {
     update();
 }
 
+Font UpdateNotice::font() const { return ui::style::font(computedStyle(), theme::dimmedFont()); }
+
 Point UpdateNotice::sizeHint() const {
-    Font f = theme::dimmedFont();
+    Font f = font();
     return Point((int)std::ceil(f.width(text_.plain())), (int)std::ceil(f.ascent() + f.descent()));
 }
 
@@ -74,22 +78,22 @@ Point UpdateNotice::minimumSizeHint() const { return Point(16, sizeHint().y); }
 
 Rect UpdateNotice::linkRect() const {
     if (text_.link.empty()) return Rect();
-    Font f = theme::dimmedFont();
+    Font f = font();
     int x0 = (int)f.width(text_.before);
     int x1 = (int)std::ceil(f.width(text_.before + text_.link));  // (`after` follows it, not underlined)
     return Rect(x0, 0, std::max(0, std::min(width(), x1) - x0), height());
 }
 
 void UpdateNotice::paint(Painter& p) {
-    Font f = theme::dimmedFont();
-    Color c = theme::c("dimmed_text");  // (the link too: the Python program styled it so)
+    Font f = font();
+    Color c = ui::style::foreground(computedStyle());  // (the link too: the Python program styled it so)
     RectF box(0, 0, (float)width(), (float)height());
     p.drawText(box, AlignLeft | AlignVCenter, text_.plain(), f, c, true);
     Rect lr = linkRect();
     if (!lr.empty()) {
         float th = f.ascent() + f.descent();
         int y = (int)std::floor((height() - th) / 2 + f.ascent() + 1.5f);
-        p.drawHLine(lr.x, lr.right(), y, c);
+        p.drawHLine(lr.x, lr.right(), y, ui::style::foreground(computedStyle("link")));
     }
 }
 

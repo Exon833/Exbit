@@ -2,12 +2,18 @@
 // sample (a MIDI file: what the built-in synth plays of it), left channel above, right below (one
 // lane if they are the same). A line follows the preview while it plays; click to play from that
 // point. The audio is loaded by the Explorer in a background thread; this only shows it.
+//
+// Styled as SampleWaveform (default.css): its background-color, and color and font (the words shown without a
+// sample); ::caption, the line with the name and the length (color, font, height, padding-left / -right,
+// column-gap: between the name and the length); ::wave (color), ::midline (a lane's middle: background-color,
+// height), ::position (the preview's line: background-color, width). :root's --sample-waveform-height: its height.
 #pragma once
 #include <optional>
 #include <string>
 #include <vector>
 
 #include "audio/dsp.h"
+#include "ui/panel_style.h"
 #include "ui/toolkit/widget.h"
 
 class SampleWaveform : public ui::Widget {
@@ -43,4 +49,14 @@ private:
     std::optional<double> position_;
     int peaksWidth_ = -1;
     std::vector<Lane> peaks_;
+    // what it is drawn with, from the stylesheets (kept: it repaints while a preview plays)
+    struct Look {
+        const css::Style* self = nullptr;  // (its box; kept until parts_.refresh() answers true)
+        Color text, caption, wave, midline, position;
+        Font font, captionFont;
+        int captionH = 14, padLeft = 4, padRight = 4, gap = 6, midlineH = 1, positionW = 1;
+    };
+    const Look& look();
+    panel_style::Parts parts_{*this};
+    Look look_;
 };

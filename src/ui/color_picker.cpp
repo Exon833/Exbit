@@ -63,6 +63,7 @@ bool parseHex(const std::string& text, std::string& hexOut) {
 // ColorWheel
 
 ColorWheel::ColorWheel(int size) {
+    setStyleType("ColorWheel");
     setFixedSize(size, size);
     setCursor(Cursor::Cross);
 }
@@ -121,9 +122,11 @@ void ColorWheel::paint(Painter& p) {
     double angle = 2 * M_PI * h, c = width() / 2.0;
     PointF marker((float)(c + std::cos(angle) * s * radius()), (float)(c - std::sin(angle) * s * radius()));
     Color col = color();
-    RectF dot(marker.x - 6, marker.y - 6, 12, 12);
+    const css::Style& st = computedStyle("marker");  // (its colours: the colour chosen, and a readable edge)
+    float size = (float)st.length("width", 12);
+    RectF dot(marker.x - size / 2, marker.y - size / 2, size, size);
     p.fillEllipse(dot, col);
-    p.strokeEllipse(dot, colors::readableText(col), 2);
+    p.strokeEllipse(dot, colors::readableText(col), (float)st.length("stroke-width", 2));
 }
 
 void ColorWheel::pick(PointF pos) {
@@ -148,7 +151,13 @@ bool ColorWheel::mouseMove(MouseEvent& e) {
 // ---------------------------------------------------------------------------------------------
 // previews
 
-ClipPreview::ClipPreview() { setFixedSize(170, 64); }
+ClipPreview::ClipPreview() {
+    setStyleType("ClipPreview");
+    const css::Style& st = computedStyle();
+    setFixedSize(style::px(st, "width", 170), style::px(st, "height", 64));
+}
+
+TrackPreview::TrackPreview() { setStyleType("TrackPreview"); }
 
 void ClipPreview::setColor(const std::string& hex, const std::string& t) {
     hexColor = hex;
@@ -157,36 +166,44 @@ void ClipPreview::setColor(const std::string& hex, const std::string& t) {
 }
 
 void ClipPreview::paint(Painter& p) {
-    p.fillRect(rect(), theme::c("window"));
+    const css::Style& st = computedStyle();
+    style::box(p, rect(), st);
     colors::ClipColors cc = colors::clipColors(hexColor, true, tone);
-    RectF r(2, 2, width() - 4, height() - 4);
+    style::Insets pad = style::insets(st, "padding");
+    RectF r((float)pad.left, (float)pad.top, (float)(width() - pad.w()), (float)(height() - pad.h()));
+    const css::Style& clip = computedStyle("clip");  // (its colours are the clip's own)
+    float handle = (float)clip.length("min-height", 16);  // (its name's bar)
     p.fillRect(r, cc.fill);
-    p.fillRect(RectF(r.x, r.y, r.w, 16), cc.handle);
-    Font f = theme::uiFont();
-    p.drawText(RectF(r.x + 6, r.y + 1, r.w - 6, 15), AlignLeft | AlignVCenter, "Clip name", f, cc.text);
-    double mid = r.y + 16 + (r.h - 16) / 2;
+    p.fillRect(RectF(r.x, r.y, r.w, handle), cc.handle);
+    Font f = style::font(clip, theme::uiFont());
+    p.drawText(RectF(r.x + 6, r.y + 1, r.w - 6, handle - 1), AlignLeft | AlignVCenter, "Clip name", f, cc.text);
+    double mid = r.y + handle + (r.h - handle) / 2;
     int i = 0;
     for (int x = (int)r.x + 4; x < (int)(r.x + r.w) - 4; x += 2, ++i) {
         double a = (std::sin(i * 0.7) * 0.5 + 0.5) * (r.h - 24) / 2;
         p.drawLine(PointF(x + 0.5f, (float)(mid - a)), PointF(x + 0.5f, (float)(mid + a)), cc.content);
     }
-    p.strokeRect(r, cc.border, 1.5f);
+    p.strokeRect(r, cc.border, (float)clip.length("border-top-width", 1.5));
 }
 
 void TrackPreview::paint(Painter& p) {
-    p.fillRect(rect(), theme::c("window"));
+    const css::Style& st = computedStyle();
+    style::box(p, rect(), st);
     Color background, text;
     colors::trackColors(hexColor, tone, background, text);
-    Rect r = rect().adjusted(2, 2, -2, -2);
-    p.fillRect(r, background);
-    p.fillRect(Rect(r.x, r.y, 3, r.h), theme::c("accent_audio"));
-    p.drawText(RectF(r.x + 10, r.y + 6, r.w - 10, 16), AlignLeft | AlignVCenter, "Track name", theme::uiFont(), text);
+    Rect r = style::inside(rect(), style::insets(st, "padding"));
+    p.fillRect(r, background);  // (the row's colours are the track's own)
+    const css::Style& stripe = computedStyle("stripe");
+    style::box(p, Rect(r.x, r.y, style::px(stripe, "width", 3), r.h), stripe);
+    p.drawText(RectF(r.x + 10, r.y + 6, r.w - 10, 16), AlignLeft | AlignVCenter, "Track name",
+               style::font(computedStyle("name"), theme::uiFont()), text);
     p.drawTextBlock(RectF(r.x, r.y, r.w - 6, r.h - 6), AlignRight | AlignBottom, "S -14.2\nI -16.0",
-                    theme::monoFont(8), text, false);
+                    style::font(computedStyle("readout"), theme::monoFont(8)), text, false);
     int right = r.x + r.w - 1;
-    p.fillRect(Rect(right - 54, r.y + 6, 22, 16), theme::c("button"));  // an M / S button
-    p.fillRect(Rect(right - 28, r.y + 6, 22, 16), theme::c("button"));
-    p.fillRect(Rect(r.x + 10, r.y + r.h - 1 - 20, 60, 14), theme::c("meter_bg"));  // a level meter
+    const css::Style& button = computedStyle("button");
+    style::box(p, Rect(right - 54, r.y + 6, 22, 16), button);  // an M / S button
+    style::box(p, Rect(right - 28, r.y + 6, 22, 16), button);
+    style::box(p, Rect(r.x + 10, r.y + r.h - 1 - 20, 60, 14), computedStyle("meter"));  // a level meter
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -212,13 +229,16 @@ const Subject& subjectOf(ColorSubject s) {
 class Swatch : public Button {
 public:
     explicit Swatch(const std::string& hex) : hex_(hex) {
-        setFixedSize(22, 22);
+        setStyleType("Swatch");
+        int size = theme::metric("color-swatch-size", 22);
+        setFixedSize(size, size);
         setToolTip(hex);
         setFocusPolicy(FocusPolicy::Tab);
     }
     void paint(Painter& p) override {
-        float rad = (float)theme::radius();
-        style::frame(p, rect(), Color::fromHex(hex_), theme::c("frame_edge"), rad);
+        // (the square's own part: what it shares with buttons doesn't change it)
+        const css::Style& st = computedStyle("chip");
+        style::frame(p, rect(), Color::fromHex(hex_), style::color(st, "border-top-color"), style::radius(st));
     }
     std::string hex_;
 };
@@ -244,7 +264,7 @@ ColorPickerDialog::ColorPickerDialog(Window* parent, const std::string& initial,
     tone = tone_;
     wantedTone = tone_;
 
-    wheel = add<ColorWheel>();
+    wheel = add<ColorWheel>(theme::metric("color-wheel-size", 200));
     brightness = add<Slider>(Orientation::Horizontal);
     brightness->setRange(0, 100);
     brightness->setToolTip("Brightness");

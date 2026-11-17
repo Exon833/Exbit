@@ -171,4 +171,381 @@ Button::separator { background-color: var(--line); }
 /* ======================================== Panels, meters and editors ========================================
    the transport, meters, the master strip, the MIDI editor, Steps, the patch panel, the Explorer, effect windows */
 
+:root {
+    --meter-gap: 1px;              /* between a meter's bars */
+    --scope-height: 78px;          /* the master scope (with the gap above it) */
+    --transport-button-size: 28px; /* the playback buttons (square) */
+    --transport-icon-size: 14px;   /* their icons */
+    --transport-time-width: 200px; /* the time display's room (less when the bar is short of room) */
+    --transport-separator-width: 7px;  /* an upright line between groups of controls, with the room around it */
+    --lufs-width: 62px;            /* the master's LUFS readout */
+    --row-button-height: 22px;     /* the buttons on a track's row (M, S, FX, the instrument, icons) */
+    --toggle-button-width: 26px;   /* M, S, ● and the like */
+    --fx-button-width: 28px;       /* FX */
+    --instrument-button-width: 40px;  /* a MIDI track's instrument (with its ▾) */
+    --icon-button-width: 22px;     /* a row's small icon buttons */
+    --sends-button-width: 20px;    /* → (the sends) */
+    --sends-button-height: 16px;
+    --output-selector-width: 58px; /* a row's outputs (1/2 ▾) */
+    --volume-slider-height: 14px;  /* a row's volume */
+    --db-reading-width: 44px;      /* its dB beside it */
+    --pan-knob-size: 22px;         /* a row's pan knob */
+    --send-slider-width: 150px;    /* a send's slider (its least width) */
+    --pre-button-width: 34px;      /* a send's Pre */
+    --curve-view-height: 130px;    /* an effect window's curve (its least height) */
+    --tuner-height: 120px;         /* the Tuner's display (its least height) */
+    --piano-keys-width: 56px;      /* the MIDI editor's keys (and the velocity lane's label column) */
+    --velocity-lane-height: 90px;  /* the lane under the notes */
+    --editor-ruler-height: 22px;   /* the MIDI editor's ruler */
+    --step-row-height: 22px;       /* a row of the Steps view */
+    --piano-roll-min-height: 200px;
+    --explorer-button-size: 24px;      /* the Explorer's +, −, ⟳ and ■ buttons */
+    --explorer-row-height: 20px;       /* a row of the Explorer's list */
+    --explorer-indent: 16px;           /* a level of its folder tree */
+    --explorer-header-height: 22px;    /* its search results' header */
+    --sample-waveform-height: 76px;    /* the sample's waveform (the Explorer, the sampler, the Pad Kit) */
+    --pad-width: 116px;                /* a Pad Kit pad's least width */
+    --color-wheel-size: 200px;         /* the colour dialog's wheel */
+    --color-swatch-size: 22px;         /* its recent colours */
+}
+
+/* Level meters (every track row, group row and the master): ::track behind each bar; ::bar and ::peak (the held
+   peak's line) are :ok up to -12 dB, :warn up to 0 dB, :hot above; ::number is the loudest since Play. */
+LevelMeter::track { background-color: var(--meter-bg); }
+LevelMeter::bar:ok, LevelMeter::peak:ok { background-color: var(--meter-ok); }
+LevelMeter::bar:warn, LevelMeter::peak:warn { background-color: var(--meter-warn); }
+LevelMeter::bar:hot, LevelMeter::peak:hot { background-color: var(--meter-hot); }
+LevelMeter::peak { width: 2px; }
+LevelMeter::number { background-color: var(--meter-bg); color: var(--ruler-text); }
+LevelMeter::number:clipped { background-color: var(--meter-hot); color: var(--accent-text); }
+
+/* The transport bar (#Transport): its border is the line under it; padding around its three parts, column-gap
+   between its controls. IconButton is a playback button (a ToolButton): ::icon colours its icon. */
+Transport {
+    background-color: var(--window);
+    border-width: 0 0 1px 0;
+    border-style: solid;
+    border-color: var(--line);
+    padding: 2px;
+    column-gap: 2px;
+}
+IconButton::icon { color: var(--button-text); }
+IconButton:checked::icon { color: var(--accent-text); }
+IconButton:disabled::icon { color: var(--disabled-text); }
+
+/* The audio CPU monitor (top right): its left border is the line between it and the ruler; ::late is the late
+   buffers' warning (min-width: the room it keeps beside the average); ::track the bar along its bottom, ::bar the
+   load on it (:ok under 50 %, :warn under 80 %, :hot). Its size is the ruler's height and the panel's width. */
+CpuMonitor {
+    background-color: var(--ruler-bg);
+    color: var(--ruler-text);
+    border-width: 0 0 0 1px;
+    border-style: solid;
+    border-color: var(--meter-bg);
+    padding: 0 8px 3px 8px;
+}
+CpuMonitor::late { color: var(--meter-hot); min-width: 50px; }
+CpuMonitor::track { background-color: var(--meter-bg); height: 3px; }
+CpuMonitor::bar:ok { background-color: var(--meter-ok); }
+CpuMonitor::bar:warn { background-color: var(--meter-warn); }
+CpuMonitor::bar:hot { background-color: var(--meter-hot); }
+
+/* The master scope (under the master's controls): its box (margin-top: the gap above it); ::divider between the
+   left and right channels shown apart (margins: the gap it sits in); ::trace the waveform or the spectrum's line
+   (fill-opacity: under the spectrum); ::grid; ::caption the note heard or the time shown. */
+Scope {
+    background-color: var(--meter-bg);
+    border: 1px solid var(--frame-edge);
+    margin-top: 3px;
+}
+Scope::divider { color: var(--frame-edge); width: 1px; margin: 0 1px; }
+Scope::trace { color: var(--accent); stroke-width: 1.2px; fill-opacity: 0.2745; }
+Scope::grid { color: var(--grid); }
+Scope::caption {
+    color: var(--dimmed-text);
+    font-family: var(--mono-font);
+    font-size: 7pt;
+    padding: 1px 4px 0 4px;
+    height: 12px;
+}
+
+/* The MIDI editor (MidiEditor: its window), the piano roll (PianoRoll), the Steps view (Steps), the lane under the
+   notes (VelocityLane) and the editor's ruler (EditorRuler). The notes are the clip's colour (data); a part's
+   states are its own (:white, :black, :selected…). */
+MidiEditor::toolbar { padding: 2px 4px 0 4px; column-gap: 4px; }
+MidiEditor::scale { margin-left: 8px; }
+MidiEditor::hint { padding: 2px 4px; }
+
+PianoRoll::row:white { background-color: var(--lane-alt); }
+PianoRoll::row:black { background-color: var(--lane); }
+PianoRoll::row:outside { background-color: var(--roll-shade); }  /* over a row outside the scale */
+PianoRoll::row:tonic { background-color: color-mix(in srgb, var(--selected-note) 8.6275%, transparent); }
+PianoRoll::octave { background-color: var(--grid-bar); height: 1px; }
+PianoRoll::below { background-color: var(--ruler-bg); }  /* under the last row, folded */
+PianoRoll::shade, Steps::shade { background-color: var(--roll-shade); }  /* outside the clip */
+PianoRoll::grid, VelocityLane::grid { width: 1px; }
+PianoRoll::grid:fine, VelocityLane::grid:fine { color: var(--grid-fine); }
+PianoRoll::grid:beat, VelocityLane::grid:beat { color: var(--grid); }
+PianoRoll::grid:bar { color: var(--grid-bar); }
+VelocityLane::grid:middle { color: var(--grid-bar); }  /* pan and fine tuning: the middle line */
+PianoRoll::note, Steps::note { border-width: 1px; }
+PianoRoll::note:selected, Steps::note:selected { border: 2px solid var(--selected-note); }
+PianoRoll::slide, Steps::slide { stroke-width: 2px; }
+PianoRoll::slide-head, Steps::slide-head { stroke-width: 1.5px; }
+PianoRoll::loop-end { color: var(--selected-note); width: 1px; }  /* where each pass of a looping clip ends */
+PianoRoll::selection-box {
+    background-color: color-mix(in srgb, var(--selected-note) 15.6863%, transparent);
+    border-color: var(--selected-note);
+}
+PianoRoll::cursor, Steps::cursor, VelocityLane::cursor, EditorRuler::cursor { color: var(--cursor); width: 1px; }
+PianoRoll::playhead, Steps::playhead, VelocityLane::playhead, EditorRuler::playhead { color: var(--playhead); width: 1px; }
+PianoRoll::keys, Steps::keys { background-color: var(--keys-white); }
+PianoRoll::key-line, Steps::key-line { background-color: var(--keys-line); height: 1px; }
+PianoRoll::key-label, Steps::key-label { color: var(--keys-label); padding-right: 4px; }
+PianoRoll::key:black, Steps::key:black { background-color: var(--keys-black); }
+PianoRoll::key:black { width: 62%; }
+PianoRoll::key:black:folded { width: 40%; }
+PianoRoll::key:black:named { width: 18%; }  /* named after a Pad Kit's pad */
+Steps::key:black { width: 6px; }
+PianoRoll::key:sounding, Steps::key:sounding { background-color: var(--key-sounding); }
+PianoRoll::keys-edge, Steps::keys-edge { background-color: var(--ruler-bg); width: 1px; }
+
+Steps { background-color: var(--ruler-bg); }
+Steps::row { background-color: var(--lane); }
+Steps::pad { background-color: var(--lane-alt); border-radius: 2px; margin: 2px 1px; }
+Steps::pad:odd { --darken: 112; }  /* the pads of odd beats, darker (as QColor::darker) */
+Steps::note { margin: 3px 1px; }
+Steps::add-row { color: var(--ruler-text); padding: 0 2px 0 6px; }
+
+VelocityLane { background-color: var(--meter-bg); border-top: 1px solid var(--ruler-bg); }
+VelocityLane::bar { width: 4px; }
+VelocityLane::bar:selected { background-color: var(--selected-note); }
+VelocityLane::cap { width: 8px; height: 3px; }
+VelocityLane::label { background-color: var(--ruler-bg); color: var(--ruler-text); padding: 2px 2px 0 4px; height: 16px; }
+VelocityLane::chooser { margin: 4px 2px 0 2px; }
+
+EditorRuler { background-color: var(--ruler-bg); color: var(--ruler-text); }
+EditorRuler::tick { height: 4px; }
+EditorRuler::tick:bar { height: 8px; }
+EditorRuler::tick:second { height: 6px; }
+EditorRuler::label { padding-left: 4px; top: 15px; }  /* top: the labels' baseline */
+EditorRuler::corner { background-color: var(--ruler-bg); }  /* over the keys' column */
+
+/* The patch panel (an effects window's patch space, an instrument patch panel): units between rails, jacks and
+   cables. Its geometry (where units, jacks and lights go) is its own; colours, lines and fonts are here. The
+   cables take --cable-1 … --cable-6 in turn. */
+PatchPanel {
+    background-color: color-mix(in srgb, var(--base) 50%, var(--window) 50%);
+    --cable-1: #e0533d;
+    --cable-2: #e8b23a;
+    --cable-3: #4aa3df;
+    --cable-4: #5bbf6a;
+    --cable-5: #b07cd8;
+    --cable-6: #e57fb0;
+}
+PatchPanel::rail { background-color: var(--button); }
+PatchPanel::rail-edge { background-color: var(--frame-edge); height: 1px; }
+PatchPanel::screw {
+    background-color: color-mix(in srgb, var(--button) 72%, var(--window-text) 28%);
+    color: color-mix(in srgb, var(--button) 40%, var(--frame-edge) 60%);
+    width: 8px;
+    stroke-width: 1.4px;
+}
+PatchPanel::sources {
+    background-color: color-mix(in srgb, var(--base) 75%, var(--window) 25%);
+    border-top: 1px solid color-mix(in srgb, var(--base) 50%, var(--frame-edge) 50%);
+}
+PatchPanel::sources-title { color: var(--hint-text); font-weight: bold; font-size: calc(1em - 1.5pt); }
+PatchPanel::source { color: var(--button-text); font-size: calc(1em - 1pt); }
+PatchPanel::source:blocked { opacity: 0.35; }
+PatchPanel::jack {
+    background-color: var(--frame-edge);
+    border: 3px solid color-mix(in srgb, var(--button) 65%, var(--window-text) 35%);
+}
+PatchPanel::jack-ring { color: color-mix(in srgb, var(--accent) 58.82353%, transparent); stroke-width: 2px; }
+PatchPanel::jack-ring:hover { color: var(--accent); stroke-width: 3px; }
+PatchPanel::end-title { color: var(--hint-text); font-weight: bold; font-size: calc(1em - 1pt); }
+PatchPanel::end-label { color: var(--hint-text); font-size: calc(1em - 1pt); }
+PatchPanel::empty-hint { color: var(--hint-text); }
+PatchPanel::unit { background-color: var(--button); border-radius: 3px; }
+PatchPanel::unit:hover { background-color: color-mix(in srgb, var(--button) 94%, var(--window-text) 6%); }
+PatchPanel::unit:selected { outline-color: var(--accent); outline-width: 2px; }
+PatchPanel::picture { background-color: var(--base); }
+PatchPanel::picture:bypassed { opacity: 0.35; }
+PatchPanel::faceplate { color: color-mix(in srgb, var(--base) 65%, var(--hint-text) 35%); stroke-width: 1.6px; }
+PatchPanel::faceplate-text { color: color-mix(in srgb, var(--base) 30%, var(--hint-text) 70%); font-size: calc(1em - 1pt); }
+PatchPanel::wave { color: var(--accent); stroke-width: 3px; }
+PatchPanel::reload-shade { background-color: #0000006e; }
+PatchPanel::reload {
+    background-color: var(--button);
+    color: var(--button-text);
+    border-top: 1px solid var(--frame-edge);
+    border-radius: 4px;
+    font-weight: bold;
+}
+PatchPanel::reload:hover { background-color: var(--accent); color: var(--accent-text); }
+PatchPanel::name { color: var(--button-text); font-weight: bold; }
+PatchPanel::name:bypassed { color: var(--disabled-text); }
+PatchPanel::sidechain-label { color: var(--hint-text); font-weight: bold; font-size: calc(1em - 2pt); }
+PatchPanel::led { border-top: 1px solid var(--frame-edge); }
+PatchPanel::led:on { background-color: var(--meter-ok); }
+PatchPanel::led:idle { background-color: var(--meter-warn); }
+PatchPanel::led:bypassed { background-color: color-mix(in srgb, var(--button) 55%, var(--frame-edge) 45%); }
+PatchPanel::led:problem { background-color: var(--record); }
+PatchPanel::status { color: var(--hint-text); font-size: calc(1em - 1pt); }
+PatchPanel::status:hover { color: var(--button-text); }
+PatchPanel::groove { background-color: var(--frame-edge); border-radius: 2px; }
+PatchPanel::level { background-color: color-mix(in srgb, var(--accent) 75%, var(--button) 25%); }
+PatchPanel::level:bypassed { background-color: var(--disabled-text); }
+PatchPanel::zero-mark { color: var(--hint-text); stroke-width: 1px; }
+PatchPanel::knob {
+    background-color: color-mix(in srgb, var(--button) 45%, var(--window-text) 55%);
+    border-top: 1px solid var(--frame-edge);
+    border-radius: 3px;
+}
+PatchPanel::knob:hover { background-color: var(--accent); }
+PatchPanel::value { color: var(--hint-text); font-size: calc(1em - 1pt); }
+PatchPanel::value:hover { color: var(--button-text); }
+PatchPanel::mod-link {
+    color: var(--accent);
+    stroke-width: 2px;
+    font-weight: bold;
+    font-size: calc(1em - 1pt);
+}
+PatchPanel::mod-label { background-color: var(--base); }
+PatchPanel::cable { stroke-width: 3.6px; outline-width: 6px; }
+
+/* The Explorer's waveform (the selected sample): ::caption is the line with its name and length. */
+SampleWaveform { background-color: var(--meter-bg); color: var(--ruler-text); }
+SampleWaveform::caption { color: var(--ruler-text); height: 14px; padding-left: 4px; padding-right: 4px; column-gap: 6px; }
+SampleWaveform::wave { color: var(--sample-wave); }
+SampleWaveform::midline { background-color: var(--grid); height: 1px; }
+SampleWaveform::position { background-color: var(--playhead); width: 1px; }
+
+/* The Explorer: its rows (padding, row-gap), the folder row and the preview row (column-gap); FileView is its list
+   (the folder's tree, the search results with their ::header). */
+Explorer { padding: 6px; row-gap: 5px; }
+Explorer::folder-row { column-gap: 3px; }
+Explorer::preview-row { column-gap: 6px; }
+FileView { background-color: var(--base); color: var(--text); }
+FileView::row:hover { background-color: var(--item-hover); }
+FileView::row:selected { background-color: var(--highlight); color: var(--highlighted-text); }
+FileView::icon { color: var(--hint-text); fill-opacity: 0.353; }
+FileView::icon:selected { color: var(--highlighted-text); }
+FileView::header { background-color: var(--window); color: var(--hint-text); border-color: var(--line); border-width: 0 0 1px 0; }
+
+/* The colour dialog: the wheel's marker, the previews (a clip, a track's row: their colours are the chosen
+   colour's) and the recent colours' squares. */
+ColorWheel::marker { width: 12px; stroke-width: 2px; }
+ClipPreview { background-color: var(--window); padding: 2px; width: 170px; height: 64px; }
+ClipPreview::clip { min-height: 16px; border-top-width: 1.5px; }
+TrackPreview::stripe { background-color: var(--accent-audio); width: 3px; }
+TrackPreview::readout { font-family: var(--mono-font); font-size: 8pt; }
+TrackPreview::button { background-color: var(--button); }
+TrackPreview::meter { background-color: var(--meter-bg); }
+Swatch::chip { border-color: var(--frame-edge); border-radius: 3px; }
+
+/* The Pad Kit's pads (a PadView is a SampleWaveform: its ::wave too). :selected is the pad chosen, :dropping a pad
+   files are dragged over; --choke-1 to --choke-8 are the choke groups' colours (its tint, stripe and key). */
+PadView {
+    --choke-1: #e87040;
+    --choke-2: #50aae6;
+    --choke-3: #78c85a;
+    --choke-4: #dc5aaa;
+    --choke-5: #f0c83c;
+    --choke-6: #9678e6;
+    --choke-7: #3cc8be;
+    --choke-8: #c8c8c8;
+}
+PadView::choke-tint { opacity: 0.157; }
+PadView::empty { color: var(--disabled-text); }
+PadView::name { color: var(--ruler-text); }
+PadView::name:selected { font-weight: bold; }
+PadView::stripe { width: 3px; }
+PadView::frame { border-top: 1px solid var(--frame-edge); }
+PadView::frame:selected, PadView::frame:dropping { border-top: 2px solid var(--selected-note); }
+
+/* The sampler's waveform (a SampleWaveform): what is before its start and after its end, and their lines. */
+SamplerWaveform::outside { background-color: var(--roll-shade); }
+SamplerWaveform::marker { background-color: var(--selected-note); width: 1px; }
+
+/* The metronome window's envelope graphs: .bar (the click at the start of a bar) and .beat (the other beats). */
+EnvelopeGraph { background-color: var(--meter-bg); color: var(--accent); }
+EnvelopeGraph.bar { color: var(--solo); }
+EnvelopeGraph.beat { color: var(--accent-audio); }
+EnvelopeGraph::grid { color: var(--grid); stroke-width: 1px; }
+EnvelopeGraph::envelope { stroke-width: 2px; fill-opacity: 0.2353; }
+EnvelopeGraph::label { color: var(--ruler-text); }
+EnvelopeGraph::handle { background-color: var(--meter-bg); border-top: 2px solid currentColor; }
+EnvelopeGraph::handle:dragging { border-top-color: var(--accent-text); }
+
+/* A track's, group's or the master's row (LaneFrame, #lane): its own colour is the lane's or the track's (data).
+   ::stripe is the accent stripe down its left (in the track kind's colour), ::edge the line there without one,
+   ::current the selected row's edges, ::load the CPU bar along its bottom (Options → CPU per track) and ::load-bar
+   the share on it. The master's row is .master: its colour, padding and gaps; ::title, ::notice. */
+LaneFrame::stripe { width: 3px; }
+LaneFrame::edge { background-color: var(--frame-edge); width: 1px; }
+LaneFrame::current { border-width: 1px 1px 1px 0; border-color: var(--accent); }
+LaneFrame::load { background-color: var(--meter-bg); height: 2px; margin-bottom: 1px; }
+LaneFrame::load-bar:ok { background-color: var(--meter-ok); }
+LaneFrame::load-bar:warn { background-color: var(--meter-warn); }
+LaneFrame::load-bar:hot { background-color: var(--meter-hot); }
+LaneFrame.master { background-color: var(--master-lane); padding: 3px 8px; row-gap: 2px; column-gap: 2px; }
+LaneFrame.master::title { font-weight: bold; }
+LaneFrame.master::notice { margin-top: 2px; }
+NameLabel.group { font-weight: bold; }  /* a group's name on its row */
+.pin-cover { background-color: var(--window); }  /* under the pinned master row */
+
+/* A track's pan knob, and the sends' small window. */
+PanKnob { background-color: var(--button); padding: 3px; }
+PanKnob::pointer { color: var(--button-text); stroke-width: 1.5px; }
+PanKnob::arc { color: var(--accent); stroke-width: 2px; }
+SendsPanel {
+    background-color: var(--window);
+    border: 1px solid var(--line);
+    padding: 8px;
+    row-gap: 4px;
+    column-gap: 6px;
+}
+SendsPanel::title { font-weight: bold; }
+
+/* The update notice under the master's controls; ::link is the line under its link. */
+UpdateNotice { color: var(--dimmed-text); font-size: 8pt; }
+UpdateNotice::link { color: var(--dimmed-text); }
+
+/* A built-in effect's window: the curve (an EQ's response, with the analyzer's spectrum behind it), the meters,
+   the tuner. ::changed colours a parameter's name that differs from the kept settings (Compare). */
+EffectWindow { background-color: var(--window); padding: 9px; row-gap: 6px; column-gap: 6px; }
+EffectWindow::slider { min-width: 220px; }
+EffectWindow::value { min-width: 80px; }
+EffectWindow::changed { color: var(--accent); }
+CurveView { background-color: var(--base); }
+CurveView::grid { color: var(--grid); stroke-width: 1px; }
+CurveView::analyzer { color: var(--dimmed-text); fill-opacity: 0.2353; stroke-opacity: 0.5882; stroke-width: 1px; }
+CurveView::curve { color: var(--accent); stroke-width: 2px; }
+MeterView { color: var(--window-text); line-height: 20px; }
+MeterView::label { width: 110px; padding-right: 6px; }
+MeterView::track { background-color: var(--meter-bg); height: 12px; }
+MeterView::bar { background-color: var(--accent); }
+MeterView::value { width: 80px; padding-left: 6px; }
+Tuner { background-color: var(--base); }
+Tuner::note { color: var(--window-text); font-size: 40px; font-weight: bold; }
+Tuner::note:in-tune { color: var(--meter-ok); }
+Tuner::note:silent { color: var(--dimmed-text); }
+Tuner::scale { background-color: var(--meter-bg); height: 2px; margin-left: 24px; margin-right: 24px; top: 66px; }
+Tuner::tick { color: var(--dimmed-text); }
+Tuner::tick:centre { color: var(--window-text); }
+Tuner::needle { background-color: var(--accent); border-radius: 2px; }
+Tuner::needle:in-tune { background-color: var(--meter-ok); }
+Tuner::cents { color: var(--window-text); }
+Tuner::hz, Tuner::end-label { color: var(--dimmed-text); }
+
+/* A plugin's own window: ::plugin behind the plugin's drawing, ::stopped when the plugin stopped. */
+EditorWindow::plugin { background-color: #000000; }
+EditorWindow::stopped { background-color: var(--window); padding: 16px; row-gap: 10px; }
+
+/* Edit → History: ::undone colours the changes Redo would bring back. */
+HistoryWindow { padding: 11px; row-gap: 6px; min-width: 240px; min-height: 200px; }
+HistoryWindow::undone { color: var(--disabled-text); }
+
 /* (end of Panels, meters and editors) */

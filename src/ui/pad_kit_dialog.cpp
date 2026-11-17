@@ -30,12 +30,29 @@ L* nest(ui::BoxLayout* parent, int stretch = 0) {
 }
 }  // namespace
 
-Color chokeColor(int group) {
+namespace {
+// a choke group's colour as `style` gives it (its --choke-1 … --choke-8), else the program's own
+Color chokeIn(const css::Style& style, int group) {
     static const Color colors[PadKit::CHOKE_GROUPS] = {
         Color(232, 112, 64), Color(80, 170, 230), Color(120, 200, 90), Color(220, 90, 170),
         Color(240, 200, 60), Color(150, 120, 230), Color(60, 200, 190), Color(200, 200, 200)};
     if (group < 1 || group > PadKit::CHOKE_GROUPS) return Color(0, 0, 0, 0);
+    css::Rgba c;
+    std::optional<std::string> v = style.variable("--choke-" + std::to_string(group));
+    if (v && css::parseColor(*v, c)) return ui::style::toColor(c);
     return colors[group - 1];
+}
+}  // namespace
+
+Color chokeColor(int group) {
+    static int generation = -1;
+    static css::Style style;
+    const css::Engine& engine = theme::styles();
+    if (engine.generation() != generation) {  // (a pad as the stylesheets see one, computed again when they change)
+        style = engine.compute(css::SimpleNode("PadView"));
+        generation = engine.generation();
+    }
+    return chokeIn(style, group);
 }
 
 std::string chokeName(int group) { return group <= 0 ? "None" : std::to_string(group); }
@@ -43,7 +60,8 @@ std::string chokeName(int group) { return group <= 0 ? "None" : std::to_string(g
 // =================================================================================================
 
 PadView::PadView(PadKitDialog* dialog, int slot_) : slot(slot_), dialog_(dialog) {
-    setMinimumWidth(PAD_W);
+    setStyleType("PadView");
+    setMinimumWidth(theme::metric("pad-width", PAD_W));
     setCursor(ui::Cursor::Hand);
 }
 
@@ -69,15 +87,19 @@ void PadView::paint(Painter& p) {
     int i = pad();
     const Pad& pad = kit->pads[(size_t)i];
     bool selected = dialog_->selected == i;
-    Font font = theme::uiFont();
-    p.fillRect(rect(), theme::c("meter_bg"));
-    Color group = chokeColor(pad.choke);
-    if (pad.choke) p.fillRect(Rect(0, 0, w, h), group.withAlpha(40));
+    const css::Style& st = computedStyle();  // (in its states: :selected, :dropping)
+    Font font = ui::style::font(st, theme::uiFont());
+    ui::style::box(p, rect(), st);
+    Color group = chokeIn(st, pad.choke);
+    if (pad.choke) {
+        double tint = computedStyle("choke-tint").number("opacity", 40 / 255.0);
+        p.fillRect(Rect(0, 0, w, h), group.withAlpha((int)std::lround(std::min(1.0, std::max(0.0, tint)) * 255)));
+    }
     // the waveform, under the name strip
     if (!pad.empty() && w > 8) {
         const std::vector<Lane>& ls = lanes(w - 8);
         double top = 16, laneH = (h - top - 4) / (double)std::max<size_t>(1, ls.size());
-        Color wave = theme::c("sample_wave");
+        Color wave = ui::style::color(computedStyle("wave"), "color");
         for (size_t k = 0; k < ls.size(); k++) {
             double middle = top + k * laneH + laneH / 2, half = laneH / 2 - 1;
             for (int x = 0; x < (int)ls[k].maxs.size(); x++) {
@@ -87,21 +109,29 @@ void PadView::paint(Painter& p) {
             }
         }
     } else {
+        const css::Style& empty = computedStyle("empty");
         p.drawText(RectF(0, 16, (float)w, (float)h - 16), AlignCenter, dropping_ ? "Drop to load" : "Drop a sound",
-                   font, theme::c("disabled_text"));
+                   ui::style::font(empty, font), ui::style::foreground(empty));
     }
     // its name (left) and key (right), and its choke group
-    Color text = theme::c("ruler_text");
+    const css::Style& name = computedStyle("name");
+    Color text = ui::style::foreground(name);
     std::string keyText = sampler::noteName(pad.note) + (pad.choke ? "  \xe2\x9c\x95" + std::to_string(pad.choke) : "");
     float keyW = font.width(keyText);
     p.drawText(RectF((float)w - keyW - 6, 1, keyW + 2, 14), AlignRight | AlignVCenter, keyText, font,
                pad.choke ? group : text);
-    std::string name = pad.empty() ? std::to_string(i + 1) : std::to_string(i + 1) + " " + padkit::padName(pad);
-    p.drawText(RectF(5, 1, std::max(0.f, (float)w - keyW - 14), 14), AlignLeft | AlignVCenter, name,
-               font.withBold(selected), text, true);
-    if (pad.choke) p.fillRect(Rect(0, 0, 3, h), group);
-    if (selected || dropping_) p.drawRect(rect(), theme::c("selected_note"), 2);
-    else p.drawRect(rect(), theme::c("frame_edge"));
+    std::string label = pad.empty() ? std::to_string(i + 1) : std::to_string(i + 1) + " " + padkit::padName(pad);
+    p.drawText(RectF(5, 1, std::max(0.f, (float)w - keyW - 14), 14), AlignLeft | AlignVCenter, label,
+               ui::style::font(name, font.withBold(selected)), text, true);
+    if (pad.choke) p.fillRect(Rect(0, 0, ui::style::px(computedStyle("stripe"), "width", 3), h), group);
+    const css::Style& frame = computedStyle("frame");
+    p.drawRect(rect(), ui::style::color(frame, "border-top-color"), ui::style::px(frame, "border-top-width", 1));
+}
+
+void PadView::styleStates(std::vector<std::string>& out) const {
+    SampleWaveform::styleStates(out);
+    if (dialog_->selected == pad()) out.push_back("selected");
+    if (dropping_) out.push_back("dropping");
 }
 
 bool PadView::mousePress(ui::MouseEvent& e) {
@@ -174,7 +204,7 @@ PadKitDialog::PadKitDialog(ui::Window* window, TrackPtr track_)
     hint = add<ui::Label>("Click a pad to hear it. Drop sound files on a pad (several fill the pads after it); "
                           "right-click a pad for more.");
     hint->setWordWrap(true);
-    hint->setColor(theme::c("hint_text"));
+    hint->setProperty("hint", "true");  // (the skin's hint colour)
     left->addWidget(hint);
     left->addStretch(1);
     // the selected pad's settings (right)
@@ -189,7 +219,7 @@ PadKitDialog::PadKitDialog(ui::Window* window, TrackPtr track_)
     loadButton->setToolTip("Another sound on this pad (its key and choke group stay)");
     title->addWidget(loadButton);
     waveform = add<sampler_dialog::SamplerWaveform>();
-    waveform->setFixedHeight(SampleWaveform::HEIGHT);
+    waveform->setFixedHeight(theme::metric("sample-waveform-height", SampleWaveform::HEIGHT));
     waveform->setSizePolicy(ui::SizePolicy::Expanding, ui::SizePolicy::Fixed);
     waveform->setCursor(ui::Cursor::Arrow);
     right->addWidget(waveform);

@@ -7,7 +7,8 @@
 #include "ui/theme.h"
 
 SampleWaveform::SampleWaveform(ui::Widget* parent) : ui::Widget(parent) {
-    setFixedHeight(HEIGHT);
+    setStyleType("SampleWaveform");
+    setFixedHeight(theme::metric("sample-waveform-height", HEIGHT));
     setSizePolicy(ui::SizePolicy::Expanding, ui::SizePolicy::Fixed);
     setCursor(ui::Cursor::Hand);
 }
@@ -68,38 +69,64 @@ const std::vector<SampleWaveform::Lane>& SampleWaveform::lanes(int width) {
     return peaks_;
 }
 
+const SampleWaveform::Look& SampleWaveform::look() {
+    if (!parts_.refresh()) return look_;
+    Look l;
+    const css::Style& self = parts_.get("");
+    l.self = &self;
+    l.text = ui::style::foreground(self);
+    l.font = ui::style::font(self, theme::uiFont());
+    const css::Style& caption = parts_.get("caption");
+    l.caption = ui::style::foreground(caption);
+    l.captionFont = ui::style::font(caption, theme::uiFont());
+    l.captionH = std::max(0, panel_style::px(caption, "height", 14));
+    l.padLeft = panel_style::px(caption, "padding-left", 4);
+    l.padRight = panel_style::px(caption, "padding-right", 4);
+    l.gap = panel_style::px(caption, "column-gap", 6);
+    l.wave = panel_style::fg(parts_.get("wave"));
+    const css::Style& midline = parts_.get("midline");
+    l.midline = panel_style::bg(midline);
+    l.midlineH = std::max(0, panel_style::px(midline, "height", 1));
+    const css::Style& position = parts_.get("position");
+    l.position = panel_style::bg(position);
+    l.positionW = std::max(1, panel_style::px(position, "width", 1));
+    look_ = l;
+    return look_;
+}
+
 void SampleWaveform::paint(Painter& p) {
+    const Look& look = this->look();
     int w = width(), h = height();
-    Font font = theme::uiFont();
-    p.fillRect(rect(), theme::c("meter_bg"));
+    ui::style::box(p, rect(), *look.self);
     if (!audio_ || audio_->frames() == 0 || w < 2) {
-        p.drawText(RectF(rect()), AlignCenter, "Click a sample to see its waveform", font, theme::c("ruler_text"));
+        p.drawText(RectF(rect()), AlignCenter, "Click a sample to see its waveform", look.font, look.text);
         return;
     }
     const std::vector<Lane>& ls = lanes(w);
-    double laneH = (h - 14) / (double)ls.size();
-    Color wave = theme::c("sample_wave"), grid = theme::c("grid");
+    int head = look.captionH;
+    double laneH = (h - head) / (double)ls.size();
     for (size_t i = 0; i < ls.size(); ++i) {
-        double top = 14 + i * laneH;
+        double top = head + i * laneH;
         double middle = top + laneH / 2;
-        p.fillRect(RectF(0, (float)middle, (float)w, 1), grid);
+        p.fillRect(RectF(0, (float)middle, (float)w, (float)look.midlineH), look.midline);
         double half = laneH / 2 - 1;
         for (int x = 0; x < w; ++x) {
             double y0 = middle - std::min(1.0, (double)ls[i].maxs[x]) * half;
             double y1 = middle - std::max(-1.0, (double)ls[i].mins[x]) * half;
             int a = (int)y0, b = (int)std::max(y1, y0 + 1);
-            p.drawVLine(x, a, b + 1, wave);  // (a cosmetic pen's line covers both ends)
+            p.drawVLine(x, a, b + 1, look.wave);  // (a cosmetic pen's line covers both ends)
         }
     }
-    Color text = theme::c("ruler_text");
+    const Font& font = look.captionFont;
     std::string time = fmt::time(seconds_, 2);
     float timeW = font.width(time);
-    p.drawText(RectF(4, 0, (float)w - 8, 14), AlignRight | AlignVCenter, time, font, text);
-    p.drawText(RectF(4, 0, std::max(0.f, (float)w - 8 - timeW - 6), 14), AlignLeft | AlignVCenter, name_, font, text,
-               true);
+    float textW = (float)(w - look.padLeft - look.padRight);
+    p.drawText(RectF((float)look.padLeft, 0, textW, (float)head), AlignRight | AlignVCenter, time, font, look.caption);
+    p.drawText(RectF((float)look.padLeft, 0, std::max(0.f, textW - timeW - look.gap), (float)head),
+               AlignLeft | AlignVCenter, name_, font, look.caption, true);
     if (position_) {
         int x = (int)(*position_ * (w - 1));
-        p.drawVLine(x, 14, h + 1, theme::c("playhead"));
+        p.fillRect(Rect(x, head, look.positionW, h + 1 - head), look.position);
     }
 }
 

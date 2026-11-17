@@ -16,6 +16,18 @@
 //
 // The slot's instance must be a built-in effect (effects::asEffect(instance) not null; PluginHost:
 // effects::isBuiltin(slot->path)); otherwise the window is empty and attach() returns false.
+//
+// Styles (default.css, "Panels, meters and editors"):
+//   EffectWindow  background-color (its picture's), padding and row-gap (around and between its parts), column-gap
+//                 (between a parameter's controls); ::slider and ::value (min-width: a value's slider and text).
+//   CurveView     its box; ::grid (color, stroke-width; the labels' font), ::analyzer (the spectrum behind: color,
+//                 fill-opacity, stroke-opacity, stroke-width), ::curve (color, stroke-width).
+//   MeterView     color, font; line-height (a meter's row); ::label (width, padding-right), ::track (the bar's box: height),
+//                 ::bar (background-color), ::value (width, padding-left).
+//   Tuner         (a MeterView) its box; ::note (font, color) :in-tune / :silent; ::scale (background-color,
+//                 height; margin-left / margin-right: its ends from the sides; top: its place), ::tick (color)
+//                 and ::tick:centre; ::needle (background-color, border-radius) and :in-tune; ::cents and ::hz
+//                 (color, font), ::end-label (−50 / +50: color, font).
 #pragma once
 #include <algorithm>
 #include <memory>
@@ -26,6 +38,7 @@
 #include "effects/effect.h"
 #include "gfx/image.h"
 #include "model/model.h"
+#include "ui/panel_style.h"
 #include "ui/toolkit/controls.h"
 #include "ui/toolkit/widget.h"
 
@@ -50,6 +63,17 @@ public:
     // (every REFRESH_MS while the window is open; `dt`: seconds since the last)
     void refreshSpectrum(double dt);
     std::vector<effects::CurvePoint> spectrum;
+
+private:
+    struct Look {  // (kept: the analyzer repaints it every REFRESH_MS)
+        const css::Style* self = nullptr;
+        Color grid, analyzerFill, analyzerLine, curve;
+        float gridW = 1, analyzerW = 1, curveW = 2;
+        Font font;
+    };
+    const Look& look();
+    panel_style::Parts parts_{*this};
+    Look look_;
 };
 
 // The effect's meters: a bar each (0…1) with its label and text.
@@ -58,9 +82,21 @@ public:
     explicit MeterView(std::shared_ptr<effects::Effect> effect);
     void refresh();
     void paint(Painter& p) override;
-    Point sizeHint() const override { return Point(300, 20 * std::max<int>(1, (int)values.size())); }
+    Point sizeHint() const override { return Point(300, rowH() * std::max<int>(1, (int)values.size())); }
     std::shared_ptr<effects::Effect> effect;
     std::vector<effects::Meter> values;
+
+protected:
+    struct Look {  // (kept: the meters repaint every REFRESH_MS)
+        const css::Style* track = nullptr;
+        Color text, bar;
+        int rowH = 20, labelW = 110, labelPad = 6, trackH = 12, valueW = 80, valuePad = 6;
+        Font font;
+    };
+    const Look& look() const;
+    int rowH() const { return look().rowH; }
+    mutable panel_style::Parts parts_{*this};
+    mutable Look look_;
 };
 
 // The Tuner's meters ([note, cents, frequency]) as a tuner: the note large in the middle, a scale
@@ -70,6 +106,19 @@ public:
     explicit TunerView(std::shared_ptr<effects::Effect> effect);
     void paint(Painter& p) override;
     Point sizeHint() const override { return Point(300, 120); }
+
+private:
+    struct TunerLook {
+        const css::Style* self = nullptr;
+        const css::Style* note[3] = {};  // heard, in tune, silent
+        Color scale, tick, tickCentre, needle, needleInTune, cents, hz, endLabel;
+        float needleR = 2;
+        int scaleH = 2, scaleLeft = 24, scaleRight = 24, scaleTop = 66;
+        Font noteFont[3], centsFont, hzFont, endFont;
+    };
+    const TunerLook& tunerLook();
+    panel_style::Parts tparts_{*this};
+    TunerLook tunerLook_;
 };
 
 class EffectWindow : public ui::Window {

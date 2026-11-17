@@ -4,6 +4,13 @@
 //
 // Recent colours are remembered between runs (settings "recent_clip_colors"), shared by clips and
 // tracks.
+//
+// Styled (default.css): ColorWheel::marker (the chosen colour's dot: width, stroke-width; its colours are the
+// colour's own); ClipPreview (background-color, padding, width, height) and its ::clip (font, min-height: the
+// name's bar, border-top-width: the clip's edge; the clip's colours are its own); TrackPreview (counts as a
+// ClipPreview) ::stripe (background-color, width), ::name and ::readout (font), ::button and ::meter
+// (background-color); Swatch (a recent colour, a Button) ::chip (border-top-color, border-radius). :root's
+// --color-wheel-size and --color-swatch-size.
 #pragma once
 #include <string>
 #include <vector>
@@ -61,6 +68,7 @@ public:
 // How a track's row in the panel will look in the chosen colour, after automatic contrast.
 class TrackPreview : public ClipPreview {
 public:
+    TrackPreview();
     void paint(Painter& p) override;
 };
 

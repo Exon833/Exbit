@@ -25,6 +25,7 @@
 
 #include "audio/engine.h"
 #include "config.h"
+#include "ui/panel_style.h"
 #include "ui/sample_waveform.h"
 #include "ui/toolkit/controls.h"
 #include "ui/toolkit/widget.h"
@@ -62,6 +63,11 @@ std::string resultFolder(const std::string& path, const std::vector<std::string>
 // audio and MIDI files), or the search results (Results: name and folder columns under a header).
 // Several rows can be selected (click, Ctrl+click, Shift+click, Shift+arrows); dragging drags the
 // selected files out.
+//
+// Styled as FileView (default.css): a box, with color and font (the rows' text); ::row:hover and ::row:selected
+// (boxes, and color); ::icon and ::icon:selected (the arrows and the folder and file pictures: color;
+// fill-opacity: a folder's inside); ::header (Results: a box, its bottom border the line under it; color, font). :root's --explorer-row-height, --explorer-indent (a tree level)
+// and --explorer-header-height (rowHeight, indent and headerH() follow them).
 class FileView : public ui::Widget {
 public:
     enum class Mode { Tree, Results };
@@ -103,7 +109,8 @@ public:
 
     int rowHeight = 20;
     int indent = 16;
-    static constexpr int HEADER_H = 22;
+    static constexpr int HEADER_H = 22;  // (the default of --explorer-header-height)
+    static int headerH();
 
     void paint(Painter& p) override;
     bool mousePress(ui::MouseEvent& e) override;
@@ -136,11 +143,25 @@ private:
     void rebuildRows();
     void collect(Item* item);
     void syncBar();
-    int top() const { return mode_ == Mode::Results ? HEADER_H : 0; }
+    int top() const { return mode_ == Mode::Results ? headerH() : 0; }
     int viewWidth() const;
     void selectRange(Item* a, Item* b);
+    // what it is drawn with, from the stylesheets (kept: it repaints as the mouse moves over it)
+    struct Look {
+        // (its boxes: kept until parts_.refresh() answers true)
+        const css::Style *self = nullptr, *hover = nullptr, *selected = nullptr, *header = nullptr;
+        Color text, hoverText, selectedText, icon, iconSelected, headerText;
+        int headerEdgeH = 1, folderAlpha = 90;
+        Font font, headerFont;
+    };
+    const Look& look();
+    panel_style::Parts parts_{*this};
+    Look look_;
 };
 
+// Styled as Explorer (default.css): padding and row-gap (around and between its rows), ::folder-row and
+// ::preview-row (column-gap: between their controls); :root's --explorer-button-size (the +, −, ⟳ and ■ buttons).
+// Read when it is made.
 class Explorer : public ui::Widget {
 public:
     // addFile(path): add a sample at the selection cursor (double-click). engine plays the previews.

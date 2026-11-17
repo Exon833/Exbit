@@ -50,6 +50,7 @@ public:
     int pad() const;
     void refresh();  // show the pad as the track's kit has it now
     void paint(Painter& p) override;
+    void styleStates(std::vector<std::string>& out) const override;  // and :selected, :dropping
     bool mousePress(ui::MouseEvent& e) override;
     bool contextMenu(ui::MouseEvent& e) override;
     void dragEnter(ui::DragEvent& e) override;
