@@ -20,7 +20,8 @@ extends; that program is in the repository's history.
   pitch, with gain and fades; takes with comping; markers, tempo and time-signature changes,
   insert/delete time, a fixed or zoom-following grid; undo and redo of everything.
 - **MIDI**: a piano roll with ghost notes of other clips, the song's key and scale, chord stamp,
-  quantize, box select; linked clips (edit one, every linked copy changes); the built-in synth and
+  quantize, box select; a Steps view of the same clip; notes with their own chance, repeats (rolls),
+  slide, pan and fine pitch; linked clips (edit one, every linked copy changes); the built-in synth and
   sampler; MIDI effects (arpeggiator, chord, scale, note length, velocity, random, pitch, groove); a MIDI keyboard (with sustain pedal) or the computer
   keyboard; MIDI recording, Capture of what you just played, MIDI file import and export.
 - **Modulators**: an LFO, Random, a Level Follower and a Macro knob, placed in the effects window like
@@ -94,6 +95,30 @@ saturation, bit-crusher and utility:
   A (415–466 Hz); the sound passes untouched.
 - The **EQ** window shows a live spectrum of the sound behind its curve (Off, before or after the
   EQ), worked out only while the window is open.
+
+## Note properties and Steps
+
+Besides its velocity, every note has a **chance** (0–100 %: how often it plays), **repeats** (1–8: played
+as a roll of so many equal hits across its length), **slide** (its pitch glides from the previous
+note's, as an 808 bass does), **pan** and **fine** pitch (±100 cents). In the MIDI editor, the button
+at the left of the lane under the notes chooses which one the lane shows and edits: Velocity, Chance,
+Repeats, Pan or Fine (drag a bar; with several notes selected, drag one to move them all by as much).
+Right-click the lane for the same choice, Slide, and putting a property back to its default for the
+selected notes. **Slide** (the toolbar button, or G) slides the selected notes; a sliding note is
+drawn with an arrow coming into it, a note's chance as how solid it looks, its repeats as ticks.
+
+Chance is decided the same way every time the song plays or is rendered (from the note's place and
+pitch, and the loop's pass), so a render sounds like playback; adding a note doesn't change whether the
+others play. Chance and repeats come before the track's MIDI effects (the arpeggiator gets the notes
+that play). The built-in synth and sampler glide a sliding note's voice (60 ms), and use pan and fine
+pitch; a VST instrument gets a sliding note legato (the next note starts before the last one ends), and
+doesn't get pan and fine pitch (they can't be sent per note). Unchanged notes are saved as before.
+
+**Steps** (the toolbar button) shows the same clip as a grid: a row for each pitch it uses (+ Row adds
+one), a column for each step of the editor's grid (1/16 when the grid follows the zoom). Click a cell to
+add or remove a note one step long, drag to paint or clear, Ctrl+click to select, right-click to delete;
+the lane underneath works as in the piano roll (velocity, chance, repeats of each step). Steps writes
+ordinary notes into the clip, so MIDI effects, linked copies, freezing and export work as with any.
 
 ## Linked clips and Groove
 

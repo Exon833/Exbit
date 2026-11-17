@@ -439,6 +439,65 @@ void testRenderEqualsPlayback() {
     if (differ) printf("render vs playback: %lld samples differ\n", (long long)differ);
 }
 
+// features meeting: note properties (chance, repeats, slide…) set on one linked clip reach every copy, and
+// the Groove effect moves the notes in time without losing them
+void testWithNoteProperties() {
+    const int sr = 48000;
+    Project p;
+    TrackPtr t = p.addTrack(Kind::Midi);
+    t->needsInstrument = false;
+    Timing timing;  // 120 BPM: a 1/16 is 0.125 s; the second and fourth notes are off-beat 16ths
+    midi_effects::TimingScope scope(&timing);
+    auto a = makeMidiClip("a", {{0.0, 0.1, 60, 100}, {0.125, 0.225, 62, 100}, {0.25, 0.35, 64, 100}, {0.375, 0.475, 65, 100}},
+                          1.0, sr);
+    a->track = t;
+    a->prepare(sr);
+    p.addClip(a);
+    ClipPtr b = links::linkedCopy(a);
+    b->start = sr * 2;
+    b->prepare(sr);
+    p.addClip(b);
+    // the second note: half the time, a roll of 3, sliding; the third panned
+    std::vector<Note> notes = *a->notes;
+    notes[1].chance = 50;
+    notes[1].repeats = 3;
+    notes[1].slide = true;
+    notes[2].pan = -0.5;
+    a->notes = std::make_shared<const std::vector<Note>>(notes);
+    auto changed = links::notesChanged(p, a, sr);
+    CHECK(std::find(changed.begin(), changed.end(), b) != changed.end());
+    CHECK(b->notes && b->notes->size() == 4);
+    if (b->notes && b->notes->size() == 4) {
+        const Note& n = (*b->notes)[1];
+        CHECK(n.chance == 50 && n.repeats == 3 && n.slide && (*b->notes)[2].pan == -0.5);
+    }
+    // the copies play the same (a hit of the roll and the chance alike: decided by the notes, not the clip)
+    auto pa = a->performed(sr), pb = b->performed(sr);
+    CHECK(pa.size() == pb.size());
+    // Groove moves the off-beat 16ths later and keeps every note's properties
+    MidiEffect groove;
+    CHECK(MidiEffect::make("Groove", {{"swing", 66}, {"grid", 1}}, groove));
+    t->midiEffects = std::vector<MidiEffect>{groove};
+    std::vector<Note> written = *a->notes;
+    std::vector<Note> swung = midi_effects::apply(*t, written, 0.0);
+    CHECK(swung.size() == written.size());
+    bool kept = false, panKept = false, moved = false, onBeatStill = true;
+    for (auto& n : swung) {
+        if (n.pitch == 62) {
+            kept = n.chance == 50 && n.repeats == 3 && n.slide;
+            moved = n.start > 0.125 + 1e-3;  // (an off-beat 16th: later)
+        }
+        if (n.pitch == 64) {
+            panKept = n.pan == -0.5;
+            onBeatStill = std::fabs(n.start - 0.25) < 1e-9;  // (on the grid's first step: where it was)
+        }
+    }
+    CHECK(kept);
+    CHECK(panKept);
+    CHECK(moved);
+    CHECK(onBeatStill);
+}
+
 }  // namespace
 
 int main() {
@@ -449,5 +508,6 @@ int main() {
     testSaveLoad();
     testGroove();
     testRenderEqualsPlayback();
+    testWithNoteProperties();
     TEST_MAIN_END();
 }
