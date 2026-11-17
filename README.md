@@ -169,7 +169,7 @@ with the project (its samples in the project's audio folder).
 lines on the clip, more or fewer with the Sensitivity; Slice makes a MIDI track under it with a Pad Kit
 holding a slice per pad (up to 32) and a MIDI clip that plays the slices where they were, so the loop
 sounds as before and can be rearranged note by note. The audio clip is switched off (kept, drawn as an
-outline; right-click to switch it on again); undo puts everything back.
+outline; right-click it → Enable clips, or 0, to hear it again); undo puts everything back.
 
 ## Note properties and Steps
 
