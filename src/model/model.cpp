@@ -176,7 +176,7 @@ void Clip::prepare(int sr, int64_t reach) {
         peaks = data ? dsp::waveformPeaks(*data, config::PEAK_BLOCK) : nullptr;
         return;
     }
-    std::vector<Note> notesPlayed = repeated(sr);
+    std::vector<Note> notesPlayed = performed(sr);  // (its notes' chances and repeats, then the MIDI effects)
     TrackPtr t = std::atomic_load(&track);
     if (t && !t->midiEffects.empty() && clip_hooks::midiEffects)  // (its track's MIDI effects: arpeggiator, chord…)
         notesPlayed = clip_hooks::midiEffects(*t, notesPlayed, (double)(start - offset) / sr);
@@ -198,6 +198,16 @@ void Clip::prepare(int sr, int64_t reach) {
         // (offs go before ons at the same moment), leaving the instrument's note on
         ev->push_back({on, std::max(off, on + 1), (int)n.pitch, (int)n.velocity});
     }
+    // A sliding note on a VST instrument: its note-on comes before the note it slides from lets go (legato),
+    // so a mono synth with portamento glides as the built-in instruments do. (Its pan and fine tuning
+    // can't be sent per note: plugins ignore them.)
+    std::vector<note_props::Slide> slid = note_props::slides(notesPlayed);
+    for (size_t i = 0; i < slid.size(); i++) {
+        if (!slid[i].legato) continue;
+        Event& before = (*ev)[(size_t)slid[i].from];
+        const Event& after = (*ev)[i];
+        if (before.pitch != after.pitch && before.off <= after.on) before.off = after.on + 1;  // (offs go first
+    }                                                                                          // at one moment)
     events = ev;
     played = std::make_shared<const std::vector<Note>>(std::move(notesPlayed));
 }
@@ -242,22 +252,47 @@ void Clip::fadeParts(int64_t& partIn, int64_t& partOut, double& levelStart, doub
     levelEnd = fo ? std::min(1.0, (double)tail / fo) : 1.0;
 }
 
-std::vector<Note> Clip::repeated(int sr) const {
-    static const std::vector<Note> none;
-    const std::vector<Note>& ns = notes ? *notes : none;
-    double reach = length >= 0 ? (double)(offset + length) / sr : lengthS;
-    if (!loop || lengthS <= 0 || reach <= lengthS || ns.empty()) return ns;
-    std::vector<Note> one;
-    for (auto& n : ns)
-        if (n.start < lengthS) one.push_back(n);
-    int64_t passes = (int64_t)std::ceil(reach / lengthS);
-    std::vector<Note> out;
+namespace {
+// each note of the clip as far as it reaches, as repeated() lays them out: f(the note as written, the
+// loop pass it plays in, the note moved to that pass)
+template <class F>
+void eachPass(const Clip& c, int sr, F f) {
+    if (!c.notes) return;
+    const std::vector<Note>& ns = *c.notes;
+    double reach = c.length >= 0 ? (double)(c.offset + c.length) / sr : c.lengthS;
+    if (!c.loop || c.lengthS <= 0 || reach <= c.lengthS || ns.empty()) {
+        for (const Note& n : ns) f(n, (int64_t)0, n);
+        return;
+    }
+    int64_t passes = (int64_t)std::ceil(reach / c.lengthS);
     for (int64_t k = 0; k < passes; k++)
-        for (auto n : one) {
-            n.start += k * lengthS;
-            n.end += k * lengthS;
-            if (n.start < reach) out.push_back(n);
+        for (const Note& written : ns) {
+            if (!(written.start < c.lengthS)) continue;
+            Note n = written;
+            n.start += k * c.lengthS;
+            n.end += k * c.lengthS;
+            if (n.start < reach) f(written, k, n);
         }
+}
+}  // namespace
+
+std::vector<Note> Clip::repeated(int sr) const {
+    std::vector<Note> out;
+    eachPass(*this, sr, [&](const Note&, int64_t, const Note& n) { out.push_back(n); });
+    return out;
+}
+
+std::vector<Note> Clip::performed(int sr) const {
+    std::vector<Note> out;
+    eachPass(*this, sr, [&](const Note& written, int64_t pass, const Note& n) {
+        if (written.plain()) {
+            out.push_back(n);
+        } else if (note_props::sounds(written, pass)) {  // (its chance: by the note as written, and the pass)
+            Note played = n;
+            played.chance = 100;  // (decided)
+            note_props::perform(played, pass, out);
+        }
+    });
     return out;
 }
 

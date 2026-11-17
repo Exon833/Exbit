@@ -128,22 +128,56 @@ std::string normRelative(const std::string& p) {
     return out.empty() ? "." : out;
 }
 
+// --- notes: [start, end, pitch, velocity], as the Python program wrote them. A note whose own properties
+// (Note::chance, repeats, slide, pan, fine) aren't all their defaults gets a fifth item: an object holding
+// only the ones that aren't ({"chance": 50, "slide": true}). Unchanged notes are written as they always
+// were, and a project without such notes opens anywhere it did. ---
+
+Json noteProperties(const Note& n) {
+    Json props = Json::object();
+    if (n.chance < 100) props.set("chance", wholeOrFloat(n.chance));
+    if (n.repeats > 1) props.set("repeats", Json(n.repeats));
+    if (n.slide) props.set("slide", Json(true));
+    if (n.pan != 0) props.set("pan", Json(n.pan));
+    if (n.fine != 0) props.set("fine", wholeOrFloat(n.fine));
+    return props;
+}
+
+// the properties of a note's fifth item (anything missing, or not a number: the default), kept in range
+void readNoteProperties(const Json& props, Note& n) {
+    auto clamped = [&](const char* key, double low, double high, double def) {
+        double v = props.num(key, def);
+        return std::isfinite(v) ? std::min(high, std::max(low, v)) : def;
+    };
+    n.chance = clamped("chance", 0, 100, 100);
+    n.repeats = (int)std::lround(clamped("repeats", 1, note_props::MAX_REPEATS, 1));
+    n.slide = props.flag("slide", false);
+    n.pan = clamped("pan", -1, 1, 0);
+    n.fine = clamped("fine", -100, 100, 0);
+}
+
 Json notesJson(const std::shared_ptr<const std::vector<Note>>& notes) {
     Json out = Json::array();
     if (notes)
-        for (auto& n : *notes) out.push(Json::array({Json(n.start), Json(n.end), Json(n.pitch), Json(n.velocity)}));
+        for (auto& n : *notes) {
+            Json entry = Json::array({Json(n.start), Json(n.end), Json(n.pitch), Json(n.velocity)});
+            if (!n.plain()) entry.push(noteProperties(n));
+            out.push(std::move(entry));
+        }
     return out;
 }
 
 std::shared_ptr<const std::vector<Note>> readNotes(const Json& entries, bool strict) {
     std::vector<Note> notes;
     for (const Json& n : entries.items()) {
-        if (!n.isArray() || n.size() != 4) {
-            if (strict) throw Damaged{"a note is not [start, end, pitch, velocity]"};
+        bool props = n.isArray() && n.size() == 5 && n[size_t(4)].isObject();
+        if (!n.isArray() || (n.size() != 4 && !props)) {
+            if (strict) throw Damaged{"a note is not [start, end, pitch, velocity] (and its properties)"};
             continue;
         }
         notes.push_back(Note{n[size_t(0)].toDouble(), n[size_t(1)].toDouble(), n[size_t(2)].toDouble(),
                              n[size_t(3)].toDouble()});
+        if (props) readNoteProperties(n[size_t(4)], notes.back());
     }
     return std::make_shared<const std::vector<Note>>(std::move(notes));
 }

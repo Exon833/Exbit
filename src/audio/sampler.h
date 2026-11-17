@@ -35,10 +35,12 @@ AudioPtr sampleAt(const SamplerSettings& settings, int sr);
 // the level over n frames of a note held for `held` frames: attack, decay to the sustain level, release
 std::vector<float> envelope(int64_t n, int64_t held, const SamplerSettings& s, int sr);
 // One note, including its release (or to the sample's end, one-shot), stereo interleaved. tailS >= 0: the
-// most it may go on after the note (< 0: as long as it sounds).
+// most it may go on after the note (< 0: as long as it sounds). cents: its fine tuning (Note::fine).
 std::vector<float> renderNote(const SamplerSettings& s, int pitch, double velocity, double durationS, int sr,
-                              double tailS = -1);
-// Stereo audio of all notes, as long as the clip plus the releases (at most MAX_TAIL_S), as synth::render is.
+                              double tailS = -1, double cents = 0);
+// Stereo audio of all notes, as long as the clip plus the releases (at most MAX_TAIL_S), as synth::render is:
+// each note panned and fine-tuned by its own properties, and a sliding note gliding from the previous note's
+// pitch (taking its voice over while it still sounds: the sample plays on, its speed gliding).
 AudioPtr render(const SamplerSettings& s, const std::vector<Note>& notes, int sr, double lengthS);
 // frames after which a looping sample's note repeats (its loop at the note's pitch); < 0: none
 double loopPeriod(const SamplerSettings& s, int pitch, int sr);

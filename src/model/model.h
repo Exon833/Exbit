@@ -386,6 +386,10 @@ struct Clip {
     // MIDI: the notes as the clip plays them (before its track's MIDI effects): loops repeated, cut to its
     // window, switched-off ones left out; times in seconds from the clip's start
     std::vector<Note> heardNotes(int sr) const;
+    // MIDI: repeated(), each note then played as its own properties say (note_props::perform): left out when
+    // its chance says so (decided by the note and its loop pass, the same every time), split into its
+    // repeats. What prepare() hands the track's MIDI effects and instrument.
+    std::vector<Note> performed(int sr) const;
 };
 ClipPtr copyClip(const ClipPtr& c);  // dataclasses.replace(): a new clip sharing the audio
 ClipPtr makeAudioClip(const std::string& name, AudioPtr source, int sourceSr, int sr);

@@ -32,6 +32,15 @@
 //     Ctrl+C / Ctrl+X / Ctrl+V copy / cut the selected notes, paste them at the selection cursor (when it is over
 //                              the clip, else after its last note); from one clip to another too
 //     velocity lane            click or drag across the bars to set velocities
+//     Lane ▾ (the lane's left) what the lane shows and edits: each note's Velocity, Chance (% of the times it
+//                              plays), Repeats (hits across its length: a roll), Pan or Fine tuning (cents).
+//                              Click or drag across the bars to set them; dragging the bar of a note that is
+//                              one of several selected changes all the selected notes by as much (relative).
+//                              Right-click the lane: the same choices, Slide, and putting the selected notes'
+//                              value back to its default
+//     G / Slide                the selected notes glide from the previous note's pitch (again: not); drawn as
+//                              a short tail into the note
+//     Steps                    the clip as steps instead of the piano roll (see the Steps view below)
 //     keys on the left         press to play a pitch; drag over them to play every key passed
 //     wheel / Shift+wheel / Ctrl+wheel / Alt+wheel: scroll up and down / sideways / zoom / key height
 //     ⤢ Expand                 the editor fills the screen (Keys − / + change the key height)
@@ -59,6 +68,15 @@
 //
 // Rows: the roll shows rows() top to bottom, all 128 pitches or, folded, some of them; rowAt / pitchAt /
 // yOf convert between rows, pitches and y. A note on a hidden pitch (folded away) isn't drawn.
+//
+// The Steps view (Steps in the toolbar, again for the piano roll): the clip as a grid of pads, a row per
+// pitch its notes use (named as the piano roll's keys), a column per grid step (the editor's grid: 1/16 when
+// Steps opens on a grid that follows the zoom; Ctrl+wheel zooms, and the grid with it). Click a pad to add a
+// note one step long there, click a lit one to remove the notes starting in that step; drag along to paint
+// (or clear) more. Ctrl+click a lit pad selects its notes (for the lane, G, Delete…). "+ Row" adds a row
+// for another pitch. It edits the clip's ordinary notes (the same working copy, undo, lane and keys as the
+// piano roll), so MIDI effects, freezing, export and ghost notes all work as they do; notes not on the grid
+// show where they are. It shares the piano roll's time axis (scroll bar, zoom, cursors).
 //
 // It is a normal (non-modal) window: the program keeps playing and editing while it is open, and the
 // transport's application-wide shortcuts (Space, Home…) work in it.
@@ -99,6 +117,7 @@ std::string noteName(int pitch);    // 60 = "C4"
 struct CopiedNote {
     double start, end, pitch, velocity;
     bool off;  // switched off
+    Note note; // the note itself, for its own properties (chance, repeats, slide, pan, fine)
 };
 extern std::vector<CopiedNote> noteClipboard;
 
@@ -122,6 +141,25 @@ Steps scaleSteps(int root, const std::string& scale);
 int nearestInScale(int pitch, const Steps& steps);
 // the chord of `notes` notes stacked in thirds of the scale on the scale note nearest to `root`, lowest first
 std::vector<int> inScaleChord(int root, const Steps& steps, int notes = 3);
+
+// --- the notes' own properties in the lane, and the Steps view ---
+// what the lane under the notes shows and edits (Lane ▾)
+enum class Lane { Velocity, Chance, Repeats, Pan, Fine };
+struct LaneInfo {
+    Lane lane;
+    const char* name;     // in the chooser ("Velocity")
+    const char* range;    // under it ("1–127")
+    double low, high;     // the values it takes
+    double step;          // values are rounded to this
+    bool centred;         // drawn from a middle line (pan, fine)
+};
+const std::vector<LaneInfo>& lanes();  // in Lane order
+const LaneInfo& laneInfo(Lane lane);
+double laneValue(const Note& n, Lane lane);
+void setLaneValue(Note& n, Lane lane, double value);  // kept in its range, rounded to its step
+constexpr int STEP_ROW_H = 22;        // px: a row of the Steps view
+constexpr int STEP_FIRST_PITCH = 60;  // the Steps view's row for a clip without notes
+constexpr double STEP_CELL_PX = 24;   // px a step is wide when the Steps view opens
 }  // namespace midi_editor
 
 class MidiEditor;
@@ -147,18 +185,47 @@ private:
     void paintRepeats(Painter& p, int w, int h);
 };
 
-// A bar per note at its start, as tall as its velocity; click or drag across to set them.
+// A bar per note at its start, as tall as its velocity (or the property Lane ▾ chose); click or drag across
+// to set them.
 class VelocityLane : public ui::Widget {
 public:
     explicit VelocityLane(MidiEditor* editor);
     int velocityAt(int y) const;
-    bool setUnder(Point pos);  // set the velocity of the notes whose bar is under (or within 6 px of) the mouse
+    // the chosen lane's value at y (rounded: as it is set; else as it lies, for relative drags)
+    double valueAt(int y, bool rounded = true) const;
+    // set the value of the notes whose bar is under (or within 6 px of) the mouse
+    bool setUnder(Point pos);
+    std::vector<int> barsUnder(Point pos) const;  // those notes (the nearest bars)
     void paint(Painter& p) override;
     bool mousePress(ui::MouseEvent& e) override;
     bool mouseMove(ui::MouseEvent& e) override;
     bool mouseRelease(ui::MouseEvent& e) override;
     bool mouseDoubleClick(ui::MouseEvent& e) override { return mousePress(e); }
     bool wheel(ui::WheelEvent& e) override;
+    void resized() override;
+    std::string toolTipAt(Point p) const override;
+    ui::Button* chooser = nullptr;  // Lane ▾ (top left)
+    ui::Menu* context = nullptr;    // its right-click menu
+private:
+    MidiEditor* ed_;
+};
+
+// The Steps view: the clip's notes as pads, a row per pitch, a column per grid step (see the top).
+class StepGrid : public ui::Widget {
+public:
+    explicit StepGrid(MidiEditor* editor);
+    int rowAt(int y) const;             // index into MidiEditor::stepRows(); its size: the "+ Row" row; -1: none
+    std::optional<int> yOfRow(int row) const;  // the top of a row (none: scrolled away)
+    void paint(Painter& p) override;
+    bool mousePress(ui::MouseEvent& e) override;
+    bool mouseMove(ui::MouseEvent& e) override;
+    bool mouseRelease(ui::MouseEvent& e) override;
+    bool mouseDoubleClick(ui::MouseEvent& e) override { return mousePress(e); }
+    bool wheel(ui::WheelEvent& e) override;
+    void resized() override;
+    bool overridesShortcut(const ui::KeyEvent& e) const override;
+    std::string toolTipAt(Point p) const override;
+    ui::Menu* rowMenu = nullptr;  // "+ Row": the pitches to add a row for
 private:
     MidiEditor* ed_;
 };
@@ -217,13 +284,16 @@ public:
 
     // while the mouse is down
     struct Drag {
-        enum Kind { None, Keys, Move, Resize, Velocity, Box, Copy } kind = None;
+        // (Velocity: the lane's value set under the mouse; LaneShift: the selected notes' values moved by as
+        // much as the mouse; Cells: pads of the Steps view lit or cleared)
+        enum Kind { None, Keys, Move, Resize, Velocity, Box, Copy, LaneShift, Cells } kind = None;
         Point startPos;
         int index = -1;
         std::map<int, Note> origin;  // the dragged notes as they were at the press
         bool changed = false;
         std::set<int> base;          // Box: the selection it adds to
         Point pos;                   // Box: the corner under the mouse
+        bool lighting = false;       // Cells: lighting pads (else clearing them)
     } drag;
 
     PianoRoll* roll;
@@ -342,6 +412,29 @@ public:
     void setFold(const std::string& fold);
     void fitToScale();
 
+    // --- the notes' own properties, and the Steps view ---
+    midi_editor::Lane lane = midi_editor::Lane::Velocity;  // what the lane shows (Lane ▾)
+    bool stepsView = false;          // the Steps view instead of the piano roll (Steps)
+    std::set<int> extraStepRows;     // Steps rows added ("+ Row", or emptied) that no note uses
+    StepGrid* steps = nullptr;
+    ui::Button* stepsButton = nullptr;
+    ui::Button* slideButton = nullptr;
+    std::map<int, ui::Action*> laneActions;  // by (int)Lane
+    void setLane(midi_editor::Lane which);
+    void setStepsView(bool on);
+    void toggleSlide();              // G / Slide: the selected notes slide (all of them did: they don't)
+    void resetLane();                // the selected notes' lane value back to its default
+    bool shows(const Note& n) const; // drawn in the view (the piano roll: not on a row folded away)
+    ui::Widget* view() const;        // the piano roll, or the Steps view
+    std::vector<int> stepRows() const;  // the Steps view's pitches, top to bottom
+    std::pair<double, double> stepCell(double t) const;  // the grid step (note time) t falls in
+    std::set<int> notesInCell(int pitch, double t) const;  // the notes of `pitch` starting in t's step
+    // light the pad of `pitch` at t (a note one step long there) or clear it (the notes starting in its
+    // step); false when it already was (not committed: the drag commits)
+    bool setCell(int pitch, double t, bool on);
+    void addStepRow(int pitch);
+    void syncNoteTools();            // Slide shows whether the selected notes slide
+
     // ui::Window
     bool keyPress(ui::KeyEvent& e) override;
     void resized() override;
@@ -370,4 +463,6 @@ private:
     ui::Button* buildGhostsButton();
     ui::Button* buildStampButton();
     void buildScaleTools(ui::HBox* tools);
+    int rollScroll_ = 0;             // the piano roll's scroll while the Steps view shows
+    void eraseNotes(const std::set<int>& gone);  // (the selection and switched-off marks stay on the others)
 };
