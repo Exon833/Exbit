@@ -201,6 +201,11 @@ void buildProject(Project& p, const Options& o) {
     for (auto& t : *p.tracks)
         if (t->kind != Kind::Return && t != kick) t->sends = std::vector<Send>{{r1, -9.0}, {r2, -12.0}};
     if (o.returnToReturn) r1->sends = std::vector<Send>{{r2, -6.0}};
+    // pre-fader sends (mixer.h): c's fader is automated, the first track plays 1 ms early (its own delay line)
+    c->sends = std::vector<Send>{{r1, -9.0, true}, {r2, -12.0}};
+    auto first = (*p.tracks)[0];
+    first->volumeDb = -20;
+    first->sends = std::vector<Send>{{r1, -6.0, true}, {r2, -10.0, true}};
     if (o.solo) {
         b->soloed = true;
         syn->soloed = true;
@@ -290,6 +295,63 @@ void testParallelMixIsBitIdentical() {
         CHECK(loudest(a) > 0.01);  // (something played)
         if (d) printf("%s: %lld samples differ\n", c.name, (long long)d);
     }
+}
+
+// Pre-fader sends (mixer.h): the return gets the track's sound after its effects but before its fader and
+// pan, whatever the fader says; a post-fader send follows the fader and pan as before. The track plays on
+// outputs 3/4 and the return on 1/2, so each is heard on its own.
+void testPreFaderSends() {
+    const int n = 4096;
+    auto returned = [&](bool preFader, double volumeDb, double pan, bool delayed) {
+        Project p;
+        auto t = p.addTrack(Kind::Audio);
+        auto clip = makeAudioClip("c", tone(SR, 300, 450), SR, SR);
+        clip->track = t;
+        clip->prepare(SR);
+        p.addClip(clip);
+        t->output = 2;
+        t->volumeDb = volumeDb;
+        t->pan = pan;
+        if (delayed) t->delayMs = 2;  // (played late: held back by its delay line, its pre-fader sound too)
+        auto r = p.addTrack(Kind::Return);
+        t->sends = std::vector<Send>{{r, -6.0, preFader}};
+        patch::ensureStates(p);
+        mixer::MixState st;
+        std::vector<float> out((size_t)n * 4, 0.0f);
+        mixer::mixClips(p, out.data(), 4, n, true, 0, st, nullptr, SR, true);
+        return out;
+    };
+    auto expected = [&](int64_t i, int c, double gain) {  // (past the clip's short edge fade)
+        return gain * tone(SR, 300, 450)->frame(i)[c];
+    };
+    double send = std::pow(10.0, -6 / 20.0), fader = std::pow(10.0, -20 / 20.0);
+    for (double volumeDb : {0.0, -20.0, (double)config::MIN_DB}) {
+        auto out = returned(true, volumeDb, 0.7, false);
+        bool same = true;
+        for (int64_t i = 200; i < n; i++)
+            for (int c = 0; c < 2; c++)
+                if (std::fabs(out[(size_t)i * 4 + c] - expected(i, c, send)) > 1e-6) same = false;
+        CHECK(same);  // (the fader and pan don't touch it)
+    }
+    // post-fader: at the fader's level, panned (0.7 right: the left side down)
+    auto post = returned(false, -20, 0.7, false);
+    double l, r;
+    mixer::panGains(0.7, l, r);
+    bool follows = true;
+    for (int64_t i = 200; i < n; i++)
+        if (std::fabs(post[(size_t)i * 4] - expected(i, 0, send * fader * l)) > 1e-6 ||
+            std::fabs(post[(size_t)i * 4 + 1] - expected(i, 1, send * fader * r)) > 1e-6)
+            follows = false;
+    CHECK(follows);
+    // played 2 ms late: the pre-fader send is held back with the track's own sound (both in time)
+    auto early = returned(true, -20, 0, true), track = returned(false, -20, 0, true);
+    int64_t lag = (int64_t)std::nearbyint(0.002 * SR);
+    bool inTime = true;
+    for (int64_t i = lag + 200; i < n; i++)
+        if (std::fabs(early[(size_t)i * 4] - expected(i - lag, 0, send)) > 1e-6 ||
+            std::fabs(track[(size_t)i * 4 + 2] - expected(i - lag, 0, fader)) > 1e-6)
+            inTime = false;
+    CHECK(inTime);
 }
 
 // a tap: told on which thread, and how often it heard of the tracks' work
@@ -473,6 +535,7 @@ int main() {
     testWorkersFor();
     testTrackCpu();
     testParallelMixIsBitIdentical();
+    testPreFaderSends();
     testTapAndWorkOnCallingThread();
     testRenderSameWithAnyCores();
     testPluginsOnWorkers();

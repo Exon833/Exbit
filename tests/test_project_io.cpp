@@ -473,11 +473,86 @@ static void testParts() {
     CHECK(MasterSettings::fromJson(Json()).volumeDb == 0);
 }
 
+// Fade shapes (model.h FADE SHAPES) and pre-fader sends (model.h Send): saved under keys of their own,
+// written only when a fade is curved or a send is pre-fader, so a project without them saves as before.
+static void testFadeShapesAndPreFader() {
+    Project p;
+    auto a = p.addTrack(Kind::Audio), b = p.addTrack(Kind::Audio), r = p.addTrack(Kind::Return);
+    auto shaped = makeAudioClip("shaped", tone(SR, 0.03, 0.5), SR, SR);
+    shaped->track = a;
+    shaped->fadeIn = 4800;
+    shaped->fadeOut = 2400;
+    shaped->fadeInShape = FadeShape::Smooth;
+    shaped->fadeOutShape = FadeShape::EqualPower;
+    auto straight = makeAudioClip("straight", tone(SR, 0.02, 0.5), SR, SR);
+    straight->track = b;
+    straight->fadeIn = 480;
+    auto outOnly = makeAudioClip("out only", tone(SR, 0.04, 0.5), SR, SR);
+    outOnly->track = b;
+    outOnly->start = SR * 2;
+    outOnly->fadeOut = 960;
+    outOnly->fadeOutShape = FadeShape::Slow;
+    for (auto& c : {shaped, straight, outOnly}) p.addClip(c);
+    a->sends = std::vector<Send>{{r, -6.0, true}};
+    b->sends = std::vector<Send>{{r, -12.0}};
+    std::string path = kDir + "/Shapes.json", err;
+    MasterSettings master;
+    CHECK(saveProject(path, p, SR, master, err));
+    std::string text;
+    CHECK(util::readFile(path, text));
+    const Json j = Json::parse(text);
+    const Json& c0 = j["clips"][size_t(0)];
+    CHECK(c0.str("fade_in_shape") == "smooth" && c0.str("fade_out_shape") == "equal_power");
+    const Json& c1 = j["clips"][size_t(1)];  // (straight fades: no keys, as before)
+    CHECK(c1["fade_in_shape"].isNull() && c1["fade_out_shape"].isNull() && c1["fade_in"].toDouble() == 0.01);
+    const Json& c2 = j["clips"][size_t(2)];
+    CHECK(c2["fade_in_shape"].isNull() && c2.str("fade_out_shape") == "slow");
+    CHECK(j["tracks"][size_t(0)]["pre_fader_sends"].dump() == "[2]");
+    CHECK(j["tracks"][size_t(0)]["sends"].dump() == "[[2, -6.0]]");  // (as before: older versions read it)
+    CHECK(j["tracks"][size_t(1)]["pre_fader_sends"].isNull() && j["tracks"][size_t(2)]["pre_fader_sends"].isNull());
+    // loaded back: the same
+    Project q;
+    MasterSettings m2;
+    CHECK(loadProject(path, q, SR, m2, err));
+    CHECK(q.clips.size() == 3 && q.tracks.size() == 3);
+    if (q.clips.size() == 3 && q.tracks.size() == 3) {
+        CHECK(q.clips[0]->fadeInShape == FadeShape::Smooth && q.clips[0]->fadeOutShape == FadeShape::EqualPower);
+        CHECK(q.clips[1]->fadeInShape == FadeShape::Linear && q.clips[1]->fadeOutShape == FadeShape::Linear);
+        CHECK(q.clips[2]->fadeInShape == FadeShape::Linear && q.clips[2]->fadeOutShape == FadeShape::Slow);
+        CHECK(q.tracks[0]->sends.size() == 1 && q.tracks[0]->sends[0].preFader && q.tracks[0]->sends[0].db == -6.0 &&
+              q.tracks[0]->sends[0].track == q.tracks[2]);
+        CHECK(q.tracks[1]->sends.size() == 1 && !q.tracks[1]->sends[0].preFader);
+        CHECK(q.clips[0]->level(2400) == shaped->level(2400));
+    }
+    CHECK(describe(q, SR, m2, byPath()) == describe(p, SR, master, byPath()));
+    // an older file (no shape keys, no pre-fader key): straight fades, sends after the fader
+    const std::string oldTracks = R"("tracks": [{"name": "A", "kind": "audio", )";
+    const std::string rest = R"("sends": [[1, -3.0]]}, {"name": "R", "kind": "return"}],
+      "clips": [{"kind": "audio", "name": "s", "track": 0, "start": 0, "offset": 0, "length": null,
+                 "file": "Shapes_audio/shaped.wav", "fade_in": 0.1, "fade_out": 0.05}]})";
+    const std::string head = R"({"format": "tinydaw-project", "version": 1, )";
+    util::writeFile(kDir + "/OldShapes.json", head + oldTracks + rest);
+    Project o;
+    CHECK(loadProject(kDir + "/OldShapes.json", o, SR, m2, err));
+    CHECK(o.clips.size() == 1 && o.tracks.size() == 2);
+    if (o.clips.size() == 1 && o.tracks.size() == 2) {
+        CHECK(o.clips[0]->fadeIn == SR / 10 && o.clips[0]->fadeInShape == FadeShape::Linear &&
+              o.clips[0]->fadeOutShape == FadeShape::Linear);
+        CHECK(o.tracks[0]->sends.size() == 1 && !o.tracks[0]->sends[0].preFader);
+    }
+    // bad pre-fader entries (not an index, out of range, a track it doesn't send to) are left out
+    util::writeFile(kDir + "/BadPre.json", head + oldTracks + R"("pre_fader_sends": [7, "x", 0], )" + rest);
+    Project w;
+    CHECK(loadProject(kDir + "/BadPre.json", w, SR, m2, err));
+    CHECK(w.tracks.size() == 2 && w.tracks[0]->sends.size() == 1 && !w.tracks[0]->sends[0].preFader);
+}
+
 int main() {
     util::makeDirs(kDir);
     clearDir(kDir);
     testRoundTrip();
     testOldAndBroken();
     testParts();
+    testFadeShapesAndPreFader();
     TEST_MAIN_END();
 }

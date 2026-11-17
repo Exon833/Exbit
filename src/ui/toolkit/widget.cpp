@@ -1102,7 +1102,10 @@ void Window::dispatchMouse(const plat::Event& e) {
             return;
         }
         updateHover(p, e);
-        if (e.buttons == 0) app.toolTipWake(hover_, app.lastCursor_);
+        if (e.buttons == 0) {
+            app.toolTipWake(hover_, app.lastCursor_);
+            app.hintWake(this);
+        }
         for (Widget* w = hover_; w;) {
             Widget* parent = w->parent_;
             if (w->tracking_ && w->isEnabled()) {
@@ -1346,6 +1349,7 @@ void Window::onEvent(plat::Window*, const plat::Event& physical) {
     case plat::Event::Leave:
         if (!grab_) setHover(nullptr);
         app.toolTipLeave();
+        app.hintLeave(this);
         break;
     case plat::Event::FocusIn:
         active_ = true;
@@ -1823,6 +1827,48 @@ void App::toolTipWake(Widget* w, Point g) {
     });
 }
 
+// --- the hint line (hintChanged) ---
+void App::sendHint(Window* w, const std::string& text) {
+    if (w == hintWindow_ && text == hintText_) return;
+    if (hintWindow_ && hintWindow_ != w && !hintText_.empty()) {  // (the old window's hint goes first)
+        Window* old = hintWindow_;
+        hintWindow_ = nullptr;
+        hintText_.clear();
+        hintChanged.emit(old, std::string());
+    }
+    hintWindow_ = text.empty() ? nullptr : w;
+    hintText_ = text;
+    hintChanged.emit(w, text);
+}
+
+void App::hintWake(Window* w) {
+    // (moving on: a pending look stays pending, so a hint follows a moving pointer every HINT_MS)
+    if (!w || hintTimer_ >= 0 || hintChanged.empty()) return;
+    hintTimer_ = singleShot(HINT_MS, [this] {
+        hintTimer_ = -1;
+        if (hintChanged.empty()) return;
+        Point g = lastCursor_;
+        Window* win = windowAt(g);
+        if (!win || win->isPopup()) return;  // (a menu: the hint stays as it was)
+        Rect sg = win->screenGeometry();
+        Widget* x = win->childAt(g - Point(sg.x, sg.y));
+        if (!x) x = win;
+        std::string text;
+        for (; x && text.empty(); x = x->parent()) text = x->toolTipAt(x->mapFromGlobal(g));
+        size_t eol = text.find('\n');
+        if (eol != std::string::npos) text.resize(eol);
+        sendHint(win, text);
+    });
+}
+
+void App::hintLeave(Window* w) {
+    if (hintTimer_ >= 0) {
+        cancelTimer(hintTimer_);
+        hintTimer_ = -1;
+    }
+    if (w && w == hintWindow_) sendHint(w, std::string());
+}
+
 // --- popups ---
 void App::openPopup(Window* popup, Widget* owner, std::function<void()> dismiss) {
     hideToolTip();
@@ -1906,6 +1952,10 @@ void App::removeWindow(Window* w) {
         }
     if (active_ == w) active_ = nullptr;
     if (mainWindow == w) mainWindow = nullptr;
+    if (hintWindow_ == w) {  // (gone: nothing to tell it)
+        hintWindow_ = nullptr;
+        hintText_.clear();
+    }
 }
 
 void App::detach(Widget* w) {

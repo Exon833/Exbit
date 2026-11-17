@@ -20,8 +20,13 @@
 // settings (changed in their windows) aren't part of it; a plugin removed and brought back by undo is
 // the same loaded plugin (its slot keeps it). A change of sample rate (another audio device) starts
 // the history afresh: the clips' prepared audio belongs to the rate.
+//
+// NAMES. Each step has a short name for the History window (Edit → History…): what changed between
+// the snapshot and the project as check() found it ("Move clip", "Add track", "Volume"…), worked out
+// by comparing them (describe()), so no edit has to name itself. nameNext() can name the next step.
 #pragma once
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "model/model.h"
@@ -41,6 +46,8 @@ public:
     Snapshot& operator=(Snapshot&&) noexcept;
     bool matches(const Project& project) const;  // is the project still as this snapshot says?
     void restore(Project& project, int sr) const;  // put it back (into the same objects)
+    // a short name for what changed from this snapshot to the project ("Move clip", "Add track"…)
+    std::string describe(const Project& project) const;
 
 private:
     std::unique_ptr<SnapshotData> d_;
@@ -61,11 +68,26 @@ public:
     bool undo(int sr);
     bool redo(int sr);
 
+    // --- the steps by name (the History window) ---
+    // where the project is: 0 = as opened (or as the history started), k = after the k-th step
+    int position() const { return (int)undo_.size(); }
+    // every step's name, oldest first: the ones to undo (up to position()), then the ones to redo
+    std::vector<std::string> labels() const;
+    // undo or redo until at `position` (0 … labels().size()); false if it is out of range or already there
+    bool jumpTo(int position, int sr);
+    // bumped whenever the steps or the position change (a window showing them knows when to look again)
+    int changes() const { return changes_; }
+    // the next step's name, instead of the one describe() would give
+    void nameNext(const std::string& label) { nextLabel_ = label; }
+
 private:
     Project& project_;
     int sr_ = 0;
     std::vector<Snapshot> undo_, redo_;
+    std::vector<std::string> undoLabels_, redoLabels_;  // (parallel to undo_ and redo_)
     std::unique_ptr<Snapshot> current_;
+    int changes_ = 0;
+    std::string nextLabel_;
 };
 
 }  // namespace history

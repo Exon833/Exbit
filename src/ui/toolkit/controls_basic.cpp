@@ -716,6 +716,31 @@ StatusBar::StatusBar(Widget* parent) : Widget(parent) { vPolicy = SizePolicy::Fi
 
 StatusBar::~StatusBar() {
     if (timer_ >= 0) App::get().cancelTimer(timer_);
+    if (hintSlot_ >= 0) App::get().hintChanged.disconnect(hintSlot_);
+}
+
+void StatusBar::followHints(bool on) {
+    if (on == followsHints()) return;
+    if (on) {
+        hintSlot_ = App::get().hintChanged.connect([this](Window* w, const std::string& text) {
+            if (w && w == window()) setHint(text);
+        });
+    } else {
+        App::get().hintChanged.disconnect(hintSlot_);
+        hintSlot_ = -1;
+        setHint("");
+    }
+}
+
+void StatusBar::setHint(const std::string& text) {
+    if (text == hint_) return;
+    hint_ = text;
+    update();
+}
+
+std::string StatusBar::shownText() const {
+    if (timer_ >= 0 || hint_.empty()) return text_;  // (a timed message wins over a hint)
+    return hint_;
 }
 
 void StatusBar::showMessage(const std::string& text, int ms) {
@@ -763,8 +788,9 @@ std::string StatusBar::toolTipAt(Point p) const {
 void StatusBar::paint(Painter& p) {
     p.fillRect(Rect(0, 0, width(), 1), theme::shades().line);
     int pw = permanentW();
-    if (!text_.empty())
-        style::text(p, Rect(6, 1, width() - 12 - pw, height() - 1), AlignLeft | AlignVCenter, text_, theme::uiFont(),
+    std::string shown = shownText();
+    if (!shown.empty())
+        style::text(p, Rect(6, 1, width() - 12 - pw, height() - 1), AlignLeft | AlignVCenter, shown, theme::uiFont(),
                     theme::c("window_text"), true);
     if (pw)
         style::text(p, Rect(width() - pw, 1, pw - 6, height() - 1), AlignRight | AlignVCenter, permanent_,

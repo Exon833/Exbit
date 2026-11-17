@@ -58,6 +58,7 @@ struct Preferences {
     bool nativeWayland = true;              // (the Python program's Qt-on-Wayland choice; kept for its settings)
     bool reloadCrashedPlugins = false;      // a Windows plugin whose Wine host crashed is started afresh by itself
     std::string ghostNotes = "all";         // the MIDI editor shows other clips' notes: "all" tracks, this "track", or "off"
+    bool statusHints = true;                // Options → Hints in the status bar: the first line of the tooltip under the pointer
 
     std::vector<std::string> vst2List() const;
     void setVst2List(const std::vector<std::string>& folders);

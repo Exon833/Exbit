@@ -130,22 +130,27 @@ private:
 };
 
 // The sliders of SendsButton's small window: "<track> sends to", then a row per return track
-// (its name, a volume slider, its dB). Paintable without a window (tests).
+// (its name, a volume slider, its dB, and Pre: the send taken before the track's fader and pan, after its
+// effects; model.h Send). Paintable without a window (tests).
 class SendsPanel : public ui::Widget {
 public:
-    SendsPanel(TrackPtr track, std::vector<TrackPtr> returns, std::function<void(const TrackPtr&, double)> setLevel);
+    SendsPanel(TrackPtr track, std::vector<TrackPtr> returns, std::function<void(const TrackPtr&, double)> setLevel,
+               std::function<void(const TrackPtr&, bool)> setPreFader = nullptr);
     std::vector<VolumeSlider*> sliders;  // one per return, in order
+    std::vector<ui::Button*> preButtons; // …and its Pre toggle
     void paint(Painter& p) override;
 };
 
-// → on a track's row: how much of its sound (after its fader) goes to each return track, as sliders
-// in a small window that opens under it (−inf: none); lit while any send is up.
+// → on a track's row: how much of its sound (after its fader, or before it: Pre) goes to each return
+// track, as sliders in a small window that opens under it (−inf: none); lit while any send is up.
 class SendsButton : public ui::Button {
 public:
     SendsButton(TrackPtr track, std::vector<TrackPtr> returns, std::function<void()> changed);
     ~SendsButton() override;
     double level(const TrackPtr& target) const;   // dB sent to it (MIN_DB: none)
     void setLevel(const TrackPtr& target, double db);  // (the mixer reads the track's sends every buffer)
+    bool preFader(const TrackPtr& target) const;  // is the send to it taken before the fader?
+    void setPreFader(const TrackPtr& target, bool on);
     void showState();                             // lit, and the tooltip listing the sends that are up
     void showSends();                             // opens the window under it
     TrackPtr track;

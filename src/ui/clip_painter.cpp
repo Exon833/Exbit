@@ -99,17 +99,31 @@ bool fadeHandles(const Clip& clip, const RectF& body, double pps, int sr, RectF&
 }
 
 void paintFades(Painter& p, const Clip& clip, const RectF& body, double pps, int sr, Color color) {
-    // (a piece of a longer fade: the line starts part-way up, at the level there)
+    // Each fade as its shape's curve (model.h FADE SHAPES), from the clip's edge to where it reaches full
+    // level, with the part of the clip it makes quieter shaded above it. A piece of a longer fade starts
+    // part-way along its curve (fadeParts: how far the fade is at the edge).
     int64_t fadeIn, fadeOut;
     double fromIn, toOut;
     clip.fadeParts(fadeIn, fadeOut, fromIn, toOut);
-    struct Side { int64_t frames; float edge; int sign; double level; };
-    for (const Side& s : {Side{fadeIn, body.x, 1, fromIn}, Side{fadeOut, body.right(), -1, toOut}}) {
+    struct Side { int64_t frames; float edge; int sign; double from; FadeShape shape; bool out; };
+    for (const Side& s : {Side{fadeIn, body.x, 1, fromIn, clip.fadeInShape, false},
+                          Side{fadeOut, body.right(), -1, toOut, clip.fadeOutShape, true}}) {
         if (!s.frames) continue;
-        float x = (float)(s.edge + s.sign * (double)s.frames / sr * pps);
-        float y = (float)(body.bottom() - s.level * body.h);
-        p.fillPolygon({PointF(s.edge, body.y), PointF(x, body.y), PointF(s.edge, y)}, fadeShade());
-        p.drawLine(PointF(s.edge, y), PointF(x, body.y), color, 1.2f);
+        double width = (double)s.frames / sr * pps;
+        // (a straight line needs its two ends; a curve a point every few pixels, within reason)
+        int steps = s.shape == FadeShape::Linear ? 1 : std::max(4, std::min(64, (int)std::ceil(width / 3)));
+        std::vector<PointF> curve;
+        curve.reserve((size_t)steps + 1);
+        for (int k = 0; k <= steps; k++) {
+            double t = (double)k / steps;  // (across the fade, from the edge)
+            double level = fadeCurve(s.shape, s.from + (1 - s.from) * t, s.out);
+            curve.emplace_back((float)(s.edge + s.sign * width * t), (float)(body.bottom() - level * body.h));
+        }
+        std::vector<PointF> shade{PointF(s.edge, body.y)};
+        shade.insert(shade.end(), curve.begin(), curve.end());
+        p.fillPolygon(shade, fadeShade());
+        if (steps == 1) p.drawLine(curve[0], curve[1], color, 1.2f);
+        else p.drawPolyline(curve, color, 1.2f, LineCap::Flat, LineJoin::Round);
     }
     RectF in, out;
     if (fadeHandles(clip, body, pps, sr, in, out))

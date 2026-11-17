@@ -340,6 +340,8 @@ static void testRenderEqualsPlayback() {
     clip->gainDb = -3;
     clip->fadeIn = 4000;
     clip->fadeOut = 6000;
+    clip->fadeInShape = FadeShape::Smooth;  // (shaped fades: model.h FADE SHAPES)
+    clip->fadeOutShape = FadeShape::EqualPower;
     clip->loop = true;
     clip->loopStart = 0.2;
     clip->loopLength = 0.3;
@@ -406,7 +408,7 @@ static void testRenderEqualsPlayback() {
     r->effects = std::vector<SlotPtr>{verb};
     r->cables = chain({verb});
     r->volumeDb = -2;
-    a->sends = std::vector<Send>{{r, -6.0}};
+    a->sends = std::vector<Send>{{r, -6.0, true}};  // (pre-fader: before a's automated fader and pan)
     m->sends = std::vector<Send>{{r, -3.0}};
     auto limiter = builtinSlot("limiter");
     p.masterEffects = std::vector<SlotPtr>{limiter};
@@ -447,6 +449,7 @@ static void testRenderEqualsPlayback() {
     auto bounced = p.addTrack(Kind::Audio);
     render::keepMix(*a, *bounced);
     CHECK(bounced->pan == 0.3 && bounced->delayMs == 7 && bounced->sends == a->sends);
+    CHECK(bounced->sends.size() == 1 && bounced->sends[0].preFader);  // (pre-fader still)
     CHECK(bounced->automation.size() == 2 && bounced->automation[0]->slot == bounced->controls &&
           bounced->automation[0]->points == lane->points);
     // a track's rendering (freeze) has its clip gain and fades, not its fader, pan or volume lanes
@@ -454,6 +457,7 @@ static void testRenderEqualsPlayback() {
     auto pc = audioClip(plain, SR, SR, 0.5f);
     pc->gainDb = -6;
     pc->fadeIn = 1000;
+    pc->fadeInShape = FadeShape::Fast;
     p.addClip(pc);
     plain->pan = 1.0;
     plain->volumeDb = -10;

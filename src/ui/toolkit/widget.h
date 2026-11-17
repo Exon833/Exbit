@@ -488,6 +488,12 @@ public:
     void showToolTip(Point globalPos, const std::string& text, Widget* owner);
     void hideToolTip();
     Window* toolTipWindow() const { return tip_.get(); }
+    // (added) the hint line: once the pointer has been over a widget for HINT_MS, the first line of its
+    // tooltip (or its nearest parent's), with the window it is in; "" when the pointer leaves that window
+    // or rests where there is none. Sent only while someone listens (a StatusBar following hints), and
+    // only when it changes. The tooltip itself still shows as usual.
+    static constexpr int HINT_MS = 300;
+    Signal<Window*, std::string> hintChanged;
     // a widget being deleted: forget it everywhere
     void forget(Widget* w);
     // a widget leaving its window (released, hidden): drop hover / grab / focus pointers into it
@@ -568,6 +574,14 @@ public:
     // tooltip timing (internal, for Window): the pointer rests on / leaves `w`
     void toolTipWake(Widget* w, Point globalPos);
     void toolTipLeave();
+    // hint timing (internal, for Window): the pointer moved in / left `w` (see hintChanged)
+    void hintWake(Window* w);
+    void hintLeave(Window* w);
+private:
+    int hintTimer_ = -1;
+    Window* hintWindow_ = nullptr;  // the window the hint last sent belongs to (null: none shown)
+    std::string hintText_;
+    void sendHint(Window* w, const std::string& text);
 };
 
 // the clipboard (text)

@@ -5,7 +5,8 @@
 // Each tile is rendered once straight into an image and kept in an LRU cache (about CACHE_MB). The
 // cache key holds everything that changes the pixels: the clip's audio or notes (as they play: a
 // loop's repeats, after the MIDI effects, without switched-off notes), its window (offset/length),
-// its gain and fades (the waveform is drawn as it plays), zoom, sample rate, lane height and colour.
+// its gain and fades and their shapes (the waveform is drawn as it plays), zoom, sample rate, lane
+// height and colour.
 // So zooming, cutting, recolouring, muting or resizing a lane simply asks for new tiles; moving a
 // clip reuses its tiles.
 //
@@ -61,6 +62,7 @@ private:
         int64_t offset, frames;
         double gainDb;
         int64_t fadeIn, fadeOut, fadeLead, fadeTail;
+        int fadeShapes;  // (fade-in shape + 8 × fade-out shape: model.h FADE SHAPES)
         double pps, dpr;
         int sr, height;
         uint32_t color;

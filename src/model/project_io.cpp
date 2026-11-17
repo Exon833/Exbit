@@ -359,14 +359,16 @@ Json describeTrack(const Track& track, const std::vector<GroupPtr>& groups, int 
         Json lane = describeAutomation(track, *a);
         if (!lane.isNull()) automation.push(lane);
     }
+    Json preFader = Json::array();  // (pre-fader sends: the returns', by index; the key only when there are any)
     for (auto& send : track.sends)
         for (size_t i = 0; i < tracks.size(); i++)
             if (tracks[i] == send.track) {
                 sends.push(Json::array({Json((int)i), Json(send.db)}));
+                if (send.preFader) preFader.push(Json((int)i));
                 break;
             }
     for (auto& take : track.takes) takes.push(describeTake(*take, sr, audioFile));
-    Json out = Json::object({
+    Json entry = Json::object({
         {"name", Json(track.name)},
         {"kind", Json(kindName(track.kind))},
         {"muted", Json(track.muted)},
@@ -395,8 +397,10 @@ Json describeTrack(const Track& track, const std::vector<GroupPtr>& groups, int 
         {"takes", takes},
         {"show_takes", Json(track.showTakes)},
     });
-    if (!track.modCables.empty()) out.set("modulation", describeModulation(track));  // (only then: older files unchanged)
-    return out;
+    // pre-fader sends: a key of their own (older versions read `sends` as they always did: after the fader)
+    if (preFader.size()) entry.set("pre_fader_sends", preFader);
+    if (!track.modCables.empty()) entry.set("modulation", describeModulation(track));  // (only then: older files unchanged)
+    return entry;
 }
 
 // os.path.splitext(name)[0]
@@ -670,6 +674,10 @@ Json describe(const Project& project, int sr, const MasterSettings& master, Audi
             entry.set("loop", Json(clip->loop));
             entry.set("loop_start", Json(clip->loopStart));
             entry.set("loop_length", Json(clip->loopLength));
+            // fade shapes (model.h FADE SHAPES): keys only for the curved ones, so straight fades save as before
+            if (clip->fadeInShape != FadeShape::Linear) entry.set("fade_in_shape", Json(fadeShapeName(clip->fadeInShape)));
+            if (clip->fadeOutShape != FadeShape::Linear)
+                entry.set("fade_out_shape", Json(fadeShapeName(clip->fadeOutShape)));
             if (clip->fadeLead || clip->fadeTail) {  // (a piece of a faded clip: where its fades' ramps began / end)
                 entry.set("fade_lead", Json((double)clip->fadeLead / sr));
                 entry.set("fade_tail", Json((double)clip->fadeTail / sr));
@@ -1123,6 +1131,12 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
                     tracks[i]->kind == Kind::Return && tracks[i].get() != &track)
                     sends.push_back({tracks[i], s[size_t(1)].toDouble()});
             }
+            for (const Json& k : entry["pre_fader_sends"].items()) {  // (pre-fader sends: the returns' indices)
+                size_t i;
+                if (!isIndex(k, tracks.size(), i)) continue;
+                for (auto& s : sends)
+                    if (s.track == tracks[i]) s.preFader = true;
+            }
             track.sends = sends;
             const Json& frozen = entry["frozen"];
             if (frozen.isObject() && frozen.size()) {
@@ -1194,6 +1208,8 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
             clip->fadeOut = roundFrames(entry.num("fade_out", 0.0), sr);
             clip->fadeLead = roundFrames(entry.num("fade_lead", 0.0), sr);
             clip->fadeTail = roundFrames(entry.num("fade_tail", 0.0), sr);
+            clip->fadeInShape = fadeShapeFromName(entry.str("fade_in_shape"));  // (none: linear)
+            clip->fadeOutShape = fadeShapeFromName(entry.str("fade_out_shape"));
             prepareSafely(*clip, sr);
             clips.push_back(clip);
         }

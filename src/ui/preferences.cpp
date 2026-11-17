@@ -135,6 +135,7 @@ Preferences Preferences::load() {
     p.nativeWayland = getBool("native_wayland", p.nativeWayland);
     p.ghostNotes = getStr("ghost_notes", p.ghostNotes);
     p.reloadCrashedPlugins = getBool("reload_crashed_plugins", p.reloadCrashedPlugins);
+    p.statusHints = getBool("status_hints", p.statusHints);
     auto& sizes = prefs::bufferSizes();
     if (std::find(sizes.begin(), sizes.end(), p.bufferSize) == sizes.end()) p.bufferSize = 0;
     auto& rates = prefs::refreshRates();
@@ -173,6 +174,7 @@ Preferences Preferences::load() {
     p.known_["native_wayland"] = Json(p.nativeWayland);
     p.known_["ghost_notes"] = Json(p.ghostNotes);
     p.known_["reload_crashed_plugins"] = Json(p.reloadCrashedPlugins);
+    p.known_["status_hints"] = Json(p.statusHints);
     return p;
 }
 
@@ -221,4 +223,5 @@ void Preferences::save() const {
     put("native_wayland", nativeWayland);
     put("ghost_notes", ghostNotes);
     put("reload_crashed_plugins", reloadCrashedPlugins);
+    put("status_hints", statusHints);
 }

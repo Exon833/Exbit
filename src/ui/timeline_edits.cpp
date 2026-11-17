@@ -79,6 +79,42 @@ void Timeline::removeFadesSelected() {
     update();
 }
 
+// --- fade shapes (model.h FADE SHAPES): from the clip menu, or a fade handle's own (right-click it) ---
+
+void Timeline::setFadeShape(const std::vector<ClipPtr>& clips, bool in, FadeShape shape) {
+    // (a plain field the mixer reads as it goes: changed in place, like the fades' lengths)
+    for (auto& clip : clips)
+        if (clip->kind == Kind::Audio) (in ? clip->fadeInShape : clip->fadeOutShape) = shape;
+    update();
+}
+
+void Timeline::addFadeShapes(ui::Menu& menu, const std::vector<ClipPtr>& clips, bool in) {
+    for (FadeShape shape : FADE_SHAPES) {
+        bool all = !clips.empty();  // (ticked: every clip's fade has it)
+        for (auto& c : clips)
+            if ((in ? c->fadeInShape : c->fadeOutShape) != shape) all = false;
+        ui::Action* a = menu.addAction(fadeShapeLabel(shape), [this, clips, in, shape] { setFadeShape(clips, in, shape); });
+        a->checkable = true;
+        a->checked = all;
+        a->setEnabled(!clips.empty());
+    }
+}
+
+bool Timeline::fillFadeMenu(ui::Menu& menu, PointF pos) {
+    FadeHit fade = fadeHandleAt(pos);
+    if (!fade.clip) return false;
+    menu.addSection(fade.in ? "Fade-in shape" : "Fade-out shape");
+    addFadeShapes(menu, {fade.clip}, fade.in);
+    return true;
+}
+
+void Timeline::addFadeShapeMenus(ui::Menu& menu, const std::vector<ClipPtr>& clips) {
+    for (bool in : {true, false}) {
+        addFadeShapes(*menu.addMenu(in ? "Fade-in shape" : "Fade-out shape"), clips, in);
+        menu.actions().back()->setEnabled(!clips.empty());  // (the submenu's entry)
+    }
+}
+
 // --- gain, stretch, reverse, join, crossfade, loops -------------------------------------------------
 
 namespace {

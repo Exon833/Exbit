@@ -22,7 +22,7 @@
 //
 // Return tracks (kind RETURN, always below the other tracks) hold effects shared by many tracks (a
 // reverb, a delay): every other track can send its sound to each of them (`sends`, after its fader
-// and pan), and a return plays what is sent to it through its effects, fader and pan. They have no
+// and pan, or before them: Send::preFader), and a return plays what is sent to it through its effects, fader and pan. They have no
 // clips.
 //
 // A track's own fader and pan can be automated: such a lane's slot is the track's `controls`, a
@@ -240,10 +240,14 @@ struct SamplerSettings {
 };
 
 // --- a send from a track to a return track: its sound after fader and pan, at `db` ---
+// PRE-FADER SENDS. With `preFader` the sound is taken after the track's effects but before its fader and
+// pan: the send stays the same however the fader is set (a headphone mix, a reverb that keeps going while
+// the dry track is faded out). Still in time with the others (its own share of the delay compensation).
 struct Send {
     TrackPtr track;  // the return track
     double db = 0;
-    bool operator==(const Send& o) const { return track == o.track && db == o.db; }
+    bool preFader = false;  // before the track's fader and pan (after its effects); kept even at −inf
+    bool operator==(const Send& o) const { return track == o.track && db == o.db && preFader == o.preFader; }
     bool operator!=(const Send& o) const { return !(*this == o); }
 };
 
@@ -318,6 +322,50 @@ struct Track {
     Track(std::string n = "", Kind k = Kind::Audio);
 };
 
+// --- fade shapes (an audio clip's fade-in and fade-out) ---
+// FADE SHAPES. How a fade's level goes between silence and full (Clip::fadeInShape / fadeOutShape):
+//   Linear       a straight line (every fade before shapes existed; files without a shape)
+//   Smooth       an S-curve: gentle at both ends
+//   Fast         most of the change early: a fade-in is loud soon, a fade-out quiet soon
+//   Slow         most of the change late
+//   Equal power  a quarter of a sine (fade-in) and of a cosine (fade-out): two clips crossfading with it
+//                keep the same loudness all through (sin² + cos² = 1); crossfades made by overlapping
+//                clips (edits::crossfaded) start with it
+// fadeCurve() is what the mixer runs for every sample of a fade: polynomials only (no pow() or sin()),
+// the same in playback and renders.
+enum class FadeShape : uint8_t { Linear, Smooth, Fast, Slow, EqualPower };
+constexpr FadeShape FADE_SHAPES[] = {FadeShape::Linear, FadeShape::Smooth, FadeShape::Fast, FadeShape::Slow,
+                                     FadeShape::EqualPower};
+const char* fadeShapeName(FadeShape s);              // in project files: "linear", "smooth", "fast", "slow", "equal_power"
+FadeShape fadeShapeFromName(const std::string& s);   // (anything else: Linear)
+const char* fadeShapeLabel(FadeShape s);             // in menus: "Linear", "Smooth (S-curve)"…
+// a fade's shape as the other kind of fade heard backwards (a reversed clip's fade-in becomes its fade-out)
+inline FadeShape mirroredFade(FadeShape s) {
+    return s == FadeShape::Fast ? FadeShape::Slow : s == FadeShape::Slow ? FadeShape::Fast : s;
+}
+// The level (0…1) of a fade `x` (0…1) of the way from its silent end to its full end: a fade-in's x grows
+// with time, a fade-out's (`out`) shrinks. Linear gives x itself, exactly.
+inline double fadeCurve(FadeShape s, double x, bool out) {
+    if (s == FadeShape::Linear) return x;
+    if (out && (s == FadeShape::Fast || s == FadeShape::Slow)) s = mirroredFade(s);  // (fast: quiet soon)
+    switch (s) {
+    case FadeShape::Smooth:
+        return x * x * (3 - 2 * x);
+    case FadeShape::Fast: {
+        double y = 1 - x;
+        return 1 - y * y * y;
+    }
+    case FadeShape::Slow:
+        return x * x * x;
+    case FadeShape::EqualPower: {  // sin(x·π/2): its series to t¹¹ (off by under 4e-8 on 0…π/2)
+        double t = x * 1.5707963267948966, t2 = t * t;
+        return t * (1 + t2 * (-1.0 / 6 + t2 * (1.0 / 120 + t2 * (-1.0 / 5040 + t2 * (1.0 / 362880 - t2 / 39916800)))));
+    }
+    default:
+        return x;
+    }
+}
+
 // --- a clip: a window onto `data` ---
 // frames [offset, offset + frames()) of data play from timeline frame `start`.
 // Splitting makes copies (copyClip) that share data with different windows.
@@ -336,6 +384,8 @@ struct Clip {
     int64_t fadeOut = 0;  // …and of fade-out to their end (shortened to fit when the clip is: fades())
     int64_t fadeLead = 0; // a piece cut from a faded clip: frames before its start where the fade-in began…
     int64_t fadeTail = 0; // …and after its end where the fade-out ends (so its pieces play as the whole clip did)
+    FadeShape fadeInShape = FadeShape::Linear;   // audio clips: how the fade-in rises (FADE SHAPES above)…
+    FadeShape fadeOutShape = FadeShape::Linear;  // …and how the fade-out falls
     bool loop = false;    // audio: made longer than its audio, its loop repeats (looped()); MIDI: made longer
                           // than lengthS, its notes repeat every lengthS
     AudioPtr data;        // stereo at the engine rate (set by prepare)
@@ -376,10 +426,10 @@ struct Clip {
     // the clip (it was trimmed); a piece cut from a faded clip counts the whole clip's length
     void fades(int64_t& fadeInOut, int64_t& fadeOutOut) const;
     bool hasLevels() const { return gainDb != 0 || fadeIn || fadeOut; }  // (else levels are all 1)
-    // its gain and fades (straight lines) as a factor at `pos` frames into its window
+    // its gain and fades (each of its shape) as a factor at `pos` frames into its window
     float level(int64_t pos) const;
-    // (fade-in, fade-out) frames inside its window, and the levels (0…1) at its start and end: where its
-    // fade lines are drawn and its handles sit
+    // (fade-in, fade-out) frames inside its window, and how far (0…1, fadeCurve's x) its fades are at its start
+    // and end: where its fade curves are drawn and its handles sit
     void fadeParts(int64_t& partIn, int64_t& partOut, double& levelStart, double& levelEnd) const;
     // MIDI: the notes as far as the clip reaches, its notes again every lengthS while it loops
     std::vector<Note> repeated(int sr) const;

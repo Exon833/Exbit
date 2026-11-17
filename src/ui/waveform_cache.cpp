@@ -91,8 +91,8 @@ Mask renderMidiTile(const Clip& clip, int firstCol, int width, int height, doubl
 bool TileCache::Key::operator==(const Key& o) const {
     return kind == o.kind && source == o.source && offset == o.offset && frames == o.frames && gainDb == o.gainDb &&
            fadeIn == o.fadeIn && fadeOut == o.fadeOut && fadeLead == o.fadeLead && fadeTail == o.fadeTail &&
-           pps == o.pps && dpr == o.dpr && sr == o.sr && height == o.height && color == o.color && index == o.index &&
-           width == o.width;
+           fadeShapes == o.fadeShapes && pps == o.pps && dpr == o.dpr && sr == o.sr && height == o.height &&
+           color == o.color && index == o.index && width == o.width;
 }
 
 size_t TileCache::KeyHash::operator()(const Key& k) const {
@@ -107,7 +107,7 @@ size_t TileCache::KeyHash::operator()(const Key& k) const {
     mixIn(bits(k.dpr));
     mixIn(bits(k.gainDb));
     mixIn((uint64_t)k.fadeIn ^ ((uint64_t)k.fadeOut << 21) ^ ((uint64_t)k.fadeLead << 42) ^ ((uint64_t)k.fadeTail << 7));
-    mixIn((uint64_t)k.kind);
+    mixIn((uint64_t)k.kind ^ ((uint64_t)k.fadeShapes << 8));
     mixIn((uint64_t)k.offset);
     mixIn((uint64_t)k.frames);
     mixIn(ppsBits);
@@ -128,7 +128,7 @@ const Image& TileCache::tile(const Clip& clip, int index, int width, int height,
     else if (clip.played) source = clip.played;
     else source = clip.notes;
     Key key{(int)clip.kind, source.get(), clip.offset, clip.frames(), clip.gainDb, clip.fadeIn, clip.fadeOut,
-            clip.fadeLead, clip.fadeTail, pps, dpr, sr, height, Color(color.r, color.g, color.b, 255).premul(), index, width};
+            clip.fadeLead, clip.fadeTail, (int)clip.fadeInShape + 8 * (int)clip.fadeOutShape, pps, dpr, sr, height, Color(color.r, color.g, color.b, 255).premul(), index, width};
     auto found = index_.find(key);
     if (found != index_.end()) {
         entries_.splice(entries_.begin(), entries_, found->second);  // most recently used

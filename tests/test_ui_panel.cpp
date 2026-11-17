@@ -605,12 +605,37 @@ static void testPanel2() {
         if (l->text() == "Take 1  (2.0 s)") takeNamed = true;
     CHECK(takeNamed && buttonText(panel->takeFrames[take], "Use"));
     // the sends' window content: a slider per return
-    SendsPanel sp(drums, {reverb}, [&](const TrackPtr& t, double db) { sends[0]->setLevel(t, db); });
+    SendsPanel sp(drums, {reverb}, [&](const TrackPtr& t, double db) { sends[0]->setLevel(t, db); },
+                  [&](const TrackPtr& t, bool on) { sends[0]->setPreFader(t, on); });
     sp.resize(sp.sizeHint().x, sp.sizeHint().y);
     CHECK(sp.sliders.size() == 1 && sp.sliders[0]->value() == -6);
     savePng(outDir2() + "/sends.png", paintWidget(&sp));
     sp.sliders[0]->setValue(-3);
     CHECK(drums->sends.size() == 1 && drums->sends[0].db == -3);
+    // Pre: the send before the fader (model.h Send); kept as it is when the level changes
+    CHECK(sp.preButtons.size() == 1 && !sp.preButtons[0]->isChecked() && !sends[0]->preFader(reverb));
+    CHECK(!sp.preButtons[0]->toolTip().empty() && sp.preButtons[0]->toolTip().rfind("Pre-fader:", 0) == 0);
+    sp.preButtons[0]->setChecked(true);
+    CHECK(drums->sends.size() == 1 && drums->sends[0].preFader && drums->sends[0].db == -3 && sends[0]->preFader(reverb));
+    CHECK(sends[0]->toolTip() == "Sends to the return tracks: Reverb -3 dB (pre-fader) (click to set them)");
+    sp.sliders[0]->setValue(-9);
+    CHECK(drums->sends.size() == 1 && drums->sends[0].preFader && drums->sends[0].db == -9);
+    {  // the window opened again shows it
+        SendsPanel again(drums, {reverb}, nullptr);
+        CHECK(again.preButtons[0]->isChecked());
+    }
+    savePng(outDir2() + "/sends_pre.png", paintWidget(&sp));
+    // turned right down it stays (silent) so it is still pre-fader when turned up; Pre off then removes it
+    sends[0]->setLevel(reverb, config::MIN_DB);
+    CHECK(drums->sends.size() == 1 && drums->sends[0].preFader && sends[0]->property("lit").empty());
+    sends[0]->setPreFader(reverb, false);
+    CHECK(drums->sends.empty());
+    // Pre with no send yet: remembered for when it is turned up
+    sends[0]->setPreFader(reverb, true);
+    sends[0]->setLevel(reverb, -12);
+    CHECK(drums->sends.size() == 1 && drums->sends[0].preFader && drums->sends[0].db == -12);
+    sends[0]->setPreFader(reverb, false);
+    CHECK(drums->sends.size() == 1 && !drums->sends[0].preFader);
     sends[0]->setLevel(reverb, config::MIN_DB);
     CHECK(drums->sends.empty() && sends[0]->property("lit").empty());
     // the pan knob: drag up or right turns it right, Shift finer, double-click centres

@@ -22,6 +22,7 @@ void MixState::reserve(int frames, int tracks) {
         for (auto& f : feedBuf) f.assign((size_t)frames * 2, 0.0f);
         for (auto& f : sentBuf) f.assign((size_t)frames * 2, 0.0f);
         for (auto& f : trackBuf) f.assign((size_t)frames * 2, 0.0f);
+        for (auto& f : preBuf) f.assign((size_t)frames * 2, 0.0f);
     }
     if (tracks > trackCapacity) {
         trackCapacity = tracks;
@@ -39,12 +40,15 @@ void MixState::reserve(int frames, int tracks) {
         results.reserve(tracks);
         clipFrom.reserve((size_t)tracks + 1);
         lines.reserve(tracks);
+        preDelays.reserve(tracks);
+        preLines.reserve(tracks);
         heldOf.reserve(tracks);
         position.reserve(tracks);
         jobs.reserve(tracks);
         while ((int)feedBuf.size() < tracks) feedBuf.emplace_back((size_t)capacity * 2, 0.0f);
         while ((int)sentBuf.size() < tracks) sentBuf.emplace_back((size_t)capacity * 2, 0.0f);
         while ((int)trackBuf.size() < tracks) trackBuf.emplace_back((size_t)capacity * 2, 0.0f);
+        while ((int)preBuf.size() < tracks) preBuf.emplace_back((size_t)capacity * 2, 0.0f);
         if (finishedSize < tracks) {
             finished.reset(new std::atomic<char>[(size_t)tracks]);
             finishedSize = tracks;
@@ -134,6 +138,7 @@ void addClip(float* const buf[2], int channels, int64_t bufFrames, const Clip& c
     if (levels) clip.fades(fi, fo);
     float gain = levels ? (float)std::pow(10.0, clip.gainDb / 20) : 1.0f;
     int64_t lead = std::max<int64_t>(0, clip.fadeLead), tail = std::max<int64_t>(0, clip.fadeTail);
+    const FadeShape inShape = clip.fadeInShape, outShape = clip.fadeOutShape;
     float* o0 = buf[0] + (a - start);
     float* o1 = ch > 1 ? buf[1] + (a - start) : nullptr;
     if (!edges && !levels) {
@@ -148,8 +153,9 @@ void addClip(float* const buf[2], int channels, int64_t bufFrames, const Clip& c
         float level = 1.0f;
         if (levels) {
             level = gain;
-            if (fi) level *= (float)std::min(1.0, std::max(0.0, (double)(pos + lead + 1) / fi));
-            if (fo) level *= (float)std::min(1.0, std::max(0.0, (double)(frames + tail - pos) / fo));
+            // (each fade of its shape: fadeCurve, a polynomial; Linear is the straight line exactly)
+            if (fi) level *= (float)fadeCurve(inShape, std::min(1.0, std::max(0.0, (double)(pos + lead + 1) / fi)), false);
+            if (fo) level *= (float)fadeCurve(outShape, std::min(1.0, std::max(0.0, (double)(frames + tail - pos) / fo)), true);
         }
         if (pos < fade || pos > frames - fade)
             level *= (float)std::min(1.0, (double)std::min(pos + 1, frames - pos) / fade);
@@ -210,6 +216,14 @@ void feedingOrder(const TrackList& tracks, const std::vector<Cable>& masterCable
 }
 
 namespace {
+
+// does the track send to a return before its fader (mixer.h PRE-FADER SENDS)? (a send that is up)
+bool hasPreFaderSend(const Track& track) {
+    auto sends = track.sends.get();
+    for (auto& s : *sends)
+        if (s.preFader && s.db > config::MIN_DB && s.track && s.track->kind == Kind::Return) return true;
+    return false;
+}
 
 // One buffer's mixing, shared by the threads working on it (see the top of mixer.h).
 struct Buffer {
@@ -294,6 +308,8 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
     int channels = std::min(2, b.outChannels - first);
     patch::DelayLine* line = st.lines[ti];
     if (line && b.restart) line->clear();  // what it held belongs to where playback was
+    patch::DelayLine* preLine = st.preLines[ti];  // (pre-fader sends: mixer.h)
+    if (preLine && b.restart) preLine->clear();
     const Track* only = b.only;
     bool audible = only ? !track.needsInstrument && (&track == only || [&] {  // (a stem: it, and what sends to it)
         auto sends = track.sends.get();
@@ -304,6 +320,7 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
                         : Project::audibleIn(track, tracks);
     bool feeds = st.feeder[ti] && plugins;  // (a sidechain listens to it: worked out even if not heard)
     if (!audible && line) line->clear();
+    if (!audible && preLine) preLine->clear();
     live::LiveNotes* notes = live::find(b.live, &track);
     if (notes && (!audible || frozen || (vstInstrument && !plugins))) notes->clear();  // nothing to hear them through now
     bool playingLive = notes && notes->active();
@@ -407,6 +424,16 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
             }
         }
     }
+    // --- pre-fader sends (mixer.h): its sound as it is now, before the fader, kept for them ---
+    // (only when heard, as sends are; with delay compensation, only once its line is made: mixClips)
+    float* pre[2] = {nullptr, nullptr};
+    if (audible && (!st.compensate || preLine) && hasPreFaderSend(track)) {
+        std::vector<float>& pb = st.preBuf[ti];
+        pre[0] = pb.data();
+        pre[1] = pb.data() + cap;
+        for (int c = 0; c < channels; c++) std::memcpy(pre[c], sig[c], sizeof(float) * frames);
+        res.pre = true;
+    }
     applyFader(sig, channels, frames, track, hasStart, start, sr);  // its fader and pan, after its effects
     if (feeds) {
         std::vector<float>& fb = st.feedBuf[ti];
@@ -418,6 +445,7 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
     res.first = first;
     if (audible) {
         if (line) line->process(sig, frames);
+        if (res.pre && preLine) preLine->process(pre, frames);  // (held back just as much)
         res.kind = MixState::Result::Heard;
     } else {
         res.kind = MixState::Result::Unheard;
@@ -443,9 +471,13 @@ void commitTrack(Buffer& b, int ti) {
     int channels = res.channels;
     std::vector<float>& tb = st.trackBuf[ti];
     float* sig[2] = {tb.data(), tb.data() + cap};
+    std::vector<float>& pb = st.preBuf[ti];
+    float* pre[2] = {pb.data(), pb.data() + cap};  // (pre-fader sends: its sound before the fader, if kept)
     auto sends = track.sends.get();
-    for (auto& send : *sends) {  // (to returns: after the fader and pan, in time with the others)
+    for (auto& send : *sends) {  // (to returns: after the fader and pan, or before them; in time with the others)
         if (!(send.db > config::MIN_DB) || !send.track || send.track->kind != Kind::Return) continue;
+        if (send.preFader && !res.pre) continue;  // (made one a moment ago: from the next buffer)
+        float* const* from = send.preFader ? pre : sig;
         int target = -1;
         for (size_t j = 0; j < n; j++)
             if (tracks[j] == send.track) target = (int)j;
@@ -459,7 +491,7 @@ void commitTrack(Buffer& b, int ti) {
         float g = (float)dsp::dbToGain(send.db, config::MIN_DB);
         for (int c = 0; c < channels; c++) {
             float* d = buf.data() + (size_t)c * cap;
-            for (int i = 0; i < frames; i++) d[i] += sig[c][i] * g;
+            for (int i = 0; i < frames; i++) d[i] += from[c][i] * g;
         }
     }
     if (b.tap) b.tap->sound(&track, sig, channels, res.first, frames);
@@ -555,6 +587,13 @@ int mixClips(Project& project, float* out, int outChannels, int frames, bool has
             else
                 i++;
         }
+        for (size_t i = 0; i < st.preDelays.size();) {  // (pre-fader sends: tracks gone, or without one now)
+            const Track* t = st.preDelays[i].first;
+            if (!inList(t, tracks) || !hasPreFaderSend(*t))
+                st.preDelays.erase(st.preDelays.begin() + i);
+            else
+                i++;
+        }
     }
     for (size_t i = 0; i < st.held.size();) {
         if (!inList(st.held[i].first, tracks))
@@ -583,6 +622,7 @@ int mixClips(Project& project, float* out, int outChannels, int frames, bool has
     }
     st.clipFrom[n] = (int)st.trackClips.size();
     st.lines.assign(n, nullptr);
+    st.preLines.assign(n, nullptr);
     if (st.compensate) {  // each track held back to line up with the latest one (a return: by its own delay)
         for (size_t ti = 0; ti < n; ti++) {
             const Track& track = *tracks[ti];
@@ -603,6 +643,24 @@ int mixClips(Project& project, float* out, int outChannels, int frames, bool has
                 if (d.first == &track) line = &d.second;
             if (line->frames != wanted || line->channels != channels) line->init(wanted, channels);
             st.lines[ti] = line;
+        }
+        // pre-fader sends (mixer.h): a second line for the tracks that have one, as long as their main one
+        for (size_t ti = 0; ti < n; ti++) {
+            const Track& track = *tracks[ti];
+            if (!hasPreFaderSend(track)) continue;
+            bool known = false;
+            for (auto& d : st.preDelays)
+                if (d.first == &track) known = true;
+            if (!known) st.preDelays.emplace_back(&track, patch::DelayLine());
+        }
+        for (size_t ti = 0; ti < n; ti++) {  // (pointers taken once `preDelays` stops growing)
+            const patch::DelayLine* main = st.lines[ti];
+            for (auto& d : st.preDelays)
+                if (d.first == tracks[ti].get()) {
+                    if (d.second.frames != main->frames || d.second.channels != main->channels)
+                        d.second.init(main->frames, main->channels);
+                    st.preLines[ti] = &d.second;
+                }
         }
     }
     st.heldOf.assign(n, nullptr);

@@ -19,9 +19,9 @@ namespace history {
 #define GROUP_FIELDS(X) X(name) X(muted) X(soloed) X(color) X(tone)
 #define CLIP_FIELDS(X)                                                                                          \
     X(kind) X(name) X(track) X(start) X(offset) X(length) X(color) X(tone) X(disabled) X(gainDb) X(fadeIn)     \
-    X(fadeOut) X(fadeLead) X(fadeTail) X(loop) X(source) X(sourceSr) X(sourcePath) X(stretch) X(pitch)         \
-    X(sourceBpm) X(reverse) X(loopStart) X(loopLength) X(notes) X(lengthS) X(mutedNotes) X(played) X(events)  \
-    X(link)
+    X(fadeOut) X(fadeLead) X(fadeTail) X(fadeInShape) X(fadeOutShape) X(loop) X(source) X(sourceSr)            \
+    X(sourcePath) X(stretch) X(pitch) X(sourceBpm) X(reverse) X(loopStart) X(loopLength) X(notes) X(lengthS)   \
+    X(mutedNotes) X(played) X(events) X(link)
 #define CLIP_AUDIO_FIELDS(X) X(data) X(peaks) X(baseFrames)  // (not for looping audio clips)
 #define SLOT_FIELDS(X) X(path) X(name) X(kind) X(pluginName) X(bypass) X(placed) X(atX) X(atY) X(volumeDb) X(mix)
 #define LANE_FIELDS(X) X(slot) X(param) X(points)
@@ -200,13 +200,148 @@ void Snapshot::restore(Project& p, int sr) const {
     p.tracksMade = d.tracksMade;
 }
 
+// --- what a step did, by name ---
+namespace {
+
+// a name and its plural (a change to several objects of a kind)
+struct Name {
+    const char* one;
+    const char* many;
+};
+
+// the first of a track's fields that changed, by name (nullptr: none)
+const char* trackChange(const TrackData& d, const Track& o) {
+    if (!same(d.volumeDb, o.volumeDb)) return "Volume";
+    if (!same(d.pan, o.pan)) return "Pan";
+    if (!same(d.muted, o.muted)) return "Mute";
+    if (!same(d.soloed, o.soloed)) return "Solo";
+    if (!same(d.name, o.name)) return "Rename track";
+    if (!same(d.sends, o.sends)) return "Sends";
+    if (!same(d.effects, o.effects) || !same(d.cables, o.cables)) return "Effects";
+    if (!same(d.automation, o.automation)) return "Automation";
+    if (!same(d.frozen, o.frozen)) return "Freeze";
+    if (!same(d.instrument, o.instrument) || !same(d.rack, o.rack) || !same(d.rackCables, o.rackCables) ||
+        !same(d.usesRack, o.usesRack) || !same(d.sampler, o.sampler) || !same(d.needsInstrument, o.needsInstrument))
+        return "Instrument";
+    if (!same(d.midiEffects, o.midiEffects)) return "MIDI effects";
+    if (!same(d.color, o.color) || !same(d.tone, o.tone)) return "Track colour";
+    if (!same(d.group, o.group)) return "Group tracks";
+    if (!same(d.takes, o.takes)) return "Takes";
+    if (!same(d.output, o.output)) return "Track output";
+    if (!same(d.delayMs, o.delayMs)) return "Track delay";
+    return matches(d, o) ? nullptr : "Track settings";
+}
+
+// the first of a clip's fields that changed, by name ({nullptr, nullptr}: none)
+Name clipChange(const ClipData& d, const Clip& o) {
+    if (!same(d.track, o.track) || !same(d.start, o.start)) return {"Move clip", "Move clips"};
+    if (!same(d.fadeIn, o.fadeIn) || !same(d.fadeOut, o.fadeOut) || !same(d.fadeLead, o.fadeLead) ||
+        !same(d.fadeTail, o.fadeTail) || !same(d.fadeInShape, o.fadeInShape) || !same(d.fadeOutShape, o.fadeOutShape))
+        return {"Fades", "Fades"};
+    if (!same(d.loop, o.loop) || !same(d.loopStart, o.loopStart) || !same(d.loopLength, o.loopLength))
+        return {"Loop", "Loop"};
+    if (!same(d.offset, o.offset) || !same(d.length, o.length)) return {"Resize clip", "Resize clips"};
+    if (!same(d.gainDb, o.gainDb)) return {"Clip gain", "Clip gain"};
+    if (!same(d.name, o.name)) return {"Rename clip", "Rename clips"};
+    if (!same(d.notes, o.notes) || !same(d.mutedNotes, o.mutedNotes) || !same(d.lengthS, o.lengthS))
+        return {"Edit notes", "Edit notes"};
+    if (!same(d.color, o.color) || !same(d.tone, o.tone)) return {"Clip colour", "Clip colours"};
+    if (!same(d.disabled, o.disabled))
+        return o.disabled ? Name{"Disable clip", "Disable clips"} : Name{"Enable clip", "Enable clips"};
+    if (!same(d.stretch, o.stretch) || !same(d.pitch, o.pitch) || !same(d.sourceBpm, o.sourceBpm))
+        return {"Stretch / pitch", "Stretch / pitch"};
+    if (!same(d.reverse, o.reverse)) return {"Reverse", "Reverse"};
+    if (!matches(d, o)) return {"Edit clip", "Edit clips"};
+    return {nullptr, nullptr};
+}
+
+// the first of a plugin slot's fields that changed, by name (nullptr: none)
+const char* slotChange(const SlotData& d, const PluginSlot& o) {
+    if (!same(d.bypass, o.bypass)) return "Bypass";
+    if (!same(d.placed, o.placed) || !same(d.atX, o.atX) || !same(d.atY, o.atY)) return "Move effect";
+    if (!same(d.volumeDb, o.volumeDb) || !same(d.mix, o.mix)) return "Effect level";
+    return matches(d, o) ? nullptr : "Effect settings";
+}
+
+// added and removed objects between two lists, by identity
+template <class T>
+void addedRemoved(const List<T>& before, const List<T>& after, size_t& added, size_t& removed) {
+    std::set<const void*> a, b;
+    for (auto& x : before) a.insert(x.get());
+    for (auto& x : after) b.insert(x.get());
+    added = removed = 0;
+    for (auto* x : b) added += !a.count(x);
+    for (auto* x : a) removed += !b.count(x);
+}
+
+}  // namespace
+
+std::string Snapshot::describe(const Project& p) const {
+    const SnapshotData& d = *d_;
+    if (d.tracks != p.tracks) {  // tracks added, removed or moved
+        size_t added, removed;
+        addedRemoved(d.tracks, p.tracks, added, removed);
+        if (added && !removed) return added > 1 ? "Add tracks" : "Add track";
+        if (removed && !added) return removed > 1 ? "Delete tracks" : "Delete track";
+        if (!added && !removed) return "Move tracks";
+        return "Edit tracks";
+    }
+    if (d.clips != p.clips) {  // clips added or removed (a split, a join, a paste…)
+        size_t added, removed;
+        addedRemoved(d.clips, p.clips, added, removed);
+        if (added && !removed) return added > 1 ? "Add clips" : "Add clip";
+        if (removed && !added) return removed > 1 ? "Delete clips" : "Delete clip";
+        if (added && removed) return "Edit clips";
+        // (the same clips in another order: their fields tell more, below)
+    }
+    if (d.masterEffects != p.masterEffects || d.masterCables != p.masterCables) return "Master effects";
+    if (d.markers != p.markers) return "Markers";
+    {
+        const TimingData& t = d.timing;
+        const Timing& o = p.timing;
+        if (!same(t.bpm, o.bpm) || !same(t.beatsPerBar, o.beatsPerBar) || !same(t.changes, o.changes)) return "Tempo";
+        if (!same(t.loopStart, o.loopStart) || !same(t.loopEnd, o.loopEnd)) return "Loop range";
+        if (!same(t.key, o.key) || !same(t.scale, o.scale)) return "Key";
+    }
+    // the clips' fields: the first change found, named for as many clips as had that same change
+    Name clipName{nullptr, nullptr};
+    int clipCount = 0;
+    for (auto& c : d.clipData) {
+        Name n = clipChange(c.second, *c.first);
+        if (!n.one) continue;
+        if (!clipName.one) clipName = n;
+        if (n.one == clipName.one) clipCount++;
+    }
+    if (clipName.one) return clipCount > 1 ? clipName.many : clipName.one;
+    for (auto& t : d.trackData)
+        if (const char* n = trackChange(t.second, *t.first)) return n;
+    for (auto& g : d.groupData) {
+        const GroupData& gd = g.second;
+        const Group& o = *g.first;
+        if (!same(gd.muted, o.muted)) return "Mute";
+        if (!same(gd.soloed, o.soloed)) return "Solo";
+        if (!same(gd.name, o.name)) return "Rename group";
+        if (!history::matches(gd, o)) return "Group colour";
+    }
+    for (auto& s : d.slotData)
+        if (const char* n = slotChange(s.second, *s.first)) return n;
+    for (auto& l : d.laneData)
+        if (!history::matches(l.second, *l.first)) return "Automation";
+    if (d.tracksMade != p.tracksMade) return "Add track";
+    return "Edit";
+}
+
 History::History(Project& project, int sr) : project_(project) { reset(sr); }
 
 void History::reset(int sr) {
     sr_ = sr;
     undo_.clear();
     redo_.clear();
+    undoLabels_.clear();
+    redoLabels_.clear();
+    nextLabel_.clear();
     current_ = std::make_unique<Snapshot>(project_);
+    changes_++;
 }
 
 bool History::check(int sr) {
@@ -215,10 +350,17 @@ bool History::check(int sr) {
         return false;
     }
     if (current_->matches(project_)) return false;
+    undoLabels_.push_back(nextLabel_.empty() ? current_->describe(project_) : nextLabel_);
+    nextLabel_.clear();
     undo_.push_back(std::move(*current_));
-    if ((int)undo_.size() > MAX_STEPS) undo_.erase(undo_.begin(), undo_.end() - MAX_STEPS);
+    if ((int)undo_.size() > MAX_STEPS) {
+        undo_.erase(undo_.begin(), undo_.end() - MAX_STEPS);
+        undoLabels_.erase(undoLabels_.begin(), undoLabels_.end() - MAX_STEPS);
+    }
     redo_.clear();
+    redoLabels_.clear();
     current_ = std::make_unique<Snapshot>(project_);
+    changes_++;
     return true;
 }
 
@@ -226,10 +368,13 @@ bool History::undo(int sr) {
     check(sr);
     if (undo_.empty()) return false;
     redo_.push_back(std::move(*current_));
+    redoLabels_.push_back(undoLabels_.back());
+    undoLabels_.pop_back();
     Snapshot step = std::move(undo_.back());
     undo_.pop_back();
     step.restore(project_, sr);
     current_ = std::make_unique<Snapshot>(project_);
+    changes_++;
     return true;
 }
 
@@ -237,10 +382,30 @@ bool History::redo(int sr) {
     check(sr);
     if (redo_.empty()) return false;
     undo_.push_back(std::move(*current_));
+    undoLabels_.push_back(redoLabels_.back());
+    redoLabels_.pop_back();
     Snapshot step = std::move(redo_.back());
     redo_.pop_back();
     step.restore(project_, sr);
     current_ = std::make_unique<Snapshot>(project_);
+    changes_++;
+    return true;
+}
+
+std::vector<std::string> History::labels() const {
+    std::vector<std::string> all = undoLabels_;
+    all.insert(all.end(), redoLabels_.rbegin(), redoLabels_.rend());  // (redo_'s last is the next to redo)
+    return all;
+}
+
+bool History::jumpTo(int position, int sr) {
+    check(sr);  // (a change not yet noted is a step of its own; another rate starts afresh)
+    int total = (int)(undo_.size() + redo_.size());
+    if (position < 0 || position > total || position == (int)undo_.size()) return false;
+    while ((int)undo_.size() > position && undo(sr)) {
+    }
+    while ((int)undo_.size() < position && redo(sr)) {
+    }
     return true;
 }
 
