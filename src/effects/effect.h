@@ -11,7 +11,8 @@
 //
 // and, if it needs them, effectLatency() (frames it holds the sound back: delay compensation makes up
 // for it), meters() ([(label, 0…1, text)] for its window: a gain reduction, a level) and curve()
-// (points (0…1, -1…1) for its window: an EQ's response, a compressor's transfer curve).
+// (points (0…1, -1…1) for its window: an EQ's response, a compressor's transfer curve), and an
+// analyzer (a live spectrum behind the curve: effects/tap.h carries the sound to the window).
 //
 // Effect itself implements plug::Plugin, so the rest of the program treats built-in effects as it
 // treats plugins: in slots and patch cables, automation, sidechains (hasSidechain()), delay
@@ -179,6 +180,15 @@ public:
     virtual bool hasCurve() const { return false; }
     virtual std::vector<CurvePoint> curve() const { return {}; }
     std::vector<GridLine> curveXGrid, curveYGrid;
+    // a live spectrum behind its curve (the EQ's analyzer): the ways it can listen ({"Off", "Pre",
+    // "Post"}; none: no analyzer), the one chosen (kept by the instance, not saved: it changes no
+    // sound), and the spectrum now as `count` points (x 0…1 as the curve's, y -1…1), worked out on
+    // the caller's thread (the window's, as it repaints) from what the audio thread copied for it;
+    // false: nothing to show. `dt`: seconds since the last call (the levels fall back slowly).
+    virtual std::vector<std::string> analyzerChoices() const { return {}; }
+    virtual int analyzerChoice() const { return 0; }
+    virtual void setAnalyzerChoice(int) {}
+    virtual bool analyzer(int count, double dt, std::vector<CurvePoint>& out) { return false; }
 
     // --- plug::Plugin ---
     bool isVst2() const override { return false; }

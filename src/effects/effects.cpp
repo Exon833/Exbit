@@ -30,6 +30,9 @@ const std::vector<Entry>& entries() {
             {{"saturation", "Saturation", "Distortion"}, makeSaturation},
             {{"utility", "Utility", "Utility"}, makeUtility},
         };
+        // (Space, Tuner)
+        e.push_back({{"space", "Space", "Reverb"}, makeSpace});
+        e.push_back({{"tuner", "Tuner", "Utility"}, makeTuner});
         auto lower = [](std::string s) {
             for (auto& c : s) c = (char)std::tolower((unsigned char)c);
             return s;
