@@ -2,6 +2,7 @@
 #include "ui/effect_window.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 
 #include "audio/automation.h"
@@ -56,11 +57,29 @@ void CurveView::paint(Painter& p) {
             p.drawText(PointF(toXY(g.pos, 0).x + 3, (float)h - 4), g.label, font, grid);
         }
     }
+    if (spectrum.size() > 1) {  // (the analyzer: a soft filled shape behind the response)
+        Color shade = theme::c("dimmed_text");
+        std::vector<PointF> outline, fill;
+        for (const auto& pt : spectrum) outline.push_back(toXY(pt.x, std::max(-1.0, std::min(1.0, pt.y))));
+        fill = outline;
+        fill.push_back(PointF(outline.back().x, (float)h));
+        fill.push_back(PointF(outline.front().x, (float)h));
+        p.fillPolygon(fill, shade.withAlpha(60));
+        p.drawPolyline(outline, shade.withAlpha(150), 1, LineCap::Round, LineJoin::Round);
+    }
     if (!points.empty()) {
         std::vector<PointF> line;
         for (const auto& pt : points) line.push_back(toXY(pt.x, std::max(-1.0, std::min(1.0, pt.y))));
         p.drawPolyline(line, theme::c("accent"), 2, LineCap::Round, LineJoin::Round);
     }
+}
+
+void CurveView::refreshSpectrum(double dt) {
+    if (!effect) return;
+    // (a band every 3 pixels or so)
+    int count = std::max(16, std::min(256, width() / 3));
+    if (!effect->analyzer(count, dt, spectrum)) spectrum.clear();
+    update();
 }
 
 // --- the meters ---
@@ -91,6 +110,39 @@ void MeterView::paint(Painter& p) {
     }
 }
 
+// --- the tuner ---
+
+TunerView::TunerView(std::shared_ptr<effects::Effect> e) : MeterView(std::move(e)) { setMinimumHeight(120); }
+
+void TunerView::paint(Painter& p) {
+    int w = width(), h = height();
+    p.fillRect(rect(), theme::c("base"));
+    Color text = theme::c("window_text"), dim = theme::c("dimmed_text"), accent = theme::c("accent");
+    std::string note = values.size() > 0 ? values[0].text : "—";
+    double fraction = values.size() > 1 ? values[1].fraction : 0.5;
+    std::string cents = values.size() > 1 ? values[1].text : "", hz = values.size() > 2 ? values[2].text : "";
+    bool heard = values.size() > 0 && values[0].fraction > 0;
+    bool inTune = heard && std::fabs(fraction - 0.5) * 100 <= 5;
+    Font big = theme::uiFont().withPixelSize(40).withBold(true), small = theme::uiFont();
+    p.drawText(RectF(0, 4, (float)w, 48), AlignCenter, note, big, heard ? (inTune ? theme::c("meter_ok") : text) : dim);
+    // the scale: −50…+50 cents, a tick every 10, the middle longer
+    float left = 24, right = (float)w - 24, y = 66;
+    p.fillRect(RectF(left, y, right - left, 2), theme::c("meter_bg"));
+    for (int c = -50; c <= 50; c += 10) {
+        float x = left + (right - left) * (c + 50) / 100.0f;
+        float tall = c == 0 ? 12 : 6;
+        p.fillRect(RectF(x - 0.5f, y - tall + 1, 1, tall * 2), c == 0 ? text : dim);
+    }
+    p.drawText(RectF(left - 20, y + 8, 40, 14), AlignCenter, "−50", small, dim);
+    p.drawText(RectF(right - 20, y + 8, 40, 14), AlignCenter, "+50", small, dim);
+    if (heard) {
+        float x = left + (right - left) * (float)std::max(0.0, std::min(1.0, fraction));
+        p.fillRoundedRect(RectF(x - 2, y - 14, 4, 30), 2, inTune ? theme::c("meter_ok") : accent);
+    }
+    p.drawText(RectF(0, (float)h - 22, (float)w / 2 - 8, 18), AlignVCenter | AlignRight, cents, small, text);
+    p.drawText(RectF((float)w / 2 + 8, (float)h - 22, (float)w / 2 - 8, 18), AlignVCenter | AlignLeft, hz, small, dim);
+}
+
 // --- the window ---
 
 plat::WindowOptions EffectWindow::options(ui::Window* parent, const std::string& title, bool invisible) {
@@ -118,9 +170,26 @@ EffectWindow::EffectWindow(ui::Window* parent, SlotPtr slot_, const std::string&
     if (effect->hasCurve()) {
         curveView = add<CurveView>(effect);
         col->addWidget(curveView);
+        auto choices = effect->analyzerChoices();
+        if (!choices.empty()) {  // (what the analyzer behind the curve listens to)
+            auto rowOwner = std::make_unique<ui::HBox>();
+            rowOwner->addWidget(add<ui::Label>("Analyzer"));
+            analyzerBox = add<ui::ComboBox>();
+            for (const auto& c : choices) analyzerBox->addItem(c);
+            analyzerBox->setCurrentIndexSilently(effect->analyzerChoice());
+            analyzerBox->setToolTip("The spectrum behind the curve: of the sound going in (Pre), coming out (Post), or none");
+            analyzerBox->currentIndexChanged.connect([this](int k) {
+                if (!effect || !curveView) return;
+                effect->setAnalyzerChoice(k);
+                curveView->refreshSpectrum(0);
+            });
+            rowOwner->addWidget(analyzerBox);
+            rowOwner->addStretch(1);
+            col->addLayout(std::move(rowOwner));
+        }
     }
     if (!effect->meters().empty()) {
-        meterView = add<MeterView>(effect);
+        meterView = effect->id() == "tuner" ? add<TunerView>(effect) : add<MeterView>(effect);
         col->addWidget(meterView);
     }
     auto gridOwner = std::make_unique<ui::GridLayout>();
@@ -216,6 +285,11 @@ void EffectWindow::follow() {
         if (curveView) curveView->refresh();
     }
     if (meterView) meterView->refresh();
+    if (curveView && analyzerBox) {  // (the analyzer: its spectrum again, as it falls back over time)
+        double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        curveView->refreshSpectrum(lastSpectrum_ < 0 ? 0 : std::min(1.0, now - lastSpectrum_));
+        lastSpectrum_ = now;
+    }
 }
 
 Image EffectWindow::snapshot() {

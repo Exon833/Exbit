@@ -9,12 +9,16 @@
 #include <memory>
 #include <new>
 #include <random>
+#include <chrono>
+#include <cstring>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "check.h"
 #pragma GCC diagnostic ignored "-Wmismatched-new-delete"
 #include "core/util.h"
+#include "effects/builtin.h"
 #include "effects/effects.h"
 #include "effects/mix.h"
 #include "gfx/image.h"
@@ -24,8 +28,9 @@
 #include "ui/theme.h"
 
 // --- counting allocations (process() must make none) ---
+// (counted on the thread that asks only: an effect's own worker thread, Space's, may allocate)
 static std::atomic<long> allocations{0};
-static std::atomic<bool> counting{false};
+static thread_local bool counting = false;
 void* operator new(size_t n) {
     if (counting) allocations++;
     void* p = std::malloc(n ? n : 1);
@@ -105,12 +110,14 @@ void set(Effect& fx, const std::string& key, double value) {
 
 void testFactory() {
     const auto& all = list();
-    CHECK(all.size() == 16);
+    CHECK(all.size() == 18);
     std::vector<std::string> names;
     for (const auto& i : all) names.push_back(i.name);
     CHECK((names == std::vector<std::string>{"Bit-crusher", "Chorus", "Compressor", "Delay", "EQ", "Filter Motion",
                                              "Gate", "Limiter", "Multi-band compressor", "Phaser / Flanger", "Reverb",
-                                             "Saturation", "Time FX", "Transient Shaper", "Tremolo / Pan", "Utility"}));
+                                             "Saturation", "Space", "Time FX", "Transient Shaper", "Tremolo / Pan",
+                                             "Tuner", "Utility"}));
+    CHECK(categoryOf("builtin:space") == "Reverb" && categoryOf("builtin:tuner") == "Utility");
     CHECK(find("builtin:multiband_compressor") && find("builtin:multiband_compressor")->category == "Dynamics");
     CHECK(find("eq")->path() == "builtin:eq" && find("eq")->label() == "EQ  (built-in)");
     CHECK(categoryOf("builtin:chorus") == "Modulation" && categoryOf("builtin:x") == "Other");
@@ -1537,6 +1544,362 @@ void testWindows() {
 
 }  // namespace
 
+// --- Space, Tuner, the EQ's analyzer ---
+
+namespace {
+
+std::vector<double> convolve(const std::vector<float>& x, const std::vector<float>& h, size_t n) {
+    std::vector<double> y(n, 0.0);
+    for (size_t t = 0; t < n; t++) {
+        double sum = 0;
+        for (size_t k = 0; k < h.size() && k <= t; k++) sum += (double)h[k] * (t - k < x.size() ? x[t - k] : 0.0f);
+        y[t] = sum;
+    }
+    return y;
+}
+
+// (noiseFor and finite: above)
+
+// Space, wet only, no pre-delay, no cuts: its response exactly
+std::unique_ptr<Effect> plainSpace() {
+    auto fx = create("space");
+    set(*fx, "mix", 100);
+    set(*fx, "width", 100);
+    set(*fx, "predelay", 0);
+    set(*fx, "low_cut", 20);
+    set(*fx, "high_cut", 20000);
+    set(*fx, "length", 100);
+    return fx;
+}
+
+void testSpace() {
+    // a response set directly, long enough for many pieces: what comes out is the input's (mono)
+    // convolution with it, whatever the buffer size, within 1e-4
+    std::mt19937 rng(7);
+    std::uniform_real_distribution<float> u(-1, 1);
+    std::vector<float> irL(3000), irR(3000);
+    for (size_t i = 0; i < irL.size(); i++) {
+        float env = (float)std::exp(-3.0 * i / irL.size());
+        irL[i] = 0.3f * env * u(rng), irR[i] = 0.3f * env * u(rng);
+    }
+    for (int blockSize : {512, 77, 256, 1000}) {
+        auto fx = plainSpace();
+        setSpaceImpulse(*fx, irL, irR);
+        CHECK(spaceImpulse(*fx, 0) == irL && spaceImpulse(*fx, 1) == irR);
+        CHECK(spacePartitions(*fx) == 11);  // ((3000 - 1) / 256)
+        Stereo in = noiseFor(0.25, 0.4, 3);
+        in.l[10] = in.r[10] = 1.0f;  // (an impulse in it too)
+        Stereo out = run(*fx, in, blockSize);
+        std::vector<float> mono(in.size());
+        for (size_t i = 0; i < in.size(); i++) mono[i] = 0.5f * (in.l[i] + in.r[i]);
+        std::vector<double> wantL = convolve(mono, irL, in.size()), wantR = convolve(mono, irR, in.size());
+        double worst = 0;
+        for (size_t i = 0; i < in.size(); i++)
+            worst = std::max({worst, std::fabs(out.l[i] - wantL[i]), std::fabs(out.r[i] - wantR[i])});
+        CHECK(worst < 1e-4);
+        if (worst >= 1e-4) fprintf(stderr, "  space, blocks of %d: off by %g\n", blockSize, worst);
+    }
+    // an impulse in gives the response out (with a pre-delay: the response is later by it)
+    {
+        auto fx = plainSpace();
+        set(*fx, "predelay", 20);
+        setSpaceImpulse(*fx, irL, irR);
+        std::vector<float> ir = spaceImpulse(*fx, 0);
+        CHECK(ir.size() == 960 + irL.size() && ir[959] == 0 && ir[960] == irL[0]);
+        Stereo in((size_t)(0.2 * SR));
+        in.l[0] = in.r[0] = 1.0f;
+        Stereo out = run(*fx, in, 128);
+        double worst = 0;
+        for (size_t i = 0; i < in.size(); i++)
+            worst = std::max(worst, (double)std::fabs(out.l[i] - (i < ir.size() ? ir[i] : 0.0f)));
+        CHECK(worst < 1e-4);
+    }
+    // the rooms: made the same way every time, finite, as loud as what goes in (energy 1), the two
+    // sides different (a wide room), and an impulse in gives the room's response out
+    for (int room = 0; room < 6; room++) {
+        auto a = plainSpace(), b = plainSpace();
+        set(*a, "room", room);
+        set(*b, "room", room);
+        CHECK(spaceSettle(*a) && spaceSettle(*b));
+        std::vector<float> l = spaceImpulse(*a, 0), r = spaceImpulse(*a, 1);
+        CHECK(l == spaceImpulse(*b, 0) && r == spaceImpulse(*b, 1) && l.size() == r.size() && l.size() > 4800);
+        double el = 0, er = 0, lr = 0;
+        bool ok = true;
+        for (size_t i = 0; i < l.size(); i++) {
+            ok = ok && std::isfinite(l[i]) && std::isfinite(r[i]);
+            el += (double)l[i] * l[i], er += (double)r[i] * r[i], lr += (double)l[i] * r[i];
+        }
+        CHECK(ok);
+        CHECK_NEAR((el + er) / 2, 1.0, 0.15);  // (the 30 Hz high-pass takes a little)
+        CHECK(std::fabs(lr / std::sqrt(el * er)) < 0.3);
+        a->reset();
+        Stereo in((size_t)(0.5 * SR));
+        in.l[0] = in.r[0] = 1.0f;
+        Stereo out = run(*a, in, 300);
+        double worst = 0;
+        for (size_t i = 0; i < in.size(); i++)
+            worst = std::max({worst, (double)std::fabs(out.l[i] - (i < l.size() ? l[i] : 0.0f)),
+                              (double)std::fabs(out.r[i] - (i < r.size() ? r[i] : 0.0f))});
+        CHECK(worst < 1e-4);
+        if (worst >= 1e-4) fprintf(stderr, "  space room %d: off by %g\n", room, worst);
+    }
+    // length: the hall at 50 % is about half as long
+    {
+        auto fx = plainSpace();
+        size_t full = spaceImpulse(*fx, 0).size();
+        set(*fx, "length", 50);
+        CHECK(spaceSettle(*fx));
+        size_t half = spaceImpulse(*fx, 0).size();
+        CHECK(half < full * 0.6 && half > full * 0.4);
+    }
+    // silence in: silence out, and it sleeps (after its response has died away)
+    {
+        auto fx = create("space");
+        Stereo out = run(*fx, Stereo((size_t)(4 * SR)));
+        CHECK(peak(out.l, 0, out.size()) == 0 && peak(out.r, 0, out.size()) == 0);
+        CHECK(fx->asleep());
+        // sound, then silence: the reverb rings on (it doesn't sleep while it does), then sleeps
+        Stereo in = noiseFor(0.3, 0.5, 5);
+        in.l.resize((size_t)(8 * SR), 0.0f);
+        in.r.resize(in.l.size(), 0.0f);
+        set(*fx, "mix", 100);
+        out = run(*fx, in);
+        CHECK(rms(out.l, (size_t)(0.5 * SR), (size_t)(0.7 * SR)) > 1e-3);  // (the hall's tail)
+        CHECK(peak(out.l, (size_t)(7 * SR), out.size()) == 0 && fx->asleep());
+    }
+    // changing the room while it plays: no allocation on the audio thread, never anything but
+    // finite sound, and once the new response is built, it plays it
+    {
+        auto fx = plainSpace();
+        set(*fx, "mix", 50);
+        Stereo in = noiseFor(0.05, 0.5, 9);
+        allocations = 0;
+        bool ok = true;
+        for (int step = 0; step < 40; step++) {
+            set(*fx, "room", step % 6);
+            if (step % 3 == 0) set(*fx, "predelay", step * 2.0);
+            if (step % 10 == 0) std::this_thread::sleep_for(std::chrono::milliseconds(40));  // (some built meanwhile)
+            countProcess = true;
+            Stereo out = run(*fx, in, 256);
+            countProcess = false;
+            ok = ok && finite(out) && peak(out.l, 0, out.size()) < 50;
+        }
+        CHECK(ok);
+        CHECK(allocations == 0);
+        set(*fx, "room", 5);
+        set(*fx, "predelay", 0);
+        CHECK(spaceSettle(*fx));
+        Stereo more = noiseFor(0.5, 0.5, 10);
+        countProcess = true;
+        run(*fx, more, 256);  // (the new one taken, faded to)
+        countProcess = false;
+        CHECK(allocations == 0);
+        set(*fx, "mix", 100);
+        fx->reset();
+        Stereo click((size_t)(0.3 * SR));
+        click.l[0] = click.r[0] = 1.0f;
+        Stereo out = run(*fx, click, 256);
+        std::vector<float> ir = spaceImpulse(*fx, 0);
+        double worst = 0;
+        for (size_t i = 0; i < click.size(); i++) worst = std::max(worst, (double)std::fabs(out.l[i] - ir[i]));
+        CHECK(worst < 1e-4);
+    }
+    // its state: the values, and the same response from them (built on loading, before it plays)
+    {
+        auto fx = create("space");
+        set(*fx, "room", 3);
+        set(*fx, "length", 140);
+        set(*fx, "predelay", 35);
+        set(*fx, "low_cut", 300);
+        set(*fx, "high_cut", 6000);
+        set(*fx, "width", 60);
+        CHECK(spaceSettle(*fx));
+        std::string state = fx->componentState();
+        CHECK(state.find("\"room\": 3.0") != std::string::npos && state.find("\"predelay\": 35.0") != std::string::npos);
+        auto again = create("space");
+        again->setState(state, "");
+        for (uint32_t i = 0; i < fx->params().size(); i++) CHECK_NEAR(again->getParam(i), fx->getParam(i), 1e-12);
+        std::vector<float> ir = spaceImpulse(*again, 0);
+        CHECK(ir == spaceImpulse(*fx, 0));
+        size_t pre = (size_t)std::lround(0.035 * SR);
+        CHECK(ir.size() > pre + 200 && peak(ir, 0, pre) == 0 && peak(ir, pre, pre + 200) > 0);  // (the plate: no gap of its own)
+    }
+    // what it costs: a 3 s response at 48 kHz, 256-frame buffers
+    {
+        auto fx = plainSpace();
+        set(*fx, "length", 130);  // (the hall's 2.3 s × 1.3)
+        CHECK(spaceSettle(*fx));
+        double seconds = spaceImpulse(*fx, 0).size() / SR;
+        CHECK(seconds > 2.9 && seconds < 3.2);
+        Stereo in = noiseFor(10, 0.3, 11);
+        auto t0 = std::chrono::steady_clock::now();
+        run(*fx, in, 256);
+        double spent = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        double perBlock = spent / (in.size() / 256.0);
+        printf("Space: %.2f s response, %d pieces: %.1f us per 256-frame block, %.2f %% of real time\n", seconds,
+               spacePartitions(*fx), perBlock * 1e6, 100 * spent / 10);
+#ifdef NDEBUG
+        CHECK(spent / 10 < 0.25);  // (optimized: well under a quarter of one core)
+#endif
+        // and making a response (on loading a project: the thread loading it waits for it)
+        auto cathedral = create("space");
+        t0 = std::chrono::steady_clock::now();
+        cathedral->setState("{\"room\": 5.0}", "");
+        spent = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        printf("Space: the cathedral (%.2f s) made in %.1f ms\n", spaceImpulse(*cathedral, 0).size() / SR, spent * 1e3);
+        CHECK(cathedral->value("room") == 5);
+    }
+}
+
+void testTuner() {
+    // the sound passes untouched
+    auto fx = create("tuner");
+    Stereo in = noiseFor(0.3, 0.7, 12);
+    Stereo out = run(*fx, in, 100);
+    CHECK(std::memcmp(out.l.data(), in.l.data(), in.size() * sizeof(float)) == 0);
+    CHECK(std::memcmp(out.r.data(), in.r.data(), in.size() * sizeof(float)) == 0);
+    // nothing was copied while no one looked: nothing to show
+    auto m = fx->meters();
+    CHECK(m.size() == 3 && m[0].text == "—");
+    // sines found within 2 cents, named
+    for (double f : {110.0, 440.0, 1000.0}) {
+        auto t = create("tuner");
+        t->meters();  // (its window opens)
+        run(*t, sine(f, 0.5, 0.3), 256);
+        auto ms = t->meters();
+        double hz = std::atof(ms[2].text.c_str());
+        CHECK(hz > 0 && std::fabs(1200 * std::log2(hz / f)) < 2);
+        double cents = (ms[1].fraction - 0.5) * 100;
+        TunerReading want = tunerReading(f);
+        CHECK(ms[0].text == want.note && std::fabs(cents - want.cents) < 2);
+        if (f == 440) CHECK(ms[0].text == "A4" && std::fabs(cents) < 2);
+        if (f == 110) CHECK(ms[0].text == "A2");
+        if (f == 1000) CHECK(ms[0].text == "B5" && std::fabs(cents - 21.5) < 2);
+        if (hz <= 0 || std::fabs(1200 * std::log2(hz / f)) >= 2) fprintf(stderr, "  tuner: %g Hz read %g\n", f, hz);
+    }
+    // the reference pitch moves the notes: at A = 415, 440 Hz is an A# (one cent sharp)
+    TunerReading r = tunerReading(440, 415);
+    CHECK(r.note == "A#4" && std::fabs(r.cents - 1.26) < 0.1);
+    TunerReading sharp = tunerReading(440 * std::pow(2, 3 / 1200.0));
+    CHECK(sharp.note == "A4" && std::fabs(sharp.cents - 3) < 1e-9);
+    CHECK(tunerReading(0).hz == 0 && tunerReading(0).note.empty());
+    auto t = create("tuner");
+    set(*t, "reference", 415);
+    t->meters();
+    run(*t, sine(440, 0.5, 0.2), 256);
+    CHECK(t->meters()[0].text == "A#4");
+    // silence: nothing shown (once the note has been held its while)
+    run(*t, Stereo((size_t)(0.2 * SR)), 256);
+    std::this_thread::sleep_for(std::chrono::milliseconds(700));
+    run(*t, Stereo((size_t)(0.2 * SR)), 256);
+    CHECK(t->meters()[0].text == "—");
+}
+
+// the analyzer's loudest band: its x (and level, y)
+double analyzerPeak(Effect& fx, double& level) {
+    std::vector<CurvePoint> pts;
+    fx.analyzer(120, 0, pts);
+    size_t best = 0;
+    for (size_t i = 0; i < pts.size(); i++)
+        if (pts[i].y > pts[best].y) best = i;
+    level = pts.empty() ? -1 : pts[best].y;
+    return pts.empty() ? -1.0 : pts[best].x;
+}
+
+void testEqAnalyzer() {
+    auto eq = create("eq");
+    CHECK((eq->analyzerChoices() == std::vector<std::string>{"Off", "Pre", "Post"}) && eq->analyzerChoice() == 2);
+    // no window asked: nothing copied, nothing to see (every band on the floor)
+    run(*eq, sine(1000, 0.5, 0.3));
+    std::vector<CurvePoint> points;
+    CHECK(eq->analyzer(120, 0, points) && points.size() == 120);
+    bool floor = true;
+    for (const auto& p : points) floor = floor && p.y < -0.999;
+    CHECK(floor);
+    // asked: a sine shows its peak at its band, at its level (-6 dB, less the 4.5 dB/octave tilt)
+    for (double f : {100.0, 1000.0, 5000.0}) {
+        auto fx = create("eq");
+        double level;
+        analyzerPeak(*fx, level);  // (the window opens)
+        run(*fx, sine(f, 0.5, 0.2));
+        double x = analyzerPeak(*fx, level);
+        CHECK(std::fabs(x - eqX(f)) <= 1.0 / 120);
+        double db = -90 + (level + 1) / 2 * 102 - 4.5 * std::log2(f / 1000);
+        CHECK_NEAR(db, -6.0, 1.0);
+    }
+    // pre and post: the EQ's cut shows in post only
+    for (int choice : {1, 2}) {
+        auto fx = create("eq");
+        set(*fx, "mid_freq", 1000);
+        set(*fx, "mid_gain", -18);
+        fx->setAnalyzerChoice(choice);
+        double level;
+        analyzerPeak(*fx, level);
+        run(*fx, sine(1000, 0.5, 0.2));
+        analyzerPeak(*fx, level);
+        double db = -90 + (level + 1) / 2 * 102;
+        CHECK_NEAR(db, choice == 1 ? -6.0 : -24.0, 1.5);
+    }
+    // off: nothing
+    eq->setAnalyzerChoice(0);
+    CHECK(!eq->analyzer(120, 0, points) && points.empty());
+    // the effects without one
+    CHECK(create("compressor")->analyzerChoices().empty());
+}
+
+std::unique_ptr<EffectWindow> windowOn(std::shared_ptr<Effect> fx, const std::string& name) {
+    auto slot = std::make_shared<PluginSlot>();
+    slot->path = "builtin:" + fx->id();
+    slot->name = name;
+    slot->kind = "effect";
+    slot->instance = fx;
+    return std::make_unique<EffectWindow>(nullptr, slot, name + " — Bass");
+}
+
+void testNewWindows() {
+    ui::App::get().initHeadless();
+    // the EQ's analyzer behind its curve, with its list
+    std::shared_ptr<Effect> eq(create("eq").release());
+    set(*eq, "mid_gain", 6);
+    set(*eq, "mid_freq", 800);
+    set(*eq, "low_cut", 60);
+    auto w = windowOn(eq, "EQ");
+    CHECK(w->attach() && w->analyzerBox && w->analyzerBox->count() == 3 && w->analyzerBox->currentIndex() == 2);
+    w->follow();  // (it asks: the audio thread copies from now on)
+    Stereo pinkish = noiseFor(0.3, 0.6, 13);
+    for (size_t i = 1; i < pinkish.size(); i++) {  // (a gentle low-pass: more lows than highs)
+        pinkish.l[i] = 0.9f * pinkish.l[i - 1] + 0.1f * pinkish.l[i];
+        pinkish.r[i] = 0.9f * pinkish.r[i - 1] + 0.1f * pinkish.r[i];
+    }
+    run(*eq, pinkish);
+    w->follow();
+    CHECK(w->curveView && w->curveView->spectrum.size() > 16);
+    saveWindow(*w, "eq-analyzer.png");
+    w->analyzerBox->setCurrentIndex(0);
+    CHECK(eq->analyzerChoice() == 0 && w->curveView->spectrum.empty());
+    w->deleteOnClose = false;
+    w->close();
+    // the tuner, drawn as one
+    std::shared_ptr<Effect> tuner(create("tuner").release());
+    auto tw = windowOn(tuner, "Tuner");
+    CHECK(tw->attach() && dynamic_cast<TunerView*>(tw->meterView) != nullptr);
+    run(*tuner, sine(445, 0.5, 0.2), 256);
+    tw->follow();
+    CHECK(tw->meterView->values.size() == 3 && tw->meterView->values[0].text == "A4");
+    saveWindow(*tw, "tuner-a4.png");
+    tw->deleteOnClose = false;
+    tw->close();
+    // Space: its settings (the room a list)
+    std::shared_ptr<Effect> space(create("space").release());
+    auto sw = windowOn(space, "Space");
+    CHECK(sw->attach() && sw->controls.size() == 7 && !sw->curveView && !sw->meterView && !sw->analyzerBox);
+    CHECK(dynamic_cast<ui::ComboBox*>(sw->controls[0].widget) != nullptr);
+    sw->deleteOnClose = false;
+    sw->close();
+}
+
+}  // namespace
+
 int main() {
     testFactory();
     testParams();
@@ -1561,5 +1924,9 @@ int main() {
     testNoAllocation();
     testMix();
     testWindows();
+    testSpace();
+    testTuner();
+    testEqAnalyzer();
+    testNewWindows();
     TEST_MAIN_END();
 }
