@@ -20,8 +20,8 @@ extends; that program is in the repository's history.
   pitch, with gain and fades; takes with comping; markers, tempo and time-signature changes,
   insert/delete time, a fixed or zoom-following grid; undo and redo of everything.
 - **MIDI**: a piano roll with ghost notes of other clips, the song's key and scale, chord stamp,
-  quantize, box select; the built-in synth and sampler; MIDI effects (arpeggiator, chord, scale,
-  note length, velocity, random, pitch); a MIDI keyboard (with sustain pedal) or the computer
+  quantize, box select; linked clips (edit one, every linked copy changes); the built-in synth and
+  sampler; MIDI effects (arpeggiator, chord, scale, note length, velocity, random, pitch, groove); a MIDI keyboard (with sustain pedal) or the computer
   keyboard; MIDI recording, Capture of what you just played, MIDI file import and export.
 - **Modulators**: an LFO, Random, a Level Follower and a Macro knob, placed in the effects window like
   effects, that move any knob of the track's effects or instrument (see below).
@@ -94,6 +94,25 @@ saturation, bit-crusher and utility:
   A (415–466 Hz); the sound passes untouched.
 - The **EQ** window shows a live spectrum of the sound behind its curve (Off, before or after the
   EQ), worked out only while the window is open.
+
+## Linked clips and Groove
+
+**Linked clips**: Ctrl+Alt-drag a MIDI clip (or right-click it → **Duplicate as linked**) to make a
+copy that shares its notes: editing the notes of any of them (in the MIDI editor, quantize, switching
+notes off), its loop length or its loop switch changes every linked copy at once. Each copy keeps its
+own place, track, name, colour and trim. A chain mark on the clip's name strip shows it is linked
+(its tooltip says with how many). Right-click → **Make unique** makes a copy independent again,
+keeping its notes. A plain copy (Ctrl-drag, Ctrl+D) stays independent as before; pasted clips are
+independent too, unless they were copied together with their partners (then they are linked among
+themselves). Splitting a clip (S) or joining clips makes the pieces unique. Links are saved with the
+project.
+
+**Groove** (a MIDI effect: right-click a MIDI track → MIDI effects…): swings the notes on the
+off-beats of a grid (1/8, 1/16 or 1/32) later, from straight (50 %) to a heavy shuffle (75 %), on the
+song's tempo map; notes between grid lines move in proportion and keep their lengths. Accent makes the
+swung notes louder or softer; Humanize moves each note by a little random time (± ms) and velocity,
+the same every time the song plays or renders (from a Seed). It changes clips' notes, not notes
+played live (as the arpeggiator).
 
 ## Modulators
 
