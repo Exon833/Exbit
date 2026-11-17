@@ -356,7 +356,7 @@ void MainWindow::buildLayout() {
     std::unique_ptr<ui::Widget> lane = timeline->takeMasterView();
     masterPins.push_back(std::make_unique<PinToBottom>(std::move(lane), scroll->viewport(), lanes::masterHeight()));
     masterPins.push_back(std::make_unique<PinToBottom>(master->releaseFrame(), panelScroll->viewport(),
-                                                       lanes::masterHeight(), theme::SCROLLBAR_W));
+                                                       lanes::masterHeight(), theme::metric("scrollbar-width", theme::SCROLLBAR_W)));
     ui::ScrollBar* timelineBar = scroll->verticalScrollBar();
     ui::ScrollBar* panelBar = panelScroll->verticalScrollBar();
     timelineBar->valueChanged.connect([panelBar](int v) { panelBar->setValue(v); });
