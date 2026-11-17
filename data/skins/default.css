@@ -150,6 +150,92 @@ Button::separator { background-color: var(--line); }
 /* ======================================== Fields and values ========================================
    LineEdit, SpinBox, ComboBox, Slider */
 
+/* Text fields. Their padding is the room around the text (and their size; the text is centred in the height).
+   :frameless is a field inside a SpinBox or a ComboBox (theirs is the edge); :clear-hover is the clear button
+   under the mouse; :read-only. ::selection is a box behind the selected text (its padding reaches past the text),
+   ::cursor the caret, ::clear-button the × of search fields (icon-size: the cross; margin-left: the room before it). */
+LineEdit {
+    background-color: var(--base);
+    color: var(--text);
+    border: 1px solid var(--field-edge);
+    border-radius: 3px;
+    padding: 3px 5px;
+}
+LineEdit:frameless { background-color: transparent; border-width: 0; padding: 4px 5px; }
+LineEdit:hover { border-color: var(--field-hover); }
+LineEdit:focus { border-color: var(--accent); }
+LineEdit:disabled { border-color: var(--field-edge); color: var(--disabled-text); }
+LineEdit::placeholder { color: color-mix(in srgb, var(--text) 50%, transparent); }
+LineEdit::selection { background-color: var(--highlight); color: var(--highlighted-text); padding: 1px 0; }
+LineEdit::cursor { background-color: currentColor; width: 1px; }
+LineEdit::clear-button {
+    color: var(--hint-text);
+    width: 16px;
+    margin: 0 2px 0 1px;
+    icon-size: 7px;
+    stroke-width: 1.5px;
+}
+LineEdit:clear-hover::clear-button { color: var(--text); }
+
+/* Number fields. The padding gives the size around the widest number (the field inside is a LineEdit:frameless).
+   :focus is its field's. ::up-button and ::down-button: the ▴▾ column (its width), each a box over the inside of the
+   border (its corners: border-radius) clipped to the button; :up-hover / :down-hover, :up-pressed / :down-pressed;
+   :at-maximum / :at-minimum: the value at that end (not wrapping), that button off. */
+SpinBox {
+    background-color: var(--base);
+    color: var(--text);
+    border: 1px solid var(--field-edge);
+    border-radius: 3px;
+    padding: 3px 7px;
+}
+SpinBox:hover { border-color: var(--field-hover); }
+SpinBox:focus { border-color: var(--accent); }
+SpinBox:disabled { border-color: var(--field-edge); }
+SpinBox::up-button, SpinBox::down-button {
+    background-color: transparent;
+    width: 16px;
+    border-radius: 2px;
+    icon-size: 8px;
+    stroke-width: 1.2px;
+}
+SpinBox:up-hover::up-button, SpinBox:down-hover::down-button { background-color: var(--item-hover); }
+SpinBox:at-maximum::up-button, SpinBox:at-minimum::down-button,
+SpinBox:disabled::up-button, SpinBox:disabled::down-button { background-color: transparent; color: transparent; }
+
+/* Drop-down lists. The text starts at the padding's left (the padding gives the size); ::arrow is the box at the
+   right (its width, over the border), the ▾ at its padding-left. :open while its list is open; :editable. */
+ComboBox {
+    background-color: var(--base);
+    color: var(--text);
+    border: 1px solid var(--field-edge);
+    border-radius: 3px;
+    padding: 3px 7px 3px 5px;
+}
+ComboBox:hover { border-color: var(--field-hover); }
+ComboBox:focus, ComboBox:open { border-color: var(--accent); }
+ComboBox:disabled { border-color: var(--field-edge); color: var(--disabled-text); }
+ComboBox::arrow {
+    background-color: transparent;
+    width: 18px;
+    padding-left: 3px;
+    icon-size: 10px;
+    stroke-width: 1.5px;
+}
+
+/* A drop-down's list. ::item is a row (:hover and :selected the highlighted one, :disabled); ::separator a row of
+   its height with a line stroke-width thick across the middle, inside its margin. */
+ComboPopup {
+    background-color: var(--base);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 0;
+    padding: 2px;
+}
+ComboPopup::item { background-color: transparent; color: var(--text); padding: 3px 6px; }
+ComboPopup::item:selected { background-color: var(--highlight); color: var(--highlighted-text); }
+ComboPopup::item:disabled { color: var(--disabled-text); }
+ComboPopup::separator { background-color: var(--line); height: 7px; margin: 0 4px; stroke-width: 1px; }
+
 /* (end of Fields and values) */
 
 
