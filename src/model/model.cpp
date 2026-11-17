@@ -375,6 +375,7 @@ void Project::clear() {
     tracksMade = {{"audio", 0}, {"midi", 0}, {"return", 0}, {"group", 0}};
     timing = Timing();
     markers = std::vector<Marker>{};
+    midiLinks.clear();
 }
 
 void Project::forgetGoneTracks() {

@@ -232,6 +232,7 @@ EffectWindow::EffectWindow(ui::Window* parent, SlotPtr slot_, const std::string&
     }
     col->addLayout(std::move(gridOwner));
     auto rowOwner = std::make_unique<ui::HBox>();
+    addPresetsButton(rowOwner.get());  // (presets and compare: effect_window_presets.cpp)
     rowOwner->addStretch(1);
     defaultsButton = add<ui::Button>("Defaults");
     defaultsButton->setToolTip("Every setting back to its default");
@@ -294,6 +295,7 @@ void EffectWindow::follow() {
         curveView->refreshSpectrum(lastSpectrum_ < 0 ? 0 : std::min(1.0, now - lastSpectrum_));
         lastSpectrum_ = now;
     }
+    showDifferences();  // (compare: the knobs that differ from the kept settings; effect_window_presets.cpp)
 }
 
 Image EffectWindow::snapshot() {

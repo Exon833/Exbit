@@ -415,11 +415,11 @@ void testDialogs() {
     {
         ui::Menu menu;
         fx->fillUnitMenu(menu, 1);
-        CHECK(menu.actions().size() == 6);
+        CHECK(menu.actions().size() == 7 && menu.actions()[3]->text == "Presets" && menu.actions()[3]->submenu);
         CHECK(menu.actions()[0]->text == "Open its window" && !menu.actions()[0]->enabled);  // (not loaded)
         CHECK(menu.actions()[1]->text == "Bypass" && menu.actions()[1]->checkable);
-        CHECK(menu.actions()[4]->text == "Unplug its cables" && menu.actions()[4]->enabled);
-        menu.actions()[4]->triggered();
+        CHECK(menu.actions()[5]->text == "Unplug its cables" && menu.actions()[5]->enabled);
+        menu.actions()[5]->triggered();
         for (auto& c : bass->cables) CHECK(!plugin_dialog::touches(c, comp.get()));
     }
     fx->toggleBypass(0);

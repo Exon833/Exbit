@@ -71,6 +71,7 @@ void MidiInput::handle(const midi_in::Event& e) {
     // every controller's latest value, for the MIDI Control modulator and links to a controller (midi_cc.h)
     if (e.type == midi_in::Event::Control) midi_cc::control(e.data1, e.data2);
     if (e.type == midi_in::Event::PitchBend) midi_cc::pitchBend(e.bend);
+    if (e.type == midi_in::Event::Control && controlHook && controlHook(e)) return;  // (MIDI learn's: midi_learn.h)
     out_.clear();
     sustain.handle(e, out_);
     std::vector<midi_in::Event> played = out_;  // (play() may be re-entered by the recorder)

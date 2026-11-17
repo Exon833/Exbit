@@ -8,6 +8,7 @@
 #include "audio/automation_write.h"
 #include "core/util.h"
 #include "model/edits.h"
+#include "model/presets.h"
 #include "ui/master_lane.h"
 #include "ui/timeline.h"
 #include "ui/toolkit/menu.h"
@@ -824,6 +825,10 @@ void Timeline::dropPaths(const std::vector<std::string>& paths, int64_t frame, c
     int i = 0;
     for (auto& path : paths) {
         if (path.empty() || util::isDir(path)) continue;
+        if (dropPreset && presets::isTrackPresetFile(path)) {  // a track preset: onto that track (none: a new one)
+            dropPreset(path, lane && !lane->isMaster() && !lane->group ? track : nullptr);
+            continue;
+        }
         ClipPtr clip = loadClip(path);
         if (clip) {
             TrackPtr target = row + i < (int)tracks.size() ? tracks[row + i] : nullptr;

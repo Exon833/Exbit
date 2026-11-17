@@ -10,6 +10,7 @@
 
 #include "audio/file_io.h"
 #include "core/util.h"
+#include "model/presets.h"
 #include "ui/theme.h"
 #include "ui/toolkit/dialogs.h"
 #include "ui/toolkit/layout.h"
@@ -251,7 +252,10 @@ void FileView::fill(Item* item) {
     std::stable_partition(entries.begin(), entries.end(), [](const util::DirEntry& e) { return e.isDir; });  // folders first
     for (auto& e : entries) {
         if (!e.name.empty() && e.name[0] == '.') continue;  // (hidden)
-        if (!e.isDir && !file_io::isSample(e.name)) continue;  // only audio and MIDI files
+        // only audio and MIDI files (and track presets, in the presets' place: presets.h)
+        bool presetPlace = util::startsWith(item->path, presets::tracksFolder());
+        if (!e.isDir && !file_io::isSample(e.name) && !(presetPlace && util::extension(e.name) == ".json")) continue;
+        if (e.isDir && presetPlace && util::endsWith(e.name, "_audio")) continue;  // (a preset's sample)
         auto child = std::make_unique<Item>();
         child->path = util::joinPath(item->path, e.name);
         child->name = e.name;
@@ -759,9 +763,13 @@ void Explorer::fillFolderBox(const std::string& current) {
         folderBox->addItem(name.empty() ? folder : name, folder);
     }
     if (folders.empty()) folderBox->addItem("No folders yet: add one with +");
+    // the track presets (presets.h): drag one onto a track, or double-click it for the selected track
+    std::string presetPlace = presets::tracksFolder();  // (made when the first one is saved)
+    folderBox->addItem("Presets (track presets)", presetPlace);
     int at = 0;
     for (size_t i = 0; i < folders.size(); ++i)
         if (folders[i] == current) at = (int)i;
+    if (!current.empty() && current == presetPlace) at = folderBox->count() - 1;
     folderBox->setCurrentIndexSilently(at);
     filling_ = false;
     removeButton->setEnabled(!folders.empty());
@@ -942,5 +950,13 @@ void Explorer::stopPreview() {
 }
 
 void Explorer::openPath(const std::string& path) {
+    if (openPreset && presets::isTrackPresetFile(path)) {  // (a track preset: onto the selected track)
+        openPreset(path);
+        return;
+    }
     if (!path.empty() && file_io::isSample(path) && util::fileExists(path) && !util::isDir(path) && addFile) addFile(path);
+}
+
+void Explorer::presetsChanged() {
+    if (!tree->rootPath().empty() && util::startsWith(tree->rootPath(), presets::tracksFolder())) tree->reload();
 }

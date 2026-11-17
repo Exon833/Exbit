@@ -666,6 +666,7 @@ void LanePanel::fillTrackMenu(ui::Menu& menu, const TrackPtr& track) {
         menu.addAction(track->showTakes ? "Hide takes" : "Show takes (" + std::to_string(track->takes.size()) + ")",
                        guard([this, track] { toggleTakes(track); }));
     }
+    if (fillPresetMenu) fillPresetMenu(menu, track);  // (track presets, MIDI controller links: presets_ui.h)
     if (track->kind == Kind::Return) return;  // (no groups, freezing or bouncing for returns)
     menu.addSeparator();
     menu.addAction("Group tracks…", guard([this, track] { groupWith(track); }));

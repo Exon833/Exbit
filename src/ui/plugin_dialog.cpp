@@ -19,7 +19,9 @@
 #include "effects/effects.h"
 #include "plugins/library.h"
 #include "ui/automation_dialog.h"
+#include "ui/midi_learn.h"
 #include "ui/plugin_chooser.h"
+#include "ui/presets_ui.h"
 #include "ui/plugin_host.h"
 #include "ui/plugin_pictures.h"
 #include "ui/theme.h"
@@ -642,6 +644,17 @@ void PluginsDialog::fillUnitMenu(ui::Menu& menu, int row) {
     menu.addAction("Take a new picture", [this, slot, alive] {
             if (host.photograph(slot) && *alive) raiseWindow();
         })->setEnabled(plugin_audio::usable(slot));
+    // its presets and compare, and MIDI learn (presets_ui.h, midi_learn.h): for plugins too, whose own
+    // window is all the plugin's
+    presets_ui::fillEffectMenu(*menu.addMenu("Presets"), this, slot);
+    if (midi_learn::active()) {
+        TrackPtr track = owner;
+        ui::Action* link = menu.addAction("Link a knob to a MIDI controller\xe2\x80\xa6", [this, track, slot] {
+            midi_learn::chooseAndLearn(this, track, slot);
+        });
+        link->tooltip = "Choose one of its parameters, then turn a knob on your MIDI controller to move it";
+        link->setEnabled(plugin_audio::usable(slot));
+    }
     menu.addSeparator();
     bool any = false;
     for (auto& c : cables())
