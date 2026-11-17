@@ -109,6 +109,13 @@ $(BUILD)/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
+# the program's own stylesheet, built in (ui/theme.cpp: used where data/skins/default.css can't be read)
+$(BUILD)/gen/default_css.inc: data/skins/default.css
+	@mkdir -p $(dir $@)
+	{ printf 'R"tinydawcss('; cat $<; printf ')tinydawcss"\n'; } > $@
+$(BUILD)/src/ui/theme.o: $(BUILD)/gen/default_css.inc
+$(BUILD)/src/ui/theme.o: CXXFLAGS += -I$(BUILD)/gen
+
 $(BUILD)/tests/%: tests/%.cpp $(LIB_OBJS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(LDOPT) -o $@ $< $(LIB_OBJS) $(LDLIBS)

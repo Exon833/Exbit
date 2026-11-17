@@ -1218,6 +1218,64 @@ static void gallery() {
     w.hideWindow();
 }
 
+// Stylesheets style the controls: a skin's rules over default.css change sizes, colours and corners; widgets
+// are matched by type (and the types they count as), #objectName, classes from properties, and states
+static void testStylesheets() {
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(300, 60);
+    auto* push = w.add<Button>("Push me");
+    push->objectName = "big";
+    auto* m = w.add<Button>("M");
+    m->setStyle(Button::Style::Tool);
+    m->setCheckable(true);
+    m->setProperty("toggle", "mute");
+    m->setChecked(true);
+    auto* lit = w.add<Button>("Lit");
+    lit->setStyle(Button::Style::Tool);
+    lit->setProperty("lit", "true");
+    // what the stylesheets see
+    CHECK(push->type() == "PushButton" && push->isType("Button") && push->isType("Widget") && !push->isType("ToolButton"));
+    CHECK(m->type() == "ToolButton" && !m->isType("PushButton"));
+    CHECK(m->hasClass("toggle") && m->hasClass("toggle-mute") && !m->hasClass("toggle-solo") && !m->hasClass("lit"));
+    CHECK(lit->hasClass("lit") && m->hasState("checked") && m->hasState("toggled") && m->hasState("lit"));
+    CHECK(push->id() == "big" && push->parent() == &w && !push->hasState("checked"));
+    push->setProperty("lit", "false");  // ("false": no class)
+    CHECK(!push->hasClass("lit"));
+    push->addStyleClass("extra");
+    CHECK(push->hasClass("extra"));
+    push->removeStyleClass("extra");
+    CHECK(!push->hasClass("extra"));
+
+    Point before = push->sizeHint();
+    std::vector<css::Problem> problems;
+    css::SheetPtr extra = css::parse(
+        ":root { --button: #203040; }\n"
+        "PushButton { padding: 6px 20px; }\n"
+        "#big { border-radius: 0; }\n"
+        ".toggle-mute { --toggle-color: #00ff00; }\n"
+        "Button.lit { background-color: rgb(10 20 30); color: white; }\n",
+        "test.css", problems);
+    CHECK(problems.empty());
+    theme::setStyles({theme::builtinSheet(), extra});
+    Point after = push->sizeHint();
+    CHECK(after.x == before.x + 16 && after.y == before.y + 4);
+    push->setGeometry(10, 10, after.x, after.y);
+    m->setGeometry(140, 10, 26, 22);
+    lit->setGeometry(180, 10, 40, 22);
+    w.showWindow();
+    App::get().tick();
+    const Image& fb = w.framebuffer();
+    CHECK(fb.colorAt(10, 10) == Color::fromHex("#203040"));  // (square: the corner pixel is the fill)
+    CHECK(fb.colorAt(145, 14) == Color::fromHex("#00ff00"));
+    CHECK(fb.colorAt(183, 13) == Color(10, 20, 30));
+    CHECK(lit->textColor() == Color(255, 255, 255));
+    // back to the default: the button's colour and size are default.css's again (its style isn't kept)
+    theme::setSkin();
+    CHECK(push->sizeHint().x == before.x && push->sizeHint().y == before.y);
+    CHECK(push->fillColor() == theme::c("button"));
+    w.hideWindow();
+}
+
 int main() {
     App::get().initHeadless();
     util::makeDirs("build/toolkit-samples");
@@ -1225,6 +1283,7 @@ int main() {
     testSignalsAndKeys();
     testLayouts();
     testPaintingColours();
+    testStylesheets();
     testButtonsAndClicks();
     testLineEdit();
     testSpinBox();

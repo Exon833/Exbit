@@ -25,6 +25,12 @@
 // - deleteLater() deletes after the event being handled, at the loop level it was asked at (a
 //   nested loop — Dialog::exec, Menu::exec — doesn't delete what its caller still runs in). Deleted
 //   widgets are forgotten everywhere (hover, grab, focus, tooltips, drags, shortcuts, popups).
+// - Styles (stylesheets: core/css.h, ui/skin.h, docs/skins.md): every widget is a node the skin's
+//   stylesheets match. Its type is the class's style type (Button, Slider…; also the types it counts as,
+//   setStyleType), its id its objectName, its classes its properties (setProperty("toggle", "mute"):
+//   .toggle and .toggle-mute; "false", "0" or "" set none) and addStyleClass; its states :hover :pressed
+//   :disabled :focus and whatever styleStates() adds (:checked…). computedStyle(part) is what applies to it now,
+//   kept until the skin, its states, its classes or an ancestor's style change.
 // - Layouts are redone lazily: updateGeometry() (called by setText, setVisible, size changes…)
 //   marks the parents' layouts dirty and they run before the next frame is painted (or at once with
 //   App::doLayouts() / relayout()).
@@ -35,6 +41,7 @@
 #include <string>
 #include <vector>
 
+#include "core/css.h"
 #include "gfx/font.h"
 #include "gfx/geom.h"
 #include "gfx/image.h"
@@ -117,7 +124,7 @@ class Menu;
 enum class FocusPolicy { None, Click, Tab, Strong };
 enum class SizePolicy { Fixed, Preferred, Expanding };
 
-class Widget {
+class Widget : public css::Node {
 public:
     explicit Widget(Widget* parent = nullptr);
     virtual ~Widget();
@@ -136,7 +143,6 @@ public:
     std::unique_ptr<Widget> release(Widget* child);    // give it up (still alive)
     void deleteLater();                                // removed from its parent and deleted after the current event
     void clearChildren();                              // delete every child (later)
-    Widget* parent() const { return parent_; }
     const std::vector<std::unique_ptr<Widget>>& children() const { return children_; }
     Window* window() const;                            // the top-level window it is in (nullptr if none)
     void raise();                                      // on top of its siblings
@@ -222,7 +228,21 @@ public:
     // string properties used by styles (as Qt dynamic properties): "lit", "toggle", "accent", "hint", "dimmed"…
     void setProperty(const std::string& key, const std::string& value);
     std::string property(const std::string& key) const;
-    std::string objectName;
+    std::string objectName;  // (its #id in stylesheets)
+
+    // --- style: what the skin's stylesheets give it (see the top) ---
+    const std::string& type() const override { return types_.back(); }
+    bool isType(const std::string& name) const override;
+    const std::string& id() const override { return objectName; }
+    bool hasClass(const std::string& name) const override;
+    bool hasState(const std::string& name) const override;
+    Widget* parent() const override { return parent_; }
+    void addStyleClass(const std::string& name);
+    void removeStyleClass(const std::string& name);
+    // what applies to it (or its part: "handle", "arrow"…) in its states now
+    const css::Style& computedStyle(const std::string& part = "") const;
+    // the names of the states it is in (the base: hover, pressed, disabled, focus; overrides add theirs)
+    virtual void styleStates(std::vector<std::string>& out) const;
     // opaque per-widget data for the program
     std::shared_ptr<void> userData;
 
@@ -268,6 +288,13 @@ public:
     // (internal, used by the toolkit)
     bool hovered_ = false, pressed_ = false;
     void setParentInternal(Widget* p) { parent_ = p; }
+protected:
+    // its type in stylesheets (called by each class's constructor: Widget, then Button, then ToolButton…);
+    // the earlier ones stay types it counts as
+    void setStyleType(const std::string& name);
+    // the type that was `was` becomes `now` (Button: PushButton <-> ToolButton); else it is added
+    void replaceStyleType(const std::string& was, const std::string& now);
+public:
     void paintTree(Painter& p, const Rect& dirty);  // dirty in this widget's coordinates
     bool deleted_ = false;
     bool layoutDirty_ = false;
@@ -287,6 +314,16 @@ private:
     FocusPolicy focusPolicy_ = FocusPolicy::None;
     std::string tooltip_;
     std::map<std::string, std::string> props_;
+    std::vector<std::string> types_{"Widget"}, classes_;
+    int classesVersion_ = 0;
+    struct StyleEntry {
+        std::string part, states;
+        std::shared_ptr<const css::Style> parent;  // (kept alive: never mistaken for another)
+        int generation = -1, classes = -1;
+        std::shared_ptr<const css::Style> style;
+    };
+    mutable std::vector<StyleEntry> styles_;
+    std::shared_ptr<const css::Style> styleShared(const std::string& part) const;
     friend class Window;
     friend class App;
 };

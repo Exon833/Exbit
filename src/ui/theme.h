@@ -40,10 +40,12 @@ std::string variableName(const std::string& name);
 const Color& c(const std::string& name);
 // The stylesheets the whole interface takes its look from, in cascade order (default.css, then the skin):
 // colours, shades and fonts are read from them again. Problems found while computing are added to
-// `problems` (if given).
+// `problems` (if given). No sheets: the program's own stylesheet as built in (builtinSheet()).
 void setStyles(std::vector<css::SheetPtr> sheets, std::vector<css::Problem>* problems = nullptr);
-// back to the built-in defaults, without stylesheets (tests)
+// back to the built-in default.css (tests; also what is used before any skin is put on)
 void setSkin();
+// data/skins/default.css as it was when the program was built: what is used where it can't be read
+css::SheetPtr builtinSheet();
 // what the stylesheets give the interface's nodes (the toolkit's controls, the program's surfaces)
 const css::Engine& styles();
 const Fonts& fonts();

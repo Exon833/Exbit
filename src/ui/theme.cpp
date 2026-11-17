@@ -160,7 +160,7 @@ std::string variableName(const std::string& name) {
 }
 
 const Color& c(const std::string& name) {
-    if (!ready) refresh();
+    if (!ready) setSkin();
     auto it = current.find(name);
     if (it != current.end()) return it->second;
     Color col;  // a variable the skin added (kept once found; the table's names are all there already)
@@ -168,7 +168,19 @@ const Color& c(const std::string& name) {
     return kMissing;
 }
 
+css::SheetPtr builtinSheet() {
+    static const css::SheetPtr sheet = [] {
+        static const char* const text =
+#include "default_css.inc"
+            ;
+        std::vector<css::Problem> problems;
+        return css::parse(text, "default.css (built in)", problems);
+    }();
+    return sheet;
+}
+
 void setStyles(std::vector<css::SheetPtr> sheets, std::vector<css::Problem>* problems) {
+    if (sheets.empty()) sheets.push_back(builtinSheet());
     engine.setSheets(std::move(sheets));
     refresh();
     std::vector<css::Problem> found = engine.takeProblems();
@@ -178,17 +190,17 @@ void setStyles(std::vector<css::SheetPtr> sheets, std::vector<css::Problem>* pro
 void setSkin() { setStyles({}); }
 
 const css::Engine& styles() {
-    if (!ready) refresh();
+    if (!ready) setSkin();
     return engine;
 }
 
 const Fonts& fonts() {
-    if (!ready) refresh();
+    if (!ready) setSkin();
     return currentFonts;
 }
 
 const Shades& shades() {
-    if (!ready) refresh();
+    if (!ready) setSkin();
     return currentShades;
 }
 

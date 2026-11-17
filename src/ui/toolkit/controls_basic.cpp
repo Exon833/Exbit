@@ -181,6 +181,8 @@ bool Label::mouseDoubleClick(MouseEvent& e) {
 // ============================================================================================
 
 Button::Button(const std::string& text, Widget* parent) : Widget(parent), text_(text) {
+    setStyleType("Button");
+    setStyleType("PushButton");
     setFocusPolicy(FocusPolicy::Strong);
     vPolicy = SizePolicy::Fixed;
 }
@@ -196,6 +198,8 @@ void Button::stopRepeat() {
 
 void Button::setStyle(Style s) {
     style_ = s;
+    if (s == Style::Tool) replaceStyleType("PushButton", "ToolButton");
+    else replaceStyleType("ToolButton", "PushButton");
     if (s == Style::Tool) {
         hPolicy = SizePolicy::Fixed;
         if (focusPolicy() == FocusPolicy::Strong) setFocusPolicy(FocusPolicy::Tab);
@@ -255,7 +259,7 @@ void Button::setMenu(Menu* menu, bool splitArrow) {
     update();
 }
 
-Font Button::font() const { return hasFont_ ? font_ : theme::uiFont(); }
+Font Button::font() const { return style::font(computedStyle(), hasFont_ ? font_ : theme::uiFont()); }
 
 bool Button::lit() const {
     if (!isEnabled()) return false;
@@ -267,35 +271,34 @@ bool Button::lit() const {
     return false;
 }
 
-Color Button::fillColor() const {
-    const theme::Shades& sh = theme::shades();
-    bool autoRaise = style_ == Style::Tool && property("autoRaise") == "true";
-    if (!isEnabled()) {
-        if (style_ == Style::Push) return sh.disabled;
-        return autoRaise ? Color(0, 0, 0, 0) : theme::c("button");
-    }
-    bool hover = underMouse() && (!down_ || inside_);
+void Button::styleStates(std::vector<std::string>& out) const {
+    bool enabled = isEnabled();
+    if (!enabled) out.push_back("disabled");
+    if (hasFocus()) out.push_back("focus");
+    if (enabled && underMouse() && (!down_ || inside_)) out.push_back("hover");
+    if ((down_ && inside_) || menuArrowDown_) out.push_back("pressed");
+    if (checked_) out.push_back("checked");
+    if (default_) out.push_back("default");
     if (lit()) {
-        std::string role = property("toggle");
-        bool toggleLit = style_ == Style::Tool && checked_ && !role.empty() && property("lit") != "true" &&
-                         property("accent") != "true";
-        if (toggleLit) return hover ? theme::toggleHover(role) : theme::toggleColor(role);
-        return hover ? sh.accentHover : theme::c("accent");
+        out.push_back("lit");
+        if (style_ == Style::Tool && checked_ && !property("toggle").empty() && property("lit") != "true" &&
+            property("accent") != "true")
+            out.push_back("toggled");
     }
-    bool down = (down_ && inside_) || checked_ || menuArrowDown_;
-    if (down) return sh.pressed;
-    if (hover) return sh.hover;
-    return autoRaise ? Color(0, 0, 0, 0) : theme::c("button");
+    if (iconPx_ > 0 && (!iconSvg_.empty() || !icon_.empty())) out.push_back("icon");
+    if (enabled && menu_ && split_ && (hoverArrow_ || menuArrowDown_)) out.push_back("arrow-hover");
 }
 
-Color Button::textColor() const {
-    if (!isEnabled()) return theme::c("disabled_text");
-    if (lit()) return theme::c("accent_text");
-    return theme::c("button_text");
-}
+Color Button::fillColor() const { return style::background(computedStyle()); }
+
+Color Button::textColor() const { return style::foreground(computedStyle()); }
 
 Point Button::sizeHint() const {
+    // its content (text, icon) inside its padding and border (default.css: PushButton 4px 12px + 1px, ToolButton
+    // 3px 5px + 1px, with an icon 3px + 1px; autoRaise 1px and 2px more)
     Font f = font();
+    const css::Style& st = computedStyle();
+    style::Insets pad = style::insets(st, "padding"), border = style::insets(st, "border-width");
     int tw = text_.empty() ? 0 : style::textWidth(f, text_);
     int th = style::textHeight(f);
     bool hasIcon = iconPx_ > 0 && (!iconSvg_.empty() || !icon_.empty());
@@ -303,15 +306,12 @@ Point Button::sizeHint() const {
     if (style_ == Style::Push) {
         int cw = tw + (hasIcon ? iconPx_ + (text_.empty() ? 0 : 4) : 0);
         int ch = std::max(16, std::max(th, hasIcon ? iconPx_ : 0));
-        h = Point(cw + 24 + 2, ch + 8 + 2);
+        h = Point(cw + pad.w() + border.w(), ch + pad.h() + border.h());
         if (menu_ && !split_) h.x += 12;
     } else {
-        bool autoRaise = property("autoRaise") == "true";
         int cw = hasIcon ? iconPx_ : tw;
-        int ch = hasIcon ? std::max(iconPx_, text_.empty() ? 0 : 0) : th;
-        if (hasIcon) h = Point(cw + 6 + 2, ch + 6 + 2);
-        else h = Point(cw + 12, ch + 8);
-        if (autoRaise) h = Point(h.x + 4, h.y + 2);
+        int ch = hasIcon ? iconPx_ : th;
+        h = Point(cw + pad.w() + border.w(), ch + pad.h() + border.h());
         if (menu_ && split_) h.x += 13;
         else if (menu_) h.x += 6;
     }
@@ -322,30 +322,27 @@ Point Button::sizeHint() const {
 }
 
 void Button::paint(Painter& p) {
-    const theme::Shades& sh = theme::shades();
+    const css::Style& st = computedStyle();
     Rect r = rect();
-    float rad = (float)theme::radius();
-    Color fillC = fillColor();
-    Color edge = fillC;
-    bool isLit = lit();
-    if (style_ == Style::Push && hasFocus() && !isLit && isEnabled()) edge = theme::c("accent");
-    style::frame(p, r, fillC, edge, rad);
-    Color tc = textColor();
-    Rect content;
+    float rad = style::radius(st);
+    style::box(p, r, st);
+    Color tc = style::foreground(st);
+    // (its content: inside the border and padding; a tool button's centred in the whole of it, as before)
     bool autoRaise = style_ == Style::Tool && property("autoRaise") == "true";
-    if (style_ == Style::Push) content = r.adjusted(13, 5, -13, -5);
-    else if (autoRaise) content = r.adjusted(5, 4, -5, -4);
-    else content = r.adjusted(3, 3, -3, -3);
+    Rect content = style_ == Style::Push ? style::contents(r, st)
+                   : autoRaise           ? r.adjusted(5, 4, -5, -4)
+                                         : r.adjusted(3, 3, -3, -3);
     // the menu parts
     if (menu_ && split_) {
         Rect ar(r.right() - 13, 0, 13, r.h);
-        if (isEnabled() && (hoverArrow_ || menuArrowDown_)) {
+        Color arrowFill = style::background(computedStyle("arrow"));
+        if (arrowFill.a) {
             p.save();
             p.setClip(ar);
-            style::fill(p, r.adjusted(0, 0, 0, 0), sh.pressed, rad);
+            style::fill(p, r.adjusted(0, 0, 0, 0), arrowFill, rad);
             p.restore();
         }
-        p.fillRect(Rect(ar.x, 1, 1, r.h - 2), sh.line);
+        p.fillRect(Rect(ar.x, 1, 1, r.h - 2), style::background(computedStyle("separator")));
         style::icon(p, ar.x + 1 + (12 - 8) / 2.f, (r.h - 8) / 2.f, 8, "down", tc);
         content.w = std::max(0, ar.x - content.x - (autoRaise ? 4 : 2));
         if (!autoRaise) content.x = std::max(content.x, 3);

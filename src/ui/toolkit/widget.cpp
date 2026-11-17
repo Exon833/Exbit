@@ -359,8 +359,113 @@ bool Widget::hasFocus() const {
 }
 
 void Widget::setProperty(const std::string& key, const std::string& value) {
+    auto it = props_.find(key);
+    if (it != props_.end() && it->second == value) return;
     props_[key] = value;
+    classesVersion_++;
     update();
+}
+
+// --- style ---
+void Widget::setStyleType(const std::string& name) {
+    if (types_.back() != name) types_.push_back(name);
+    classesVersion_++;
+}
+
+void Widget::replaceStyleType(const std::string& was, const std::string& now) {
+    for (auto& t : types_)
+        if (t == was) {
+            t = now;
+            classesVersion_++;
+            return;
+        }
+    setStyleType(now);
+}
+
+bool Widget::isType(const std::string& name) const {
+    for (auto& t : types_)
+        if (t == name) return true;
+    return false;
+}
+
+bool Widget::hasClass(const std::string& name) const {
+    for (auto& c : classes_)
+        if (c == name) return true;
+    for (auto& [key, value] : props_) {
+        if (value.empty() || value == "false" || value == "0") continue;
+        if (name == key) return true;
+        // .key-value (toggle=mute: .toggle-mute)
+        if (value != "true" && name.size() == key.size() + 1 + value.size() && name.compare(0, key.size(), key) == 0 &&
+            name[key.size()] == '-' && name.compare(key.size() + 1, std::string::npos, value) == 0)
+            return true;
+    }
+    return false;
+}
+
+void Widget::addStyleClass(const std::string& name) {
+    for (auto& c : classes_)
+        if (c == name) return;
+    classes_.push_back(name);
+    classesVersion_++;
+    update();
+}
+
+void Widget::removeStyleClass(const std::string& name) {
+    auto it = std::find(classes_.begin(), classes_.end(), name);
+    if (it == classes_.end()) return;
+    classes_.erase(it);
+    classesVersion_++;
+    update();
+}
+
+void Widget::styleStates(std::vector<std::string>& out) const {
+    if (hovered_) out.push_back("hover");
+    if (pressed_) out.push_back("pressed");
+    if (!isEnabled()) out.push_back("disabled");
+    if (hasFocus()) out.push_back("focus");
+}
+
+bool Widget::hasState(const std::string& name) const {
+    std::vector<std::string> states;
+    styleStates(states);
+    for (auto& s : states)
+        if (s == name) return true;
+    return false;
+}
+
+std::shared_ptr<const css::Style> Widget::styleShared(const std::string& part) const {
+    const css::Engine& engine = theme::styles();
+    std::vector<std::string> states;
+    styleStates(states);
+    std::string key;
+    for (auto& s : states) key += s + " ";
+    // the parent's style first (it is what this one inherits from, and changes with the parent's own states)
+    std::shared_ptr<const css::Style> up = parent_ ? parent_->styleShared("") : nullptr;
+    int gen = engine.generation();
+    for (size_t i = 0; i < styles_.size(); i++) {
+        StyleEntry& e = styles_[i];
+        if (e.part == part && e.states == key && e.parent == up && e.generation == gen && e.classes == classesVersion_) {
+            if (i > 0) std::rotate(styles_.begin(), styles_.begin() + i, styles_.begin() + i + 1);  // (most recent first)
+            return styles_[0].style;
+        }
+    }
+    StyleEntry e;
+    e.part = part;
+    e.states = key;
+    e.parent = up;
+    e.generation = gen;
+    e.classes = classesVersion_;
+    // a part inherits from its node (Slider::handle from Slider)
+    std::shared_ptr<const css::Style> base = part.empty() ? up : styleShared("");
+    e.style = std::make_shared<const css::Style>(engine.compute(*this, base.get(), part));
+    styles_.insert(styles_.begin(), std::move(e));
+    if (styles_.size() > 12) styles_.pop_back();  // (states and parts of it seen lately)
+    return styles_[0].style;
+}
+
+const css::Style& Widget::computedStyle(const std::string& part) const {
+    // (the entry keeps it alive until it is pushed out: what callers hold is used at once, in one paint)
+    return *styleShared(part);
 }
 
 std::string Widget::property(const std::string& key) const {

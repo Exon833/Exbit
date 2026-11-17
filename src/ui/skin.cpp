@@ -207,7 +207,10 @@ std::vector<std::string> apply(const Skin& s) {
     bool ok = false;
     std::string def = defaultSheet();
     if (css::SheetPtr d = parseFile(def, problems, ok)) sheets.push_back(d);
-    else problems.push_back({util::baseName(def), 0, 0, "can't read the program's own stylesheet " + def});
+    else {  // (the copy built into the program instead)
+        problems.push_back({util::baseName(def), 0, 0, "can't read the program's own stylesheet " + def + " (using the one built in)"});
+        sheets.push_back(theme::builtinSheet());
+    }
     if (!s.path.empty() && util::absolutePath(s.path) != util::absolutePath(def)) {
         if (css::SheetPtr sheet = parseFile(s.path, problems, ok)) sheets.push_back(sheet);
         else problems.push_back({util::baseName(s.path), 0, 0, "can't read " + s.path});

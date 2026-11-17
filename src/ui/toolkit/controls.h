@@ -105,6 +105,11 @@ public:
     // colours as the style gives them now (for custom-drawn buttons)
     Color fillColor() const;
     Color textColor() const;
+    // its states for stylesheets: hover (not while held off it), pressed (held on it, or its menu open), checked,
+    // default, lit (accent-coloured: lit / accent+checked / autoRaise+checked / toggle+checked / a dialog's
+    // default), toggled (a toggle role's colour: checked with a toggle role, neither lit nor accent), icon,
+    // arrow-hover (the split menu arrow under the mouse or open), disabled, focus
+    void styleStates(std::vector<std::string>& out) const override;
 private:
     std::string text_, iconSvg_;
     Image icon_;

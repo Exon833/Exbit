@@ -97,3 +97,45 @@
     --handle-hover: color-mix(in srgb, var(--window) 62%, var(--window-text) 38%);  /* … under the mouse */
     --accent-hover: color-mix(in srgb, var(--accent) 85%, var(--accent-text) 15%);  /* lit buttons under the mouse */
 }
+
+/* ---------------------------------------------------------------------------------------------------------
+   Controls. Every widget is a node: its type (Button; PushButton or ToolButton), its #objectName, its classes
+   (from the program's properties: .lit, .accent, .autoRaise, .toggle and .toggle-mute…) and its states
+   (:hover :pressed :checked :disabled :focus, and each control's own). docs/skins.md lists them all.
+   --------------------------------------------------------------------------------------------------------- */
+
+/* Buttons. :lit is accent-coloured (switched-on accent buttons, a dialog's default button…); :toggled is a
+   switched-on toggle with a role (.toggle-mute…: its --toggle-color). ::arrow is the drop-down part of a
+   split button, ::separator the line before it. */
+Button {
+    background-color: var(--button);
+    color: var(--button-text);
+    border: 1px solid transparent;
+    border-radius: 3px;
+}
+PushButton { padding: 4px 12px; }
+ToolButton { padding: 3px 5px; }
+ToolButton:icon { padding: 3px; }
+ToolButton.autoRaise { background-color: transparent; padding: 4px 7px; }
+ToolButton.autoRaise:icon { padding: 4px 5px; }
+Button:hover { background-color: var(--hover); }
+Button:pressed, Button:checked { background-color: var(--pressed); }
+Button:lit { background-color: var(--accent); color: var(--accent-text); }
+Button:lit:hover { background-color: var(--accent-hover); }
+Button:toggled { background-color: var(--toggle-color, var(--accent)); }
+Button:toggled:hover {
+    background-color: color-mix(in srgb, var(--toggle-color, var(--accent)) 85%, var(--accent-text) 15%);
+}
+Button:disabled { color: var(--disabled-text); }
+PushButton:disabled { background-color: var(--disabled); }
+ToolButton:disabled { background-color: var(--button); }
+ToolButton.autoRaise:disabled { background-color: transparent; }
+PushButton:focus { border-color: var(--accent); }
+PushButton:focus:lit, PushButton:focus:disabled { border-color: transparent; }
+Button::arrow { background-color: transparent; }
+Button:arrow-hover::arrow { background-color: var(--pressed); }
+Button::separator { background-color: var(--line); }
+.toggle-mute { --toggle-color: var(--mute); }
+.toggle-solo { --toggle-color: var(--solo); }
+.toggle-record { --toggle-color: var(--record); }
+.toggle-accent { --toggle-color: var(--accent); }
