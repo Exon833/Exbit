@@ -126,6 +126,20 @@ public:
     const std::map<std::string, std::string>& variables() const { return vars_; }
     std::optional<std::string> variable(const std::string& name) const;  // "--lane" or "lane"
 
+    // What a user of the style works out from it once (ui/toolkit/style.h: a box's colours, borders and radius),
+    // kept with it: a computed style doesn't change. Not copied with the style (a copy may be changed); whoever
+    // changes props_ of a style already in use resets it.
+    struct Memo {
+        std::shared_ptr<const void> value;
+        Memo() = default;
+        Memo(const Memo&) {}
+        Memo& operator=(const Memo&) {
+            value.reset();
+            return *this;
+        }
+    };
+    mutable Memo memo_;
+
     // (Engine fills these)
     std::map<std::string, std::string> props_;  // property -> resolved text
     std::map<std::string, std::string> vars_;

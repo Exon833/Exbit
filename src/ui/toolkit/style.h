@@ -90,20 +90,38 @@ inline Rect contents(const Rect& r, const css::Style& s) {
 inline float radius(const css::Style& s) {
     return theme::rounded ? (float)std::max(0.0, s.length("border-top-left-radius", 0)) : 0.f;
 }
+// What a box is drawn from, worked out once per style (kept in the style's memo: drawing a box every frame
+// costs a pointer check, not parsing): its background, its border's colour and widths, its corners' radius.
+struct BoxLook {
+    Color bg, edge;
+    Insets border;
+    float radius = 0;  // (before Options → Rounded corners)
+    bool fillOnly = true;  // no border to draw (none, transparent, or of the background's colour)
+};
+inline const BoxLook& boxLook(const css::Style& s) {
+    if (!s.memo_.value) {
+        auto look = std::make_shared<BoxLook>();
+        look->bg = background(s);
+        look->border = insets(s, "border-width");
+        look->edge = color(s, "border-top-color", foreground(s));
+        look->radius = (float)std::max(0.0, s.length("border-top-left-radius", 0));
+        look->fillOnly = (look->border.w() == 0 && look->border.h() == 0) || look->edge.a == 0 || look->edge == look->bg;
+        s.memo_.value = look;
+    }
+    return *static_cast<const BoxLook*>(s.memo_.value.get());
+}
 // A box as CSS draws one: its background, inside its border (one colour: border-top-color; a side of 0 px has
 // none), with rounded corners. (A border of the background's colour, or transparent, is drawn as the fill alone.)
 inline void box(Painter& p, const Rect& r, const css::Style& s) {
-    Color bg = background(s);
-    Insets b = insets(s, "border-width");
-    Color edge = color(s, "border-top-color", foreground(s));
-    float rad = radius(s);
-    if ((b.w() == 0 && b.h() == 0) || edge.a == 0 || edge == bg) {
-        fill(p, r, bg, rad);
+    const BoxLook& b = boxLook(s);
+    float rad = theme::rounded ? b.radius : 0.f;
+    if (b.fillOnly) {
+        fill(p, r, b.bg, rad);
         return;
     }
-    fill(p, r, edge, rad);
-    int most = std::max(std::max(b.left, b.right), std::max(b.top, b.bottom));
-    fill(p, inside(r, b), bg, std::max(0.f, rad - (float)most));
+    fill(p, r, b.edge, rad);
+    int most = std::max(std::max(b.border.left, b.border.right), std::max(b.border.top, b.border.bottom));
+    fill(p, inside(r, b.border), b.bg, std::max(0.f, rad - (float)most));
 }
 // the font it is drawn in: `def` (the control's own) with what the stylesheets change of it: font-family (its
 // first name; system-ui and sans-serif: the interface font, monospace: the numbers font), font-size, font-weight
