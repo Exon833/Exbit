@@ -260,6 +260,7 @@ bool PanKnob::mousePress(ui::MouseEvent& e) {
         dragging_ = true;
         start_ = e.pos;
         startPan_ = pan;
+        if (grabbed) grabbed(true);
     }
     return true;
 }
@@ -273,7 +274,9 @@ bool PanKnob::mouseMove(ui::MouseEvent& e) {
 }
 
 bool PanKnob::mouseRelease(ui::MouseEvent& e) {
+    bool was = dragging_;
     dragging_ = false;
+    if (was && grabbed) grabbed(false);
     return true;
 }
 

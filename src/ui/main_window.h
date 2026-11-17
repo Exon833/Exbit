@@ -108,6 +108,7 @@ public:
     // its instrument patch panel, (0, nullptr) the master's
     std::map<std::pair<int, const void*>, PluginsDialog*> fxWindows;
     std::map<const Clip*, MidiEditor*> midiEditors;  // a clip's open MIDI editor
+    int shownWrites_ = 0;  // automation::recorder().writes() last repainted (curves written by moving controls)
     metronome::MetronomeSettings metronomeSettings;
     std::string device;                  // the output device's id ("" none)
     TapTempo tapTempo;

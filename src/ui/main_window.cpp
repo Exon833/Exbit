@@ -7,6 +7,7 @@
 #include <cstdlib>
 
 #include "audio/automation.h"
+#include "audio/automation_write.h"
 #include "audio/modulation.h"
 #include "audio/devices.h"
 #include "audio/metering.h"
@@ -260,6 +261,12 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     openFirstDevice();
     setUpMidi();
     history = std::make_unique<history::History>(project, engine.sr);
+    // writing automation by moving controls (automation_write.h): at the song time being heard
+    automation::recorder().songTime = [this](double& seconds) {
+        if (!engine.playing || engine.sr <= 0) return false;
+        seconds = (double)engine.heardPos() / engine.sr;
+        return true;
+    };
     {
         std::weak_ptr<bool> alive = alive_;
         historyTimer_ = App::get().every(HISTORY_MS, [this, alive] {
@@ -291,6 +298,8 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
 
 MainWindow::~MainWindow() {
     *alive_ = false;
+    automation::recorder().releaseAll();
+    automation::recorder().songTime = nullptr;  // (it asked this window's engine)
     historyWindow.reset();  // (it reads the history)
     if (frameId_ >= 0) App::get().removeFrame(frameId_);
     if (cpuTimer_ >= 0) App::get().cancelTimer(cpuTimer_);
@@ -493,8 +502,9 @@ void MainWindow::flushRenders() {
 void MainWindow::noteChanges() {
     // Now and then: a change to the project becomes an undo step, once no mouse button is held (a drag
     // is one step), and once the clips a MIDI effects or sampler window changed are rendered again (the
-    // change and how the clips then sound are one step).
-    if (history && !mouseHeld() && !rendersPending()) history->check(engine.sr);
+    // change and how the clips then sound are one step). A curve being written by moving its control is
+    // one step once the touch ends (automation_write.h).
+    if (history && !mouseHeld() && !rendersPending() && !automation::recorder().busy()) history->check(engine.sr);
     if (historyWindow && historyWindow->isWindowShown()) historyWindow->refresh();  // (it follows while open)
 }
 
@@ -514,6 +524,7 @@ void MainWindow::stepHistory(bool forward) {
         showStatus("Let go of the mouse first: undo and redo wait until the drag is done", 3000);
         return;
     }
+    automation::recorder().releaseAll();  // (a curve being written: written now, a step of its own)
     flushRenders();
     noteChanges();  // (a change not yet noted is a step of its own: undo takes it back first)
     if (!(forward ? history->redo(engine.sr) : history->undo(engine.sr))) {
@@ -538,6 +549,7 @@ void MainWindow::jumpHistory(int position) {
         showStatus("Let go of the mouse first: undo and redo wait until the drag is done", 3000);
         return;
     }
+    automation::recorder().releaseAll();
     flushRenders();
     noteChanges();
     int from = history->position();
@@ -1538,6 +1550,14 @@ void MainWindow::onFrame() {
     if (midiInput) midiInput->poll();  // (what the MIDI keyboard played)
     automation::resolve(project);  // (parameters of plugins just loaded)
     modulation::resolve(project);  // (and the modulation cables' parameters)
+    {  // writing automation (automation_write.h): touches idle long enough end; the curves being written show
+        automation::Recorder& writer = automation::recorder();
+        writer.tick();
+        if (writer.writes() != shownWrites_) {
+            shownWrites_ = writer.writes();
+            tl->update();
+        }
+    }
     plugins->idle(project.pluginSlots());  // (values to their windows, latency changes)
     int64_t heard = engine.heardPos();  // (behind the engine's position while plugins hold sound back)
     tl->setPlayhead(heard);
