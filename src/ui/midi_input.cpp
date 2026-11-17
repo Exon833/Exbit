@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "audio/midi_cc.h"
 #include "audio/midi_effects.h"
 #include "audio/sampler.h"
 #include "core/json.h"
@@ -67,6 +68,9 @@ TrackPtr MidiInput::target() const {
 }
 
 void MidiInput::handle(const midi_in::Event& e) {
+    // every controller's latest value, for the MIDI Control modulator and links to a controller (midi_cc.h)
+    if (e.type == midi_in::Event::Control) midi_cc::control(e.data1, e.data2);
+    if (e.type == midi_in::Event::PitchBend) midi_cc::pitchBend(e.bend);
     out_.clear();
     sustain.handle(e, out_);
     std::vector<midi_in::Event> played = out_;  // (play() may be re-entered by the recorder)
@@ -104,7 +108,30 @@ void MidiInput::play(const midi_in::Event& e) {
         std::vector<int> keys;
         for (auto& kv : held_) keys.push_back(kv.first);
         for (int k : keys) letGo(k);
+    } else if (e.type == midi_in::Event::PitchBend || e.type == midi_in::Event::Control) {
+        controllers(e);
     }
+}
+
+// --- the bend wheel and the mod wheel (live) ---
+
+void MidiInput::controllers(const midi_in::Event& e) {
+    TrackPtr track = target();
+    if (e.type == midi_in::Event::PitchBend) {
+        if (bent_ && bent_ != track) unbend();  // (another track selected: the one bent before goes straight)
+        if (!track) return;
+        int range = std::max(1, std::min(24, track->bendRange));
+        engine.liveNotes(track.get())->pitchBend(e.bend, live::bendSemitones(e.bend, range));
+        bent_ = e.bend ? track : nullptr;
+    } else if (e.data1 == midi_cc::MOD_WHEEL && track && track->playsPlugins()) {
+        engine.liveNotes(track.get())->control(e.data1, e.data2);  // (its instrument plugins use it themselves)
+    }
+}
+
+void MidiInput::unbend() {
+    TrackPtr track = bent_;
+    bent_ = nullptr;
+    if (track && project.tracks.contains(track)) engine.liveNotes(track.get())->pitchBend(0, 0.0);
 }
 
 void MidiInput::noteDown(const midi_in::Event& e) {
@@ -131,6 +158,7 @@ void MidiInput::letGo(int note) {
 }
 
 void MidiInput::releaseAll() {
+    unbend();  // (closing, unplugged: the wheel can't bring it back)
     out_.clear();
     sustain.releaseAll(out_, now());
     std::vector<midi_in::Event> played = out_;

@@ -3163,6 +3163,25 @@ void testWindowsTestPlugins(const std::string& prefix) {
         for (float v : out.l) peak = std::max(peak, std::fabs(v));
         CHECK(peak > 0.2f && peak <= 0.51f);  // (a sine at the default volume, 0.5)
         CHECK(util::startsWith(p->paramText(0, 0.5), "50.0"));  // (its display, then its label)
+        // the bend wheel and the mod wheel through the bridge (bridge::Note's kind and value), at their
+        // frames: a second instance playing the same note is bent at frame 100 (its new pitch shows from
+        // the next frame) and turned down to half by the mod wheel at 300
+        auto q = library.load(info, 48000);
+        Stereo same(N), bent(N);
+        q->render({{0, true, 69, 100, 0}}, same.out(), N);
+        CHECK(same.l == out.l);
+        NoteMessage bend{100, false, 0, 0, 0}, wheel{300, false, 1, 0, 0};
+        bend.kind = NoteMessage::PitchBend, bend.value = 8191;
+        wheel.kind = NoteMessage::Control, wheel.value = 127;
+        p->render({}, same.out(), N);
+        q->render({bend, wheel}, bent.out(), N);
+        int first = -1;
+        for (int i = 0; i < N && first < 0; i++)
+            if (same.l[(size_t)i] != bent.l[(size_t)i]) first = i;
+        CHECK(first == 101);
+        float after = 0;
+        for (int i = 300; i < N; i++) after = std::max(after, std::fabs(bent.l[(size_t)i]));
+        CHECK(after > 0.1f && after <= 0.2501f);
     };
     for (const PluginInfo* p : {fx, fx32})
         if (p) exactFx(*p);

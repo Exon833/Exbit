@@ -292,6 +292,8 @@ struct Track {
     SamplerPtr sampler;       // MIDI tracks: the built-in sampler, played when there is no instrument plugin;
                               // null = the built-in synth
     bool needsInstrument = false;  // a new MIDI track: silent until an instrument is chosen
+    int bendRange = 2;        // MIDI tracks: semitones the bend wheel bends its built-in synth or sampler played live,
+                              // all the way up or down (1…24; right-click its row → Pitch bend range…)
     List<SlotPtr> effects;    // in its patch space
     Cables cables{straight()};
     List<ModCable> modCables; // modulators moving its units' knobs (see ModCable)

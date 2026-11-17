@@ -7,6 +7,12 @@
 // MIDI effects (those that work live), its VST instrument, the built-in synth or sampler, then its
 // effects. A note is let go on the track it started on, even if another track was selected meanwhile.
 //
+// The bend wheel bends what the selected track plays live (a VST instrument by its own range; the
+// built-in synth and sampler by the track's bend range, Track::bendRange: live.h), and the mod wheel
+// (control 1) goes on to the track's instrument plugins. Every control change and bend is also noted in
+// midi_cc's table (audio/midi_cc.h), which the MIDI Control modulator follows. When another track is
+// selected, the one bent before is set straight again.
+//
 // The sustain pedal (control 64) holds notes (midi_in::Sustain): while it is down, a key let go keeps
 // sounding until the pedal is let go (or the key is struck again). It is applied before anything else
 // sees the notes, so it works the same for every instrument, and ● Rec and Capture keep the notes as
@@ -103,6 +109,10 @@ private:
     void play(const midi_in::Event& e);    // as played (the pedal already taken into account)
     void noteDown(const midi_in::Event& e);
     void letGo(int note);
+    // --- the bend wheel and the mod wheel (live) ---
+    void controllers(const midi_in::Event& e);  // (as played) a bend or the mod wheel to the selected track
+    void unbend();                               // the track bent last set straight again
+    TrackPtr bent_;                              // the track the wheel bent last (null: none bent)
     std::string name_;
     std::map<int, std::pair<TrackPtr, std::vector<int>>> held_;  // key -> (the track it went to, its pitches)
     std::vector<midi_in::Event> events_, out_;

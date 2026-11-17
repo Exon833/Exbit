@@ -296,7 +296,7 @@ public:
     }
     tresult PLUGIN_API isPlugInterfaceSupported(const TUID iid) override {
         for (const int8* known : {IComponent::iid, IAudioProcessor::iid, IEditController::iid, IConnectionPoint::iid,
-                                  IPlugViewContentScaleSupport::iid})
+                                  IPlugViewContentScaleSupport::iid, IMidiMapping::iid})
             if (iidEqual(iid, known))
                 return kResultTrue;
         return kResultFalse;
@@ -900,6 +900,7 @@ public:
             controller->setComponentHandler(handler.get());
         syncControllerToComponent();
         setupBuses();
+        readMidiMapping();
         int32 params = controller ? controller->getParameterCount() : 0;
         inputChanges.setMaxParameters(params + 8);
         outputChanges.setMaxParameters(params + 8);
@@ -1174,9 +1175,14 @@ public:
                             addNote(0, false, p, 0, ch);
             for (auto& note : pendingNotes) {
                 int frame = note.frame - at;
-                if (frame >= 0 && frame < n)
+                if (frame >= 0 && frame < n && note.kind == NoteMessage::Note)
                     addNote(frame, note.on, note.pitch, note.velocity, note.channel);
             }
+        }
+        for (auto& note : pendingNotes) {  // the bend wheel and controls: the parameters the plugin maps them to
+            int frame = note.frame - at;
+            if (frame >= 0 && frame < n && note.kind != NoteMessage::Note)
+                addController(frame, note);
         }
         ProcessData data;
         data.processMode = kRealtime;
@@ -1209,6 +1215,52 @@ public:
                 queue->getPoint(queue->getPointCount() - 1, offset, value) == kResultOk)
                 fromProcessor.add(queue->getParameterId(), value);
         }
+    }
+
+    // --- MIDI controllers (VST3 has no events for them: IMidiMapping says which parameter each moves) ---
+
+    static constexpr int MAP_CONTROLLERS = kCountCtrlNumber;  // (0..127, aftertouch, pitch bend)
+    static constexpr ParamID NO_PARAM = 0xFFFFFFFFu;          // (the SDK's kNoParamId)
+
+    // (main thread: loading, and when the plugin says its assignments changed) the parameter each
+    // controller of each channel moves, asked once: the audio thread only reads the table
+    void readMidiMapping() {
+        if (!midiMap)
+            midiMap.reset(new std::atomic<uint32>[16 * MAP_CONTROLLERS]);
+        auto mapping = queryPtr<IMidiMapping>(controller.get());
+        bool any = false;
+        for (int ch = 0; ch < 16; ch++)
+            for (int c = 0; c < MAP_CONTROLLERS; c++) {
+                ParamID id = NO_PARAM;
+                if (!mapping || mapping->getMidiControllerAssignment(0, (int16)ch, (CtrlNumber)c, id) != kResultTrue)
+                    id = NO_PARAM;
+                midiMap[(size_t)(ch * MAP_CONTROLLERS + c)].store(id, std::memory_order_relaxed);
+                any = any || id != NO_PARAM;
+            }
+        midiMapped.store(any, std::memory_order_release);
+    }
+
+    // (audio thread) a pitch bend or control change as a change of the parameter mapped to it, at its frame
+    // (and to the window and getParam(), as a change the plugin made itself)
+    void addController(int32 frame, const NoteMessage& m) {
+        if (!midiMapped.load(std::memory_order_acquire))
+            return;
+        int c;
+        double value;
+        if (m.kind == NoteMessage::PitchBend) {
+            c = kPitchBend;
+            value = (std::max(-8192, std::min(8191, m.value)) + 8192) / 16383.0;
+        } else {
+            c = std::max(0, std::min(127, m.pitch));
+            value = std::max(0, std::min(127, m.value)) / 127.0;
+        }
+        ParamID id = midiMap[(size_t)((m.channel & 15) * MAP_CONTROLLERS + c)].load(std::memory_order_relaxed);
+        if (id == NO_PARAM)
+            return;
+        int32 index, point;
+        if (auto* queue = inputChanges.addParameterData(id, index))
+            queue->addPoint(frame, value, point);
+        fromProcessor.add(id, value);
     }
 
     void addNote(int32 frame, bool on, int pitch, int velocity, int channel) {
@@ -1315,6 +1367,8 @@ public:
                 controller->setParamNormalized(c.id, c.value);
         }
         int flags = restartFlags.exchange(0);
+        if (flags & kMidiCCAssignmentChanged)
+            readMidiMapping();
         if (flags & (kReloadComponent | kIoChanged | kLatencyChanged)) {
             std::lock_guard<std::mutex> hold(processLock);  // (latency is read while inactive, to be safe)
             deactivate();
@@ -1471,6 +1525,8 @@ private:
     std::vector<NoteMessage> pendingNotes;
     std::bitset<16 * 128> held;
     std::atomic<bool> notesOffWanted{false};
+    std::unique_ptr<std::atomic<uint32>[]> midiMap;  // [channel * MAP_CONTROLLERS + controller] -> parameter
+    std::atomic<bool> midiMapped{false};             // (some controller is mapped)
     std::mutex processLock;
     bool active = false;
     double rate = 48000.0;

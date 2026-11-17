@@ -6,6 +6,7 @@
 #include <cstdio>
 
 #include "audio/automation.h"
+#include "audio/live.h"
 #include "audio/modulation.h"
 #include "audio/plugin_audio.h"
 #include "plugins/wine.h"
@@ -529,6 +530,10 @@ void LanePanel::setDelay(const TrackPtr& track) {
     if (track_dialogs::askTrackDelay(dialogParent(), *track)) rebuild();
 }
 
+void LanePanel::setBendRange(const TrackPtr& track) {
+    if (track_dialogs::askBendRange(dialogParent(), *track)) rebuild();
+}
+
 void LanePanel::showMixerValues(std::optional<int64_t> pos, int sr) {
     for (auto& [track, mixer] : mixers) {
         bool automated = false;
@@ -599,6 +604,11 @@ void LanePanel::fillTrackMenu(ui::Menu& menu, const TrackPtr& track) {
         menu.addAction("MIDI effects…" + (count ? " (" + std::to_string(count) + ")" : std::string()),
                        [openFx, track] { openFx(track); });
     }
+    if (track->kind == Kind::Midi)  // (the bend wheel of a MIDI keyboard: midi_input.h)
+        menu.addAction("Pitch bend range…" + (track->bendRange != live::DEFAULT_BEND_RANGE
+                                                 ? " (±" + std::to_string(track->bendRange) + ")"
+                                                 : std::string()),
+                       guard([this, track] { setBendRange(track); }));
     if (!track->automation.empty()) {
         menu.addAction(track->showAutomation ? "Hide automation" : "Show automation",
                        guard([this, track] { toggleAutomation(track, !track->showAutomation); }));

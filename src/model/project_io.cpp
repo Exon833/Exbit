@@ -400,6 +400,7 @@ Json describeTrack(const Track& track, const std::vector<GroupPtr>& groups, int 
     // pre-fader sends: a key of their own (older versions read `sends` as they always did: after the fader)
     if (preFader.size()) entry.set("pre_fader_sends", preFader);
     if (!track.modCables.empty()) entry.set("modulation", describeModulation(track));  // (only then: older files unchanged)
+    if (track.bendRange != 2) entry.set("bend_range", Json(track.bendRange));  // (only then: older files unchanged)
     return entry;
 }
 
@@ -1054,6 +1055,7 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
             track->needsInstrument = t.flag("needs_instrument", false);
             track->showAutomation = t.flag("show_automation", false);
             track->usesRack = t.flag("uses_rack", false);
+            track->bendRange = std::max(1, std::min(24, t.integer("bend_range", 2)));
             if (!t["group"].isNull()) {
                 size_t i;
                 if (!isIndex(t["group"], groups.size(), i)) throw Damaged{"a track's group is not there"};

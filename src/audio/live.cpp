@@ -7,6 +7,11 @@
 
 namespace live {
 
+double bendSemitones(int value, int range) {
+    value = std::max(-8192, std::min(8191, value));
+    return (value >= 0 ? value / 8191.0 : value / 8192.0) * std::max(0, range);
+}
+
 std::vector<float> loopable(const std::vector<float>& audio, int channels, int64_t hold, int sr, double period,
                             int64_t& loopStart) {
     loopStart = -1;
@@ -57,34 +62,94 @@ std::vector<float> builtInNote(const NoteRender& r, int pitch, int velocity, dou
     return loopable(render(HOLD_S), r.render ? r.channels : 1, (int64_t)(HOLD_S * sr), sr, period, loopStart);
 }
 
-bool LiveVoice::addTo(float* const signal[2], int signalChannels, int n, int fade) {
+bool LiveVoice::addTo(float* const signal[2], int signalChannels, int n, int fade, const float* rates) {
     int64_t len = length();
     bool loops = loopStart >= 0;
-    int64_t count = loops ? n : std::max<int64_t>(0, std::min<int64_t>(n, len - pos));
     int64_t span = len - loopStart;
     int ch = std::max(1, channels);
     const float* d = data ? data->data() : nullptr;
     bool faded = false;
-    for (int64_t i = 0; i < count; i++) {
+    if (!rates && frac == 0) {  // never bent (or back in step): frame by frame, as it was rendered
+        int64_t count = loops ? n : std::max<int64_t>(0, std::min<int64_t>(n, len - pos));
+        for (int64_t i = 0; i < count; i++) {
+            double gain = 1.0;
+            if (releasedAt >= 0) {
+                gain = std::min(1.0, std::max(0.0, 1.0 - (double)(clock + i - releasedAt) / fade));
+                if (i == count - 1 && gain <= 0) faded = true;  // (faded out: finished)
+            }
+            int64_t at = pos + i;
+            if (loops && at >= len) at = loopStart + (at - loopStart) % span;
+            for (int c = 0; c < signalChannels; c++) {
+                int source = ch == 1 ? 0 : std::min(c, ch - 1);
+                signal[c][i] += (float)(d[at * ch + source] * gain);
+            }
+        }
+        pos += n;
+        clock += n;
+        return !faded && (loops || pos < len);
+    }
+    // bent: read at its rate, between frames (linear interpolation)
+    if (loops && pos >= len) pos = loopStart + (pos - loopStart) % span;
+    bool ended = false;
+    for (int i = 0; i < n; i++) {
         double gain = 1.0;
         if (releasedAt >= 0) {
-            gain = std::min(1.0, std::max(0.0, 1.0 - (double)(pos + i - releasedAt) / fade));
-            if (i == count - 1 && gain <= 0) faded = true;  // (faded out: finished)
+            gain = std::min(1.0, std::max(0.0, 1.0 - (double)(clock + i - releasedAt) / fade));
+            if (gain <= 0) {  // (faded out: finished)
+                faded = true;
+                break;
+            }
         }
-        int64_t at = pos + i;
-        if (loops && at >= len) at = loopStart + (at - loopStart) % span;
+        if (pos >= len) {
+            ended = true;
+            break;
+        }
+        int64_t next = pos + 1 < len ? pos + 1 : loops ? loopStart : -1;
         for (int c = 0; c < signalChannels; c++) {
             int source = ch == 1 ? 0 : std::min(c, ch - 1);
-            signal[c][i] += (float)(d[at * ch + source] * gain);
+            double a = d[pos * ch + source], b = next >= 0 ? d[next * ch + source] : 0.0;
+            signal[c][i] += (float)((a + (b - a) * frac) * gain);
         }
+        frac += rates ? (double)rates[i] : 1.0;
+        int64_t whole = (int64_t)frac;
+        pos += whole;
+        frac -= (double)whole;
+        if (loops && pos >= len) pos = loopStart + (pos - loopStart) % span;
     }
-    pos += n;
-    return !faded && (loops || pos < len);
+    clock += n;
+    return !faded && !ended;
 }
 
 LiveNotes::LiveNotes(size_t capacity) : inbox_(std::max<size_t>(capacity, 2)), done_(std::max<size_t>(capacity, 2)) {
     voices_.reserve(128);
     timedOffs_.reserve(256);
+    finished_.reserve(128);
+}
+
+bool LiveNotes::push(const Item& item) {
+    collect();
+    uint64_t head = inHead_.load(std::memory_order_relaxed);
+    if (head - inTail_.load(std::memory_order_acquire) >= inbox_.size()) return false;
+    inbox_[head % inbox_.size()] = item;
+    inHead_.store(head + 1, std::memory_order_release);
+    return true;
+}
+
+bool LiveNotes::pitchBend(int value, double semitones) {
+    Item it;
+    it.kind = Item::BendItem;
+    it.value = std::max(-8192, std::min(8191, value));
+    it.semitones = std::isfinite(semitones) ? std::max(-48.0, std::min(48.0, semitones)) : 0.0;
+    return push(it);
+}
+
+bool LiveNotes::control(int number, int value) {
+    if (number < 0 || number > 127) return false;
+    Item it;
+    it.kind = Item::ControlItem;
+    it.pitch = number;
+    it.value = std::max(0, std::min(127, value));
+    return push(it);
 }
 
 bool LiveNotes::noteOn(int pitch, int velocity, int sr, bool builtin, double lengthS, const NoteRender* render) {
@@ -93,6 +158,7 @@ bool LiveNotes::noteOn(int pitch, int velocity, int sr, bool builtin, double len
     if (head - inTail_.load(std::memory_order_acquire) >= inbox_.size()) return false;
     const NoteRender& r = render ? *render : renderer_;
     Item& it = inbox_[head % inbox_.size()];
+    it.kind = Item::NoteItem;
     it.on = true;
     it.pitch = pitch, it.velocity = velocity;
     it.audio = nullptr;
@@ -125,6 +191,7 @@ bool LiveNotes::noteOff(int pitch) {
     uint64_t head = inHead_.load(std::memory_order_relaxed);
     if (head - inTail_.load(std::memory_order_acquire) >= inbox_.size()) return false;
     Item& it = inbox_[head % inbox_.size()];
+    it.kind = Item::NoteItem;
     it.on = false;
     it.pitch = pitch, it.velocity = 0;
     it.audio = nullptr;
@@ -153,7 +220,7 @@ void LiveNotes::retire(NoteAudio&& audio) {
 
 bool LiveNotes::active() const {
     return inHead_.load(std::memory_order_acquire) != inTail_.load(std::memory_order_relaxed) || !voices_.empty() ||
-           !timedOffs_.empty();
+           !timedOffs_.empty() || resendBend_ != NO_BEND;
 }
 
 bool LiveNotes::holding() const {
@@ -164,7 +231,14 @@ bool LiveNotes::holding() const {
 void LiveNotes::clear() {
     uint64_t head = inHead_.load(std::memory_order_acquire);
     uint64_t tail = inTail_.load(std::memory_order_relaxed);
-    for (; tail < head; tail++) retire(std::move(inbox_[tail % inbox_.size()].audio));
+    for (; tail < head; tail++) {
+        Item& item = inbox_[tail % inbox_.size()];
+        if (item.kind == Item::BendItem) {  // (where the wheel is still counts: notes played later are bent so)
+            bendTarget_ = bendNow_ = item.semitones;
+            resendBend_ = item.value;
+        }
+        retire(std::move(item.audio));
+    }
     inTail_.store(tail, std::memory_order_release);
     for (auto& v : voices_) retire(std::move(v.data));
     voices_.clear();
@@ -175,7 +249,7 @@ void LiveNotes::clear() {
 
 plugin_audio::MidiMsg LiveNotes::release(int pitch, int64_t atFrame) {
     for (auto& v : voices_)
-        if (v.pitch == pitch && v.releasedAt < 0) v.releasedAt = v.pos + atFrame;
+        if (v.pitch == pitch && v.releasedAt < 0) v.releasedAt = v.clock + atFrame;
     plugin_audio::MidiMsg m;
     m.type = plugin_audio::MidiMsg::NoteOff;
     m.frame = atFrame, m.pitch = pitch, m.velocity = 0;
@@ -183,11 +257,29 @@ plugin_audio::MidiMsg LiveNotes::release(int pitch, int64_t atFrame) {
 }
 
 void LiveNotes::take(int frames, int sr, plugin_audio::Messages& out) {
+    if (resendBend_ != NO_BEND) {  // (a bend cleared away before an instrument got it)
+        plugin_audio::MidiMsg m;
+        m.type = plugin_audio::MidiMsg::PitchBend;
+        m.value = resendBend_;
+        out.push_back(m);
+        resendBend_ = NO_BEND;
+    }
     uint64_t head = inHead_.load(std::memory_order_acquire);
     uint64_t tail = inTail_.load(std::memory_order_relaxed);
     for (; tail < head; tail++) {
         Item& item = inbox_[tail % inbox_.size()];
         int p = std::min(127, std::max(0, item.pitch));
+        if (item.kind != Item::NoteItem) {  // the bend wheel, a control: to a VST instrument as MIDI
+            plugin_audio::MidiMsg m;
+            m.type = item.kind == Item::BendItem ? plugin_audio::MidiMsg::PitchBend : plugin_audio::MidiMsg::Control;
+            m.frame = 0, m.pitch = p, m.velocity = 0, m.value = item.value;
+            out.push_back(m);
+            if (item.kind == Item::BendItem) {
+                bendTarget_ = item.semitones;
+                if (voices_.empty()) bendNow_ = bendTarget_;  // (nothing sounding to glide: notes start bent)
+            }
+            continue;
+        }
         if (item.on) {
             if (item.audio) {
                 LiveVoice v;
@@ -224,6 +316,36 @@ void LiveNotes::take(int frames, int sr, plugin_audio::Messages& out) {
 
 void LiveNotes::addVoices(float* const signal[2], int channels, int frames, int sr) {
     int fade = std::max(1, (int)(synth::RELEASE_S * sr));
+    if (voices_.empty()) {
+        bendNow_ = bendTarget_;
+        return;
+    }
+    if (bendNow_ != 0 || bendTarget_ != 0) {  // bent (or coming back): CHUNK frames at a time, each at its rate
+        double follow = 1.0 - std::exp(-1.0 / (BEND_SMOOTH_S * std::max(1, sr)));
+        finished_.assign(voices_.size(), 0);  // (reserved: no allocation for up to 128 voices)
+        for (int done = 0; done < frames; done += CHUNK) {
+            int n = std::min(CHUNK, frames - done);
+            for (int i = 0; i < n; i++) {
+                bendNow_ += (bendTarget_ - bendNow_) * follow;
+                if (std::fabs(bendTarget_ - bendNow_) < 1e-6) bendNow_ = bendTarget_;
+                rates_[i] = (float)std::exp2(bendNow_ / 12.0);
+            }
+            float* part[2] = {signal[0] + done, channels > 1 ? signal[1] + done : nullptr};
+            for (size_t v = 0; v < voices_.size(); v++)
+                if (!finished_[v] && !voices_[v].addTo(part, channels, n, fade, rates_)) finished_[v] = 1;
+        }
+        size_t keep = 0;
+        for (size_t i = 0; i < voices_.size(); i++) {
+            if (!finished_[i]) {
+                if (keep != i) voices_[keep] = std::move(voices_[i]);
+                keep++;
+            } else {
+                retire(std::move(voices_[i].data));
+            }
+        }
+        voices_.resize(keep);
+        return;
+    }
     size_t keep = 0;
     for (size_t i = 0; i < voices_.size(); i++) {
         if (voices_[i].addTo(signal, channels, frames, fade)) {
