@@ -9,6 +9,9 @@
 #include <cmath>
 #include <cstdio>
 #include <string>
+#include <cctype>
+#include <cstring>
+#include <set>
 
 #include "audio/engine.h"
 #include "audio/sound_file.h"
@@ -271,6 +274,78 @@ static void testSkinFiles() {
     skin::removeOnApply(hook);
     util::removeFile(mine);
     skin::apply(skin::find("Dark"));
+}
+
+// docs/skins.md lists everything that can be styled: every style type the program sets (setStyleType), every
+// type, part and state default.css uses, and every :root variable; and its CSS examples read without problems
+static void testSkinsReference() {
+    std::string doc, css;
+    CHECK(util::readFile("docs/skins.md", doc) && util::readFile("data/skins/default.css", css));
+    auto missing = [&](const std::string& what) {
+        if (doc.find(what) != std::string::npos) return false;
+        printf("  docs/skins.md doesn't mention %s\n", what.c_str());
+        return true;
+    };
+    int gaps = 0;
+    // the style types set in the program's code
+    util::walkFiles("src", [&](const std::string& path) {
+        std::string text;
+        if (!util::endsWith(path, ".cpp") && !util::endsWith(path, ".h")) return true;
+        if (!util::readFile(path, text)) return true;
+        for (const char* call : {"setStyleType(\"", "replaceStyleType(\"PushButton\", \"", "replaceStyleType(\"ToolButton\", \""})
+            for (size_t at = text.find(call); at != std::string::npos; at = text.find(call, at + 1)) {
+                size_t b = at + std::strlen(call), e = text.find('"', b);
+                if (e != std::string::npos && e > b) gaps += missing("`" + text.substr(b, e - b) + "`");
+            }
+        return true;
+    });
+    // default.css's selectors: their types, parts and states (comments and declarations left out)
+    std::string selectors;
+    {
+        bool comment = false;
+        int depth = 0;
+        for (size_t i = 0; i < css.size(); i++) {
+            if (!comment && css.compare(i, 2, "/*") == 0) { comment = true; i++; continue; }
+            if (comment) { if (css.compare(i, 2, "*/") == 0) { comment = false; i++; } continue; }
+            if (css[i] == '{') { depth++; selectors += '\n'; continue; }
+            if (css[i] == '}') { depth--; continue; }
+            if (depth == 0) selectors += css[i];
+        }
+    }
+    std::set<std::string> names;
+    for (size_t i = 0; i < selectors.size();) {
+        char c = selectors[i];
+        bool part = selectors.compare(i, 2, "::") == 0, state = !part && c == ':';
+        bool type = !part && !state && std::isupper((unsigned char)c) &&
+                    (i == 0 || std::strchr(" \n\t,>(", selectors[i - 1]));
+        if (!part && !state && !type) { i++; continue; }
+        size_t b = i + (part ? 2 : state ? 1 : 0), e = b;
+        while (e < selectors.size() && (std::isalnum((unsigned char)selectors[e]) || selectors[e] == '-')) e++;
+        std::string word = selectors.substr(b, e - b);
+        if (!word.empty() && word != "root") names.insert(part ? "::" + word : state ? ":" + word : "`" + word + "`");
+        i = std::max(e, i + 1);
+    }
+    for (auto& n : names) gaps += missing(n);
+    // the :root variables
+    for (size_t at = css.find("\n    --"); at != std::string::npos; at = css.find("\n    --", at + 1)) {
+        size_t b = at + 5, e = css.find(':', b);
+        if (e != std::string::npos) gaps += missing("`" + css.substr(b, e - b) + "`");
+    }
+    CHECK(gaps == 0);
+    CHECK(names.size() > 150);  // (the parser above found the selectors)
+    // the examples: no problems, over default.css
+    int examples = 0;
+    for (size_t at = doc.find("```css\n"); at != std::string::npos; at = doc.find("```css\n", at + 1)) {
+        size_t b = at + 7, e = doc.find("```", b);
+        std::vector<css::Problem> problems;
+        css::SheetPtr sheet = css::parse(doc.substr(b, e - b), "example", problems);
+        theme::setStyles({theme::builtinSheet(), sheet}, &problems);
+        CHECK(problems.empty());
+        for (auto& p : problems) printf("  docs/skins.md example: %s\n", p.text().c_str());
+        examples++;
+    }
+    CHECK(examples >= 3);
+    theme::setSkin();
 }
 
 // ------------------------------------------------------------------------------------------
@@ -1292,6 +1367,7 @@ int main() {
     util::makeDirs(TMP);
     settings::setPath(TMP + "/settings.json");
     testSkinFiles();
+    testSkinsReference();
     testColorWheel();
     testRecentColours();
     testColorPickerDialog();

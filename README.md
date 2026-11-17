@@ -458,11 +458,13 @@ Testing aids of the running program (hidden; see `src/ui/test_script.h`):
 ## Folder layout
 
     Makefile
-    data/            icons/ (transport buttons), skins/, templates/ (Recording, Songwriting)
+    data/            icons/ (transport buttons), skins/ (default.css and the program's own skins),
+                     templates/ (Recording, Songwriting)
+    docs/skins.md    everything a skin can style: variables, types, parts, states, properties
     docs/development/  the notes the program was ported from Python with
     src/main.cpp     start-up
     src/config.h     sizes, limits, defaults
-    src/core/        JSON, XML, files and paths, strings, settings
+    src/core/        JSON, XML, CSS (the stylesheets' parser and cascade), files and paths, strings, settings
     src/gfx/         geometry and colours, images + PNG, the painter, TrueType fonts, SVG
     src/platform/    windows, events, main loop, clipboard, drops (Xlib)
     src/model/       the project, timing and the tempo map, edits, undo history, song time, project files
@@ -480,7 +482,8 @@ Testing aids of the running program (hidden; see `src/ui/test_script.h`):
     src/ui/          every window and panel (main_window, timeline, lane_panel, midi_editor, …)
     tests/           unit tests (tests/check.h) and tests/plugins/ (the test plugins' sources)
     tools/           manual checks (toolkit demo, platform check, plugin editor check, the mouse
-                     in Windows plugins' windows and how quickly they redraw)
+                     in Windows plugins' windows and how quickly they redraw); skins_reference.py (writes
+                     docs/skins.md's variables from default.css)
 
 ## License
 

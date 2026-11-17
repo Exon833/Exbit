@@ -3,9 +3,9 @@
    drawing (theme::c("lane") reads --lane). docs/skins.md lists every selector, part and property. */
 
 :root {
-    --skin-name: "Dark";
+    --skin-name: "Dark";      /* the skin's name in Options → Skin */
     font-family: system-ui;   /* the interface font (system-ui: the system's own) */
-    font-size: 9pt;
+    font-size: 9pt;           /* its size (also what em is, and the numbers font's) */
     --mono-font: "Consolas";  /* numbers: times, LUFS (Consolas falls back to a monospaced font) */
 
     /* Window */
@@ -146,18 +146,18 @@ Button::separator { background-color: var(--line); }
 /* Sizes of the layout: a wrapped label's widest line, the narrowest an eliding or wrapping label gets; the room
    in message boxes, getText / getItem (input dialogs) and progress windows */
 :root {
-    --label-wrap-width: 360px;
-    --label-min-width: 16px;
+    --label-wrap-width: 360px;         /* a wrapping label's width when nothing gives it one */
+    --label-min-width: 16px;           /* the least width of a label that elides its text */
     --message-box-margin: 14px;        /* around its parts */
     --message-box-spacing: 14px;       /* between the sign, the text and the buttons */
     --message-box-text-spacing: 8px;   /* between the text and its details */
-    --input-dialog-margin: 12px;
-    --input-dialog-spacing: 8px;
+    --input-dialog-margin: 12px;       /* around a question for a name or a number */
+    --input-dialog-spacing: 8px;       /* between its parts */
     --input-dialog-button-gap: 4px;    /* more above the buttons */
     --input-dialog-field-width: 280px; /* the field's least width */
-    --progress-dialog-margin: 12px;
-    --progress-dialog-spacing: 10px;
-    --progress-dialog-min-width: 320px;
+    --progress-dialog-margin: 12px;    /* around a progress window's parts */
+    --progress-dialog-spacing: 10px;   /* between them */
+    --progress-dialog-min-width: 320px; /* its least width */
 }
 
 /* Windows (Dialog, ProgressDialog, menus… are windows too): the background under their widgets. */
@@ -482,9 +482,9 @@ FileList::placeholder { height: 60px; color: var(--hint-text); }
     --clip-edge-width: 6px;        /* a clip's ends (drag them to trim it) */
     --fade-handle-size: 7px;       /* an audio clip's fade handles */
     --link-badge-width: 14px;      /* a linked clip's chain mark */
-    --link-badge-height: 8px;
+    --link-badge-height: 8px;      /* (its height) */
     --cursor-arrow-width: 11px;    /* a cursor's arrow on the ruler */
-    --cursor-arrow-height: 7px;
+    --cursor-arrow-height: 7px;    /* (its height) */
 }
 
 /* The timeline: its grid's lines, both cursors (color, stroke-width), the selected range (a box over each lane,
@@ -636,7 +636,7 @@ TrackRow::group-bar { background-color: var(--group-accent); width: 5px; }
     --instrument-button-width: 40px;  /* a MIDI track's instrument (with its ▾) */
     --icon-button-width: 22px;     /* a row's small icon buttons */
     --sends-button-width: 20px;    /* → (the sends) */
-    --sends-button-height: 16px;
+    --sends-button-height: 16px;   /* (its height) */
     --output-selector-width: 58px; /* a row's outputs (1/2 ▾) */
     --volume-slider-height: 14px;  /* a row's volume */
     --db-reading-width: 44px;      /* its dB beside it */
@@ -649,7 +649,7 @@ TrackRow::group-bar { background-color: var(--group-accent); width: 5px; }
     --velocity-lane-height: 90px;  /* the lane under the notes */
     --editor-ruler-height: 22px;   /* the MIDI editor's ruler */
     --step-row-height: 22px;       /* a row of the Steps view */
-    --piano-roll-min-height: 200px;
+    --piano-roll-min-height: 200px; /* the notes' area (its least height) */
     --explorer-button-size: 24px;      /* the Explorer's +, −, ⟳ and ■ buttons */
     --explorer-row-height: 20px;       /* a row of the Explorer's list */
     --explorer-indent: 16px;           /* a level of its folder tree */
