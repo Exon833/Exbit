@@ -507,7 +507,8 @@ void Engine::advance(int frames, std::vector<Part>& parts) {
     parts.clear();
     int offset = 0;
     int64_t p = pos.load();
-    std::shared_ptr<const LoopRange> lp = recorder() || recordingMidi ? nullptr : std::atomic_load(&loop_);
+    std::shared_ptr<const LoopRange> lp =
+        recordingMidi || (recorder() && !loopRecording.load()) ? nullptr : std::atomic_load(&loop_);
     int64_t ci = countIn.load();
     if (ci > 0) {
         offset = (int)std::min<int64_t>(ci, frames);

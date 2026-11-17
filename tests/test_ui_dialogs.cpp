@@ -1227,6 +1227,35 @@ void testWinePrefixesDialog() {
     }
 }
 
+void testLoopRecording() {
+    // a take cut into its passes round the loop [1000, 3000): the first from where recording began
+    using recording::loopPasses;
+    auto p = loopPasses(500, 6600, 1000, 3000, 100);  // (began before the loop; went round twice, then 1100 more)
+    CHECK(p.size() == 4);
+    if (p.size() == 4) {
+        CHECK(p[0].from == 0 && p[0].to == 2500 && p[0].at == 500);
+        CHECK(p[1].from == 2500 && p[1].to == 4500 && p[1].at == 1000);
+        CHECK(p[2].from == 4500 && p[2].to == 6500 && p[2].at == 1000);
+        CHECK(p[3].from == 6500 && p[3].to == 6600 && p[3].at == 1000);
+    }
+    // stopped just after going round: that sliver is left out
+    auto q = loopPasses(1000, 4050, 1000, 3000, 100);
+    CHECK(q.size() == 2 && q[1].to == 4000);
+    // never reached the loop's end, or no loop: the take whole, where it began
+    auto r = loopPasses(1200, 500, 1000, 3000, 100);
+    CHECK(r.size() == 1 && r[0].from == 0 && r[0].to == 500 && r[0].at == 1200);
+    auto none = loopPasses(1200, 500, 0, 0, 100);
+    CHECK(none.size() == 1 && none[0].at == 1200);
+    CHECK(loopPasses(0, 0, 1000, 3000, 100).empty());
+    // the setting, in the Recording dialog
+    ui::Window main;
+    Preferences prefs;
+    CHECK(prefs.loopTakes);
+    prefs.loopTakes = false;
+    RecordSettingsDialog d(&main, prefs, 2);
+    CHECK(!d.loopTakes->isChecked());
+}
+
 int main() {
     App::get().initHeadless();
     util::makeDirs(OUT);
@@ -1240,6 +1269,7 @@ int main() {
     testMetronome();
     testAudioDialog();
     testRecordingHelpers();
+    testLoopRecording();
     testTrackRender();
     testMixExport();
     testRenderFormats();

@@ -58,6 +58,15 @@ bool takeAudio(int64_t& start, const std::vector<float>& audio, int channels, st
 // timeline.place_clip without the selection and the redraw: the clip goes onto `track` at `frame`
 // (at least 0), prepared for `sr`, replacing what it covers
 void placeClip(Project& project, const ClipPtr& clip, int64_t frame, const TrackPtr& track, int sr);
+// Loop recording: a take of `frames` frames that began at timeline frame `start` while playback went round the
+// loop [loopStart, loopEnd) cut into its passes: (first frame, end frame) in the take, and the timeline frame
+// each goes to. The first pass is from `start` to the loop's end; each next one is the loop's length, put at
+// the loop's start (the last may be shorter). Pieces shorter than `shortest` frames after the first are left
+// out (stopping just after going round). One piece (the take whole) when it never reached the loop's end.
+struct LoopPass {
+    int64_t from, to, at;
+};
+std::vector<LoopPass> loopPasses(int64_t start, int64_t frames, int64_t loopStart, int64_t loopEnd, int64_t shortest);
 }  // namespace recording
 
 // Right-click ● Rec: the input to record and the count-in.
@@ -66,6 +75,7 @@ public:
     RecordSettingsDialog(ui::Window* parent, const Preferences& prefs, int inputs);
     ui::ComboBox* input;
     ui::ComboBox* countIn;
+    ui::CheckBox* loopTakes;
 };
 
 // What Recording needs from the main window and the timeline.
@@ -132,6 +142,7 @@ private:
     audio::Engine& engine_;
     TrackPtr track_;
     int64_t start_ = 0;
+    std::optional<audio::LoopRange> loop_;  // recording audio round this loop: a take each pass
     std::optional<audio::MidiTake> midi_;
     bool startMidi(const TrackPtr& track);
     ClipPtr finishMidi();

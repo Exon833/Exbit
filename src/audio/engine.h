@@ -153,6 +153,7 @@ public:
     std::atomic<int> latency{0};   // frames the sound lags behind pos (plugin delay compensation), set by the callback
     std::atomic<bool> pluginsPaused{false};
     std::atomic<bool> recordingMidi{false};  // recording MIDI (the GUI keeps the notes): playback doesn't loop
+    std::atomic<bool> loopRecording{false};  // recording audio goes on looping (a take each pass: ui/recording.h)
     double recordOffsetMs = 0;     // the device's recording offset (record_offset::offsetMs), for new audio takes
     bool offline = false;          // tests: play() works without a device (callback() is called by hand)
 

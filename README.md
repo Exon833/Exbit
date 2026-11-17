@@ -100,7 +100,7 @@ saturation, bit-crusher and utility:
 - The **EQ** window shows a live spectrum of the sound behind its curve (Off, before or after the
   EQ), worked out only while the window is open.
 
-## Fades, sends, history and hints
+## Fades, sends, loop recording, history and hints
 
 - **Fade shapes**: an audio clip's fade-in and fade-out each have a shape: Linear, Smooth (an S-curve),
   Fast, Slow, or Equal power. Right-click the clip → Fade-in shape / Fade-out shape, or right-click a
@@ -113,6 +113,10 @@ saturation, bit-crusher and utility:
   delay compensation and delay.
 - **Edit → History…**: every undo step by name ("Add track", "Move clips", "Fades"…), the current one
   marked; click one to undo or redo to it. It follows the edits while open.
+- **Loop recording**: with the loop on, recording audio from before the loop's end goes round the loop
+  and makes a take of each pass: the last one plays, and every pass is in the track's takes (under it)
+  to comp from (Use, or drag across a take lane). Right-click ● Rec → "A take each time round the loop"
+  turns it off (recording then plays straight on past the loop). MIDI recording doesn't loop yet.
 - **Hints**: rest the mouse on a control for a moment and the status bar says what it does (the first
   line of its tooltip); a message the program shows wins while it lasts. Options → Hints in the status
   bar turns it off.

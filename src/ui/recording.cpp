@@ -85,6 +85,24 @@ bool takeAudio(int64_t& start, const std::vector<float>& audio, int channels, st
     return true;
 }
 
+std::vector<LoopPass> loopPasses(int64_t start, int64_t frames, int64_t loopStart, int64_t loopEnd, int64_t shortest) {
+    std::vector<LoopPass> out;
+    int64_t len = loopEnd - loopStart;
+    if (frames <= 0) return out;
+    if (len <= 0 || start >= loopEnd || start + frames <= loopEnd) {  // (it never went round)
+        out.push_back({0, frames, start});
+        return out;
+    }
+    int64_t first = loopEnd - start;
+    out.push_back({0, first, start});
+    for (int64_t from = first; from < frames; from += len) {
+        int64_t to = std::min(frames, from + len);
+        if (to - from < shortest) break;  // (stopped just after going round: nothing worth keeping)
+        out.push_back({from, to, loopStart});
+    }
+    return out;
+}
+
 void placeClip(Project& project, const ClipPtr& clip, int64_t frame, const TrackPtr& track, int sr) {
     clip->track = track;
     clip->start = std::max<int64_t>(0, frame);
@@ -111,6 +129,12 @@ RecordSettingsDialog::RecordSettingsDialog(Window* parent, const Preferences& pr
         countIn->addItem(!bars ? std::string("Off") : std::to_string(bars) + " bar" + (bars > 1 ? "s" : ""), bars);
     countIn->setCurrentIndexSilently(std::max(0, countIn->findData(prefs.countInBars)));
     f->addRow("Count-in", countIn);
+    loopTakes = add<CheckBox>("A take each time round the loop");
+    loopTakes->setChecked(prefs.loopTakes);
+    loopTakes->setToolTip("With the loop on (and recording audio from before its end), playback goes round the loop while "
+                          "recording, and each pass becomes a take of its own: the last one plays, the others are in "
+                          "the track's takes to comp from. Off: recording plays straight on past the loop.");
+    f->addRow(loopTakes);
     Label* hint = add<Label>(inputs ? "The count-in plays the metronome's clicks (its sounds: right-click Metronome) "
                                       "before recording starts at the selection cursor."
                                     : "This audio device has no inputs: choose one that has (e.g. your audio "
@@ -140,6 +164,7 @@ void Recording::showSettings() {
     if (dialog.exec() == Dialog::Accepted) {
         if (!dialog.input->currentData().empty()) prefs.recordInput = dialog.input->currentData();
         prefs.countInBars = dialog.countIn->currentDataInt(0);
+        prefs.loopTakes = dialog.loopTakes->isChecked();
         prefs.save();
     }
 }
@@ -191,7 +216,12 @@ bool Recording::start() {
                                              prefs.countInBars, engine_.sr, clicks, (double)start / engine_.sr);
     std::string error;
     engine_.recordOffsetMs = takesOffsetMs();  // (the Recorder takes it off: record_offset_dialog.h)
+    loop_.reset();  // (loop recording: the loop on, and recording from before its end)
+    if (auto loop = engine_.loop(); loop && prefs.loopTakes && loop->end > loop->start && start < loop->end) loop_ = *loop;
+    engine_.loopRecording = loop_.has_value();
     if (!engine_.startRecording(channels, frames, clicks, error)) {
+        engine_.loopRecording = false;
+        loop_.reset();
         msg::warning(host.window, "Cannot record", error);
         return false;
     }
@@ -209,6 +239,9 @@ bool Recording::start() {
 ClipPtr Recording::finish() {
     if (midi_) return finishMidi();
     std::shared_ptr<audio::Recorder> recorder = engine_.finishRecording();
+    engine_.loopRecording = false;
+    std::optional<audio::LoopRange> loop = loop_;
+    loop_.reset();
     TrackPtr track = track_;
     track_ = nullptr;
     if (host.showRecording) host.showRecording(nullptr, 0);
@@ -218,7 +251,20 @@ ClipPtr Recording::finish() {
     if (!recorder || !track || !project.tracks.contains(track)) return nullptr;
     std::vector<float> raw;
     int64_t start = recorder->audio(raw);
-    return placeAudioTake(track, start, raw, (int)recorder->channels.size(), recorder->offsetMs);
+    size_t w = recorder->channels.size();
+    if (!loop || !w) return placeAudioTake(track, start, raw, (int)w, recorder->offsetMs);
+    // round the loop: each pass a take of its own, placed in turn (the last one heard where they overlap)
+    auto passes = recording::loopPasses(start, (int64_t)(raw.size() / w), loop->start, loop->end, engine_.sr / 10);
+    ClipPtr last;
+    for (auto& pass : passes) {
+        std::vector<float> piece(raw.begin() + (ptrdiff_t)(pass.from * (int64_t)w), raw.begin() + (ptrdiff_t)(pass.to * (int64_t)w));
+        if (ClipPtr clip = placeAudioTake(track, pass.at, piece, (int)w, recorder->offsetMs)) last = clip;
+    }
+    if (passes.size() > 1)
+        message("Recorded " + std::to_string(passes.size()) + " takes round the loop onto " + track->name +
+                    ": the last plays; all are in its takes, under it, to comp from",
+                8000);
+    return last;
 }
 
 double Recording::takesOffsetMs() const {
@@ -256,7 +302,9 @@ ClipPtr Recording::placeAudioTake(const TrackPtr& track, int64_t start, const st
 void Recording::keepTake(const TrackPtr& track, const ClipPtr& clip) {
     // a copy of the take as recorded, with the track's takes (for comping); from the second one on,
     // they show under the track
-    if (audio::keepTake(*track, clip) && host.lanesChanged) host.lanesChanged();
+    // (the panel's take rows built again whenever they show: not only when they first do, at the second take)
+    bool shownNow = audio::keepTake(*track, clip);
+    if ((shownNow || track->showTakes) && host.lanesChanged) host.lanesChanged();
 }
 
 // --- MIDI ---
