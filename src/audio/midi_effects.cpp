@@ -143,6 +143,8 @@ const char* const KEYS[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "
 const std::vector<std::string> RATES = {"1/4", "1/8", "1/8 triplet", "1/16", "1/16 triplet", "1/32"};
 const std::vector<double> RATE_BEATS = {1.0, 0.5, 1.0 / 3, 0.25, 1.0 / 6, 0.125};
 const std::vector<std::string> STYLES = {"Up", "Down", "Up and down", "As played", "Random"};
+const std::vector<std::string> GROOVE_GRIDS = {"1/8", "1/16", "1/32"};
+const std::vector<double> GROOVE_BEATS = {0.5, 0.25, 0.125};
 
 int ParamInfo::steps() const {
     if (!choices.empty()) return std::max(1, (int)choices.size() - 1);
@@ -186,6 +188,11 @@ const std::map<std::string, std::vector<ParamInfo>>& table() {
          {param("chance", "Chance", 0, 100, 50, "%"), param("range", "Range", 1, 24, 12, "semitones", "int"),
           param("seed", "Seed", 1, 100, 1, "", "int")}},
         {"Pitch", {param("semitones", "Transpose", -48, 48, 0, "semitones", "int")}},
+        {"Groove",
+         {param("swing", "Swing", 50, 75, 60, "%", "linear", 1), choice("grid", "Grid", GROOVE_GRIDS, 1.0),
+          param("accent", "Accent of the swung notes", -50, 50, 0, "%", "linear", 0),
+          param("timing", "Humanize timing ±", 0, 30, 0, "ms", "linear", 1),
+          param("velocity", "Humanize velocity ±", 0, 30, 0, "", "int"), param("seed", "Seed", 1, 100, 1, "", "int")}},
     };
     return t;
 }
@@ -206,7 +213,7 @@ bool inSteps(double c, const std::set<int>& steps) {
 
 const std::vector<std::string>& kinds() {
     static const std::vector<std::string> k = {"Arpeggiator", "Chord", "Scale", "Note Length", "Velocity", "Random",
-                                               "Pitch"};
+                                               "Pitch", "Groove"};
     return k;
 }
 
@@ -216,7 +223,23 @@ const std::vector<ParamInfo>& params(const std::string& kind) {
     return it == table().end() ? none : it->second;
 }
 
-bool isLive(const std::string& kind) { return kind != "Arpeggiator" && kind != "Note Length"; }
+bool isLive(const std::string& kind) { return kind != "Arpeggiator" && kind != "Note Length" && kind != "Groove"; }
+
+std::string describe(const std::string& kind) {
+    static const std::map<std::string, std::string> d = {
+        {"Arpeggiator", "Plays the notes held one after another, on a beat grid (clips only)"},
+        {"Chord", "Adds notes above (or below) each note: a chord"},
+        {"Scale", "Moves every note to the nearest note of a scale"},
+        {"Note Length", "Makes every note a set length, or a share of its own (clips only)"},
+        {"Velocity", "Scales, offsets, randomises and limits how hard the notes are played"},
+        {"Random", "Moves some notes up or down at random (the same each time a clip plays)"},
+        {"Pitch", "Transposes every note"},
+        {"Groove", "Swing: notes on the off-beats of a 1/8, 1/16 or 1/32 grid come later (those between move in "
+                   "proportion), with an accent; and a little humanizing of timing and velocity (clips only)"},
+    };
+    auto it = d.find(kind);
+    return it == d.end() ? std::string() : it->second;
+}
 
 std::set<int> scaleSteps(int root, const std::string& scale) {
     std::set<int> out;
@@ -330,6 +353,54 @@ std::vector<Note> arpeggiate(const MidiEffect& e, const std::vector<Note>& notes
     }
     return out;
 }
+
+// Groove: in each pair of grid steps (on the song's beats), the time from its first step to its second
+// (the off-beat) is stretched to `swing` of the pair and the rest squeezed, so an off-beat note comes
+// later by (swing - 50 %) of the pair and a note between the grid lines moves in proportion; notes on the
+// beats stay. Each note keeps its length. The accent changes the velocity of the notes the more they sit
+// on an off-beat; humanizing moves each note and its velocity by a random amount seeded by the note (and
+// the seed): the same every time the clip is prepared, so renders play what playback plays.
+std::vector<Note> groove(const MidiEffect& e, const std::vector<Note>& notes, double origin) {
+    double grid = GROOVE_BEATS[std::min<size_t>(GROOVE_BEATS.size() - 1, (size_t)std::max(0.0, e.get("grid")))];
+    double swing = std::min(75.0, std::max(50.0, e.get("swing"))) / 100;
+    double accent = std::min(50.0, std::max(-50.0, e.get("accent"))) / 100;
+    double timing = std::max(0.0, e.get("timing")) / 1000, velocity = std::max(0.0, e.get("velocity"));
+    int64_t seed = (int64_t)e.get("seed");
+    std::vector<Note> out = notes;
+    for (auto& n : out) {
+        int64_t key = noteKey(n);  // (as it was: its random amounts don't depend on the swing)
+        double at = origin + n.start;
+        double beat = timing_ ? timing_->beatAt(at) : at / beatS(0);
+        double pair = 2 * grid;
+        double base = std::floor(beat / pair) * pair;
+        double phase = std::min(pair, std::max(0.0, beat - base));  // 0 … 2 steps
+        double start = n.start;
+        if (swing != 0.5) {
+            double moved = phase <= grid ? phase * 2 * swing : pair * swing + (phase - grid) * (2 - 2 * swing);
+            start = (timing_ ? timing_->secondsAt(base + moved) : (base + moved) * beatS(0)) - origin;
+        }
+        double v = n.velocity;
+        bool changed = false;
+        if (accent != 0) {
+            v *= 1 + accent * std::max(0.0, 1 - std::fabs(phase - grid) / grid);  // (1 on the off-beat, 0 on the beats)
+            changed = true;
+        }
+        if (timing > 0 || velocity > 0) {
+            NumpyRandom rng((uint64_t)(key + 104729 * seed));
+            double early = rng.random() * 2 - 1, louder = rng.random() * 2 - 1;  // (both drawn: each its own)
+            start += early * timing;
+            if (velocity > 0) {
+                v += louder * velocity;
+                changed = true;
+            }
+        }
+        start = std::max(start, std::min(n.start, 0.0));  // (never before the clip's start)
+        n.end += start - n.start;
+        n.start = start;
+        if (changed) n.velocity = std::min(127.0, std::max(1.0, (double)pyRound(v)));
+    }
+    return out;
+}
 }  // namespace
 
 std::vector<std::pair<double, double>> liveOne(const MidiEffect& e, double pitch, double velocity) {
@@ -362,6 +433,7 @@ std::vector<std::pair<double, double>> liveOne(const MidiEffect& e, double pitch
 
 std::vector<Note> process(const MidiEffect& e, const std::vector<Note>& notes, double origin) {
     if (e.kind == "Arpeggiator") return arpeggiate(e, notes, origin);
+    if (e.kind == "Groove") return groove(e, notes, origin);
     if (e.kind == "Note Length") {
         std::vector<Note> out = notes;
         for (auto& n : out)

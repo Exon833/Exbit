@@ -299,7 +299,7 @@ static void testApplyAndLive() {
     auto& ps = midi_effects::params(arp);
     CHECK(ps.size() == 4 && ps[1].key == "rate" && ps[1].choices.size() == 6 && ps[1].defaultValue == 3 && ps[1].steps() == 5);
     CHECK(midi_effects::params("Velocity")[1].steps() == 254);
-    CHECK(midi_effects::params("Nope").empty() && midi_effects::kinds().size() == 7);
+    CHECK(midi_effects::params("Nope").empty() && midi_effects::kinds().size() == 8);
     for (auto& k : MidiEffect::kinds()) {  // (the model's defaults are the same)
         auto& mine = midi_effects::params(k.first);
         CHECK(mine.size() == k.second.size());

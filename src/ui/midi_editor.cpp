@@ -645,6 +645,7 @@ void MidiEditor::commit() {
         }
     }
     clip->prepare(sr());
+    links::notesChanged(project, clip, sr());  // (linked MIDI clips: every one gets these notes)
     if (grew) edits::clearUnder(project, {clip});  // (as a drag of its end: it replaces what it now covers)
     takeUsed();
     updateRanges();

@@ -210,6 +210,7 @@ void Timeline::endEdgeDrag() {
     } else if (clip->kind == Kind::Midi && clip->offset + clip->frames() > have) {
         clip->lengthS = std::max(clip->lengthS, (double)(clip->offset + clip->frames()) / sr);
         prepareLive(clip);
+        linkedNotesChanged(clip);  // (its linked clips: as long a rendering)
     }
     edits::clearUnder(project, {clip});
     relayout();
@@ -441,6 +442,7 @@ void Timeline::duplicateSelected() {
 }
 
 void Timeline::splitSelected() {
+    std::vector<ClipPtr> before = project.clips.copy();  // (linked clips cut in pieces: the pieces become unique)
     if (selection.range) {
         TimeRange r = *selection.range;
         auto pieces = edits::splitClips(project, project.clipsIn(r.tracks, r.start, r.end), {r.start, r.end});
@@ -451,6 +453,7 @@ void Timeline::splitSelected() {
         auto pieces = edits::splitClips(project, selection.clipList(), {cursor});
         selection.clips = std::set<ClipPtr>(pieces.begin(), pieces.end());
     }
+    splitPiecesUnique(before);
     update();
 }
 

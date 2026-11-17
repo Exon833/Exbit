@@ -24,9 +24,16 @@ Rect pixels(const RectF& r);
 // from the clip's colour (or its kind's default) with automatic contrast. A frozen track's clips get
 // an icy tint (they are locked). A disabled clip is only its outline and name, in its colour. An audio
 // clip shows its fades and their handles (handles = false: not on a take lane, where its fades aren't
-// edited), and a looping one a notch where each repeat begins.
+// edited), and a looping one a notch where each repeat begins. A MIDI clip linked to others (linkedWith:
+// how many clips share its link, itself included; links::counts) shows a chain mark at the right of its
+// name strip.
 void paintClip(Painter& p, const Clip& clip, const RectF& rect, const Rect& visible, int viewLeft, double pps, int sr,
-               bool selected, bool audible, bool frozen = false, bool handles = true);
+               bool selected, bool audible, bool frozen = false, bool handles = true, int linkedWith = 0);
+// --- linked MIDI clips ---
+constexpr int LINK_BADGE_W = 14, LINK_BADGE_H = 8;  // the chain mark in a linked clip's name strip
+// where a linked clip's chain mark goes in its box (`rect`); false: the clip is too narrow to show it
+bool linkBadge(const RectF& rect, RectF& badge);
+void paintLinkBadge(Painter& p, const RectF& badge, Color color);
 // a looping audio clip: a notch at the top of the clip where each repeat of its loop begins
 void paintLoopStarts(Painter& p, const Clip& clip, const RectF& rect, const Rect& visible, double pps, int sr, Color color);
 // An audio clip's fade handles (in, out): squares where its fades end (at least clear of the clip's

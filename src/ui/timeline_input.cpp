@@ -181,7 +181,8 @@ bool Timeline::mousePress(ui::MouseEvent& e) {
     }
     if (zone == ClipZone::Handle) {
         if (ctrl) {
-            drag = CopyDrag{clip, pos};  // (a click toggles it, a drag copies: mouseMove, mouseRelease)
+            drag = CopyDrag{clip, pos, e.alt()};  // (a click toggles it, a drag copies: mouseMove, mouseRelease;
+                                                  // Ctrl+Alt: linked copies)
         } else {
             if (!selection.contains(clip)) selection.selectOnly(clip);
             startMove(pos, clip);
@@ -230,13 +231,15 @@ void Timeline::startCopyDrag() {
     ClipPtr grabbed;
     selection.clear();
     for (auto& c : chosen) {
-        ClipPtr copy = copyClip(c);  // (they share their audio and notes, as split pieces do)
+        // (they share their audio and notes, as split pieces do; linked or independent: model.h)
+        ClipPtr copy = d.linked ? links::linkedCopy(c) : links::plainCopy(c);
         all.push_back(copy);
         selection.clips.insert(copy);
         if (c == d.clip) grabbed = copy;
     }
     project.clips = all;
     startMove(d.pos, grabbed);
+    if (auto* m = std::get_if<MoveDrag>(&drag)) m->altLinks = d.linked;  // (that Alt doesn't free it from the grid)
 }
 
 bool Timeline::mouseMove(ui::MouseEvent& e) {
@@ -464,6 +467,19 @@ void Timeline::fillMenu(ui::Menu& menu, std::optional<Point> pos) {
     ui::Action* duplicate = menu.addAction(hasRange ? "Duplicate range" : "Duplicate clips", [this] { duplicateSelected(); },
                                            "Ctrl+D");
     duplicate->setEnabled(hasRange || hasClips);
+    // linked MIDI clips (timeline_links.cpp)
+    std::vector<ClipPtr> linkable, linkedClips;
+    for (auto& c : midiClips) {
+        if (!c->track->frozen) linkable.push_back(c);
+        if (links::linked(project, *c)) linkedClips.push_back(c);
+    }
+    ui::Action* dupLinked = menu.addAction("Duplicate as linked", [this] { duplicateLinkedSelected(); });
+    dupLinked->tooltip = "Copies of the selected MIDI clips right after them, LINKED to them: editing the notes of "
+                         "one changes them all (Ctrl+Alt+drag a clip's name strip does the same)";
+    dupLinked->setEnabled(!linkable.empty());
+    ui::Action* unique = menu.addAction("Make unique", [this] { makeUniqueSelected(); });
+    unique->tooltip = "The selected linked clips keep their notes but no longer change with their linked copies";
+    unique->setEnabled(!linkedClips.empty());
     ui::Action* split = menu.addAction(hasRange ? "Split at selection edges" : "Split at cursor", [this] { splitSelected(); },
                                        "S");
     split->setEnabled(hasRange || hasClips);
@@ -568,7 +584,8 @@ void Timeline::moveSelected(PointF pos, int mods) {
     auto tracks = visibleTracks();
     const Timing& t = project.timing;
     int64_t df = frameAt(pos.x) - d.frame;
-    if (t.snaps(mods & plat::ModAlt)) {
+    if (d.altLinks && !(mods & plat::ModAlt)) d.altLinks = false;  // (the Alt of Ctrl+Alt let go: Alt frees it again)
+    if (t.snaps((mods & plat::ModAlt) && !d.altLinks)) {
         int sr = engine.sr;
         df = (int64_t)std::nearbyint(t.snap((double)(d.anchor + df) / sr, pps) * sr) - d.anchor;
     }

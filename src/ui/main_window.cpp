@@ -1252,7 +1252,8 @@ void MainWindow::openMidiEditor(const ClipPtr& clip) {
         link.setCursor = [this](int64_t f) { timeline->setCursor(f); };
         link.seek = [this](int64_t f) { timeline->seek(f); };
         link.editNotes = [this](ClipPtr c) { openMidiEditor(c); };
-        editor = midiEditors[clip.get()] = new MidiEditor(this, clip, project, engine, [this] { notesEdited(); }, link);
+        auto edited = [this, key = clip.get()] { notesEdited(key); };
+        editor = midiEditors[clip.get()] = new MidiEditor(this, clip, project, engine, edited, link);
         std::weak_ptr<bool> alive = alive_;
         const Clip* key = clip.get();
         editor->closed.connect([this, alive, key, editor] {
@@ -1267,7 +1268,17 @@ void MainWindow::openMidiEditor(const ClipPtr& clip) {
     editor->raiseWindow();
 }
 
-void MainWindow::notesEdited() { timeline->relayout(); }  // the clip may have grown
+void MainWindow::notesEdited(const Clip* from) {
+    timeline->relayout();  // the clip may have grown
+    // linked MIDI clips (model.h): the other ones' editors show the notes they now have too
+    auto it = midiEditors.find(from);
+    if (it == midiEditors.end() || !it->second->clip->link) return;
+    std::shared_ptr<ClipLink> link = it->second->clip->link;
+    std::vector<MidiEditor*> others;
+    for (auto& [key, editor] : midiEditors)
+        if (key != from && editor->clip->link == link) others.push_back(editor);
+    for (MidiEditor* editor : others) editor->reload();
+}
 
 void MainWindow::checkMidiEditors() {
     // close the editors of clips that are gone (deleted, split, cut) or locked (frozen track)

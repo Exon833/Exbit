@@ -108,6 +108,7 @@ std::vector<ClipPtr> duplicateRange(Project& p, const std::vector<TrackPtr>& tra
     for (auto& c : p.clipsIn(tracks, start, end))
         if (ClipPtr piece = pieceWithin(c, start, end)) {
             piece->start += span;
+            piece->link = nullptr;  // (a copy: independent of a linked clip it came from)
             copies.push_back(piece);
         }
     return placeCopies(p, copies);
@@ -120,7 +121,7 @@ std::vector<ClipPtr> duplicateClips(Project& p, const std::vector<ClipPtr>& clip
     int64_t span = last - first;
     std::vector<ClipPtr> copies;
     for (auto& c : clips) {
-        ClipPtr k = copyClip(c);
+        ClipPtr k = links::plainCopy(c);  // (independent of a linked clip it came from)
         k->start += span;
         copies.push_back(k);
     }

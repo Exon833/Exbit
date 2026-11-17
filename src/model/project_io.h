@@ -30,6 +30,11 @@
 // A MIDI track's built-in sampler keeps its sample in the audio folder too (as clips do), its settings
 // under the track's "sampler"; recorded takes are under the track's "takes" (audio in the folder).
 //
+// Linked MIDI clips (model.h) each keep their notes as any MIDI clip does, plus a "link" number shared by
+// the clips linked together (1, 2… in the order they first appear); on loading, the clips with the same
+// number share one link and the first one's notes. A clip linked to no other saved clip has no "link", so
+// projects without linked clips are saved exactly as before, and older projects open unchanged.
+//
 // Backups: saving over a project first keeps the file being replaced in "<name>_backups" next to it,
 // as "<name> <date> <time>.json" (the newest BACKUPS_KEPT). Their audio stays in the project's audio
 // folder, which saving never deletes from, so a backup opens as it was.

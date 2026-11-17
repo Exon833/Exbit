@@ -4,13 +4,19 @@
 // They work on a clip's notes when it is prepared (Clip::prepare → clip_hooks::midiEffects = apply()), so
 // the built-in synth and sampler, VST instruments and freezes all hear the result, and on notes played
 // live (MIDI editor keys, a MIDI keyboard → live()) for those that need no time to pass: Chord, Scale,
-// Pitch, Velocity and Random (Arpeggiator and Note Length change the notes' timing, so they apply to clips
-// only). Each has parameters like an audio effect (params(kind): key, name, range, unit, choices), set in
+// Pitch, Velocity and Random (Arpeggiator, Note Length and Groove change the notes' timing, so they apply
+// to clips only). Each has parameters like an audio effect (params(kind): key, name, range, unit, choices), set in
 // the track's MIDI effects window. An effect never changes in place (MidiEffect::with), so undo and the
 // audio thread see whole ones.
 //
 // Beats come from the project's timing (install(&project.timing)), so an arpeggiator's 1/16 follows the
 // tempo map; a clip is prepared again when it changes. Without a timing: 120 BPM.
+//
+// Groove swings a clip's notes: on a 1/8, 1/16 or 1/32 grid of the song's beats, notes on the off-beats
+// come later ("swing": 50 % straight … 75 %: the off-beat at three quarters of the pair of steps), notes
+// between the grid lines in proportion, notes on the beats not at all; "accent" makes the swung notes
+// louder or softer, and "timing" / "velocity" humanize every note by up to so many ms / steps, at random
+// but seeded by the note (and "seed"), so a clip comes out the same each time it is prepared.
 //
 // "Random" amounts are numpy's: the same Generator (default_rng: SeedSequence + PCG64) seeded the same
 // way, so a project's notes come out as the Python program makes them.
@@ -36,11 +42,14 @@ struct ParamInfo {
     int decimals = -1;  // shown after the point (-1: from the range)
     int steps() const;  // as automation counts them: choices - 1, or the int range, or 0 (any value)
 };
-// the kinds, in KINDS order ("Arpeggiator", "Chord", "Scale", "Note Length", "Velocity", "Random", "Pitch")
+// the kinds, in KINDS order ("Arpeggiator", "Chord", "Scale", "Note Length", "Velocity", "Random", "Pitch",
+// "Groove")
 const std::vector<std::string>& kinds();
 const std::vector<ParamInfo>& params(const std::string& kind);  // empty for an unknown kind
 // does it apply to notes played live too (it doesn't change their timing)?
 bool isLive(const std::string& kind);
+// what it does, in a sentence (its tooltip in the MIDI effects window); "" for an unknown kind
+std::string describe(const std::string& kind);
 
 // --- tables (midi_effects.py) ---
 extern const std::vector<std::pair<std::string, std::vector<int>>> CHORDS;   // name, intervals (projects keep the index)
