@@ -1269,6 +1269,15 @@ static void testStylesheets() {
     CHECK(fb.colorAt(145, 14) == Color::fromHex("#00ff00"));
     CHECK(fb.colorAt(183, 13) == Color(10, 20, 30));
     CHECK(lit->textColor() == Color(255, 255, 255));
+    // sizes of the layout: :root's variables, as lengths
+    {
+        std::vector<css::Problem> pr;
+        theme::setStyles({theme::builtinSheet(), css::parse(":root { --test-size: 30px; --test-pt: 9pt; --test-calc: calc(10px * 2 + 1em); --test-bad: red; }", "m.css", pr)});
+        CHECK(theme::metric("test-size", 5) == 30 && theme::metric("--test-size", 5) == 30);
+        CHECK(theme::metric("test-pt", 5) == 12 && theme::metric("test-calc", 5) == 32);
+        CHECK(theme::metric("test-bad", 5) == 5 && theme::metric("no-such-size", 7) == 7);
+        CHECK(std::fabs(theme::metricF("test-pt", 0) - 12.0) < 1e-9);
+    }
     // back to the default: the button's colour and size are default.css's again (its style isn't kept)
     theme::setSkin();
     CHECK(push->sizeHint().x == before.x && push->sizeHint().y == before.y);

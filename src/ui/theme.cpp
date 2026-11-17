@@ -85,6 +85,7 @@ const std::vector<ColorInfo>& colors() {
 }
 
 namespace {
+std::map<std::string, double> metrics;  // sizes asked for (NaN: not set)
 std::map<std::string, Color> current;  // colours by name: the table's, then what the stylesheets set
 Fonts currentFonts;
 Shades currentShades;
@@ -105,6 +106,7 @@ bool rootColor(const std::string& variable, Color& out) {
 
 void refresh() {
     current.clear();
+    metrics.clear();
     for (auto& info : colors()) {
         Color col = Color::fromHex(info.def);
         rootColor(variableName(info.name), col);
@@ -188,6 +190,25 @@ void setStyles(std::vector<css::SheetPtr> sheets, std::vector<css::Problem>* pro
 }
 
 void setSkin() { setStyles({}); }
+
+double metricF(const std::string& name, double def) {
+    if (!ready) setSkin();
+    std::string var = name.compare(0, 2, "--") == 0 ? name : "--" + name;
+    auto it = metrics.find(var);
+    if (it == metrics.end()) {
+        double v = std::nan("");
+        if (std::optional<std::string> text = engine.root().variable(var)) {
+            css::Style probe;  // (the variable's text as a property, read as a length)
+            probe.props_["width"] = *text;
+            probe.emPx_ = engine.root().emPx_;
+            if (probe.has("width")) v = probe.length("width", std::nan(""));
+        }
+        it = metrics.emplace(var, v).first;
+    }
+    return std::isnan(it->second) ? def : it->second;
+}
+
+int metric(const std::string& name, int def) { return (int)std::lround(metricF(name, def)); }
 
 const css::Engine& styles() {
     if (!ready) setSkin();

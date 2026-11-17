@@ -46,6 +46,11 @@ void setStyles(std::vector<css::SheetPtr> sheets, std::vector<css::Problem>* pro
 void setSkin();
 // data/skins/default.css as it was when the program was built: what is used where it can't be read
 css::SheetPtr builtinSheet();
+// A size of the layout from the stylesheets: :root's --name ("ruler-height" or "--ruler-height") as a length in
+// px (logical pixels, scaled with the interface size like everything else), rounded; `def` when it isn't set or
+// isn't a length. (Kept until the stylesheets change: cheap to call while painting.)
+int metric(const std::string& name, int def);
+double metricF(const std::string& name, double def);
 // what the stylesheets give the interface's nodes (the toolkit's controls, the program's surfaces)
 const css::Engine& styles();
 const Fonts& fonts();
