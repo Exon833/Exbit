@@ -4,6 +4,7 @@
 #include <algorithm>
 
 #include "audio/automation.h"
+#include "audio/modulation.h"
 #include "audio/engine.h"
 #include "audio/plugin_audio.h"
 #include "core/util.h"
@@ -291,6 +292,7 @@ bool PluginHost::reload(const SlotPtr& slot, std::string& why) {
     slot->failed.store(false, std::memory_order_release);
     project.retire(old);           // (destroyed on this thread, once the audio thread let go of it)
     automation::resolve(project);  // (the slot's automation lanes find the new instance)
+    modulation::resolve(project);  // (and the modulation cables' parameters)
     stopped_.erase(std::remove_if(stopped_.begin(), stopped_.end(),
                                   [&](const std::weak_ptr<PluginSlot>& w) { return w.lock() == slot; }),
                    stopped_.end());

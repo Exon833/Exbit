@@ -23,6 +23,8 @@ extends; that program is in the repository's history.
   quantize, box select; the built-in synth and sampler; MIDI effects (arpeggiator, chord, scale,
   note length, velocity, random, pitch); a MIDI keyboard (with sustain pedal) or the computer
   keyboard; MIDI recording, Capture of what you just played, MIDI file import and export.
+- **Modulators**: an LFO, Random, a Level Follower and a Macro knob, placed in the effects window like
+  effects, that move any knob of the track's effects or instrument (see below).
 - **Effects and plugins**: eighteen built-in effects (EQ with a live spectrum, compressor,
   multi-band compressor, gate, limiter, transient shaper, reverb, Space (a convolution reverb),
   delay, Time FX, chorus, Phaser / Flanger, Tremolo / Pan, Filter Motion, saturation, bit-crusher,
@@ -92,6 +94,35 @@ saturation, bit-crusher and utility:
   A (415–466 Hz); the sound passes untouched.
 - The **EQ** window shows a live spectrum of the sound behind its curve (Off, before or after the
   EQ), worked out only while the window is open.
+
+## Modulators
+
+A modulator moves knobs instead of changing the sound: it is placed in a track's effects window like
+an effect (Add… → the "Modulators" category, or search "built-in") and drawn with a wave across its
+face. Right-click it → **Modulate a knob…** and choose a knob of the track's effects, other
+modulators or its instrument (type part of its name: big synths have hundreds). A dashed line goes
+from the modulator to the unit it moves, labelled with the knob and how far it moves it. The same
+right-click menu lists each knob it moves: **Depth…** (−100 … 100 %: at 100 % its full swing moves
+the knob over its whole range), **The other way**, **Remove** (the knob goes back to where it was).
+
+- **LFO**: a wave (sine, triangle, saw up or down, square) in time with the song (1/32 … 8 bars) or
+  at a rate in Hz, with a phase; both ways (around the knob's place) or up only.
+- **Random**: a new random value every step (in time, or in Hz), jumping or gliding (Smooth); from a
+  Seed, so the same song moves the same way every time it plays or is rendered.
+- **Level Follower**: how loud what is wired into its input is, or its sidechain (SC): wire another
+  track into it (the jacks along the bottom) and, with a negative depth, that track ducks a knob of
+  this one: a kick pumping a pad's volume or a filter.
+- **Macro**: one knob (0 … 100 %). Wire it to several knobs to turn them together; automate it like
+  any parameter.
+
+The knob keeps its own place: the modulation moves it around that. Turning the knob in its window,
+or an automation lane on it, moves that place, and the modulation goes on around the new one. While
+the song plays, LFOs and Random follow the song's position, not a clock of their own, so playing from
+anywhere, looping and rendering move the knobs exactly alike, and the knobs move every 128 frames of
+the song (2.7 ms at 48 kHz) whatever the buffer size. A Windows plugin's knobs move too (its
+parameters are sent to its Wine host with the sound). An instrument's knobs move once per buffer
+(it plays before the effects). Modulation is saved with the project. (Not yet: modulating a track's
+own fader and pan, and modulators on the master.)
 
 ## Several cores
 
@@ -231,6 +262,8 @@ Windows plugin.
 `test_parallel` mixes projects with and without worker threads and checks that they sound the same
 bit for bit; with `TINYDAW_PARALLEL_FX=<plugin>` and `TINYDAW_PARALLEL_SYNTH=<plugin>` it plays those
 plugins (Windows ones too) on the workers instead of the test plugins, and reports whether they do.
+`test_modulation` moves a knob of the test VST3 effect with a Macro; `TINYDAW_MOD_PLUGIN=<plugin>` and
+`TINYDAW_MOD_PARAM=<parameter name>` try another plugin's knob instead (e.g. a Windows plugin's).
 
 Testing aids of the running program (hidden; see `src/ui/test_script.h`):
 

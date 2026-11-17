@@ -259,6 +259,55 @@ Json describeTake(const Clip& take, int sr, const AudioFileFn& audioFile) {
     return entry;
 }
 
+// A track's modulation cables (model.h ModCable): [{"from": <effect index>, "to": <effect index> | "instrument" |
+// {"rack": <index>}, "param": <name>, "depth": d, "base": b}]; cables whose ends aren't the track's are left out.
+static Json describeModulation(const Track& track) {
+    auto indexIn = [](const List<SlotPtr>& slots, const PluginSlot* s) {
+        for (size_t i = 0; i < slots.size(); i++)
+            if (slots[i].get() == s) return (int)i;
+        return -1;
+    };
+    Json out = Json::array();
+    for (auto& c : track.modCables) {
+        int from = indexIn(track.effects, c.from);
+        if (from < 0) continue;
+        Json to;
+        int e = indexIn(track.effects, c.to), r = indexIn(track.rack, c.to);
+        if (e >= 0) to = Json(e);
+        else if (track.instrument && track.instrument.get() == c.to) to = Json("instrument");
+        else if (r >= 0) to = Json::object({{"rack", Json(r)}});
+        else continue;
+        double base = c.state ? c.state->base.load() : -1;
+        out.push(Json::object({{"from", Json(from)}, {"to", to}, {"param", Json(c.param)}, {"depth", Json(c.depth)},
+                               {"base", base >= 0 ? Json(base) : Json()}}));
+    }
+    return out;
+}
+
+static std::vector<ModCable> readModulation(const Track& track, const Json& entries) {
+    std::vector<ModCable> out;
+    if (!entries.isArray()) return out;
+    for (const Json& m : entries.items()) {
+        if (!m.isObject()) continue;
+        size_t from;
+        if (!isIndex(m["from"], track.effects.size(), from)) continue;
+        ModCable c;
+        c.from = track.effects[from].get();
+        const Json& to = m["to"];
+        size_t i;
+        if (isIndex(to, track.effects.size(), i)) c.to = track.effects[i].get();
+        else if (to.isString() && strOf(to) == "instrument" && track.instrument) c.to = track.instrument.get();
+        else if (to.isObject() && isIndex(to["rack"], track.rack.size(), i)) c.to = track.rack[i].get();
+        if (!c.to || c.to == c.from) continue;
+        c.param = m.str("param");
+        c.depth = std::max(-1.0, std::min(1.0, m.num("depth", 0.5)));
+        double base = m.num("base", -1);
+        if (base >= 0 && base <= 1) c.state->base = base;
+        if (!c.param.empty()) out.push_back(c);
+    }
+    return out;
+}
+
 Json describeTrack(const Track& track, const std::vector<GroupPtr>& groups, int sr, const AudioFileFn& audioFile,
                    bool states, const std::vector<TrackPtr>& tracks) {
     Json group;
@@ -283,7 +332,7 @@ Json describeTrack(const Track& track, const std::vector<GroupPtr>& groups, int 
                 break;
             }
     for (auto& take : track.takes) takes.push(describeTake(*take, sr, audioFile));
-    return Json::object({
+    Json out = Json::object({
         {"name", Json(track.name)},
         {"kind", Json(kindName(track.kind))},
         {"muted", Json(track.muted)},
@@ -312,6 +361,8 @@ Json describeTrack(const Track& track, const std::vector<GroupPtr>& groups, int 
         {"takes", takes},
         {"show_takes", Json(track.showTakes)},
     });
+    if (!track.modCables.empty()) out.set("modulation", describeModulation(track));  // (only then: older files unchanged)
+    return out;
 }
 
 // os.path.splitext(name)[0]
@@ -978,6 +1029,7 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
                     rackCables.push_back(c);
             track.rackCables = rackCables;
             track.automation = readAutomation(track, entry["automation"]);
+            track.modCables = readModulation(track, entry["modulation"]);
             const Json& sampler = entry["sampler"];
             if (sampler.isObject() && sampler.size()) {
                 std::string file = fileIn(strOf(need(sampler, "file")));

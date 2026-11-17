@@ -14,7 +14,7 @@ namespace history {
 //   a looping audio clip: data, peaks, baseFrames (built again from its other fields)
 #define TRACK_FIELDS(X)                                                                                         \
     X(name) X(kind) X(muted) X(soloed) X(output) X(volumeDb) X(delayMs) X(pan) X(sends) X(instrument)          \
-    X(midiEffects) X(sampler) X(needsInstrument) X(effects) X(cables) X(color) X(tone) X(group) X(frozen)       \
+    X(midiEffects) X(sampler) X(needsInstrument) X(effects) X(cables) X(modCables) X(color) X(tone) X(group) X(frozen)       \
     X(automation) X(takes) X(usesRack) X(rack) X(rackCables)
 #define GROUP_FIELDS(X) X(name) X(muted) X(soloed) X(color) X(tone)
 #define CLIP_FIELDS(X)                                                                                          \

@@ -104,6 +104,12 @@ public:
     void wireAll();                  // instrument panels: every instrument gets the notes and is heard
     // the menus' entries (for the menus and tests): filled into `menu`
     void fillUnitMenu(ui::Menu& menu, int row);
+    // modulation (audio/modulation.h; tracks' effects windows only)
+    bool modulates() const { return owner && !INSTRUMENTS; }
+    void modulate(const SlotPtr& from);                 // choose a knob for the modulator to move (a dialog)
+    void setModCables(std::vector<ModCable> cables);    // replace the track's (those dropped: their knobs back)
+    void editDepth(const ModCable& cable);              // ask how far it moves its knob
+    void fillModulatorMenu(ui::Menu& menu, const SlotPtr& slot);
     void fillSpaceMenu(ui::Menu& menu, Point pos);
 
     std::string KIND, NOUN, HEADER, HINT, BYPASS;

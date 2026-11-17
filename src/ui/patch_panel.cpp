@@ -1,6 +1,8 @@
 // The effects window's patch space (patch_panel.py).
 #include "ui/patch_panel.h"
 
+#include <map>
+
 #include <algorithm>
 #include <cmath>
 
@@ -394,7 +396,37 @@ void PatchPanel::paint(Painter& p) {
             auto [a, b] = cableEnds(cable);
             paintCable(p, a, b, cableColor(cable));
         }
+    paintModLinks(p);
     if (wiring) paintWiring(p);
+}
+
+void PatchPanel::setModLinks(std::vector<ModLink> links) {
+    modLinks_ = std::move(links);
+    update();
+}
+
+void PatchPanel::paintModLinks(Painter& p) {
+    // a dashed line from the modulator's side to the side of the unit it moves (the facing sides), across
+    // the lower part of their pictures, a dot where it arrives, and its label above its middle
+    Color line = color("accent");
+    Font f = smallFont(true, -1);
+    std::map<std::pair<int, int>, int> between;  // (several links between two units: one above the other)
+    for (auto& m : modLinks_) {
+        if (m.from < 0 || m.to < 0 || m.from >= (int)units_.size() || m.to >= (int)units_.size()) continue;
+        Rect a = unitRect(m.from), b = unitRect(m.to);
+        int k = between[{std::min(m.from, m.to), std::max(m.from, m.to)}]++;
+        float y = (float)(PIC_Y + PIC_H * 3 / 4 - 16 * k);
+        bool right = b.center().x >= a.center().x;
+        PointF pa((float)(right ? a.right() : a.left()), (float)a.top() + y),
+            pb((float)(right ? b.left() : b.right()), (float)b.top() + y);
+        p.drawDashedLine(pa, pb, line, 2, 7, 4);
+        p.fillEllipse(RectF(pb.x - 5, pb.y - 5, 10, 10), line);
+        p.fillEllipse(RectF(pa.x - 3, pa.y - 3, 6, 6), line);
+        float w = (float)f.width(m.label) + 10;
+        RectF box((pa.x + pb.x) / 2 - w / 2, (pa.y + pb.y) / 2 - 18, w, 15);
+        p.fillRect(Rect((int)box.x, (int)box.y, (int)std::ceil(box.w), (int)box.h), color("base"));
+        p.drawText(box, AlignCenter, m.label, f, line);
+    }
 }
 
 void PatchPanel::paintPanel(Painter& p) {
@@ -473,6 +505,16 @@ void PatchPanel::paintUnit(Painter& p, int index) {
     const Image& pixmap = pixmaps_[index];
     if (!pixmap.empty()) p.drawImage(Point(pic.x + (pic.w - pixmap.width()) / 2, pic.y + (pic.h - pixmap.height()) / 2), pixmap);
     else paintFaceplate(p, pic);
+    if (unit.modulator && pixmap.empty()) {  // a modulator: a wave across its faceplate (it moves knobs, not sound)
+        Path wave;
+        for (int k = 0; k <= 48; k++) {
+            float x = pic.x + 24 + (pic.w - 48) * k / 48.0f;
+            float y = pic.y + pic.h / 2.0f - (pic.h / 4.0f) * std::sin(k / 48.0f * 2 * 3.14159265f);
+            if (k == 0) wave.moveTo(x, y);
+            else wave.lineTo(x, y);
+        }
+        p.strokePath(wave, color("accent"), 3);
+    }
     p.restore();
     if (auto button = reloadRect(index)) {  // (stopped: started afresh with a click)
         bool hot = hover.kind == Hover::Reload && hover.index == index;

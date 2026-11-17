@@ -114,6 +114,7 @@ struct PanelUnit {
     std::optional<Point> pos;      // top-left in the space; none: the panel finds it a free spot
     std::optional<double> volumeDb;  // instruments: its own volume (a fader on the unit); none: no fader
     std::optional<double> mix;       // effects: its Mix, 0 (its input only) … 1 (its sound only), a fader too
+    bool modulator = false;          // a modulator (an LFO…): it moves other units' knobs (drawn with a wave mark)
     // the fader's value: dB (volumeDb) or 0…1 (mix); none when the unit has no fader
     std::optional<double> fader() const { return volumeDb ? volumeDb : mix; }
 };
@@ -146,6 +147,14 @@ public:
                   std::vector<std::pair<std::string, bool>> sources = {});
     const std::vector<PanelUnit>& units() const { return units_; }
     const std::vector<PanelCable>& cables() const { return cables_; }
+    // modulation (audio/modulation.h): a dashed line from a modulator unit to each unit whose knob it moves,
+    // labelled with the knob's name and how far it moves it ("Cutoff +50 %")
+    struct ModLink {
+        int from, to;  // units
+        std::string label;
+    };
+    void setModLinks(std::vector<ModLink> links);
+    const std::vector<ModLink>& modLinks() const { return modLinks_; }
     const std::vector<std::pair<std::string, bool>>& sources() const { return sources_; }
     int current = -1;
     void setCurrent(int index);
@@ -232,6 +241,7 @@ private:
     std::vector<PanelUnit> units_;
     std::vector<Image> pixmaps_;     // the pictures fitted to a unit's picture area
     std::vector<PanelCable> cables_;
+    std::vector<ModLink> modLinks_;
     std::vector<std::pair<std::string, bool>> sources_;
     struct Press { int index; Point start, offset; };
     std::optional<Press> press_;
@@ -249,4 +259,5 @@ private:
     void paintFaceplate(Painter& p, const Rect& pic);
     void paintCable(Painter& p, PointF a, PointF b, Color cable);
     void paintWiring(Painter& p);
+    void paintModLinks(Painter& p);
 };

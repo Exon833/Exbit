@@ -6,6 +6,7 @@
 #include <cstdio>
 
 #include "audio/automation.h"
+#include "audio/modulation.h"
 #include "audio/plugin_audio.h"
 #include "plugins/wine.h"
 #include "ui/automation_dialog.h"
@@ -514,6 +515,7 @@ bool LanePanel::addAutomation(const TrackPtr& track) {
     track->automation = lanes;
     track->showAutomation = true;
     automation::resolve(project);
+    modulation::resolve(project);  // (and the modulation cables' parameters)
     timeline.lanesChanged();
     return true;
 }

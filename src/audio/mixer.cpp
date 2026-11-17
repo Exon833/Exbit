@@ -8,6 +8,7 @@
 #include <stdexcept>
 
 #include "audio/automation.h"
+#include "audio/modulation.h"
 #include "config.h"
 
 using namespace plugin_audio;
@@ -57,7 +58,10 @@ void MixState::reserve(int frames, int tracks) {
         s->events.reserve(2048);
         scratch.push_back(std::move(s));
     }
-    for (auto& s : scratch) s->feeds.reserve(std::max(trackCapacity, 1));
+    for (auto& s : scratch) {
+        s->feeds.reserve(std::max(trackCapacity, 1));
+        s->pieceFeeds.reserve(std::max(trackCapacity, 1));
+    }
     if (active.capacity() < 1024) active.reserve(1024);
     if (trackClips.capacity() < 1024) trackClips.reserve(1024);
 }
@@ -219,6 +223,7 @@ struct Buffer {
     const Track* only;
     TrackTap* tap;
     Transport transport;
+    TempoMapPtr tempoMap;
     // the first error a worker met (rethrown on the calling thread once the run is over)
     std::atomic<bool> failed{false};
     char error[256] = {0};
@@ -309,6 +314,18 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
         res.seconds = secondsSince(t0);
         return;  // Skipped
     }
+    // modulation cables (audio/modulation.h): the knobs set for the first piece now, before the instruments
+    // play; the effects are then worked out piece by piece, the knobs moved between pieces
+    auto mods = plugins && !frozen ? track.modCables.get() : nullptr;
+    bool modulated = mods && !mods->empty();
+    int firstPiece = frames;
+    if (modulated) {
+        firstPiece = modulation::toNextStep(hasStart, start, 0, frames);
+        // (a step only on its frame, or where playback starts or jumps: between steps the knobs keep the last
+        // step's values, so buffers of any size move them at the same frames)
+        if (!hasStart || b.restart || start % modulation::BLOCK == 0)
+            modulation::apply(*mods, modulation::clockAt(*b.tempoMap, hasStart, start, firstPiece, sr), true);
+    }
     std::vector<float>& buf = st.trackBuf[ti];
     float* sig[2] = {buf.data(), buf.data() + cap};
     std::memset(sig[0], 0, sizeof(float) * frames);
@@ -367,8 +384,28 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
             feedCount = scratch.feeds.size();
         }
         auto state = patch::stateOf(track.patchState);
-        patch::runPatch(st.cables[ti], *effects, sig, channels, frames, sr, *state, feedList, feedCount,
-                        instrumentLatency(track), b.transport);
+        if (!modulated) {
+            patch::runPatch(st.cables[ti], *effects, sig, channels, frames, sr, *state, feedList, feedCount,
+                            instrumentLatency(track), b.transport);
+        } else {
+            for (int done = 0; done < frames;) {
+                int n = done == 0 ? firstPiece : modulation::toNextStep(hasStart, start + done, done, frames - done);
+                if (done > 0)
+                    modulation::apply(*mods, modulation::clockAt(*b.tempoMap, hasStart, start + done, n, sr), false);
+                float* piece[2] = {sig[0] + done, sig[1] + done};
+                scratch.pieceFeeds.clear();  // (the sidechains' sound from the same place)
+                for (size_t k = 0; k < feedCount; k++) {
+                    patch::Feed f = feedList[k];
+                    f.ch[0] += done;
+                    f.ch[1] += done;
+                    scratch.pieceFeeds.push_back(f);
+                }
+                Transport tr = Transport::at(*b.tempoMap, hasStart, start + done, sr);
+                patch::runPatch(st.cables[ti], *effects, piece, channels, n, sr, *state, scratch.pieceFeeds.data(),
+                                scratch.pieceFeeds.size(), instrumentLatency(track), tr);
+                done += n;
+            }
+        }
     }
     applyFader(sig, channels, frames, track, hasStart, start, sr);  // its fader and pan, after its effects
     if (feeds) {
@@ -601,6 +638,7 @@ int mixClips(Project& project, float* out, int outChannels, int frames, bool has
     b.only = only;
     b.tap = tap;
     b.transport = transport;
+    b.tempoMap = tempoMap;
 
     // --- the tracks ---
     bool parallel = st.pool && st.pool->threads() > 0 && n >= 2;

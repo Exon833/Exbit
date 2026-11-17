@@ -25,6 +25,11 @@ std::unique_ptr<Effect> makeTremoloPan();           // motion.cpp
 // (transient shaping and time manipulation)
 std::unique_ptr<Effect> makeTransientShaper();      // transient.cpp
 std::unique_ptr<Effect> makeTimeFx();               // timefx.cpp
+// (modulators: they move other units' knobs, audio/modulation.h)
+std::unique_ptr<Effect> makeLfo();                  // modulators.cpp
+std::unique_ptr<Effect> makeRandomModulator();      // modulators.cpp
+std::unique_ptr<Effect> makeLevelFollower();        // modulators.cpp
+std::unique_ptr<Effect> makeMacro();                // modulators.cpp
 
 // --- Space (space.cpp) and Tuner (tuner.cpp) ---
 std::unique_ptr<Effect> makeSpace();

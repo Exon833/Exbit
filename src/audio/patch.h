@@ -7,7 +7,8 @@
 // input gets what is wired into its Sidechain the same way (nothing: silence); besides IN and
 // effects, other tracks can be wired into a sidechain (TrackSource: their sound after their effects
 // and fader, handed over by the mixer, which processes them first). Only effects whose output
-// reaches OUT are processed; a bypassed effect, or one that isn't loaded or has stopped after an
+// reaches OUT are processed (and modulators with something wired in: audio/modulation.h); a
+// bypassed effect, or one that isn't loaded or has stopped after an
 // error, passes its input on unchanged.
 //
 // An effect's Mix (PluginSlot::mix, below 1) blends its input back in: input × (1 − mix) + output × mix,
@@ -65,8 +66,9 @@ private:
 bool isStraight(const std::vector<Cable>& cables);  // IN → OUT only: no effects in the way
 
 // The plan of a set of cables (immutable once made, shared between threads): the effects that are
-// heard (their output reaches OUT), each after all that feed it, and what is wired into each one's
-// input and sidechain and into OUT. A cable that would close a loop is left out.
+// heard (their output reaches OUT), and modulators with something wired in (audio/modulation.h), each
+// after all that feed it, and what is wired into each one's input and sidechain and into OUT. A cable
+// that would close a loop is left out.
 // Sources are coded: -1 = IN, k >= 0 = order[k], -2 - j = leaves[j] (another track).
 struct Plan {
     Cables::Ptr cables;

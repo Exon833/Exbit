@@ -6,6 +6,7 @@
 #include <functional>
 #include <map>
 
+#include "audio/modulation.h"
 #include "config.h"
 
 using namespace plugin_audio;
@@ -106,6 +107,15 @@ std::shared_ptr<const Plan> makePlan(const Cables::Ptr& cables) {
         }
     };
     visit(End::out());
+    // modulators with something wired in (a Level Follower listening) are worked out too, though their
+    // output (silence) reaches nowhere: what they hear moves other units' knobs (audio/modulation.h)
+    for (auto& c : *cables) {
+        const End& to = c.second;
+        if ((to.type == End::Slot || to.type == End::Sidechain) && modulation::isModulator(to.slot)) {
+            End node = End::of(to.slot);
+            if (!state.count(node)) visit(node);
+        }
+    }
     return plan;
 }
 

@@ -110,13 +110,15 @@ void set(Effect& fx, const std::string& key, double value) {
 
 void testFactory() {
     const auto& all = list();
-    CHECK(all.size() == 18);
+    CHECK(all.size() == 22);
     std::vector<std::string> names;
     for (const auto& i : all) names.push_back(i.name);
     CHECK((names == std::vector<std::string>{"Bit-crusher", "Chorus", "Compressor", "Delay", "EQ", "Filter Motion",
-                                             "Gate", "Limiter", "Multi-band compressor", "Phaser / Flanger", "Reverb",
+                                             "Gate", "Level Follower", "LFO", "Limiter", "Macro",
+                                             "Multi-band compressor", "Phaser / Flanger", "Random", "Reverb",
                                              "Saturation", "Space", "Time FX", "Transient Shaper", "Tremolo / Pan",
                                              "Tuner", "Utility"}));
+    CHECK(categoryOf("builtin:mod_lfo") == "Modulators" && categoryOf("builtin:mod_macro") == "Modulators");
     CHECK(categoryOf("builtin:space") == "Reverb" && categoryOf("builtin:tuner") == "Utility");
     CHECK(find("builtin:multiband_compressor") && find("builtin:multiband_compressor")->category == "Dynamics");
     CHECK(find("eq")->path() == "builtin:eq" && find("eq")->label() == "EQ  (built-in)");
@@ -133,7 +135,7 @@ void testFactory() {
         CHECK(!fx->hasEditor() && !fx->isInstrument() && !fx->isVst2() && fx->subcategories() == "Fx");
         CHECK(fx->sampleRate() == 48000);
         bool side = info.id == "compressor" || info.id == "gate" || info.id == "filter_motion" ||
-                    info.id == "transient_shaper";
+                    info.id == "transient_shaper" || info.id == "mod_follower";
         CHECK(fx->hasSidechain() == side);
         CHECK(fx->latency() == (info.id == "limiter" ? 96 : 0));
     }

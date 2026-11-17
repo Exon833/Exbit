@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 
+#include "audio/modulation.h"
 #include "config.h"
 
 using plugin_audio::Parameter;
@@ -103,6 +104,7 @@ std::set<std::string> TweakWatcher::automated() const {
 void TweakWatcher::poll() {
     if (!usable(slot)) return;
     std::vector<uint32_t> edited = aload(slot->instance)->edited();
+    modulation::userEdited(project_, slot.get(), edited);  // (knobs turned that modulation moves: their base)
     std::vector<std::string> changed;  // latest first, each once
     for (auto it = edited.rbegin(); it != edited.rend(); ++it)
         for (auto& n : names_)
@@ -186,6 +188,10 @@ void apply(Track& track, int64_t start, int sr) {
             continue;
         double value = valueAt(*points, seconds, lane->targetSteps);
         if (lane->last < 0 || std::fabs(value - lane->last) > 1e-6) {
+            if (modulation::takeAutomation(track, lane->slot.get(), lane->targetParam, value)) {
+                lane->last = value;  // (modulated: the lane moves its base, the modulation sets it)
+                continue;
+            }
             try {
                 target->setParam(lane->targetParam, value);
                 lane->last = value;

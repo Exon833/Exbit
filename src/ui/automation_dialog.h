@@ -20,7 +20,9 @@
 
 class ParameterDialog : public ui::Dialog {
 public:
-    ParameterDialog(ui::Window* parent, const TrackPtr& track);
+    // modulating: choosing a knob for that modulator to move (audio/modulation.h) instead of a parameter to
+    // automate: the track's units but the modulator itself (not its volume and pan), automated ones too
+    ParameterDialog(ui::Window* parent, const TrackPtr& track, const PluginSlot* modulating = nullptr);
     // after exec() returned Accepted: the plugin and its parameter's name
     SlotPtr chosenSlot;
     std::string chosenParam;

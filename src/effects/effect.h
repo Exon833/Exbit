@@ -92,6 +92,18 @@ struct CurvePoint {
     double x, y;  // x 0…1 left to right, y -1…1 bottom to top
 };
 
+// Where the song is when a modulator (modulators.cpp) is asked for its value (audio/modulation.h):
+// at the start of a piece of `frames` frames.
+struct ModClock {
+    bool playing = false;
+    double seconds = 0;      // timeline seconds (playing), else 0
+    double beats = 0;        // beats since 0 s on the tempo map (playing), else 0
+    double tempo = 120;      // bpm there
+    double beatsPerBar = 4;  // a bar's quarter notes there
+    int frames = 0;          // the piece's length
+    double sr = 48000;
+};
+
 // --- building blocks (effect.py; in double precision as scipy) ---
 
 using Sos = std::array<double, 6>;  // b0 b1 b2 1 a1 a2
@@ -190,6 +202,16 @@ public:
     virtual void setAnalyzerChoice(int) {}
     virtual bool analyzer(int count, double dt, std::vector<CurvePoint>& out) { return false; }
 
+    // A modulator (LFO, Level Follower, Random, Macro: modulators.cpp) moves other effects' and
+    // instruments' parameters through modulation cables (audio/modulation.h) instead of changing the
+    // sound: it lets nothing through (silence out) and gives a value for each piece of a buffer.
+    // modulation(): -1…1 for a two-way one (LFO, Random), 0…1 for a one-way one (Level Follower,
+    // Macro, and an LFO set to one way). Audio thread (one per track's processing at a time).
+    virtual bool isModulator() const { return false; }
+    virtual double modulation(const ModClock& clock) { return 0; }
+    // its value as modulation() last gave it (any thread: its window, the patch panel), -1…1
+    double lastModulation() const { return lastModulation_.load(std::memory_order_relaxed); }
+
     // --- plug::Plugin ---
     bool isVst2() const override { return false; }
     std::string name() const override { return name_; }
@@ -228,6 +250,7 @@ public:
     int maxBlock() const { return maxBlock_; }
 
 protected:
+    std::atomic<double> lastModulation_{0};
     // --- for the effects to fill in ---
     virtual void allocate(double rate, int maxBlock) {}
     virtual void start() = 0;

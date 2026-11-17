@@ -7,9 +7,13 @@
 #include "core/util.h"
 #include "ui/toolkit/layout.h"
 
-ParameterDialog::ParameterDialog(ui::Window* parent, const TrackPtr& track_)
-    : ui::Dialog(parent, "Automate a parameter: " + track_->name, 420, 520), track(track_) {
-    for (auto& a : track->automation) taken_.insert({a->slot.get(), a->param});
+ParameterDialog::ParameterDialog(ui::Window* parent, const TrackPtr& track_, const PluginSlot* modulating)
+    : ui::Dialog(parent, (modulating ? "Modulate a knob with " + modulating->name + ": " : "Automate a parameter: ") +
+                             track_->name,
+                 420, 520),
+      track(track_) {
+    if (!modulating)
+        for (auto& a : track->automation) taken_.insert({a->slot.get(), a->param});
     auto* col = ui::vbox(this, 10, 6);
     auto formLayout = std::make_unique<ui::FormLayout>();
     ui::FormLayout* form = formLayout.get();
@@ -20,6 +24,10 @@ ParameterDialog::ParameterDialog(ui::Window* parent, const TrackPtr& track_)
     // the track's own volume and pan first (automation.plugins_of lists its controls first)
     if (track->controls && std::find(owners.begin(), owners.end(), track->controls) == owners.end())
         owners.insert(owners.begin(), track->controls);
+    if (modulating)  // (its own knobs, and the track's volume and pan, aren't moved by modulation)
+        owners.erase(std::remove_if(owners.begin(), owners.end(),
+                                    [&](const SlotPtr& s) { return s.get() == modulating || s == track->controls; }),
+                     owners.end());
     for (auto& slot : owners) {
         if (slot == track->controls) {
             plugins->addItem("Track: volume and pan", (int)slots.size());

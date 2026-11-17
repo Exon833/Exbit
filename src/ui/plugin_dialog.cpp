@@ -2,17 +2,23 @@
 // (plugin_dialog.py).
 #include "ui/plugin_dialog.h"
 
+#include "ui/automation_dialog.h"
+
+#include "audio/modulation.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <map>
 #include <set>
 
+#include "audio/modulation.h"
 #include "audio/patch.h"
 #include "audio/plugin_audio.h"
 #include "core/util.h"
 #include "effects/effects.h"
 #include "plugins/library.h"
+#include "ui/automation_dialog.h"
 #include "ui/plugin_chooser.h"
 #include "ui/plugin_host.h"
 #include "ui/plugin_pictures.h"
@@ -275,6 +281,14 @@ void PluginsDialog::setPatch(std::optional<std::vector<SlotPtr>> effects_, std::
     if (cables_ && effects_ && effects_->size() < e.size()) c = *cables_;
     if (effects_) e = *effects_;
     if (cables_) c = *cables_;
+    if (owner) {  // (modulation cables whose ends went with an effect or instrument: gone too, their knobs back)
+        auto keep = modulation::kept(*owner);
+        if (keep.size() != owner->modCables.size()) {
+            for (auto& m : owner->modCables)
+                if (std::find(keep.begin(), keep.end(), m) == keep.end()) modulation::release(m);
+            owner->modCables = keep;
+        }
+    }
     patch::ensureStates(project);
     refresh(current);
     if (onChange) onChange();
@@ -342,9 +356,38 @@ void PluginsDialog::refresh(std::optional<int> current) {
         auto a = node(c.first), b = node(c.second);
         if (a && b) wires.push_back({*a, *b});
     }
+    // modulators: their own look and status, and a line to each unit whose knob they move
+    std::vector<PatchPanel::ModLink> links;
+    for (size_t i = 0; i < fx.size(); i++) {
+        if (!modulation::isModulator(fx[i].get())) continue;
+        PanelUnit& u = units[i];
+        u.modulator = true;
+        u.mix.reset();  // (no sound: no Mix fader)
+        if (u.problem) continue;
+        int moves = 0;
+        if (modulates())
+            for (auto& m : owner->modCables)
+                if (m.from == fx[i].get()) {
+                    moves++;
+                    auto to = index.find(m.to);
+                    char depth[32];
+                    std::snprintf(depth, sizeof depth, " %+d %%", (int)std::lround(m.depth * 100));
+                    std::string label = m.param + depth;
+                    if (to != index.end()) links.push_back({(int)i, to->second, label});
+                }
+        bool listens = fx[i]->path == "builtin:mod_follower";
+        u.idle = moves == 0;
+        u.status = moves ? "Moves " + std::to_string(moves) + (moves == 1 ? " knob" : " knobs") : "Moves nothing";
+        u.tooltip = fx[i]->name + " is a modulator: it moves other units' knobs (the dashed lines), not the sound. "
+                    "Right-click it → Modulate a knob… to choose one; double-click it for its settings." +
+                    std::string(listens ? " It follows the loudness of what is wired into its input (or its "
+                                          "sidechain: another track's sound)." : "");
+        if (!modulates()) u.tooltip += " (Modulation works in a track's effects window.)";
+    }
     std::vector<std::pair<std::string, bool>> sources;
     for (auto& t : others) sources.push_back({t->name, listensTo(*t, owner.get())});
     panel->setUnits(std::move(units), std::move(wires), current, std::move(sources));
+    panel->setModLinks(std::move(links));
 }
 
 SlotPtr PluginsDialog::selected() const {
@@ -506,8 +549,89 @@ void PluginsDialog::reloadUnit(const SlotPtr& slot) {
     });
 }
 
+void PluginsDialog::modulate(const SlotPtr& from) {
+    if (!modulates() || !from) return;
+    SlotPtr target;
+    std::string param;
+    {
+        ParameterDialog d(this, owner, from.get());
+        if (!d.exec() || !d.chosenSlot) return;
+        target = d.chosenSlot;
+        param = d.chosenParam;
+    }
+    std::vector<ModCable> list = owner->modCables.copy();
+    for (auto& m : list)
+        if (m.from == from.get() && m.to == target.get() && m.param == param) return;  // (already)
+    ModCable c;
+    c.from = from.get();
+    c.to = target.get();
+    c.param = param;
+    c.depth = 0.5;
+    list.push_back(c);
+    setModCables(list);
+    modulation::resolve(*owner);
+}
+
+void PluginsDialog::setModCables(std::vector<ModCable> cables) {
+    if (!modulates()) return;
+    for (auto& m : owner->modCables)
+        if (std::find(cables.begin(), cables.end(), m) == cables.end()) {
+            bool still = false;  // (the same cable with another depth: its knob stays modulated)
+            for (auto& n : cables)
+                if (n.state == m.state) still = true;
+            if (!still) modulation::release(m);
+        }
+    owner->modCables = cables;
+    refresh(panel->current);
+    if (onChange) onChange();
+}
+
+void PluginsDialog::editDepth(const ModCable& cable) {
+    std::string text = std::to_string((int)std::lround(cable.depth * 100));
+    if (!ui::getText(this, "How far it moves " + cable.param,
+                          "Depth in % (-100 … 100; negative: the other way). At 100 % the modulator's full swing\n"
+                          "moves the knob over its whole range.",
+                          text))
+        return;
+    char* end = nullptr;
+    double pct = std::strtod(text.c_str(), &end);
+    if (end == text.c_str()) return;
+    std::vector<ModCable> list = owner->modCables.copy();
+    for (auto& m : list)
+        if (m.state == cable.state) m.depth = std::max(-1.0, std::min(1.0, pct / 100));
+    setModCables(list);
+}
+
+void PluginsDialog::fillModulatorMenu(ui::Menu& menu, const SlotPtr& slot) {
+    menu.addAction("Modulate a knob…", [this, slot] { modulate(slot); })->tooltip =
+        "Choose a knob of this track's effects or instrument for it to move";
+    for (auto& m : owner->modCables) {
+        if (m.from != slot.get()) continue;
+        std::string target = m.to ? m.to->name : "?";
+        char depth[32];
+        std::snprintf(depth, sizeof depth, "  (%+d %%)", (int)std::lround(m.depth * 100));
+        ui::Menu* sub = menu.addMenu("→ " + target + ": " + m.param + depth);
+        ModCable cable = m;
+        sub->addAction("Depth…", [this, cable] { editDepth(cable); });
+        sub->addAction("The other way", [this, cable] {
+            std::vector<ModCable> list = owner->modCables.copy();
+            for (auto& x : list)
+                if (x.state == cable.state) x.depth = -x.depth;
+            setModCables(list);
+        });
+        sub->addAction("Remove", [this, cable] {
+            std::vector<ModCable> list;
+            for (auto& x : owner->modCables)
+                if (x.state != cable.state) list.push_back(x);
+            setModCables(list);
+        });
+    }
+    menu.addSeparator();
+}
+
 void PluginsDialog::fillUnitMenu(ui::Menu& menu, int row) {
     SlotPtr slot = effects()[row];
+    if (modulates() && modulation::isModulator(slot.get())) fillModulatorMenu(menu, slot);
     if (host.canReload(slot)) {
         menu.addAction("Reload (it stopped)", [this, slot] { reloadUnit(slot); });
         menu.addSeparator();

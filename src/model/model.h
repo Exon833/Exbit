@@ -246,6 +246,30 @@ struct Send {
     bool operator!=(const Send& o) const { return !(*this == o); }
 };
 
+// --- a modulation cable (audio/modulation.h): a modulator unit of a track (an LFO, a Level Follower…:
+// effects/modulators.cpp) moving a parameter of another of the track's units (an effect, another
+// modulator, or its instrument) by `depth` ---
+// Its working values (the audio thread's) are in a ModState shared by every copy of the cable, so
+// replacing the track's list (an edit, undo) keeps them.
+struct ModState {
+    std::shared_ptr<plug::Plugin> target;  // the parameter's plugin (std::atomic_load / store), set by
+    std::atomic<uint32_t> paramId{0};      // modulation::resolve on the GUI thread; used only while
+    std::atomic<bool> hasTarget{false};    // `target` is the slot's instance
+    std::atomic<double> base{-1};      // the parameter's own value (0…1) the modulation moves around; -1: none yet
+    std::atomic<double> applied{-1};   // the value last given it; -1: none (another value read: the user's: new base)
+};
+struct ModCable {
+    PluginSlot* from = nullptr;  // a modulator among the track's effects
+    PluginSlot* to = nullptr;    // one of the track's effects (or modulators), or an instrument it plays
+    std::string param;           // the parameter's name (as automation names it)
+    double depth = 0.5;          // -1…1: how far the modulator's full swing moves it, in its 0…1 range
+    std::shared_ptr<ModState> state = std::make_shared<ModState>();
+    bool operator==(const ModCable& o) const {
+        return from == o.from && to == o.to && param == o.param && depth == o.depth && state == o.state;
+    }
+    bool operator!=(const ModCable& o) const { return !(*this == o); }
+};
+
 // --- a track ---
 struct Track {
     std::string name;
@@ -265,6 +289,7 @@ struct Track {
     bool needsInstrument = false;  // a new MIDI track: silent until an instrument is chosen
     List<SlotPtr> effects;    // in its patch space
     Cables cables{straight()};
+    List<ModCable> modCables; // modulators moving its units' knobs (see ModCable)
     std::string color;        // "#rrggbb" for its row; "" = the standard look
     std::string tone;         // "light" / "dark": fixed text colour on its row; "" = automatic
     GroupPtr group;

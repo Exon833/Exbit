@@ -7,6 +7,7 @@
 #include <cstdlib>
 
 #include "audio/automation.h"
+#include "audio/modulation.h"
 #include "audio/devices.h"
 #include "audio/metering.h"
 #include "audio/patch.h"
@@ -1486,6 +1487,7 @@ void MainWindow::onFrame() {
     engine.idle();
     if (midiInput) midiInput->poll();  // (what the MIDI keyboard played)
     automation::resolve(project);  // (parameters of plugins just loaded)
+    modulation::resolve(project);  // (and the modulation cables' parameters)
     plugins->idle(project.pluginSlots());  // (values to their windows, latency changes)
     int64_t heard = engine.heardPos();  // (behind the engine's position while plugins hold sound back)
     tl->setPlayhead(heard);

@@ -31,6 +31,10 @@ const std::vector<Entry>& entries() {
             {{"reverb", "Reverb", "Reverb"}, makeReverb},
             {{"saturation", "Saturation", "Distortion"}, makeSaturation},
             {{"tremolo_pan", "Tremolo / Pan", "Modulation"}, makeTremoloPan},
+            {{"mod_lfo", "LFO", "Modulators"}, makeLfo},
+            {{"mod_random", "Random", "Modulators"}, makeRandomModulator},
+            {{"mod_follower", "Level Follower", "Modulators"}, makeLevelFollower},
+            {{"mod_macro", "Macro", "Modulators"}, makeMacro},
             {{"utility", "Utility", "Utility"}, makeUtility},
             // (transient shaping and time manipulation: transient.cpp, timefx.cpp)
             {{"transient_shaper", "Transient Shaper", "Dynamics"}, makeTransientShaper},

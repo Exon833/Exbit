@@ -117,6 +117,7 @@ struct MixState {
         plugin_audio::Messages messages;
         std::vector<plugin_audio::NoteEvent> events;
         std::vector<patch::Feed> feeds;
+        std::vector<patch::Feed> pieceFeeds;  // (a modulated track's effects worked out in pieces)
     };
     std::vector<std::unique_ptr<Scratch>> scratch;
 };
