@@ -1710,6 +1710,7 @@ void App::repaintAll() {
         w->update();
         std::function<void(Widget*)> all = [&](Widget* x) {
             x->updateGeometry();
+            x->resized();  // (when its size doesn't change, the layout won't call it: its insides may move anyway)
             for (auto& c : x->children()) all(c.get());
         };
         all(w);

@@ -513,7 +513,9 @@ public:
     Window* activeWindow() const;
     Window* modalWindow() const;        // the topmost modal window shown, if any
     Window* mainWindow = nullptr;
-    void repaintAll();                  // after a skin change
+    // after a skin change: every widget's size hint is asked again (layouts are redone before the next frame),
+    // resized() places what each widget places itself (with its new padding, borders…), and all is repainted
+    void repaintAll();
     // current drag (internal and from the desktop), for Window
     DragData* drag() { return dragActive_ ? &drag_ : nullptr; }
     void beginDrag(const DragData& d, Widget* source);

@@ -1493,6 +1493,30 @@ static void testBasicControlStyles() {
     App::get().advanceTimers(1.5);  // (a tooltip hidden just now would make the next one quick)
 }
 
+// a skin change re-places what controls place themselves, even when their own size stays: a SpinBox whose
+// buttons get wider keeps its size (fixed) but its editor narrows at once
+static void testRestyleRelayout() {
+    theme::setSkin();
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(200, 60);
+    auto* sp = w.add<SpinBox>();
+    sp->setGeometry(10, 10, 120, 26);
+    w.showWindow();
+    App::get().tick();
+    int before = sp->editor()->width();
+    std::vector<css::Problem> problems;
+    theme::setStyles({theme::builtinSheet(),
+                      css::parse("SpinBox::up-button, SpinBox::down-button { width: 40px; }", "wide.css", problems)});
+    App::get().repaintAll();
+    App::get().tick();
+    CHECK(sp->width() == 120 && sp->editor()->width() < before - 15);
+    theme::setSkin();
+    App::get().repaintAll();
+    App::get().tick();
+    CHECK(sp->editor()->width() == before);
+    w.hideWindow();
+}
+
 int main() {
     App::get().initHeadless();
     util::makeDirs("build/toolkit-samples");
@@ -1503,6 +1527,7 @@ int main() {
     testStylesheets();
     testFieldStylesheets();
     testBasicControlStyles();
+    testRestyleRelayout();
     testButtonsAndClicks();
     testLineEdit();
     testSpinBox();
