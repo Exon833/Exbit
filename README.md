@@ -28,7 +28,8 @@ extends; that program is in the repository's history.
   slide, pan and fine pitch; linked clips (edit one, every linked copy changes); the built-in synth and
   sampler; MIDI effects (arpeggiator, chord, scale, note length, velocity, random, pitch, groove); a MIDI keyboard (with sustain pedal) or the computer
   keyboard; MIDI recording, Capture of what you just played, MIDI file import and export.
-- **Modulators**: an LFO, Random, a Level Follower and a Macro knob, placed in the effects window like
+- **Modulators**: an LFO, Random, a Level Follower, a Macro knob and MIDI Control (the mod wheel or any
+  controller of a MIDI keyboard), placed in the effects window like
   effects, that move any knob of the track's effects or instrument (see below).
 - **Effects and plugins**: eighteen built-in effects (EQ with a live spectrum, compressor,
   multi-band compressor, gate, limiter, transient shaper, reverb, Space (a convolution reverb),
@@ -183,6 +184,16 @@ the knob over its whole range), **The other way**, **Remove** (the knob goes bac
   this one: a kick pumping a pad's volume or a filter.
 - **Macro**: one knob (0 … 100 %). Wire it to several knobs to turn them together; automate it like
   any parameter.
+- **MIDI Control**: the latest value of a controller of the MIDI keyboard (Options → MIDI input): the
+  mod wheel (CC 1, the default), any other CC 0–127, or the pitch bend (both ways), with a Smooth time.
+  Wire it to a filter's cutoff and the mod wheel opens it, on any plugin.
+
+**Pitch bend and the mod wheel**: a MIDI keyboard's pitch bend bends the notes played live into the
+selected track: the built-in synth's and sampler's voices (the range, ±2 semitones unless the track's
+right-click → Pitch bend range… says otherwise, 1–24, saved with the project), and plugin instruments
+(VST2 as MIDI pitch bend; VST3 through the parameter the plugin maps it to; Windows plugins through
+their Wine host). The mod wheel (CC 1) goes on to plugin instruments too. Pitch bend isn't recorded
+yet (notes are).
 
 The knob keeps its own place: the modulation moves it around that. Turning the knob in its window,
 or an automation lane on it, moves that place, and the modulation goes on around the new one. While
