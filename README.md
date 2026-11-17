@@ -42,6 +42,8 @@ extends; that program is in the repository's history.
   processor core at once, with each track's CPU use shown; recording with count-in and a
   measurable recording offset; freeze and bounce; render to WAV, FLAC, MP3 or OGG with peak or
   loudness normalizing; stems; level meters with peak hold and clip lights; LUFS; a master scope.
+- **Presets and MIDI learn**: save and recall an effect's or instrument's settings, or a whole track's
+  chain; compare two settings of one effect (Now / Kept); link any knob to a MIDI controller's knob.
 - **Projects**: templates, recent projects, backups of what each save replaces, autosave with crash
   recovery, Ableton Live set import.
 - **Look**: skins (Dark, Light, Midnight, OLED, High contrast, or your own, editable), interface size
@@ -100,6 +102,26 @@ saturation, bit-crusher and utility:
   A (415–466 Hz); the sound passes untouched.
 - The **EQ** window shows a live spectrum of the sound behind its curve (Off, before or after the
   EQ), worked out only while the window is open.
+
+## Presets and MIDI controllers
+
+- **An effect's or instrument's preset**: the **Presets ▾** button in a built-in effect's window, or
+  right-click a unit in the effects window → Presets (for plugins, whose own window the plugin fills):
+  Save as…, the presets saved for that effect, rename or delete them. **Compare**: "Keep this" keeps the
+  settings now as Kept; switch between Now and Kept to hear one against the other (a built-in effect's
+  window marks the knobs that differ). Loading an effect's preset can't be undone (Compare is the way
+  back).
+- **A track's preset**: right-click a track → Save track preset… keeps its effects as they are wired,
+  with their places and modulation, its instrument (and the built-in sampler's sample) and its MIDI
+  effects; Load track preset ▸ puts them on a track (one undo step). Track presets are also in the
+  Explorer's Presets place: drag one onto a track, or below the tracks for a new one. A plugin that
+  isn't installed here stays as a silent unit keeping its settings, and a message says which.
+  Presets are kept in `~/.local/share/TinyDAW/presets`.
+- **MIDI learn**: right-click a knob (a built-in effect's, a track's fader or pan, a Macro's) → Link to a
+  MIDI controller…, then turn a knob on the controller: from then on it moves that knob (Escape
+  cancels). One controller knob can move several. Options → MIDI controller links… lists them, to
+  remove some. Links are saved with the project. Moved this way, a knob writes its armed automation
+  lane and moves its modulation base like a turn by hand.
 
 ## Fades, sends, automation, loop recording, history and hints
 
