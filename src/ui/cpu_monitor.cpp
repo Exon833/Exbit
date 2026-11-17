@@ -8,8 +8,23 @@
 #include "ui/theme.h"
 
 namespace cpu_monitor {
+const char* loadState(double load) { return load >= 0.8 ? "hot" : load >= 0.5 ? "warn" : "ok"; }
+
 Color loadColor(double load) {
-    return theme::c(load >= 0.8 ? "meter_hot" : load >= 0.5 ? "meter_warn" : "meter_ok");
+    static int generation = -1;
+    static Color colors[3];
+    const css::Engine& engine = theme::styles();
+    const char* states[] = {"ok", "warn", "hot"};
+    if (engine.generation() != generation) {  // (computed again only when the stylesheets change)
+        css::SimpleNode monitor("CpuMonitor");
+        for (int i = 0; i < 3; ++i) {
+            monitor.states = {states[i]};
+            colors[i] = ui::style::background(engine.compute(monitor, nullptr, "bar"));
+        }
+        generation = engine.generation();
+    }
+    std::string state = loadState(load);
+    return colors[state == "hot" ? 2 : state == "warn" ? 1 : 0];
 }
 }  // namespace cpu_monitor
 
@@ -27,7 +42,8 @@ std::string g(double v) {  // Python's :g
 }  // namespace
 
 CpuMonitor::CpuMonitor() {
-    setFixedSize(config::PANEL_W, config::RULER_H);
+    setStyleType("CpuMonitor");
+    setFixedSize(theme::metric("panel-width", config::PANEL_W), theme::metric("ruler-height", config::RULER_H));
     showLoad(std::nullopt);
 }
 
@@ -58,12 +74,33 @@ void CpuMonitor::tip() {
     setToolTip(t);
 }
 
+const CpuMonitor::Look& CpuMonitor::look() {
+    if (!parts_.refresh()) return look_;
+    Look l;
+    l.self = &parts_.get("");
+    l.text = ui::style::foreground(*l.self);
+    l.font = ui::style::font(*l.self, theme::uiFont());
+    l.padding = ui::style::insets(*l.self, "padding");
+    l.border = ui::style::insets(*l.self, "border-width");
+    const css::Style& late = parts_.get("late");
+    l.late = ui::style::foreground(late);
+    l.lateFont = ui::style::font(late, l.font);
+    l.lateW = panel_style::px(late, "min-width", 50);
+    const css::Style& track = parts_.get("track");
+    l.track = &track;
+    l.barH = std::max(0, panel_style::px(track, "height", 3));
+    const char* states[] = {"ok", "warn", "hot"};
+    for (int i = 0; i < 3; ++i) l.bar[i] = panel_style::bg(parts_.get("bar", states[i]));
+    look_ = l;
+    return look_;
+}
+
 void CpuMonitor::paint(Painter& p) {
-    p.fillRect(rect(), theme::c("ruler_bg"));
-    p.fillRect(Rect(0, 0, 1, height()), theme::c("meter_bg"));  // separator from the ruler
-    RectF textRect(rect().adjusted(8, 0, -8, -3));
-    Font f = theme::uiFont();
-    Color text = theme::c("ruler_text");
+    const Look& look = this->look();
+    ui::style::box(p, rect(), *look.self);  // (its left border: the line between it and the ruler)
+    RectF textRect(ui::style::inside(rect(), look.padding));
+    const Font& f = look.font;
+    Color text = look.text;
     if (!load_) {
         p.drawText(textRect, AlignVCenter | AlignLeft, "Audio CPU  –", f, text);
         return;
@@ -71,13 +108,17 @@ void CpuMonitor::paint(Painter& p) {
     double current = load_->first, average = load_->second;
     p.drawText(textRect, AlignVCenter | AlignLeft, pct("Audio CPU ", current), f, text);
     if (late_) {
-        p.drawText(textRect.adjusted(0, 0, -50, 0), AlignVCenter | AlignRight, pct("avg ", average), f, text);
-        p.drawText(textRect, AlignVCenter | AlignRight, "⚠ " + std::to_string(late_), f, theme::c("meter_hot"));
+        p.drawText(textRect.adjusted(0, 0, -(float)look.lateW, 0), AlignVCenter | AlignRight, pct("avg ", average), f, text);
+        p.drawText(textRect, AlignVCenter | AlignRight, "⚠ " + std::to_string(late_), look.lateFont, look.late);
     } else {
         p.drawText(textRect, AlignVCenter | AlignRight, pct("avg ", average), f, text);
     }
-    // thin bar along the bottom: current load, full width = 100 %
-    int barW = (int)((width() - 1) * std::min(1.0, current));
-    p.fillRect(Rect(1, height() - 3, width() - 1, 3), theme::c("meter_bg"));
-    p.fillRect(Rect(1, height() - 3, barW, 3), cpu_monitor::loadColor(current));
+    // thin bar along the bottom (inside the borders): current load, full width = 100 %
+    Rect bar = ui::style::inside(rect(), look.border);
+    bar = Rect(bar.x, bar.bottom() - look.barH, bar.w, look.barH);
+    int barW = (int)(bar.w * std::min(1.0, current));
+    const char* state = cpu_monitor::loadState(current);
+    int range = state[0] == 'h' ? 2 : state[0] == 'w' ? 1 : 0;
+    ui::style::box(p, bar, *look.track);
+    p.fillRect(Rect(bar.x, bar.y, barW, bar.h), look.bar[range]);
 }

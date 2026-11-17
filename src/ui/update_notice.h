@@ -37,7 +37,8 @@ Text noticeText(const update_check::Result* result);
 std::string noticeTip(const update_check::Result* result);  // its tooltip: more than its line has room for
 }  // namespace update_notice
 
-// The notice itself: one line of dimmed 8 pt text, its link part underlined and clickable.
+// The notice itself: one line of dimmed 8 pt text, its link part underlined and clickable. Styled as UpdateNotice
+// (default.css): color and font; ::link, the line under the link (color).
 class UpdateNotice : public ui::Widget {
 public:
     UpdateNotice();
@@ -54,4 +55,5 @@ public:
 private:
     update_notice::Text text_;
     Rect linkRect() const;
+    Font font() const;  // (the stylesheets' over the dimmed 8 pt font)
 };

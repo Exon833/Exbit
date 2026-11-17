@@ -15,8 +15,6 @@
 using namespace patch_panel;
 
 namespace {
-const Color& color(const char* name) { return theme::c(name); }
-Color mixed(const char* a, const char* b, float t) { return mixColor(theme::c(a), theme::c(b), t); }
 constexpr int DRAG_START = 4;  // px the mouse moves before a unit is dragged (QApplication.startDragDistance on Windows)
 RectF circle(PointF c, float r) { return RectF(c.x - r, c.y - r, 2 * r, 2 * r); }
 double pyRound(double v) { return std::nearbyint(v); }  // (Python's round: halves to even)
@@ -38,6 +36,7 @@ PatchPanel::PatchPanel(bool instruments_)
       cardH(CARD_H + VOLUME_H),  // (every unit has its fader: volume, or Mix)
       jackY(JACK_Y + VOLUME_H),
       row(CARD_H + VOLUME_H + 64) {
+    setStyleType("PatchPanel");
     setFocusPolicy(ui::FocusPolicy::Strong);
     setMouseTracking(true);
     setSizePolicy(ui::SizePolicy::Expanding, ui::SizePolicy::Expanding);
@@ -216,7 +215,7 @@ std::pair<double, double> PatchPanel::groove(int index) const {
 }
 
 int PatchPanel::valueWidth() const {
-    int widest = (int)std::ceil(smallFont().width("Mix 100 %"));
+    int widest = (int)std::ceil(look().valueFont.width("Mix 100 %"));
     return std::max(VOLUME_TEXT_W, widest + KNOB_HALF_W + 8);
 }
 
@@ -376,7 +375,134 @@ Font PatchPanel::smallFont(bool bold, float size) const {
     return base.withPointSize(std::max(6.5f, base.pointSize() + size)).withBold(bold);
 }
 
+const PatchPanel::Look& PatchPanel::look() const {
+    if (!parts_.refresh()) return look_;
+    Look l;
+    // (fonts: the stylesheets' changes to the small fonts this panel was drawn in)
+    auto font = [&](const css::Style& st, bool bold, float size) { return ui::style::font(st, smallFont(bold, size)); };
+    auto border = [](const css::Style& st) { return ui::style::color(st, "border-top-color"); };
+    auto width = [](const css::Style& st, const char* property, double def) { return (float)st.length(property, def); };
+    const css::Style& self = parts_.get("");
+    l.self = &self;
+    for (int i = 0; i < CABLE_COLOURS; ++i) {
+        l.cables[i] = Color::fromHex(CABLES[i]);
+        css::Rgba c;
+        std::optional<std::string> v = self.variable("--cable-" + std::to_string(i + 1));
+        if (v && css::parseColor(*v, c)) l.cables[i] = ui::style::toColor(c);
+    }
+    l.railBox = &parts_.get("rail");
+    const css::Style& railEdge = parts_.get("rail-edge");
+    l.railEdge = panel_style::bg(railEdge);
+    l.railEdgeH = panel_style::px(railEdge, "height", 1);
+    const css::Style& screw = parts_.get("screw");
+    l.screw = panel_style::bg(screw);
+    l.screwSlot = panel_style::fg(screw);
+    l.screwR = width(screw, "width", 8) / 2;
+    l.screwSlotW = width(screw, "stroke-width", 1.4);
+    l.sourcesBox = &parts_.get("sources");  // (its top border: the line above it)
+    const css::Style& sourcesTitle = parts_.get("sources-title");
+    l.sourcesTitle = panel_style::fg(sourcesTitle);
+    l.sourcesTitleFont = font(sourcesTitle, true, -1.5f);
+    const css::Style& source = parts_.get("source");
+    l.source = panel_style::fg(source);
+    l.sourceFont = font(source, false, -1);
+    l.blockedOpacity = (float)parts_.get("source", "blocked").number("opacity", 0.35);
+    const css::Style& jack = parts_.get("jack");
+    l.jack = panel_style::bg(jack);
+    l.jackRing = border(jack);
+    l.jackRingW = width(jack, "border-top-width", 3);
+    const css::Style& ring = parts_.get("jack-ring");
+    const css::Style& ringHot = parts_.get("jack-ring", "hover");
+    l.ring = panel_style::fg(ring);
+    l.ringW = width(ring, "stroke-width", 2);
+    l.ringHot = panel_style::fg(ringHot);
+    l.ringHotW = width(ringHot, "stroke-width", 3);
+    const css::Style& endTitle = parts_.get("end-title");
+    l.endTitle = panel_style::fg(endTitle);
+    l.endTitleFont = font(endTitle, true, -1);
+    const css::Style& endLabel = parts_.get("end-label");
+    l.endLabel = panel_style::fg(endLabel);
+    l.endLabelFont = font(endLabel, false, -1);
+    const css::Style& emptyHint = parts_.get("empty-hint");
+    l.emptyHint = panel_style::fg(emptyHint);
+    l.emptyHintFont = font(emptyHint, false, 0);
+    const css::Style& unit = parts_.get("unit");
+    l.unitBox = &unit;
+    l.unitHoverBox = &parts_.get("unit", "hover");
+    l.unitRadius = ui::style::radius(unit);
+    const css::Style& selected = parts_.get("unit", "selected");  // (its outline, drawn over all of it)
+    l.selected = ui::style::color(selected, "outline-color");
+    l.selectedW = width(selected, "outline-width", 2);
+    l.pictureBox = &parts_.get("picture");
+    l.bypassedOpacity = (float)parts_.get("picture", "bypassed").number("opacity", 0.35);
+    const css::Style& faceplate = parts_.get("faceplate");
+    l.faceplate = panel_style::fg(faceplate);
+    l.faceplateW = width(faceplate, "stroke-width", 1.6);
+    const css::Style& faceplateText = parts_.get("faceplate-text");
+    l.faceplateText = panel_style::fg(faceplateText);
+    l.faceplateFont = font(faceplateText, false, -1);
+    const css::Style& wave = parts_.get("wave");
+    l.wave = panel_style::fg(wave);
+    l.waveW = width(wave, "stroke-width", 3);
+    l.reloadShadeBox = &parts_.get("reload-shade");
+    const css::Style& reload = parts_.get("reload");
+    const css::Style& reloadHot = parts_.get("reload", "hover");
+    l.reload = panel_style::bg(reload);
+    l.reloadText = panel_style::fg(reload);
+    l.reloadHot = panel_style::bg(reloadHot);
+    l.reloadHotText = panel_style::fg(reloadHot);
+    l.reloadEdge = border(reload);
+    l.reloadEdgeW = width(reload, "border-top-width", 1);
+    l.reloadRadius = width(reload, "border-top-left-radius", 4);  // (its own: whether corners are rounded or not)
+    l.reloadFont = font(reload, true, 0);
+    const css::Style& name = parts_.get("name");
+    l.name = panel_style::fg(name);
+    l.nameBypassed = panel_style::fg(parts_.get("name", "bypassed"));
+    l.nameFont = font(name, true, 0);
+    const css::Style& sidechain = parts_.get("sidechain-label");
+    l.sidechain = panel_style::fg(sidechain);
+    l.sidechainFont = font(sidechain, true, -2);
+    const char* lights[] = {"on", "idle", "bypassed", "problem"};
+    for (int i = 0; i < 4; ++i) l.led[i] = panel_style::bg(parts_.get("led", lights[i]));
+    const css::Style& led = parts_.get("led");
+    l.ledEdge = border(led);
+    l.ledEdgeW = width(led, "border-top-width", 1);
+    const css::Style& status = parts_.get("status");
+    l.status = panel_style::fg(status);
+    l.statusHot = panel_style::fg(parts_.get("status", "hover"));
+    l.statusFont = font(status, false, -1);
+    const css::Style& groove = parts_.get("groove");
+    l.groove = panel_style::bg(groove);
+    l.grooveRadius = width(groove, "border-top-left-radius", 2);
+    l.level = panel_style::bg(parts_.get("level"));
+    l.levelBypassed = panel_style::bg(parts_.get("level", "bypassed"));
+    const css::Style& zero = parts_.get("zero-mark");
+    l.zeroMark = panel_style::fg(zero);
+    l.zeroMarkW = width(zero, "stroke-width", 1);
+    const css::Style& knob = parts_.get("knob");
+    l.knob = panel_style::bg(knob);
+    l.knobHot = panel_style::bg(parts_.get("knob", "hover"));
+    l.knobEdge = border(knob);
+    l.knobEdgeW = width(knob, "border-top-width", 1);
+    l.knobRadius = width(knob, "border-top-left-radius", 3);
+    const css::Style& value = parts_.get("value");
+    l.value = panel_style::fg(value);
+    l.valueHot = panel_style::fg(parts_.get("value", "hover"));
+    l.valueFont = font(value, false, -1);
+    const css::Style& mod = parts_.get("mod-link");
+    l.modLink = panel_style::fg(mod);
+    l.modLabelBox = &parts_.get("mod-label");  // (behind a link's label)
+    l.modLinkW = width(mod, "stroke-width", 2);
+    l.modFont = font(mod, true, -1);
+    const css::Style& cable = parts_.get("cable");
+    l.cableW = width(cable, "stroke-width", 3.6);
+    l.cableOutlineW = width(cable, "outline-width", 6);
+    look_ = l;
+    return look_;
+}
+
 void PatchPanel::paint(Painter& p) {
+    const Look& look = this->look();
     paintPanel(p);
     paintEnd(p, true);
     paintEnd(p, false);
@@ -390,7 +516,7 @@ void PatchPanel::paint(Painter& p) {
                               "Then wire it: drag a cable from IN (the notes) to its input, and from its output to OUT."
                             : "Double-click here (or use Add…) to place an effect.\n"
                               "Then wire it: drag a cable from IN to its input, and from its output to OUT.",
-                        smallFont(false, 0), color("hint_text"));
+                        look.emptyHintFont, look.emptyHint);
     for (auto& cable : cables_)
         if (!(wiring && wiring->lifted && cable == *wiring->lifted)) {
             auto [a, b] = cableEnds(cable);
@@ -408,8 +534,9 @@ void PatchPanel::setModLinks(std::vector<ModLink> links) {
 void PatchPanel::paintModLinks(Painter& p) {
     // a dashed line from the modulator's side to the side of the unit it moves (the facing sides), across
     // the lower part of their pictures, a dot where it arrives, and its label above its middle
-    Color line = color("accent");
-    Font f = smallFont(true, -1);
+    const Look& look = this->look();
+    Color line = look.modLink;
+    const Font& f = look.modFont;
     std::map<std::pair<int, int>, int> between;  // (several links between two units: one above the other)
     for (auto& m : modLinks_) {
         if (m.from < 0 || m.to < 0 || m.from >= (int)units_.size() || m.to >= (int)units_.size()) continue;
@@ -419,89 +546,91 @@ void PatchPanel::paintModLinks(Painter& p) {
         bool right = b.center().x >= a.center().x;
         PointF pa((float)(right ? a.right() : a.left()), (float)a.top() + y),
             pb((float)(right ? b.left() : b.right()), (float)b.top() + y);
-        p.drawDashedLine(pa, pb, line, 2, 7, 4);
+        p.drawDashedLine(pa, pb, line, look.modLinkW, 7, 4);
         p.fillEllipse(RectF(pb.x - 5, pb.y - 5, 10, 10), line);
         p.fillEllipse(RectF(pa.x - 3, pa.y - 3, 6, 6), line);
         float w = (float)f.width(m.label) + 10;
         RectF box((pa.x + pb.x) / 2 - w / 2, (pa.y + pb.y) / 2 - 18, w, 15);
-        p.fillRect(Rect((int)box.x, (int)box.y, (int)std::ceil(box.w), (int)box.h), color("base"));
+        ui::style::box(p, Rect((int)box.x, (int)box.y, (int)std::ceil(box.w), (int)box.h), *look.modLabelBox);
         p.drawText(box, AlignCenter, m.label, f, line);
     }
 }
 
 void PatchPanel::paintPanel(Painter& p) {
+    const Look& look = this->look();
     int w = width(), h = height();
-    p.fillRect(rect(), mixed("base", "window", 0.5f));
+    ui::style::box(p, rect(), *look.self);
     for (int y : {0, h - RAIL}) {
-        p.fillRect(Rect(0, y, w, RAIL), color("button"));
+        ui::style::box(p, Rect(0, y, w, RAIL), *look.railBox);
         for (int x = SCREW_EVERY / 2; x < w; x += SCREW_EVERY) paintScrew(p, PointF((float)x, y + RAIL / 2.f));
     }
-    p.fillRect(Rect(0, RAIL, w, 1), color("frame_edge"));
-    p.fillRect(Rect(0, h - RAIL - 1, w, 1), color("frame_edge"));
+    p.fillRect(Rect(0, RAIL, w, look.railEdgeH), look.railEdge);
+    p.fillRect(Rect(0, h - RAIL - look.railEdgeH, w, look.railEdgeH), look.railEdge);
 }
 
 void PatchPanel::paintSources(Painter& p) {
+    const Look& look = this->look();
     int top_ = sourcesTop();
-    p.fillRect(Rect(0, top_, width(), SOURCES_H), mixed("base", "window", 0.25f));
-    p.fillRect(Rect(0, top_, width(), 1), mixed("base", "frame_edge", 0.5f));
+    ui::style::box(p, Rect(0, top_, width(), SOURCES_H), *look.sourcesBox);
     p.drawTextBlock(RectF(8, (float)top_, SOURCES_X - 24.f, (float)SOURCES_H), AlignVCenter | AlignLeft,
-                    "OTHER TRACKS\n(sidechains)", smallFont(true, -1.5f), color("hint_text"));
-    Font f = smallFont();
+                    "OTHER TRACKS\n(sidechains)", look.sourcesTitleFont, look.sourcesTitle);
+    const Font& f = look.sourceFont;
     for (int k = 0; k < (int)sources_.size(); ++k) {
         p.save();
-        p.setOpacity(sources_[k].second ? 0.35f : 1.f);
+        p.setOpacity(sources_[k].second ? look.blockedOpacity : 1.f);
         Jack jack{Jack::Source, PanelNode::track(k)};
         paintJack(p, jack);
         PointF c = jackPoint(jack);
         std::string text = f.elided(sources_[k].first, (float)(SOURCE_W - JACK_R * 2 - 14));
         p.drawText(RectF(c.x + JACK_R + 6, c.y - 9, (float)(SOURCE_W - JACK_R * 2 - 12), 18), AlignLeft | AlignVCenter,
-                   text, f, color("button_text"));
+                   text, f, look.source);
         p.restore();
     }
 }
 
 void PatchPanel::paintScrew(Painter& p, PointF c) {
-    p.fillEllipse(circle(c, 4), mixed("button", "window_text", 0.28f));
-    p.drawLine(PointF(c.x - 2.6f, c.y + 1.5f), PointF(c.x + 2.6f, c.y - 1.5f), mixed("button", "frame_edge", 0.6f), 1.4f);
+    const Look& look = this->look();
+    p.fillEllipse(circle(c, look.screwR), look.screw);
+    p.drawLine(PointF(c.x - 2.6f, c.y + 1.5f), PointF(c.x + 2.6f, c.y - 1.5f), look.screwSlot, look.screwSlotW);
 }
 
 void PatchPanel::paintJack(Painter& p, const Jack& jack) {
+    const Look& look = this->look();
     PointF c = jackPoint(jack);
-    p.fillEllipse(circle(c, JACK_R), mixed("button", "window_text", 0.35f));
-    p.fillEllipse(circle(c, JACK_R - 3), color("frame_edge"));
+    p.fillEllipse(circle(c, JACK_R), look.jackRing);
+    p.fillEllipse(circle(c, JACK_R - look.jackRingW), look.jack);
     if (wiring && wiringTarget(jack)) {  // a place the cable can go
         bool hot = hover.kind == Hover::JackHit && hover.jack == jack;
-        Color ring = color("accent").withAlpha(hot ? 255 : 150);
-        p.strokeEllipse(circle(c, JACK_R + 4), ring, hot ? 3.f : 2.f);
+        p.strokeEllipse(circle(c, JACK_R + 4), hot ? look.ringHot : look.ring, hot ? look.ringHotW : look.ringW);
     }
 }
 
 void PatchPanel::paintEnd(Painter& p, bool in) {
+    const Look& look = this->look();
     Jack jack = in ? Jack{Jack::Source, PanelNode::in()} : Jack{Jack::Target, PanelNode::out()};
     PointF c = jackPoint(jack);
     p.drawText(RectF(c.x - END_W / 2.f, top() + 8.f, (float)END_W, 18), AlignCenter, in ? "IN" : "OUT",
-               smallFont(true), color("hint_text"));
+               look.endTitleFont, look.endTitle);
     p.drawText(RectF(c.x - END_W / 2.f, top() + 24.f, (float)END_W, 16), AlignCenter,
-               instruments ? (in ? "notes" : "to effects") : (in ? "from track" : "to fader"), smallFont(),
-               color("hint_text"));
+               instruments ? (in ? "notes" : "to effects") : (in ? "from track" : "to fader"), look.endLabelFont,
+               look.endLabel);
     paintJack(p, jack);
 }
 
 void PatchPanel::paintUnit(Painter& p, int index) {
+    const Look& look = this->look();
     const PanelUnit& unit = units_[index];
     Rect r = unitRect(index);
-    float radius = (float)theme::radius();
+    float radius = look.unitRadius;
     bool hovered = (hover.kind == Hover::Unit || hover.kind == Hover::Led || hover.kind == Hover::Volume ||
                     hover.kind == Hover::Reload) &&
                    hover.index == index && !wiring;
-    Color fill = hovered ? mixed("button", "window_text", 0.06f) : color("button");
-    if (radius > 0) p.fillRoundedRect(RectF(r), radius, fill);
-    else p.fillRect(r, fill);
+    ui::style::box(p, r, hovered ? *look.unitHoverBox : *look.unitBox);
     // the picture of the plugin
     Rect pic(r.x + PIC_X, r.y + PIC_Y, PIC_W, PIC_H);
-    p.fillRect(pic, color("base"));
+    ui::style::box(p, pic, *look.pictureBox);
     p.save();
-    p.setOpacity(unit.bypass ? 0.35f : 1.f);
+    p.setOpacity(unit.bypass ? look.bypassedOpacity : 1.f);
     const Image& pixmap = pixmaps_[index];
     if (!pixmap.empty()) p.drawImage(Point(pic.x + (pic.w - pixmap.width()) / 2, pic.y + (pic.h - pixmap.height()) / 2), pixmap);
     else paintFaceplate(p, pic);
@@ -513,21 +642,22 @@ void PatchPanel::paintUnit(Painter& p, int index) {
             if (k == 0) wave.moveTo(x, y);
             else wave.lineTo(x, y);
         }
-        p.strokePath(wave, color("accent"), 3);
+        p.strokePath(wave, look.wave, look.waveW);
     }
     p.restore();
     if (auto button = reloadRect(index)) {  // (stopped: started afresh with a click)
         bool hot = hover.kind == Hover::Reload && hover.index == index;
-        p.fillRect(pic, Color(0, 0, 0, 110));
+        ui::style::box(p, pic, *look.reloadShadeBox);
         RectF b(*button);
-        p.fillRoundedRect(b, 4, hot ? color("accent") : color("button"));
-        p.strokeRoundedRect(b.adjusted(0.5f, 0.5f, -0.5f, -0.5f), 4, color("frame_edge"), 1);
-        p.drawText(b, AlignCenter, "Reload", smallFont(true, 0), hot ? color("accent_text") : color("button_text"));
+        float half = look.reloadEdgeW / 2;
+        p.fillRoundedRect(b, look.reloadRadius, hot ? look.reloadHot : look.reload);
+        p.strokeRoundedRect(b.adjusted(half, half, -half, -half), look.reloadRadius, look.reloadEdge, look.reloadEdgeW);
+        p.drawText(b, AlignCenter, "Reload", look.reloadFont, hot ? look.reloadHotText : look.reloadText);
     }
     // the name
-    Font bold = smallFont(true, 0);
+    const Font& bold = look.nameFont;
     p.drawText(RectF((float)(r.x + 8), (float)(r.y + NAME_Y), CARD_W - 16.f, 18), AlignCenter,
-               bold.elided(unit.name, CARD_W - 16.f), bold, unit.bypass ? color("disabled_text") : color("button_text"));
+               bold.elided(unit.name, CARD_W - 16.f), bold, unit.bypass ? look.nameBypassed : look.name);
     if (unit.fader()) paintVolume(p, index);
     // jacks, and the light with its state
     paintJack(p, {Jack::Target, PanelNode::unit(index)});
@@ -535,74 +665,77 @@ void PatchPanel::paintUnit(Painter& p, int index) {
         Jack side{Jack::SideIn, PanelNode::unit(index)};
         paintJack(p, side);
         PointF c = jackPoint(side);
-        p.drawText(RectF(c.x + JACK_R + 2, c.y - 8, 20, 16), AlignLeft | AlignVCenter, "SC", smallFont(true, -2),
-                   color("hint_text"));
+        p.drawText(RectF(c.x + JACK_R + 2, c.y - 8, 20, 16), AlignLeft | AlignVCenter, "SC", look.sidechainFont,
+                   look.sidechain);
     }
     paintJack(p, {Jack::Source, PanelNode::unit(index)});
     Rect led = ledRect(index);
-    Font f = smallFont();
+    const Font& f = look.statusFont;
     float width_ = f.width(unit.status) + 2 * LED_R + 6;
     PointF centre(led.x + (led.w - 1) / 2.f - width_ / 2 + LED_R, led.y + (led.h - 1) / 2.f + 0.5f);
-    Color lit = unit.problem ? color("record")
-                : unit.bypass ? mixed("button", "frame_edge", 0.45f)
-                : unit.idle   ? color("meter_warn")
-                              : color("meter_ok");
+    Color lit = look.led[unit.problem ? 3 : unit.bypass ? 2 : unit.idle ? 1 : 0];
     p.fillEllipse(circle(centre, LED_R), lit);
-    p.strokeEllipse(circle(centre, LED_R), color("frame_edge"), 1);
+    p.strokeEllipse(circle(centre, LED_R), look.ledEdge, look.ledEdgeW);
     bool ledHot = hover.kind == Hover::Led && hover.index == index;
     p.drawText(RectF(centre.x + LED_R + 6, (float)led.y, width_, (float)led.h), AlignLeft | AlignVCenter, unit.status, f,
-               ledHot ? color("button_text") : color("hint_text"));
-    if (index == current) p.strokeRoundedRect(RectF(r).adjusted(1, 1, -1, -1), radius, color("accent"), 2);
+               ledHot ? look.statusHot : look.status);
+    if (index == current) {
+        float half = look.selectedW / 2;
+        p.strokeRoundedRect(RectF(r).adjusted(half, half, -half, -half), radius, look.selected, look.selectedW);
+    }
 }
 
 void PatchPanel::paintVolume(Painter& p, int index) {
     // a unit's fader: a groove filled up to the knob, a mark at 0 dB (a volume), and the value
+    const Look& look = this->look();
     const PanelUnit& unit = units_[index];
     Rect v = *volumeRect(index);
     auto [x0, x1] = groove(index);
     float y = v.y + (v.h - 1) / 2.f + 0.5f, knob = (float)volumeX(index, *unit.fader());
-    p.fillRoundedRect(RectF((float)x0, y - 2, (float)(x1 - x0), 4), 2, color("frame_edge"));
+    p.fillRoundedRect(RectF((float)x0, y - 2, (float)(x1 - x0), 4), look.grooveRadius, look.groove);
     if (knob - x0 > 0)
-        p.fillRoundedRect(RectF((float)x0, y - 2, (float)(knob - x0), 4), 2,
-                          unit.bypass ? color("disabled_text") : mixed("accent", "button", 0.25f));
+        p.fillRoundedRect(RectF((float)x0, y - 2, (float)(knob - x0), 4), look.grooveRadius,
+                          unit.bypass ? look.levelBypassed : look.level);
     if (unit.volumeDb) {
         float zero = (float)volumeX(index, 0.0);
-        p.drawLine(PointF(zero + 0.5f, y - 7), PointF(zero + 0.5f, y - 4), color("hint_text"), 1);
-        p.drawLine(PointF(zero + 0.5f, y + 4), PointF(zero + 0.5f, y + 7), color("hint_text"), 1);
+        p.drawLine(PointF(zero + 0.5f, y - 7), PointF(zero + 0.5f, y - 4), look.zeroMark, look.zeroMarkW);
+        p.drawLine(PointF(zero + 0.5f, y + 4), PointF(zero + 0.5f, y + 7), look.zeroMark, look.zeroMarkW);
     }
     bool hot = (hover.kind == Hover::Volume && hover.index == index) || (volumeDrag && *volumeDrag == index);
     RectF k(knob - KNOB_HALF_W, y - 8, 2 * KNOB_HALF_W, 16);
-    p.fillRoundedRect(k, 3, hot ? color("accent") : mixed("button", "window_text", 0.55f));
-    p.strokeRoundedRect(k, 3, color("frame_edge"), 1);
+    p.fillRoundedRect(k, look.knobRadius, hot ? look.knobHot : look.knob);
+    p.strokeRoundedRect(k, look.knobRadius, look.knobEdge, look.knobEdgeW);
     std::string text = unit.volumeDb ? dbText(*unit.volumeDb)
                                      : "Mix " + std::to_string((int)pyRound(*unit.mix * 100)) + " %";
     float left = (float)(x1 + KNOB_HALF_W + 3);
     p.drawText(RectF(left, (float)v.y, (float)(v.x + v.w - 1) - left, (float)v.h), AlignRight | AlignVCenter, text,
-               smallFont(), hot ? color("button_text") : color("hint_text"));
+               look.valueFont, hot ? look.valueHot : look.value);
 }
 
 void PatchPanel::paintFaceplate(Painter& p, const Rect& pic) {
     // no picture yet: a blank faceplate with a few knobs
-    Color pen = mixed("base", "hint_text", 0.35f);
+    const Look& look = this->look();
+    Color pen = look.faceplate;
     for (int i = 0; i < 4; ++i) {
         PointF c(pic.x + pic.w * (i + 0.5f) / 4, pic.y + pic.h * 0.42f);
-        p.strokeEllipse(circle(c, 12), pen, 1.6f);
-        p.drawLine(c, PointF(c.x - 6, c.y - 8), pen, 1.6f);
+        p.strokeEllipse(circle(c, 12), pen, look.faceplateW);
+        p.drawLine(c, PointF(c.x - 6, c.y - 8), pen, look.faceplateW);
     }
-    p.drawText(RectF((float)pic.x, pic.y + pic.h * 0.68f, (float)pic.w, 20), AlignCenter, "No picture yet", smallFont(),
-               mixed("base", "hint_text", 0.7f));
+    p.drawText(RectF((float)pic.x, pic.y + pic.h * 0.68f, (float)pic.w, 20), AlignCenter, "No picture yet",
+               look.faceplateFont, look.faceplateText);
 }
 
 Color PatchPanel::cableColor(const PanelCable& cable) const {
     auto it = std::find(cables_.begin(), cables_.end(), cable);
     int i = it == cables_.end() ? 0 : (int)(it - cables_.begin());
-    return Color::fromHex(CABLES[i % CABLE_COLOURS]);
+    return look().cables[i % CABLE_COLOURS];
 }
 
 void PatchPanel::paintCable(Painter& p, PointF a, PointF b, Color cable) {
+    const Look& look = this->look();
     Path path = cablePath(a, b);
-    p.strokePath(path, cable.darker(150), 6, LineCap::Round, LineJoin::Round);
-    p.strokePath(path, cable, 3.6f, LineCap::Round, LineJoin::Round);
+    p.strokePath(path, cable.darker(150), look.cableOutlineW, LineCap::Round, LineJoin::Round);
+    p.strokePath(path, cable, look.cableW, LineCap::Round, LineJoin::Round);
     for (PointF end : {a, b}) {
         p.fillEllipse(circle(end, JACK_R - 1), cable.darker(130));
         p.fillEllipse(circle(end, JACK_R - 3.5f), cable);
@@ -617,8 +750,7 @@ void PatchPanel::paintWiring(Painter& p) {
     if (hover.kind == Hover::JackHit) target = hover.jack;
     PointF loose = wiringTarget(target) ? jackPoint(*target) : wiring->to;
     PointF a = side == Jack::Source ? fixed : loose, b = side == Jack::Source ? loose : fixed;
-    Color cable = wiring->lifted ? cableColor(*wiring->lifted)
-                                 : Color::fromHex(CABLES[cables_.size() % CABLE_COLOURS]);
+    Color cable = wiring->lifted ? cableColor(*wiring->lifted) : look().cables[cables_.size() % CABLE_COLOURS];
     paintCable(p, a, b, cable);
 }
 

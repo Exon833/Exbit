@@ -6,20 +6,25 @@
 #include "ui/lanes.h"
 #include "ui/scope_view.h"
 #include "ui/theme.h"
+#include "ui/toolkit/style.h"
 
 MasterStrip::MasterStrip(audio::Engine& engine_, std::function<void()> openPlugins_)
     : engine(engine_), openPlugins(std::move(openPlugins_)) {
-    owned_ = std::make_unique<LaneFrame>(theme::c("master_lane"), std::nullopt, lanes::masterHeight());
+    owned_ = std::make_unique<LaneFrame>(Color(), std::nullopt, lanes::masterHeight());
     frame = owned_.get();
-    ui::VBox* col = ui::vbox(frame, 0, 2);
-    col->setContentsMargins(8, 3, 8, 3);
+    frame->addStyleClass("master");  // (default.css: LaneFrame.master)
+    const css::Style& st = frame->computedStyle();
+    frame->setColors(ui::style::background(st));
+    ui::style::Insets pad = ui::style::insets(st, "padding");
+    ui::VBox* col = ui::vbox(frame, 0, ui::style::px(st, "row-gap", 2));
+    col->setContentsMargins(pad.left, pad.top, pad.right, pad.bottom);
 
     auto top = std::make_unique<ui::HBox>();
     top_ = top.get();
-    top_->setSpacing(2);
+    top_->setSpacing(ui::style::px(st, "column-gap", 2));
     col->addLayout(std::move(top));
     auto* title = frame->add<ui::Label>("Master");
-    title->setFont(theme::uiFont().withBold(true));
+    title->setFont(ui::style::font(frame->computedStyle("title"), theme::uiFont()));
     top_->addWidget(title, 1);
     loudness = frame->add<LoudnessDisplay>();
     top_->addWidget(loudness);
@@ -50,7 +55,7 @@ MasterStrip::MasterStrip(audio::Engine& engine_, std::function<void()> openPlugi
     notice->setToolTip(update_notice::noticeTip(nullptr));
     scope = frame->add<ScopeView>(engine);
     col->addWidget(scope);
-    col->addSpacing(2);
+    col->addSpacing(ui::style::px(frame->computedStyle("notice"), "margin-top", 2));
     col->addWidget(notice);
     setVolume(0);
 }
@@ -66,7 +71,7 @@ void MasterStrip::showUpdate(const update_check::Result& result) {
 }
 
 void MasterStrip::restyle() {
-    frame->setColors(theme::c("master_lane"));
+    frame->setColors(ui::style::background(frame->computedStyle()));  // (LaneFrame.master)
     notice->setNotice(update_notice::noticeText(updateResult ? &*updateResult : nullptr));  // (its link's colour)
 }
 

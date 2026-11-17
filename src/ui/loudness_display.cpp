@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "ui/theme.h"
+
 namespace loudness_display {
 
 std::string fmtLufs(double value) {
@@ -42,7 +44,8 @@ std::string tip(double momentary) {
 
 LoudnessDisplay::LoudnessDisplay() {
     objectName = "lufs";  // the skin's numbers font
-    setFixedWidth(62);
+    setStyleType("LoudnessDisplay");
+    setFixedWidth(theme::metric("lufs-width", 62));
     setAlignment(AlignRight | AlignVCenter);
     showValues(-INFINITY, -INFINITY, -INFINITY);
 }

@@ -24,6 +24,12 @@
 // change_grid; onGridChange: the Grid ▾ menu's choices (the bar fills that menu from the timing it was
 // last shown, transport_bar::fillGridMenu); showTiming() after any change of the grid. The » menu's
 // "Recording settings…" / "Metronome sounds…" emit recordButton / metronomeButton->rightClicked.
+//
+// Styled as Transport (default.css; its #id is #Transport): its box (background-color; the line under it is
+// its border), padding (around its three parts) and column-gap (between its controls). IconButton (a
+// ToolButton): ::icon's color is the icon's in the button's states (:checked, :disabled…). :root's
+// --transport-button-size and --transport-icon-size (the playback buttons and their icons),
+// --transport-time-width (the time display's room) and --transport-separator-width (around the upright lines).
 #pragma once
 #include <functional>
 #include <map>
@@ -34,6 +40,7 @@
 #include "model/timing.h"
 #include "ui/toolkit/controls.h"
 #include "ui/toolkit/menu.h"
+#include "ui/toolkit/style.h"
 
 // The part of a QAction the bar needs: a button in the bar plus its keyboard shortcut.
 // triggered: clicked or its shortcut pressed (a checkable one is toggled first: toggled(on)).
@@ -74,6 +81,7 @@ namespace transport_bar {
 constexpr int TIME_W = 200;  // the time display's width, with room to spare (less when the bar is short of room)
 extern std::string iconFolder;  // "" = the program's own: plat::dataDir() + "/icons" (tests set another)
 std::string iconDir();
+int timeW();  // TIME_W as the stylesheets set it (--transport-time-width)
 // icons/<name>.svg drawn px pixels square in `color`; an empty image without the file (cached)
 const Image& tinted(const std::string& name, Color color, int px);
 }  // namespace transport_bar
@@ -192,4 +200,5 @@ private:
                                                 const std::string& glyph);
     void buildTimingControls();
     void arrange();
+    ui::style::Insets frame() const;      // its border and padding together
 };

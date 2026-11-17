@@ -69,18 +69,27 @@ SamplerPtr newSettings(const ClipPtr& sample) {
     return s;
 }
 
+SamplerWaveform::SamplerWaveform(ui::Widget* parent) : SampleWaveform(parent) { setStyleType("SamplerWaveform"); }
+
 void SamplerWaveform::paint(Painter& p) {
     SampleWaveform::paint(p);
     if (!audio() || audio()->frames() == 0) return;
-    int w = width(), h = height();
-    Color shade = theme::c("roll_shade");
+    if (ownParts_.refresh()) {
+        Look l;
+        l.outside = &ownParts_.get("outside");
+        const css::Style& marker = ownParts_.get("marker");
+        l.marker = panel_style::bg(marker);
+        l.markerW = std::max(1, panel_style::px(marker, "width", 1));
+        l.top = std::max(0, panel_style::px(ownParts_.get("caption"), "height", 14));
+        look_ = l;
+    }
+    int w = width(), h = height(), top = look_.top, mw = look_.markerW;
     int a = (int)std::lround(std::min(1.0, std::max(0.0, start)) * w);
     int b = (int)std::lround(std::min(1.0, std::max(0.0, end)) * w);
-    if (a > 0) p.fillRect(Rect(0, 14, a, h - 14), shade);
-    if (b < w) p.fillRect(Rect(b, 14, w - b, h - 14), shade);
-    Color line = theme::c("selected_note");
-    p.drawVLine(std::min(w - 1, a), 14, h, line);
-    p.drawVLine(std::max(0, std::min(w - 1, b - 1)), 14, h, line);
+    if (a > 0) ui::style::box(p, Rect(0, top, a, h - top), *look_.outside);
+    if (b < w) ui::style::box(p, Rect(b, top, w - b, h - top), *look_.outside);
+    p.fillRect(Rect(std::max(0, std::min(w - mw, a)), top, mw, h - top), look_.marker);
+    p.fillRect(Rect(std::max(0, std::min(w - mw, b - mw)), top, mw, h - top), look_.marker);
 }
 
 // =================================================================================================
@@ -188,7 +197,7 @@ SamplerDialog::SamplerDialog(ui::Window* window, TrackPtr track_)
     row->addWidget(chooseButton);
     col->addLayout(std::move(row));
     waveform = add<SamplerWaveform>();
-    waveform->setFixedHeight(SampleWaveform::HEIGHT);
+    waveform->setFixedHeight(theme::metric("sample-waveform-height", SampleWaveform::HEIGHT));
     waveform->setSizePolicy(ui::SizePolicy::Expanding, ui::SizePolicy::Fixed);
     waveform->setCursor(ui::Cursor::Arrow);
     col->addWidget(waveform);
