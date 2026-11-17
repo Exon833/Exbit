@@ -518,7 +518,8 @@ ui::Menu* ownedMenu(ui::Widget* owner) {
 }
 
 ui::Button* instrumentButton(ui::Widget* parent, const SlotPtr& instrument, std::function<void()> edit,
-                             std::function<void(ui::Menu&)> fillMenu, int rack, SamplerPtr sampler) {
+                             std::function<void(ui::Menu&)> fillMenu, int rack, SamplerPtr sampler,
+                             PadKitPtr padKit) {
     ui::Button* b = toolButton(parent, "🎹", 40, 22, "");
     ui::Menu* menu = ownedMenu(b);
     menu->aboutToShow = [fillMenu](ui::Menu* m) {
@@ -533,6 +534,11 @@ ui::Button* instrumentButton(ui::Widget* parent, const SlotPtr& instrument, std:
     } else if (instrument) {
         b->setToolTip("Instrument: " + instrument->name +
                       "\nClick to open its window and configure it; ▾ to choose another instrument");
+        if (edit) b->clicked.connect(edit);
+    } else if (padKit) {
+        int used = padKit->used();
+        b->setToolTip("Instrument: Pad Kit, " + std::to_string(used) + " pad" + (used == 1 ? "" : "s") +
+                      " with a sound\nClick to open its window; ▾ to choose another instrument");
         if (edit) b->clicked.connect(edit);
     } else if (sampler) {
         b->setToolTip("Instrument: built-in sampler, playing " + (sampler->sample ? sampler->sample->name : std::string()) +

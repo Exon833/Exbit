@@ -650,6 +650,10 @@ void Timeline::fillMenu(ui::Menu& menu, std::optional<Point> pos) {
     reverse->setEnabled(!audioClips.empty());
     ui::Action* crossfade = menu.addAction("Crossfade…", [this] { crossfadeSelected(); });
     crossfade->setEnabled(audioClips.size() == 2);
+    ui::Action* slice = menu.addAction("Slice to a Pad Kit…", [this, audioClips] { sliceToPadKit(audioClips[0]); });
+    slice->tooltip = "Cut the clip at its hits: a new MIDI track with a Pad Kit, a slice on each pad, and a clip "
+                     "playing them where they were";
+    slice->setEnabled(audioClips.size() == 1 && !audioClips[0]->track->frozen && audioClips[0]->data);
     ui::Action* join = menu.addAction("Join clips", [this] { joinSelected(); }, "Ctrl+J");
     join->setEnabled(hasRange || selection.clips.size() >= 1);
     ui::Action* group = menu.addAction("Group these tracks", [this] { groupSelected(); }, "Ctrl+G");

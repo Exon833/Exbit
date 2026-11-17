@@ -18,6 +18,10 @@
 // track's bend range: bendSemitones) followed smoothly (BEND_SMOOTH_S) so a bend never clicks. Notes
 // struck while the wheel is bent sound bent. control() hands a control change (the mod wheel) to a
 // VST instrument. Never bent, a voice is read exactly as before (sample by sample, no interpolation).
+//
+// A Pad Kit (audio/padkit.h) renders each key its own way (NoteRender::perKey: one-shot or held per pad)
+// and its pads' choke groups: a note of a pad in a choke group cuts off (fading out over CHOKE_S) the
+// notes of its group already sounding, as the kit's clips are rendered.
 #pragma once
 #include <atomic>
 #include <cstdint>
@@ -42,6 +46,8 @@ constexpr int DEFAULT_BEND_RANGE = 2;   // semitones (Track::bendRange)
 // up: +range, all the way down: -range)
 double bendSemitones(int value, int range);
 
+constexpr double CHOKE_S = 0.005;    // a note cut off by its choke group fades out over this (clips: the same)
+
 using NoteAudio = std::shared_ptr<const std::vector<float>>;  // interleaved, 1 (synth) or 2 (sampler) channels
 
 // How a built-in note is rendered (sampler::noteRenderer; empty: the built-in synth, mono).
@@ -52,6 +58,10 @@ struct NoteRender {
     bool oneShot = false;   // plays to its end, letting go of the key or not
     bool sustains = true;   // a held note loops (else: it plays to its end, at most WHOLE_S)
     std::function<double(int, int)> period;  // (pitch, sr) -> frames its sound repeats after (< 0: none); null: the synth's
+    int choke = 0;          // its choke group (a Pad Kit's pad): it cuts off the group's notes sounding; 0: none
+    // per key (a Pad Kit: each key its own pad): sets `out` to how that pitch is rendered (its own perKey
+    // left empty); empty: every key as this says
+    std::function<void(int pitch, NoteRender& out)> perKey;
 };
 
 // (audio, loop start or -1) of a held note: `audio` up to `hold` frames (its release left out: the voice
@@ -74,6 +84,8 @@ struct LiveVoice {
     int64_t clock = 0;        // frames it has played (the same as pos until it is bent)
     int64_t releasedAt = -1;  // its clock when it was let go: it fades out from there (-1: held)
     int64_t loopStart = -1;   // a held note: from its end it goes on from here, until let go
+    int choke = 0;            // its choke group (NoteRender::choke); 0: none
+    int fade = 0;             // frames it fades out over once let go (cut off by its choke group); 0: the usual
     int64_t length() const { return data ? (int64_t)data->size() / std::max(1, channels) : 0; }
     // add the next n frames into `channels` planar channels; false once it has finished. rates (n of
     // them, or null: 1): how fast its audio is read at each frame (bent: 2^(semitones/12))
@@ -123,6 +135,7 @@ private:
         int channels = 1;
         int64_t loopStart = -1;
         int64_t length = -1;  // frames; -1 = until noteOff
+        int choke = 0;        // NoteRender::choke
     };
     plugin_audio::MidiMsg release(int pitch, int64_t atFrame);
     void retire(NoteAudio&& audio);  // hand back to the GUI thread

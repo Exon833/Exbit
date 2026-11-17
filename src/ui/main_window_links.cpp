@@ -16,6 +16,7 @@
 #include "ui/midi_export.h"
 #include "ui/midi_input.h"
 #include "ui/mix_export.h"
+#include "ui/pad_kit_dialog.h"
 #include "ui/record_offset_dialog.h"
 #include "ui/recording.h"
 #include "ui/sampler_dialog.h"
@@ -48,6 +49,7 @@ void MainWindow::reloadEditors() {
     }
     midi_effects_dialog::reloadAll();  // (they show the track's MIDI effects or sampler as they are now)
     sampler_dialog::reloadAll();
+    pad_kit_dialog::reloadAll();
 }
 
 std::string MainWindow::insertTime() { return timeline->insertTime(); }
@@ -162,6 +164,7 @@ void MainWindow::projectReplaced() {
     midi_effects::install(&project.timing);  // (their beats follow the project's timing)
     midi_effects_dialog::closeGone(project);
     sampler_dialog::closeGone(project);
+    pad_kit_dialog::closeGone(project);
 }
 
 void MainWindow::sampleRateChanged(int oldSr, int newSr) { timeline->changeSampleRate(oldSr, newSr); }

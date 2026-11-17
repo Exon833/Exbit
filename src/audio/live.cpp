@@ -65,6 +65,7 @@ std::vector<float> builtInNote(const NoteRender& r, int pitch, int velocity, dou
 bool LiveVoice::addTo(float* const signal[2], int signalChannels, int n, int fade, const float* rates) {
     int64_t len = length();
     bool loops = loopStart >= 0;
+    if (this->fade > 0) fade = this->fade;  // (cut off by its choke group: quickly)
     int64_t span = len - loopStart;
     int ch = std::max(1, channels);
     const float* d = data ? data->data() : nullptr;
@@ -156,7 +157,10 @@ bool LiveNotes::noteOn(int pitch, int velocity, int sr, bool builtin, double len
     collect();
     uint64_t head = inHead_.load(std::memory_order_relaxed);
     if (head - inTail_.load(std::memory_order_acquire) >= inbox_.size()) return false;
-    const NoteRender& r = render ? *render : renderer_;
+    const NoteRender& given = render ? *render : renderer_;
+    NoteRender keyed;  // (a Pad Kit: the key's own pad)
+    if (given.perKey) given.perKey(pitch, keyed);
+    const NoteRender& r = given.perKey ? keyed : given;
     Item& it = inbox_[head % inbox_.size()];
     it.kind = Item::NoteItem;
     it.on = true;
@@ -164,6 +168,7 @@ bool LiveNotes::noteOn(int pitch, int velocity, int sr, bool builtin, double len
     it.audio = nullptr;
     it.channels = r.render ? std::max(1, r.channels) : 1;
     it.loopStart = -1;
+    it.choke = builtin ? r.choke : 0;
     if (builtin) {
         int64_t loopStart;
         auto audio = std::make_shared<const std::vector<float>>(builtInNote(r, pitch, velocity, lengthS, sr, loopStart));
@@ -266,6 +271,7 @@ void LiveNotes::take(int frames, int sr, plugin_audio::Messages& out) {
     }
     uint64_t head = inHead_.load(std::memory_order_acquire);
     uint64_t tail = inTail_.load(std::memory_order_relaxed);
+    size_t sounding = voices_.size();  // (the voices a choke cuts off: those sounding before this buffer's notes)
     for (; tail < head; tail++) {
         Item& item = inbox_[tail % inbox_.size()];
         int p = std::min(127, std::max(0, item.pitch));
@@ -282,10 +288,18 @@ void LiveNotes::take(int frames, int sr, plugin_audio::Messages& out) {
         }
         if (item.on) {
             if (item.audio) {
+                if (item.choke > 0)  // (its choke group's notes stop, fading out over CHOKE_S)
+                    for (size_t k = 0; k < sounding; k++) {
+                        LiveVoice& other = voices_[k];
+                        if (other.choke != item.choke || other.releasedAt >= 0) continue;
+                        other.releasedAt = other.pos;
+                        other.fade = std::max(1, (int)(CHOKE_S * sr));
+                    }
                 LiveVoice v;
                 v.pitch = item.pitch;
                 v.channels = item.channels;
                 v.loopStart = item.loopStart;
+                v.choke = item.choke;
                 v.data = std::move(item.audio);
                 voices_.push_back(std::move(v));
             } else {

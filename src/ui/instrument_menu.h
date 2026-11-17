@@ -10,6 +10,10 @@
 // asking for the sample the first time; 🎹 then opens its window. Choosing another instrument keeps its
 // settings, to come back to (the built-in synth forgets them).
 //
+// "Pad Kit…" plays a sample on each of 32 keys (drums: audio/padkit.h; its window: pad_kit_dialog.h),
+// starting with an empty kit to drop sounds on; 🎹 then opens its window. Another instrument plugin keeps
+// it, to come back to; the built-in synth and the built-in sampler forget it (undo brings it back).
+//
 // "Instrument patch panel…" makes the track play several instruments at once instead, from its
 // instrument patch panel (InstrumentPanelDialog; 🎹 then opens it). Its one instrument goes in it
 // first, wired, so it keeps sounding. Choosing a single instrument again leaves the panel as it is
@@ -33,6 +37,7 @@ namespace instrument_menu {
 constexpr const char* BUILTIN = "Built-in synth";
 constexpr const char* RACK = "Instrument patch panel…";
 constexpr const char* SAMPLER = "Built-in sampler…";
+constexpr const char* PAD_KIT = "Pad Kit…";
 using OpenPanel = std::function<void(const TrackPtr&)>;
 
 bool samePlugin(const plug::PluginInfo& info, const PluginSlot* slot);
@@ -50,6 +55,8 @@ bool setInstrument(ui::Window* parent, PluginHost& host, const TrackPtr& track, 
 // make the track play its built-in sampler (asking for a sample if it has none yet), and open its window;
 // false if no sample was chosen
 bool useSampler(ui::Window* parent, PluginHost& host, const TrackPtr& track, std::function<void()> chosen);
+// make the track play its Pad Kit (an empty one the first time), and open its window
+void usePadKit(ui::Window* parent, PluginHost& host, const TrackPtr& track, std::function<void()> chosen);
 // make the track play its instrument patch panel, and open it; the first time, the instrument it
 // has goes in it, wired, so it keeps sounding
 void useRack(ui::Window* parent, PluginHost& host, const TrackPtr& track, std::function<void()> chosen,

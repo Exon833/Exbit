@@ -103,6 +103,21 @@ bool SamplerSettings::operator==(const SamplerSettings& o) const {
            release == o.release && oneShot == o.oneShot && loop == o.loop && start == o.start && end == o.end;
 }
 
+bool Pad::empty() const { return !sound.sample || !sound.sample->source || sound.sample->source->frames() == 0; }
+
+PadKit::PadKit() : pads((size_t)MAX_PADS) {
+    for (int i = 0; i < MAX_PADS; i++) {
+        pads[(size_t)i].note = FIRST_NOTE + i;
+        pads[(size_t)i].sound.oneShot = true;  // (drums: each hit plays to its end)
+    }
+}
+
+int PadKit::used() const {
+    int n = 0;
+    for (auto& p : pads) n += p.empty() ? 0 : 1;
+    return n;
+}
+
 // --- tracks ---
 
 Track::Track(std::string n, Kind k)
@@ -112,6 +127,18 @@ Track::Track(std::string n, Kind k)
           s->name = "Track volume and pan";
           return s;
       }()) {}
+
+std::string Track::keyLabel(int pitch) const {
+    PadKitPtr kit = std::atomic_load(&padKit);
+    if (!kit || kind != Kind::Midi || !playsPadKit()) return "";
+    for (auto& pad : kit->pads)
+        if (pad.note == pitch && !pad.empty()) {
+            const std::string& name = pad.sound.sample->name;
+            size_t dot = name.find_last_of('.');
+            return dot == std::string::npos || dot == 0 ? name : name.substr(0, dot);  // (without its extension)
+        }
+    return "";
+}
 
 std::vector<SlotPtr> Track::instruments() const {
     if (kind != Kind::Midi || needsInstrument) return {};
@@ -186,7 +213,7 @@ void Clip::prepare(int sr, int64_t reach) {
         auto silent = std::make_shared<AudioBuffer>();
         silent->samples.assign((size_t)((int64_t)((len + synth::RELEASE_S) * sr) + 1) * 2, 0.0f);
         data = silent;
-    } else if (t && t->playsSampler() && clip_hooks::renderSampler) {
+    } else if (t && (t->playsSampler() || t->playsPadKit()) && clip_hooks::renderSampler) {
         data = clip_hooks::renderSampler(*t, notesPlayed, sr, len);
     } else {
         data = synth::render(notesPlayed, sr, len);

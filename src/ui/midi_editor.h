@@ -68,6 +68,8 @@
 //
 // Rows: the roll shows rows() top to bottom, all 128 pitches or, folded, some of them; rowAt / pitchAt /
 // yOf convert between rows, pitches and y. A note on a hidden pitch (folded away) isn't drawn.
+// The keys show what a key plays when the track says (Track::keyLabel: a Pad Kit's pad names), else
+// note names.
 //
 // The Steps view (Steps in the toolbar, again for the piano roll): the clip as a grid of pads, a row per
 // pitch its notes use (named as the piano roll's keys), a column per grid step (the editor's grid: 1/16 when
@@ -384,6 +386,7 @@ public:
 
     // --- hearing notes, through the track (audio/live.h) ---
     bool builtin() const;                    // the track plays the built-in synth or sampler
+    std::string keyLabel(int pitch) const;   // what the key plays (a Pad Kit's pad name); "": its note name
     void hold(int pitch);                    // sound it until release() (or another pitch is held)
     void release();
     void glide(int pitch);                   // the held mouse moved to `pitch`: the pitches passed sound briefly

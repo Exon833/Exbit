@@ -3,6 +3,7 @@
 
 #include "audio/patch.h"
 #include "audio/plugin_audio.h"
+#include "ui/pad_kit_dialog.h"
 #include "ui/plugin_dialog.h"
 #include "ui/plugin_host.h"
 #include "ui/sampler_dialog.h"
@@ -43,7 +44,7 @@ ui::Menu* fillInstrumentMenu(ui::Menu* menu, ui::Window* parent, PluginHost& hos
             })->setEnabled(plugin_audio::usable(current));
         menu->addSeparator();
     }
-    checkable(menu, BUILTIN, !current && !track->needsInstrument && !track->usesRack && !track->sampler,
+    checkable(menu, BUILTIN, !current && !track->needsInstrument && !track->usesRack && !track->sampler && !track->padKit,
               [parent, &host, track, chosen] { setInstrument(parent, host, track, nullptr, chosen); });
     SamplerPtr sampler = std::atomic_load(&track->sampler);
     ui::Action* sampled = checkable(
@@ -51,6 +52,13 @@ ui::Menu* fillInstrumentMenu(ui::Menu* menu, ui::Window* parent, PluginHost& hos
         track->playsSampler() && !track->needsInstrument,
         [parent, &host, track, chosen] { useSampler(parent, host, track, chosen); });
     sampled->tooltip = "Play one sample across the keyboard, tuned to each key (asks for the sample the first time)";
+    PadKitPtr kit = std::atomic_load(&track->padKit);
+    int used = kit ? kit->used() : 0;
+    ui::Action* padded = checkable(
+        menu, kit ? "Pad Kit (" + std::to_string(used) + " pad" + (used == 1 ? "" : "s") + ")\xe2\x80\xa6" : std::string(PAD_KIT),
+        track->playsPadKit() && !track->needsInstrument,
+        [parent, &host, track, chosen] { usePadKit(parent, host, track, chosen); });
+    padded->tooltip = "Drums: a sound on each of 32 keys, each with its own settings and choke group";
     int count = (int)track->rack.size();
     ui::Action* rack =
         checkable(menu, count ? "Instrument patch panel (" + std::to_string(count) + " instrument" + (count == 1 ? "" : "s") + ")…"
@@ -108,7 +116,12 @@ bool setInstrument(ui::Window* parent, PluginHost& host, const TrackPtr& track, 
     if (old && slot != old) host.closeEditor({old});
     std::atomic_store(&track->instrument, slot);  // loaded already, so the audio thread can use it at once
     track->needsInstrument = false;
-    if (!info) std::atomic_store(&track->sampler, SamplerPtr());  // (the built-in synth, rather than the sampler)
+    if (!info) {  // (the built-in synth, rather than the sampler or Pad Kit)
+        std::atomic_store(&track->sampler, SamplerPtr());
+        std::atomic_store(&track->padKit, PadKitPtr());
+        if (auto* d = pad_kit_dialog::openFor(track.get())) d->close();
+        if (auto* d = sampler_dialog::openFor(track.get())) d->close();
+    }
     if (track->usesRack) {  // (its instrument patch panel stays as it is, not heard)
         track->usesRack = false;
         host.closeEditor(track->rack.copy());
@@ -120,12 +133,9 @@ bool setInstrument(ui::Window* parent, PluginHost& host, const TrackPtr& track, 
     return true;
 }
 
-bool useSampler(ui::Window* parent, PluginHost& host, const TrackPtr& track, std::function<void()> chosen) {
-    if (!track->sampler) {
-        ClipPtr sample = sampler_dialog::chooseSample(parent);
-        if (!sample) return false;
-        std::atomic_store(&track->sampler, sampler_dialog::newSettings(sample));
-    }
+namespace {
+// the track plays its built-in instrument (sampler or Pad Kit) from now on: no plugin, no patch panel
+void builtInFromNow(PluginHost& host, const TrackPtr& track) {
     SlotPtr old = aload(track->instrument);
     if (old) host.closeEditor({old});
     if (track->usesRack) host.closeEditor(track->rack.copy());
@@ -133,10 +143,31 @@ bool useSampler(ui::Window* parent, PluginHost& host, const TrackPtr& track, std
     track->usesRack = false;
     track->needsInstrument = false;
     if (old && !track->rack.contains(old)) host.project.retire(aload(old->instance));
+}
+}  // namespace
+
+bool useSampler(ui::Window* parent, PluginHost& host, const TrackPtr& track, std::function<void()> chosen) {
+    if (!track->sampler) {
+        ClipPtr sample = sampler_dialog::chooseSample(parent);
+        if (!sample) return false;
+        std::atomic_store(&track->sampler, sampler_dialog::newSettings(sample));
+    }
+    std::atomic_store(&track->padKit, PadKitPtr());  // (the sampler rather than the Pad Kit: see the header)
+    if (auto* d = pad_kit_dialog::openFor(track.get())) d->close();
+    builtInFromNow(host, track);
     sampler_dialog::renderTrackClips(track);
     if (chosen) chosen();
     sampler_dialog::openSampler(track);
     return true;
+}
+
+void usePadKit(ui::Window* parent, PluginHost& host, const TrackPtr& track, std::function<void()> chosen) {
+    if (!track->padKit) std::atomic_store(&track->padKit, PadKitPtr(std::make_shared<PadKit>()));
+    if (auto* d = sampler_dialog::openFor(track.get())) d->close();  // (its settings kept, not heard)
+    builtInFromNow(host, track);
+    sampler_dialog::renderTrackClips(track);
+    if (chosen) chosen();
+    pad_kit_dialog::openPadKit(track);
 }
 
 void useRack(ui::Window* parent, PluginHost& host, const TrackPtr& track, std::function<void()> chosen,
@@ -167,6 +198,8 @@ void editInstrument(ui::Window* parent, PluginHost& host, const TrackPtr& track,
                                            "be heard.\nUnfreeze it first (right-click its row).");
     } else if (track->usesRack && !track->needsInstrument) {
         if (openPanel) openPanel(track);
+    } else if (track->playsPadKit() && !track->needsInstrument) {
+        pad_kit_dialog::openPadKit(track);
     } else if (track->playsSampler() && !track->needsInstrument) {
         sampler_dialog::openSampler(track);
     } else if (!slot || track->needsInstrument) {

@@ -14,6 +14,7 @@
 #include "ui/color_picker.h"
 #include "ui/colors.h"
 #include "ui/master_lane.h"
+#include "ui/pad_kit_dialog.h"
 #include "ui/toolkit/dialogs.h"
 
 namespace {
@@ -48,6 +49,8 @@ Timeline::Timeline(Project& project_, audio::Engine& engine_, ui::ScrollArea* sc
 
 Timeline::~Timeline() {
     if (auto g = std::static_pointer_cast<FilterGuard>(guard_)) g->alive = false;
+    *alive_ = false;
+    if (sliceWindow && ui::Widget::alive(sliceWindow)) sliceWindow->reject();  // (its lines have nowhere to go)
     if (ui::Widget::alive(hbar_)) hbar_->valueChanged.disconnect(hscrollId_);
 }
 
@@ -268,8 +271,8 @@ void Timeline::relayout() {
 
 // --- tracks -------------------------------------------------------------------------------------
 
-TrackPtr Timeline::addTrack(Kind kind, GroupPtr group) {
-    TrackPtr track = project.addTrack(kind, group);
+TrackPtr Timeline::addTrack(Kind kind, GroupPtr group, TrackPtr after) {
+    TrackPtr track = project.addTrack(kind, group, after);
     if (randomTrackColors) {  // (Options → Colours)
         std::vector<std::string> taken;
         for (auto& t : project.tracks) taken.push_back(t->color);

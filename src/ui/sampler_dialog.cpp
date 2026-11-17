@@ -85,6 +85,97 @@ void SamplerWaveform::paint(Painter& p) {
 
 // =================================================================================================
 
+ui::SpinBox* SoundControls::number(ui::Widget* owner, double low, double high, int decimals, const std::string& suffix,
+                                   const std::string& tip) {
+    ui::SpinBox* box = owner->add<ui::SpinBox>();
+    box->setRange(low, high);
+    box->setDecimals(decimals);
+    box->setSuffix(suffix);
+    if (!tip.empty()) box->setToolTip(tip);
+    box->setKeyboardTracking(false);  // (changed once a value is typed in, not on every key)
+    return box;
+}
+
+void SoundControls::build(ui::Widget* owner, ui::FormLayout* form, bool withRoot, const std::string& transposeLabel) {
+    if (withRoot) {
+        root = owner->add<ui::SpinBox>();
+        root->setRange(0, 127);
+        root->setDecimals(0);
+        root->textFromValue = [](double v) { int k = (int)std::lround(v); return noteName(k) + " (" + std::to_string(k) + ")"; };
+        root->valueFromText = [](const std::string& text, double& v) {
+            size_t open = text.rfind('(');
+            std::string digits = open == std::string::npos ? text : text.substr(open + 1);
+            try {
+                v = std::stod(digits);
+                return true;
+            } catch (...) {
+                return false;
+            }
+        };
+        root->setToolTip("The key that plays the sample as it was recorded (60 = C4)");
+        form->addRow("Root key", root);
+    }
+    transpose = number(owner, -48, 48, 2, " semitones", "Tune it up or down (fractions for fine tuning)");
+    form->addRow(transposeLabel, transpose);
+    gain = number(owner, -60, 24, 1, " dB");
+    form->addRow("Volume", gain);
+    velocity = number(owner, 0, 100, 0, " %", "How much softer quiet notes are: 0 % not at all, 100 % fully");
+    form->addRow("Velocity", velocity);
+    attack = number(owner, 0, 5000, 0, " ms");
+    form->addRow("Attack", attack);
+    decay = number(owner, 0, 20000, 0, " ms", "How long it takes from full level to the sustain level");
+    form->addRow("Decay", decay);
+    sustain = number(owner, 0, 100, 0, " %", "The level held while the note is");
+    form->addRow("Sustain", sustain);
+    release = number(owner, 0, 10000, 0, " ms", "How long it fades out once the note ends");
+    form->addRow("Release", release);
+    mode = owner->add<ui::ComboBox>();
+    mode->addItem("Classic: plays while the note is held");
+    mode->addItem("One-shot: plays to the end of the sample");
+    form->addRow("Mode", mode);
+    loop = owner->add<ui::CheckBox>("Loop the part played while the note is held (classic)");
+    form->addRow(loop);
+    start = number(owner, 0, 99.9, 1, " %", "Where in the sample it starts");
+    form->addRow("Start", start);
+    end = number(owner, 0.1, 100, 1, " %", "Where in the sample it ends");
+    form->addRow("End", end);
+}
+
+void SoundControls::show(const SamplerSettings& s) {
+    const std::pair<ui::SpinBox*, double> values[] = {
+        {root, (double)s.root}, {transpose, s.transpose}, {gain, s.gainDb}, {velocity, s.velocity * 100},
+        {attack, s.attack * 1000}, {decay, s.decay * 1000}, {sustain, s.sustain * 100}, {release, s.release * 1000},
+        {start, s.start * 100}, {end, s.end * 100}};
+    for (auto& bv : values)
+        if (bv.first) bv.first->setValueSilently(bv.second);
+    mode->setCurrentIndexSilently(s.oneShot ? 1 : 0);
+    loop->setCheckedSilently(s.loop);
+    loop->setEnabled(!s.oneShot);
+}
+
+void SoundControls::read(SamplerSettings& s) const {
+    double a = start->value() / 100, b = end->value() / 100;
+    if (root) s.root = root->intValue();
+    s.transpose = transpose->value();
+    s.gainDb = gain->value();
+    s.velocity = velocity->value() / 100;
+    s.attack = attack->value() / 1000;
+    s.decay = decay->value() / 1000;
+    s.sustain = sustain->value() / 100;
+    s.release = release->value() / 1000;
+    s.oneShot = mode->currentIndex() == 1;
+    s.loop = loop->isChecked();
+    s.start = std::min(a, b - 0.001);
+    s.end = std::max(b, a + 0.001);
+}
+
+void SoundControls::connect(std::function<void()> changed) {
+    for (ui::SpinBox* box : {root, transpose, gain, velocity, attack, decay, sustain, release, start, end})
+        if (box) box->valueChanged.connect([changed](double) { changed(); });
+    mode->currentIndexChanged.connect([changed](int) { changed(); });
+    loop->toggled.connect([changed](bool) { changed(); });
+}
+
 SamplerDialog::SamplerDialog(ui::Window* window, TrackPtr track_)
     : ui::Dialog(window, "Built-in sampler \xe2\x80\x94 " + track_->name, 460, 560), track(std::move(track_)) {
     deleteOnClose = true;
@@ -104,46 +195,10 @@ SamplerDialog::SamplerDialog(ui::Window* window, TrackPtr track_)
     auto formOwner = std::make_unique<ui::FormLayout>();
     ui::FormLayout* form = formOwner.get();
     col->addLayout(std::move(formOwner));
-    root = add<ui::SpinBox>();
-    root->setRange(0, 127);
-    root->setDecimals(0);
-    root->textFromValue = [](double v) { int k = (int)std::lround(v); return noteName(k) + " (" + std::to_string(k) + ")"; };
-    root->valueFromText = [](const std::string& text, double& v) {
-        size_t open = text.rfind('(');
-        std::string digits = open == std::string::npos ? text : text.substr(open + 1);
-        try {
-            v = std::stod(digits);
-            return true;
-        } catch (...) {
-            return false;
-        }
-    };
-    root->setToolTip("The key that plays the sample as it was recorded (60 = C4)");
-    form->addRow("Root key", root);
-    transpose = number(-48, 48, 2, " semitones", "Tune it up or down (fractions for fine tuning)");
-    form->addRow("Transpose", transpose);
-    gain = number(-60, 24, 1, " dB");
-    form->addRow("Volume", gain);
-    velocity = number(0, 100, 0, " %", "How much softer quiet notes are: 0 % not at all, 100 % fully");
-    form->addRow("Velocity", velocity);
-    attack = number(0, 5000, 0, " ms");
-    form->addRow("Attack", attack);
-    decay = number(0, 20000, 0, " ms", "How long it takes from full level to the sustain level");
-    form->addRow("Decay", decay);
-    sustain = number(0, 100, 0, " %", "The level held while the note is");
-    form->addRow("Sustain", sustain);
-    release = number(0, 10000, 0, " ms", "How long it fades out once the note ends");
-    form->addRow("Release", release);
-    mode = add<ui::ComboBox>();
-    mode->addItem("Classic: plays while the note is held");
-    mode->addItem("One-shot: plays to the end of the sample");
-    form->addRow("Mode", mode);
-    loop = add<ui::CheckBox>("Loop the part played while the note is held (classic)");
-    form->addRow(loop);
-    start = number(0, 99.9, 1, " %", "Where in the sample it starts");
-    form->addRow("Start", start);
-    end = number(0.1, 100, 1, " %", "Where in the sample it ends");
-    form->addRow("End", end);
+    controls.build(this, form, true);
+    root = controls.root, transpose = controls.transpose, gain = controls.gain, velocity = controls.velocity;
+    attack = controls.attack, decay = controls.decay, sustain = controls.sustain, release = controls.release;
+    start = controls.start, end = controls.end, mode = controls.mode, loop = controls.loop;
     col->addStretch(1);
     auto buttons = std::make_unique<ui::HBox>();
     ui::Button* play = ui::pushButton(this, "Play the root key", [this] { playRoot(); });
@@ -153,27 +208,13 @@ SamplerDialog::SamplerDialog(ui::Window* window, TrackPtr track_)
     buttons->addWidget(ui::pushButton(this, "Close", [this] { close(); }));
     col->addLayout(std::move(buttons));
     if (track->sampler) showSettings(*track->sampler);
-    for (ui::SpinBox* box : {root, transpose, gain, velocity, attack, decay, sustain, release, start, end})
-        box->valueChanged.connect([this](double) { changed(); });
-    mode->currentIndexChanged.connect([this](int) { changed(); });
-    loop->toggled.connect([this](bool) { changed(); });
+    controls.connect([this] { changed(); });
 }
 
 SamplerDialog::~SamplerDialog() {
     if (renderTimer_ >= 0) ui::App::get().cancelTimer(renderTimer_);
     auto it = gWindows.find(track.get());
     if (it != gWindows.end() && it->second == this) gWindows.erase(it);
-}
-
-ui::SpinBox* SamplerDialog::number(double low, double high, int decimals, const std::string& suffix,
-                                   const std::string& tip) {
-    ui::SpinBox* box = add<ui::SpinBox>();
-    box->setRange(low, high);
-    box->setDecimals(decimals);
-    box->setSuffix(suffix);
-    if (!tip.empty()) box->setToolTip(tip);
-    box->setKeyboardTracking(false);  // (changed once a value is typed in, not on every key)
-    return box;
 }
 
 void SamplerDialog::showSettings(const SamplerSettings& s) {
@@ -186,31 +227,12 @@ void SamplerDialog::showSettings(const SamplerSettings& s) {
     waveform->start = s.start;
     waveform->end = s.end;
     waveform->update();
-    const std::pair<ui::SpinBox*, double> values[] = {
-        {root, (double)s.root}, {transpose, s.transpose}, {gain, s.gainDb}, {velocity, s.velocity * 100},
-        {attack, s.attack * 1000}, {decay, s.decay * 1000}, {sustain, s.sustain * 100}, {release, s.release * 1000},
-        {start, s.start * 100}, {end, s.end * 100}};
-    for (auto& bv : values) bv.first->setValueSilently(bv.second);
-    mode->setCurrentIndexSilently(s.oneShot ? 1 : 0);
-    loop->setCheckedSilently(s.loop);
-    loop->setEnabled(!s.oneShot);
+    controls.show(s);
 }
 
 SamplerPtr SamplerDialog::settings() const {
     auto s = std::make_shared<SamplerSettings>(track->sampler ? *track->sampler : SamplerSettings());
-    double a = start->value() / 100, b = end->value() / 100;
-    s->root = root->intValue();
-    s->transpose = transpose->value();
-    s->gainDb = gain->value();
-    s->velocity = velocity->value() / 100;
-    s->attack = attack->value() / 1000;
-    s->decay = decay->value() / 1000;
-    s->sustain = sustain->value() / 100;
-    s->release = release->value() / 1000;
-    s->oneShot = mode->currentIndex() == 1;
-    s->loop = loop->isChecked();
-    s->start = std::min(a, b - 0.001);
-    s->end = std::max(b, a + 0.001);
+    controls.read(*s);
     return s;
 }
 
