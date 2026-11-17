@@ -15,10 +15,14 @@ extends; that program is in the repository's history.
 
 ## What it does
 
-- **Timeline**: audio and MIDI tracks, groups, return tracks with sends, pan, track delay; clips you
+- **Timeline**: audio and MIDI tracks, groups, return tracks with sends (before or after the
+  fader), pan, track delay; clips you
   move, trim, split, duplicate, copy and paste, colour, loop, reverse, join, crossfade, stretch and
-  pitch, with gain and fades; takes with comping; markers, tempo and time-signature changes,
-  insert/delete time, a fixed or zoom-following grid; undo and redo of everything.
+  pitch, with gain and fades (linear, smooth, fast, slow or equal power; crossfades equal power);
+  takes with comping; markers, tempo and time-signature changes,
+  insert/delete time, a fixed or zoom-following grid; undo and redo of everything, with a list of
+  the steps to jump back to (Edit → History…); what the control under the mouse does, in the
+  status bar.
 - **MIDI**: a piano roll with ghost notes of other clips, the song's key and scale, chord stamp,
   quantize, box select; a Steps view of the same clip; notes with their own chance, repeats (rolls),
   slide, pan and fine pitch; linked clips (edit one, every linked copy changes); the built-in synth and
@@ -95,6 +99,23 @@ saturation, bit-crusher and utility:
   A (415–466 Hz); the sound passes untouched.
 - The **EQ** window shows a live spectrum of the sound behind its curve (Off, before or after the
   EQ), worked out only while the window is open.
+
+## Fades, sends, history and hints
+
+- **Fade shapes**: an audio clip's fade-in and fade-out each have a shape: Linear, Smooth (an S-curve),
+  Fast, Slow, or Equal power. Right-click the clip → Fade-in shape / Fade-out shape, or right-click a
+  fade's handle; the clip draws the curve. Clips overlapping make an equal-power crossfade (the sound
+  keeps its loudness through it, where a linear one dips by about 3 dB). Reversing a clip turns its
+  fade-in into the matching fade-out.
+- **Pre-fader sends**: the **Pre** switch beside a send takes the track's sound for that return before
+  its fader and pan (after its effects), so the return gets the same level whatever the fader does: a
+  reverb that stays when the dry sound is faded out, a headphone mix. It stays in time with the track's
+  delay compensation and delay.
+- **Edit → History…**: every undo step by name ("Add track", "Move clips", "Fades"…), the current one
+  marked; click one to undo or redo to it. It follows the edits while open.
+- **Hints**: rest the mouse on a control for a moment and the status bar says what it does (the first
+  line of its tooltip); a message the program shows wins while it lasts. Options → Hints in the status
+  bar turns it off.
 
 ## Note properties and Steps
 

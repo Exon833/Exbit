@@ -30,9 +30,6 @@
 
 #include "ui/automation_dialog.h"
 
-// (a stand-in while automation_dialog.cpp is being written: weak, so the real one wins)
-__attribute__((weak)) ParameterDialog::ParameterDialog(ui::Window* parent, const TrackPtr& track) : ui::Dialog(parent) {}
-
 namespace {
 
 std::string outDir() {
