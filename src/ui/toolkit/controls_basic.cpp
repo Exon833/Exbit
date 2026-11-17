@@ -1,5 +1,5 @@
-// Label, Button, CheckBox, GroupBox, Separator, SplitterHandle, StatusBar, TabWidget — in the flat
-// look of theme.py's stylesheet.
+// Label, Button, CheckBox, GroupBox, Separator, SplitterHandle, StatusBar, TabWidget — styled by the skin's
+// stylesheets (default.css: Buttons, and the Basic controls section).
 #include <algorithm>
 #include <cmath>
 
@@ -64,7 +64,7 @@ int linesHeight(const Font& f, int n) {
 // Label
 // ============================================================================================
 
-Label::Label(const std::string& text, Widget* parent) : Widget(parent), text_(text) {}
+Label::Label(const std::string& text, Widget* parent) : Widget(parent), text_(text) { setStyleType("Label"); }
 
 void Label::setText(const std::string& t) {
     if (t == text_) return;
@@ -73,21 +73,21 @@ void Label::setText(const std::string& t) {
     update();
 }
 
+// (default.css: .dimmed 8 pt, #time and #lufs in the numbers font)
 Font Label::font() const {
     if (hasFont_) return font_;
-    if (objectName == "time") return theme::monoFont(12);
-    if (objectName == "lufs") return theme::monoFont(8);
-    if (property("dimmed") == "true") return theme::dimmedFont();
-    return theme::uiFont();
+    return style::font(computedStyle(), theme::uiFont());
 }
 
+// (default.css: :disabled, then :link, .hint, .dimmed, else the window's text colour)
 Color Label::color() const {
     if (hasColor_) return color_;
-    if (!isEnabled()) return theme::c("disabled_text");
-    if (!link_.empty()) return theme::c("accent");
-    if (property("hint") == "true") return theme::c("hint_text");
-    if (property("dimmed") == "true") return theme::c("dimmed_text");
-    return theme::c("window_text");
+    return style::foreground(computedStyle());
+}
+
+void Label::styleStates(std::vector<std::string>& out) const {
+    Widget::styleStates(out);
+    if (!link_.empty()) out.push_back("link");
 }
 
 Point Label::sizeHint() const {
@@ -98,16 +98,18 @@ Point Label::sizeHint() const {
         std::vector<std::string> lines = splitLines(text_);
         float w = 0;
         for (auto& l : lines) w = std::max(w, f.width(l));
-        if (wrap_ && w > 360) {
-            lines = wrapLines(text_, f, 360);
+        float wrapW = (float)theme::metric("label-wrap-width", 360);  // (a wrapped text's widest line)
+        if (wrap_ && w > wrapW) {
+            lines = wrapLines(text_, f, wrapW);
             w = 0;
             for (auto& l : lines) w = std::max(w, f.width(l));
         }
         h.x = std::max(h.x, (int)std::ceil(w));
         h.y = std::max(h.y, linesHeight(f, (int)lines.size()));
     }
-    h.x += 2 * margin;
-    h.y += 2 * margin;
+    style::Insets pad = style::insets(computedStyle(), "padding");
+    h.x += 2 * margin + pad.w();
+    h.y += 2 * margin + pad.h();
     Point mn = minimumSize(), mx = maximumSize();
     if (mn.x == mx.x) h.x = mn.x;
     if (mn.y == mx.y) h.y = mn.y;
@@ -116,21 +118,26 @@ Point Label::sizeHint() const {
 
 Point Label::minimumSizeHint() const {
     Point h = sizeHint();
-    if (wrap_ || elide_) h.x = std::min(h.x, 16 + 2 * margin);
+    if (wrap_ || elide_)
+        h.x = std::min(h.x, theme::metric("label-min-width", 16) + 2 * margin + style::insets(computedStyle(), "padding").w());
     return h;
 }
 
 void Label::paint(Painter& p) {
-    Rect r = rect().adjusted(margin, margin, -margin, -margin);
+    const css::Style& st = computedStyle();
+    style::box(p, rect(), st);
+    Rect r = style::inside(rect().adjusted(margin, margin, -margin, -margin), style::insets(st, "padding"));
+    bool underline = st.keyword("text-decoration", "none").find("underline") != std::string::npos;
     if (!image_.empty()) {
         int x = r.x, y = r.y;
         if (align_ & AlignHCenter) x += (r.w - image_.width()) / 2;
         else if (align_ & AlignRight) x += r.w - image_.width();
         if (align_ & AlignVCenter) y += (r.h - image_.height()) / 2;
         else if (align_ & AlignBottom) y += r.h - image_.height();
-        if (!isEnabled()) {
+        float opacity = (float)computedStyle("image").number("opacity", 1);  // (default.css: 0.45 when disabled)
+        if (opacity < 1) {
             p.save();
-            p.setOpacity(0.45f);
+            p.setOpacity(std::max(0.f, opacity));
             p.drawImage(Point(x, y), image_);
             p.restore();
         } else {
@@ -146,7 +153,7 @@ void Label::paint(Painter& p) {
         return;
     }
     p.drawText(RectF(r), align_, text_, f, c, elide_);
-    if (!link_.empty()) {
+    if (underline) {  // (default.css: a link's)
         float tw = std::min((float)r.w, f.width(text_));
         float x = (float)r.x;
         if (align_ & AlignHCenter) x += (r.w - tw) / 2;
@@ -526,6 +533,7 @@ Button* toolButton(Widget* parent, const std::string& text, std::function<void()
 // ============================================================================================
 
 CheckBox::CheckBox(const std::string& text, Widget* parent) : Widget(parent), text_(text) {
+    setStyleType("CheckBox");
     setFocusPolicy(FocusPolicy::Strong);
     vPolicy = SizePolicy::Fixed;
 }
@@ -537,10 +545,20 @@ void CheckBox::setChecked(bool on) {
     toggled.emit(on);
 }
 
+void CheckBox::styleStates(std::vector<std::string>& out) const {
+    Widget::styleStates(out);
+    if (checked_) out.push_back("checked");
+}
+
 Point CheckBox::sizeHint() const {
-    Font f = theme::uiFont();
-    int tw = text_.empty() ? 0 : style::textWidth(f, text_) + 6;
-    Point h(14 + tw, std::max(style::textHeight(f), 14) + 4);
+    // (default.css: the 14 px box, 6 px from the text, 2 px above and below)
+    const css::Style& st = computedStyle();
+    Font f = style::font(st, theme::uiFont());
+    style::Insets pad = style::insets(st, "padding");
+    const css::Style& ind = computedStyle("indicator");
+    int iw = style::px(ind, "width", 14), ih = style::px(ind, "height", 14), gap = style::px(ind, "margin-right", 6);
+    int tw = text_.empty() ? 0 : style::textWidth(f, text_) + gap;
+    Point h(pad.w() + iw + tw, std::max(style::textHeight(f), ih) + pad.h());
     Point mn = minimumSize(), mx = maximumSize();
     if (mn.x == mx.x) h.x = mn.x;
     if (mn.y == mx.y) h.y = mn.y;
@@ -548,22 +566,24 @@ Point CheckBox::sizeHint() const {
 }
 
 void CheckBox::paint(Painter& p) {
-    const theme::Shades& sh = theme::shades();
-    float rad = (float)theme::radius();
-    Rect ind(0, (height() - 14) / 2, 14, 14);
-    if (!isEnabled()) {
-        style::frame(p, ind, sh.disabled, sh.disabled, rad);
-        if (checked_) style::icon(p, ind.x + 2.f, ind.y + 2.f, 10, "check", theme::c("accent_text"));
-    } else if (checked_) {
-        style::frame(p, ind, theme::c("accent"), theme::c("accent"), rad);
-        style::icon(p, ind.x + 2.f, ind.y + 2.f, 10, "check", theme::c("accent_text"));
-    } else {
-        style::frame(p, ind, theme::c("base"), underMouse() ? theme::c("accent") : sh.fieldHover, rad);
+    const css::Style& st = computedStyle();
+    style::box(p, rect(), st);
+    Font f = style::font(st, theme::uiFont());
+    Color tc = style::foreground(st);
+    style::Insets pad = style::insets(st, "padding");
+    // the box (centred over the whole height), its check mark inside its border and padding
+    const css::Style& is = computedStyle("indicator");
+    int iw = style::px(is, "width", 14), ih = style::px(is, "height", 14), gap = style::px(is, "margin-right", 6);
+    Rect ind(pad.left, (height() - ih) / 2, iw, ih);
+    style::box(p, ind, is);
+    if (checked_) {
+        Rect mark = style::contents(ind, is);
+        style::icon(p, (float)mark.x, (float)mark.y, (float)mark.w, "check", style::foreground(is));
     }
     if (!text_.empty()) {
-        Rect tr(20, 0, std::max(0, width() - 20), height());
-        style::text(p, tr, AlignLeft | AlignVCenter, text_, theme::uiFont(),
-                    isEnabled() ? theme::c("window_text") : theme::c("disabled_text"), true);
+        int x = pad.left + iw + gap;
+        Rect tr(x, 0, std::max(0, width() - x - pad.right), height());
+        style::text(p, tr, AlignLeft | AlignVCenter, text_, f, tc, true);
     }
 }
 
@@ -594,14 +614,32 @@ bool CheckBox::keyPress(KeyEvent& e) {
 // GroupBox
 // ============================================================================================
 
-GroupBox::GroupBox(const std::string& title, Widget* parent) : Widget(parent), title_(title) {}
+GroupBox::GroupBox(const std::string& title, Widget* parent) : Widget(parent), title_(title) { setStyleType("GroupBox"); }
 
-Rect GroupBox::contentsRect() const { return Rect(6, 28, width() - 12, height() - 34); }
+namespace {
+// (default.css: the box starts 20 px down, its contents 8 px below that and 6 px in from its other sides)
+Rect groupBoxRect(const Rect& r, const css::Style& st) { return style::inside(r, style::insets(st, "margin")); }
+// the room the box takes around its contents: margin, border and padding
+Point groupBoxExtra(const css::Style& st) {
+    style::Insets m = style::insets(st, "margin"), b = style::insets(st, "border-width"), pad = style::insets(st, "padding");
+    return Point(m.w() + b.w() + pad.w(), m.h() + b.h() + pad.h());
+}
+// the title's width with its margin
+int groupTitleWidth(const css::Style& ts, const std::string& title) {
+    return style::textWidth(style::font(ts, theme::uiFont()), title) + style::insets(ts, "margin").w();
+}
+}  // namespace
+
+Rect GroupBox::contentsRect() const {
+    const css::Style& st = computedStyle();
+    return style::contents(groupBoxRect(rect(), st), st);
+}
 
 Point GroupBox::sizeHint() const {
     Point h = Widget::sizeHint();
-    if (!layout()) h = Point(std::max(h.x, 12), std::max(h.y, 34));
-    if (!title_.empty()) h.x = std::max(h.x, style::textWidth(theme::uiFont(), title_) + 8);
+    Point extra = groupBoxExtra(computedStyle());
+    if (!layout()) h = Point(std::max(h.x, extra.x), std::max(h.y, extra.y));
+    if (!title_.empty()) h.x = std::max(h.x, groupTitleWidth(computedStyle("title"), title_));
     Point mn = minimumSize(), mx = maximumSize();
     if (mn.x == mx.x) h.x = mn.x;
     if (mn.y == mx.y) h.y = mn.y;
@@ -610,16 +648,19 @@ Point GroupBox::sizeHint() const {
 
 Point GroupBox::minimumSizeHint() const {
     Point h = Widget::minimumSizeHint();
-    if (!layout()) h = Point(12, 34);
-    if (!title_.empty()) h.x = std::max(h.x, style::textWidth(theme::uiFont(), title_) + 8);
+    if (!layout()) h = groupBoxExtra(computedStyle());
+    if (!title_.empty()) h.x = std::max(h.x, groupTitleWidth(computedStyle("title"), title_));
     return h;
 }
 
 void GroupBox::paint(Painter& p) {
-    style::fill(p, Rect(0, 20, width(), height() - 20), theme::shades().panel, (float)theme::radius());
+    const css::Style& st = computedStyle();
+    style::box(p, groupBoxRect(rect(), st), st);
     if (!title_.empty()) {
-        style::text(p, Rect(4, 1, width() - 8, 18), AlignLeft | AlignVCenter, title_, theme::uiFont(),
-                    isEnabled() ? theme::c("window_text") : theme::c("disabled_text"), true);
+        const css::Style& ts = computedStyle("title");
+        style::Insets m = style::insets(ts, "margin");
+        style::text(p, Rect(m.left, m.top, width() - m.w(), style::px(ts, "height", 18)), AlignLeft | AlignVCenter, title_,
+                    style::font(ts, theme::uiFont()), style::foreground(ts), true);
     }
 }
 
@@ -628,22 +669,31 @@ void GroupBox::paint(Painter& p) {
 // ============================================================================================
 
 Separator::Separator(Orientation o, Widget* parent) : Widget(parent), orientation(o) {
+    setStyleType("Separator");
     if (o == Orientation::Vertical) {
-        marginAlong = 6;
-        marginAcross = 3;
         hPolicy = SizePolicy::Fixed;
         vPolicy = SizePolicy::Preferred;
     } else {
-        marginAlong = 0;
-        marginAcross = 0;
         hPolicy = SizePolicy::Preferred;
         vPolicy = SizePolicy::Fixed;
     }
 }
 
+void Separator::styleStates(std::vector<std::string>& out) const {
+    Widget::styleStates(out);
+    out.push_back(orientation == Orientation::Vertical ? "vertical" : "horizontal");
+}
+
+namespace {
+// a line's thickness (line-width: Separator, SplitterHandle)
+int lineWidth(const css::Style& st) { return std::max(0, style::px(st, "line-width", 1)); }
+}  // namespace
+
 Point Separator::sizeHint() const {
-    Point h = orientation == Orientation::Vertical ? Point(1 + 2 * marginAcross, 2 * marginAlong + 1)
-                                                   : Point(2 * marginAlong + 1, 1 + 2 * marginAcross);
+    const css::Style& st = computedStyle();
+    style::Insets m = style::insets(st, "margin");
+    int lw = lineWidth(st);
+    Point h = orientation == Orientation::Vertical ? Point(lw + m.w(), 1 + m.h()) : Point(1 + m.w(), lw + m.h());
     Point mn = minimumSize(), mx = maximumSize();
     if (mn.x == mx.x) h.x = mn.x;
     if (mn.y == mx.y) h.y = mn.y;
@@ -651,24 +701,35 @@ Point Separator::sizeHint() const {
 }
 
 void Separator::paint(Painter& p) {
-    Color c = theme::shades().line;
+    const css::Style& st = computedStyle();
+    Color c = style::foreground(st);
+    style::Insets m = style::insets(st, "margin");
+    int lw = lineWidth(st);
+    // (along the middle of the room inside its margin)
     if (orientation == Orientation::Vertical) {
-        int x = width() / 2;
-        p.drawVLine(x, marginAlong, height() - marginAlong, c);
+        int x = m.left + (width() - m.w()) / 2 - lw / 2;
+        for (int k = 0; k < lw; ++k) p.drawVLine(x + k, m.top, height() - m.bottom, c);
     } else {
-        int y = height() / 2;
-        p.drawHLine(marginAlong, width() - marginAlong, y, c);
+        int y = m.top + (height() - m.h()) / 2 - lw / 2;
+        for (int k = 0; k < lw; ++k) p.drawHLine(m.left, width() - m.right, y + k, c);
     }
 }
 
 SplitterHandle::SplitterHandle(Orientation o, Widget* parent) : Widget(parent), orientation(o) {
+    setStyleType("SplitterHandle");
     setCursor(o == Orientation::Horizontal ? Cursor::SizeHor : Cursor::SizeVer);
     if (o == Orientation::Horizontal) hPolicy = SizePolicy::Fixed;
     else vPolicy = SizePolicy::Fixed;
 }
 
+void SplitterHandle::styleStates(std::vector<std::string>& out) const {
+    Widget::styleStates(out);
+    out.push_back(orientation == Orientation::Horizontal ? "horizontal" : "vertical");
+}
+
 Point SplitterHandle::sizeHint() const {
-    Point h = orientation == Orientation::Horizontal ? Point(5, 0) : Point(0, 5);
+    const css::Style& st = computedStyle();
+    Point h = orientation == Orientation::Horizontal ? Point(style::px(st, "width", 5), 0) : Point(0, style::px(st, "height", 5));
     Point mn = minimumSize(), mx = maximumSize();
     if (mn.x == mx.x) h.x = mn.x;
     if (mn.y == mx.y) h.y = mn.y;
@@ -676,9 +737,12 @@ Point SplitterHandle::sizeHint() const {
 }
 
 void SplitterHandle::paint(Painter& p) {
-    Color c = underMouse() || isPressed() ? theme::c("accent") : theme::shades().line;
-    if (orientation == Orientation::Horizontal) p.fillRect(Rect(width() / 2, 0, 1, height()), c);
-    else p.fillRect(Rect(0, height() / 2, width(), 1), c);
+    const css::Style& st = computedStyle();
+    style::box(p, rect(), st);
+    Color c = style::foreground(st);  // (default.css: the accent colour under the pointer and while dragged)
+    int lw = lineWidth(st);
+    if (orientation == Orientation::Horizontal) p.fillRect(Rect(width() / 2 - lw / 2, 0, lw, height()), c);
+    else p.fillRect(Rect(0, height() / 2 - lw / 2, width(), lw), c);
 }
 
 bool SplitterHandle::mousePress(MouseEvent& e) {
@@ -709,7 +773,10 @@ bool SplitterHandle::mouseDoubleClick(MouseEvent& e) {
     return true;
 }
 
-StatusBar::StatusBar(Widget* parent) : Widget(parent) { vPolicy = SizePolicy::Fixed; }
+StatusBar::StatusBar(Widget* parent) : Widget(parent) {
+    setStyleType("StatusBar");
+    vPolicy = SizePolicy::Fixed;
+}
 
 StatusBar::~StatusBar() {
     if (timer_ >= 0) App::get().cancelTimer(timer_);
@@ -759,8 +826,13 @@ void StatusBar::clearMessage() {
 }
 
 Point StatusBar::sizeHint() const {
-    Point h(100, style::textHeight(theme::uiFont()) + 9);
-    if (layout()) h = Point(std::max(h.x, layout()->sizeHint().x), std::max(h.y, layout()->sizeHint().y + 1));
+    // (default.css: a 1 px line, then the text with 4 px above and below)
+    const css::Style& st = computedStyle();
+    Font f = style::font(st, theme::uiFont());
+    style::Insets pad = style::insets(st, "padding"), b = style::insets(st, "border-width");
+    int line = std::max(0, style::px(computedStyle("separator"), "height", 1));
+    Point h(100, style::textHeight(f) + line + pad.h() + b.h());
+    if (layout()) h = Point(std::max(h.x, layout()->sizeHint().x), std::max(h.y, layout()->sizeHint().y + line));
     Point mn = minimumSize(), mx = maximumSize();
     if (mn.x == mx.x) h.x = mn.x;
     if (mn.y == mx.y) h.y = mn.y;
@@ -774,7 +846,9 @@ void StatusBar::setPermanentText(const std::string& text, const std::string& tip
 }
 
 int StatusBar::permanentW() const {
-    return permanent_.empty() ? 0 : style::textWidth(theme::uiFont(), permanent_) + 12;
+    if (permanent_.empty()) return 0;
+    const css::Style& ps = computedStyle("permanent");  // (default.css: 6 px on each side of it)
+    return style::textWidth(style::font(ps, theme::uiFont()), permanent_) + style::insets(ps, "padding").w();
 }
 
 std::string StatusBar::toolTipAt(Point p) const {
@@ -783,24 +857,60 @@ std::string StatusBar::toolTipAt(Point p) const {
 }
 
 void StatusBar::paint(Painter& p) {
-    p.fillRect(Rect(0, 0, width(), 1), theme::shades().line);
+    const css::Style& st = computedStyle();
+    style::box(p, rect(), st);
+    Rect content = style::contents(rect(), st);
+    Font f = style::font(st, theme::uiFont());
+    Color tc = style::foreground(st);
+    // the line along its top; the texts are centred over the height below it
+    const css::Style& ls = computedStyle("separator");
+    int line = std::max(0, style::px(ls, "height", 1));
+    style::box(p, Rect(0, 0, width(), line), ls);
     int pw = permanentW();
     std::string shown = shownText();
     if (!shown.empty())
-        style::text(p, Rect(6, 1, width() - 12 - pw, height() - 1), AlignLeft | AlignVCenter, shown, theme::uiFont(),
-                    theme::c("window_text"), true);
-    if (pw)
-        style::text(p, Rect(width() - pw, 1, pw - 6, height() - 1), AlignRight | AlignVCenter, permanent_,
-                    theme::uiFont(), theme::c("window_text"));
+        style::text(p, Rect(content.x, line, content.w - pw, height() - line), AlignLeft | AlignVCenter, shown, f, tc, true);
+    if (pw) {
+        const css::Style& ps = computedStyle("permanent");
+        style::text(p, Rect(width() - pw, line, pw - style::insets(ps, "padding").right, height() - line),
+                    AlignRight | AlignVCenter, permanent_, style::font(ps, theme::uiFont()), style::foreground(ps));
+    }
 }
 
 // ============================================================================================
 // TabWidget
 // ============================================================================================
 
-TabWidget::TabWidget(Widget* parent) : Widget(parent) { setMouseTracking(true); }
+TabWidget::TabWidget(Widget* parent) : Widget(parent) {
+    setStyleType("TabWidget");
+    setMouseTracking(true);
+}
 
-int TabWidget::barHeight() const { return style::textHeight(theme::uiFont()) + 12 + 2; }
+void TabWidget::styleStates(std::vector<std::string>& out) const {
+    if (styledTab_ == -1) {
+        Widget::styleStates(out);
+        return;
+    }
+    // a tab's: under the pointer, the current one
+    bool enabled = isEnabled();
+    if (!enabled) out.push_back("disabled");
+    if (styledTab_ >= 0 && styledTab_ == hoverTab_ && enabled) out.push_back("hover");
+    if (styledTab_ >= 0 && styledTab_ == current_) out.push_back("selected");
+}
+
+const css::Style& TabWidget::tabStyle(int i, const std::string& part) const {
+    styledTab_ = i;
+    const css::Style& st = computedStyle(part);
+    styledTab_ = -1;
+    return st;
+}
+
+// (default.css: the title 6 px below the top, 12 px from the sides, 6 px above a 2 px line)
+int TabWidget::barHeight() const {
+    const css::Style& st = tabStyle(-2, "tab");
+    return style::textHeight(style::font(st, theme::uiFont())) + style::insets(st, "padding").h() +
+           style::insets(st, "border-width").h();
+}
 
 Widget* TabWidget::addTab(std::unique_ptr<Widget> page, const std::string& title) {
     Widget* raw = page.get();
@@ -829,10 +939,13 @@ void TabWidget::setCurrentIndex(int i) {
 }
 
 Rect TabWidget::tabRect(int i) const {
-    Font f = theme::uiFont();
+    if (i < 0 || i >= count()) return Rect();
+    const css::Style& st = tabStyle(-2, "tab");
+    Font f = style::font(st, theme::uiFont());
+    int extra = style::insets(st, "padding").w() + style::insets(st, "border-width").w();
     int x = 0;
     for (int k = 0; k < count(); ++k) {
-        int w = style::textWidth(f, titles_[k]) + 24;
+        int w = style::textWidth(f, titles_[k]) + extra;
         if (k == i) return Rect(x, 0, w, barHeight());
         x += w;
     }
@@ -859,8 +972,10 @@ Point TabWidget::sizeHint() const {
         h.y = std::max(h.y, s.y);
     }
     int tw = 0;
-    Font f = theme::uiFont();
-    for (auto& t : titles_) tw += style::textWidth(f, t) + 24;
+    const css::Style& st = tabStyle(-2, "tab");
+    Font f = style::font(st, theme::uiFont());
+    int extra = style::insets(st, "padding").w() + style::insets(st, "border-width").w();
+    for (auto& t : titles_) tw += style::textWidth(f, t) + extra;
     h.x = std::max(h.x, tw);
     h.y += barHeight();
     return h;
@@ -878,17 +993,23 @@ Point TabWidget::minimumSizeHint() const {
 }
 
 void TabWidget::paint(Painter& p) {
-    const theme::Shades& sh = theme::shades();
+    style::box(p, rect(), computedStyle());
     int bh = barHeight();
-    p.fillRect(Rect(0, bh - 1, width(), 1), sh.line);
-    Font f = theme::uiFont();
+    {  // the line under the tabs (they are drawn over it)
+        const css::Style& bs = computedStyle("base");
+        int lh = std::max(0, style::px(bs, "height", 1));
+        style::box(p, Rect(0, bh - lh, width(), lh), bs);
+    }
     for (int i = 0; i < count(); ++i) {
         Rect r = tabRect(i);
-        bool sel = i == current_, hov = i == hoverTab_ && isEnabled();
-        if (hov) p.fillRect(r, sh.hover);
-        Color tc = !isEnabled() ? theme::c("disabled_text") : (sel || hov) ? theme::c("window_text") : theme::c("hint_text");
-        style::text(p, Rect(r.x + 12, r.y + 6, r.w - 24, r.h - 14), AlignCenter, titles_[i], f, tc);
-        if (sel) p.fillRect(Rect(r.x, bh - 2, r.w, 2), theme::c("accent"));
+        // (each style is used before the next is asked for)
+        const css::Style& ts = tabStyle(i, "tab");
+        style::box(p, r, ts);
+        style::text(p, style::contents(r, ts), AlignCenter, titles_[i], style::font(ts, theme::uiFont()),
+                    style::foreground(ts));
+        const css::Style& ls = tabStyle(i, "tab-line");
+        int lh = std::max(0, style::px(ls, "height", 2));
+        style::box(p, Rect(r.x, r.bottom() - lh, r.w, lh), ls);
     }
 }
 
