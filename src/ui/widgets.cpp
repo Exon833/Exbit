@@ -308,19 +308,21 @@ void PanKnob::paint(Painter& p) {
 // ============================================================================================
 
 SendsPanel::SendsPanel(TrackPtr track, std::vector<TrackPtr> returns,
-                       std::function<void(const TrackPtr&, double)> setLevel) {
+                       std::function<void(const TrackPtr&, double)> setLevel,
+                       std::function<void(const TrackPtr&, bool)> setPreFader) {
     auto grid = std::make_unique<ui::GridLayout>();
     ui::GridLayout* g = grid.get();
     g->hSpacing = 6;
     g->vSpacing = 4;
     auto* title = add<ui::Label>(track->name + " sends to");
     title->setFont(theme::uiFont().withBold(true));  // (<b>name</b>: the whole line bold is near enough)
-    g->addWidget(title, 0, 0, 1, 3);
+    g->addWidget(title, 0, 0, 1, 4);
     int row = 1;
     for (auto& target : returns) {
         double db = config::MIN_DB;
+        bool pre = false;
         for (auto& s : track->sends)
-            if (s.track == target) db = s.db;
+            if (s.track == target) db = s.db, pre = s.preFader;
         TrackPtr t = target;
         auto* slider = add<VolumeSlider>(db, [setLevel, t](double v) { if (setLevel) setLevel(t, v); });
         slider->setMinimumWidth(150);
@@ -328,7 +330,15 @@ SendsPanel::SendsPanel(TrackPtr track, std::vector<TrackPtr> returns,
         g->addWidget(add<ui::Label>(target->name), row, 0);
         g->addWidget(slider, row, 1);
         g->addWidget(add<DbReading>(slider), row, 2);
+        // Pre: before the fader (model.h Send PRE-FADER SENDS)
+        ui::Button* preButton = widgets::toggleButton(
+            this, "Pre", "accent", pre, [setPreFader, t](bool on) { if (setPreFader) setPreFader(t, on); },
+            "Pre-fader: send the sound after this track's effects but before its fader and pan, so the send "
+            "stays the same however its fader is set\nOff: after the fader and pan (it follows the fader)");
+        preButton->setFixedWidth(34);
+        g->addWidget(preButton, row, 3);
         sliders.push_back(slider);
+        preButtons.push_back(preButton);
         ++row;
     }
     g->setColumnStretch(1, 1);
@@ -358,10 +368,18 @@ double SendsButton::level(const TrackPtr& target) const {
     return config::MIN_DB;
 }
 
+bool SendsButton::preFader(const TrackPtr& target) const {
+    for (auto& s : track->sends)
+        if (s.track == target) return s.preFader;
+    return false;
+}
+
 void SendsButton::showState() {
     std::string up;
     for (auto& s : track->sends)
-        if (s.db > config::MIN_DB) up += (up.empty() ? "" : ", ") + s.track->name + " " + fmt::db(std::nearbyint(s.db), config::MIN_DB);
+        if (s.db > config::MIN_DB)
+            up += (up.empty() ? "" : ", ") + s.track->name + " " + fmt::db(std::nearbyint(s.db), config::MIN_DB) +
+                  (s.preFader ? " (pre-fader)" : "");
     setProperty("lit", up.empty() ? "" : "true");  // the skin's accent colour
     setToolTip("Sends to the return tracks: " + (up.empty() ? std::string("none yet") : up) + " (click to set them)");
     update();
@@ -369,10 +387,29 @@ void SendsButton::showState() {
 
 void SendsButton::setLevel(const TrackPtr& target, double db) {
     std::vector<Send> kept;
+    bool pre = preFader(target);
     for (auto& s : track->sends)
         if (s.track != target) kept.push_back(s);
-    if (db > config::MIN_DB) kept.push_back(Send{target, db});
+    // (a pre-fader send turned right down stays, silent, so it is still pre-fader when turned up again)
+    if (db > config::MIN_DB || pre) kept.push_back(Send{target, std::max(db, (double)config::MIN_DB), pre});
     track->sends = kept;  // (the mixer reads it every buffer)
+    showState();
+    if (changed) changed();
+}
+
+void SendsButton::setPreFader(const TrackPtr& target, bool on) {
+    std::vector<Send> sends = track->sends.copy();
+    bool found = false;
+    for (auto& s : sends)
+        if (s.track == target) s.preFader = on, found = true;
+    if (!found && on) sends.push_back(Send{target, config::MIN_DB, true});  // (no send yet: Pre for when there is)
+    if (!on) {  // (a silent post-fader send is no send at all)
+        std::vector<Send> kept;
+        for (auto& s : sends)
+            if (s.db > config::MIN_DB || s.preFader) kept.push_back(s);
+        sends = kept;
+    }
+    track->sends = sends;  // (replaced as a whole: the mixer reads it every buffer)
     showState();
     if (changed) changed();
 }
@@ -389,7 +426,8 @@ void SendsButton::showSends() {
     o.popup = true;
     o.resizable = false;
     o.title = "Sends";
-    auto panel = std::make_unique<SendsPanel>(track, returns, [this](const TrackPtr& t, double db) { setLevel(t, db); });
+    auto panel = std::make_unique<SendsPanel>(track, returns, [this](const TrackPtr& t, double db) { setLevel(t, db); },
+                                              [this](const TrackPtr& t, bool on) { setPreFader(t, on); });
     Point size = panel->sizeHint();
     o.w = std::max(220, size.x);
     o.h = std::max(40, size.y);

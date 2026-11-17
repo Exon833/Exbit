@@ -282,6 +282,14 @@ public:
     // --- the successor's clip edits ---
     void setGainSelected();     // Clip gain…: ask for the selected audio clips' gain (dB)
     void removeFadesSelected(); // Remove fades
+    // Fade-in / Fade-out shape: the shape of the fade-ins (in) or fade-outs of these audio clips (FADE SHAPES)
+    void setFadeShape(const std::vector<ClipPtr>& clips, bool in, FadeShape shape);
+    // the shapes as ticked entries, for these audio clips' fade-ins (in) or fade-outs (a fade handle's menu)
+    void addFadeShapes(ui::Menu& menu, const std::vector<ClipPtr>& clips, bool in);
+    // right-clicking a fade handle: the shapes of that fade alone (false: no handle at pos)
+    bool fillFadeMenu(ui::Menu& menu, PointF pos);
+    // Fade-in shape ▸ and Fade-out shape ▸ (the clip menu)
+    void addFadeShapeMenus(ui::Menu& menu, const std::vector<ClipPtr>& clips);
     void stretchSelected();     // Stretch and pitch…: each replaced by a stretched one (replacing what it covers)
     void reverseSelected();     // Reverse (play backwards) / Play forwards again
     void joinSelected();        // Ctrl+J: per track, the selected clips (or what lies in the range) become one

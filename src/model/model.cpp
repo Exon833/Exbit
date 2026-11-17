@@ -225,9 +225,36 @@ float Clip::level(int64_t pos) const {
     int64_t fi, fo;
     fades(fi, fo);
     double level = std::pow(10.0, gainDb / 20.0);
-    if (fi) level *= std::min(1.0, std::max(0.0, (double)(pos + std::max<int64_t>(0, fadeLead) + 1) / fi));
-    if (fo) level *= std::min(1.0, std::max(0.0, (double)(frames() + std::max<int64_t>(0, fadeTail) - pos) / fo));
+    if (fi) level *= fadeCurve(fadeInShape, std::min(1.0, std::max(0.0, (double)(pos + std::max<int64_t>(0, fadeLead) + 1) / fi)), false);
+    if (fo) level *= fadeCurve(fadeOutShape, std::min(1.0, std::max(0.0, (double)(frames() + std::max<int64_t>(0, fadeTail) - pos) / fo)), true);
     return (float)level;
+}
+
+// --- fade shapes (model.h FADE SHAPES) ---
+const char* fadeShapeName(FadeShape s) {
+    switch (s) {
+    case FadeShape::Smooth: return "smooth";
+    case FadeShape::Fast: return "fast";
+    case FadeShape::Slow: return "slow";
+    case FadeShape::EqualPower: return "equal_power";
+    default: return "linear";
+    }
+}
+
+FadeShape fadeShapeFromName(const std::string& s) {
+    for (FadeShape f : FADE_SHAPES)
+        if (s == fadeShapeName(f)) return f;
+    return FadeShape::Linear;
+}
+
+const char* fadeShapeLabel(FadeShape s) {
+    switch (s) {
+    case FadeShape::Smooth: return "Smooth (S-curve)";
+    case FadeShape::Fast: return "Fast (most of the change early)";
+    case FadeShape::Slow: return "Slow (most of the change late)";
+    case FadeShape::EqualPower: return "Equal power (for crossfades)";
+    default: return "Linear";
+    }
 }
 
 void Clip::fadeParts(int64_t& partIn, int64_t& partOut, double& levelStart, double& levelEnd) const {

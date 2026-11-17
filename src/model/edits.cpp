@@ -154,6 +154,9 @@ ClipPtr reversedClip(const ClipPtr& clip, int sr) {
     c->fadeOut = clip->fadeIn;
     c->fadeLead = clip->fadeTail;
     c->fadeTail = clip->fadeLead;
+    // (heard backwards, a fade-in is a fade-out: a fast rise becomes a late, quick fall)
+    c->fadeInShape = mirroredFade(clip->fadeOutShape);
+    c->fadeOutShape = mirroredFade(clip->fadeInShape);
     c->data = nullptr;
     c->peaks = nullptr;
     if (clip->loop) {
@@ -273,6 +276,9 @@ bool crossfaded(const ClipPtr& left, const ClipPtr& right, int64_t frames, ClipP
     newRight->fadeIn = overlap;
     newLeft->fadeTail = 0;
     newRight->fadeLead = 0;
+    // (equal power: as loud all through the overlap; model.h FADE SHAPES)
+    newLeft->fadeOutShape = FadeShape::EqualPower;
+    newRight->fadeInShape = FadeShape::EqualPower;
     return true;
 }
 

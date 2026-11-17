@@ -19,8 +19,9 @@ namespace history {
 #define GROUP_FIELDS(X) X(name) X(muted) X(soloed) X(color) X(tone)
 #define CLIP_FIELDS(X)                                                                                          \
     X(kind) X(name) X(track) X(start) X(offset) X(length) X(color) X(tone) X(disabled) X(gainDb) X(fadeIn)     \
-    X(fadeOut) X(fadeLead) X(fadeTail) X(loop) X(source) X(sourceSr) X(sourcePath) X(stretch) X(pitch)         \
-    X(sourceBpm) X(reverse) X(loopStart) X(loopLength) X(notes) X(lengthS) X(mutedNotes) X(played) X(events)
+    X(fadeOut) X(fadeLead) X(fadeTail) X(fadeInShape) X(fadeOutShape) X(loop) X(source) X(sourceSr)            \
+    X(sourcePath) X(stretch) X(pitch) X(sourceBpm) X(reverse) X(loopStart) X(loopLength) X(notes) X(lengthS)   \
+    X(mutedNotes) X(played) X(events)
 #define CLIP_AUDIO_FIELDS(X) X(data) X(peaks) X(baseFrames)  // (not for looping audio clips)
 #define SLOT_FIELDS(X) X(path) X(name) X(kind) X(pluginName) X(bypass) X(placed) X(atX) X(atY) X(volumeDb) X(mix)
 #define LANE_FIELDS(X) X(slot) X(param) X(points)
@@ -235,7 +236,7 @@ const char* trackChange(const TrackData& d, const Track& o) {
 Name clipChange(const ClipData& d, const Clip& o) {
     if (!same(d.track, o.track) || !same(d.start, o.start)) return {"Move clip", "Move clips"};
     if (!same(d.fadeIn, o.fadeIn) || !same(d.fadeOut, o.fadeOut) || !same(d.fadeLead, o.fadeLead) ||
-        !same(d.fadeTail, o.fadeTail))
+        !same(d.fadeTail, o.fadeTail) || !same(d.fadeInShape, o.fadeInShape) || !same(d.fadeOutShape, o.fadeOutShape))
         return {"Fades", "Fades"};
     if (!same(d.loop, o.loop) || !same(d.loopStart, o.loopStart) || !same(d.loopLength, o.loopLength))
         return {"Loop", "Loop"};

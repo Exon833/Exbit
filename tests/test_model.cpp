@@ -12,6 +12,7 @@
 
 #include "audio/automation.h"
 #include "audio/file_io.h"
+#include "audio/mixer.h"
 #include "audio/sound_file.h"
 #include "check.h"
 #include "core/json.h"
@@ -1036,6 +1037,101 @@ static void testSynth() {
                1e-5);
 }
 
+// fade shapes (model.h FADE SHAPES): each curve's values, equal-power crossfades keeping their loudness,
+// the mixer playing them as Clip::level says, reversing, and the names files and menus use
+static void testFadeShapes() {
+    const double PI = 3.14159265358979323846;
+    // the curves at a few points: a fade-in (x grows with time) and a fade-out (x counts back from its end)
+    for (double x : {0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0}) {
+        CHECK(fadeCurve(FadeShape::Linear, x, false) == x && fadeCurve(FadeShape::Linear, x, true) == x);
+        double s = x * x * (3 - 2 * x);
+        CHECK_NEAR(fadeCurve(FadeShape::Smooth, x, false), s, 1e-12);
+        CHECK_NEAR(fadeCurve(FadeShape::Smooth, x, true), s, 1e-12);
+        CHECK_NEAR(fadeCurve(FadeShape::Fast, x, false), 1 - std::pow(1 - x, 3), 1e-12);  // loud soon
+        CHECK_NEAR(fadeCurve(FadeShape::Slow, x, false), std::pow(x, 3), 1e-12);          // loud late
+        CHECK_NEAR(fadeCurve(FadeShape::Fast, x, true), std::pow(x, 3), 1e-12);           // a fade-out: quiet soon
+        CHECK_NEAR(fadeCurve(FadeShape::Slow, x, true), 1 - std::pow(1 - x, 3), 1e-12);
+        CHECK_NEAR(fadeCurve(FadeShape::EqualPower, x, false), std::sin(x * PI / 2), 1e-7);
+        CHECK_NEAR(fadeCurve(FadeShape::EqualPower, x, true), std::sin(x * PI / 2), 1e-7);
+    }
+    // every shape goes from silence to full, never outside 0…1, never back down
+    for (FadeShape shape : FADE_SHAPES)
+        for (bool out : {false, true}) {
+            CHECK_NEAR(fadeCurve(shape, 0.0, out), 0.0, 1e-9);
+            CHECK_NEAR(fadeCurve(shape, 1.0, out), 1.0, 1e-7);
+            double last = -1;
+            bool rising = true, inside = true;
+            for (int k = 0; k <= 1000; k++) {
+                double v = fadeCurve(shape, k / 1000.0, out);
+                if (v < last) rising = false;
+                if (v < -1e-9 || v > 1 + 1e-7) inside = false;
+                last = v;
+            }
+            CHECK(rising && inside);
+        }
+    CHECK(fadeCurve(FadeShape::Fast, 0.5, false) > 0.8 && fadeCurve(FadeShape::Slow, 0.5, false) < 0.2);
+    // names for files and menus; unknown names are straight lines
+    for (FadeShape shape : FADE_SHAPES) CHECK(fadeShapeFromName(fadeShapeName(shape)) == shape);
+    CHECK(fadeShapeFromName("") == FadeShape::Linear && fadeShapeFromName("wobbly") == FadeShape::Linear);
+    CHECK(std::string(fadeShapeName(FadeShape::EqualPower)) == "equal_power");
+    CHECK(std::string(fadeShapeLabel(FadeShape::Smooth)) == "Smooth (S-curve)");
+
+    // a clip's level follows its shapes; Linear is exactly the straight line it always was
+    auto c = makeAudioClip("c", constant(1000, 1.0f), SR, SR);
+    c->fadeIn = 400;
+    c->fadeOut = 200;
+    for (int64_t i : {0, 99, 199, 399}) CHECK(c->level(i) == (float)((i + 1) / 400.0));
+    c->fadeInShape = FadeShape::Smooth;
+    c->fadeOutShape = FadeShape::Fast;
+    for (int64_t i : {0, 99, 199, 399, 500})
+        CHECK_NEAR(c->level(i), fadeCurve(FadeShape::Smooth, std::min(1.0, (i + 1) / 400.0), false), 1e-6);
+    for (int64_t i : {800, 850, 900, 999})
+        CHECK_NEAR(c->level(i), fadeCurve(FadeShape::Fast, (1000 - i) / 200.0, true), 1e-6);
+    // the mixer plays the clip at those levels (before the short fade at its very edges)
+    {
+        std::vector<float> l(1000, 0.0f), r(1000, 0.0f);
+        float* buf[2] = {l.data(), r.data()};
+        mixer::addClip(buf, 2, 1000, *c, 0);
+        for (int64_t i = config::EDGE_FADE_FRAMES; i < 1000 - config::EDGE_FADE_FRAMES; i += 7) {
+            CHECK_NEAR(l[(size_t)i], c->level(i), 2e-6);
+            CHECK(l[(size_t)i] == r[(size_t)i]);
+        }
+    }
+    // reversed: the fade-in becomes the fade-out, heard backwards (a fast rise: a late, quick fall)
+    auto rev = edits::reversedClip(c, SR);
+    CHECK(rev->fadeOutShape == FadeShape::Smooth && rev->fadeInShape == FadeShape::Slow);
+    for (int64_t i : {0, 50, 150, 199, 600, 900, 999}) CHECK_NEAR(rev->level(i), c->level(999 - i), 2e-3);
+    // a piece cut from a shaped fade goes on along the same curve
+    ClipPtr left, right;
+    CHECK(edits::splitClip(c, 100, left, right));
+    for (int64_t i : {0, 100, 299}) CHECK_NEAR(right->level(i), c->level(i + 100), 1e-6);
+
+    // a crossfade of two clips that meet: equal power, as loud all through (within 0.1 dB)
+    auto a = makeAudioClip("a", constant(SR, 0.5f), SR, SR);
+    a->length = SR / 2;  // (audio beyond its end to overlap with)
+    auto b = makeAudioClip("b", constant(SR, 0.5f), SR, SR);
+    b->offset = SR / 2;  // (audio before its start)
+    b->length = SR / 2;
+    b->start = SR / 2;
+    ClipPtr na, nb;
+    CHECK(edits::crossfaded(a, b, SR / 10, na, nb));
+    CHECK(na && nb && na->fadeOutShape == FadeShape::EqualPower && nb->fadeInShape == FadeShape::EqualPower);
+    if (na && nb) {
+        CHECK(na->end() - nb->start == SR / 10 && na->fadeOut == SR / 10 && nb->fadeIn == SR / 10);
+        double worst = 0;
+        for (int64_t t = nb->start; t < na->end(); t++) {
+            double ga = na->level(t - na->start), gb = nb->level(t - nb->start);
+            worst = std::max(worst, std::fabs(10 * std::log10(ga * ga + gb * gb)));
+        }
+        CHECK(worst < 0.1);
+        // (a straight crossfade dips by up to 3 dB in the middle: what equal power is for)
+        na->fadeOutShape = nb->fadeInShape = FadeShape::Linear;
+        int64_t mid = (nb->start + na->end()) / 2;
+        double ga = na->level(mid - na->start), gb = nb->level(mid - nb->start);
+        CHECK(10 * std::log10(ga * ga + gb * gb) < -2.9);
+    }
+}
+
 int main() {
     testFrac();
     testTempoMap();
@@ -1046,6 +1142,7 @@ int main() {
     testHistoryNames();
     testSongTime();
     testEdits();
+    testFadeShapes();
     testRoundTrip();
     testOldProject();
     testBackups();

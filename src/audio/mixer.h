@@ -26,7 +26,15 @@
 // they go in a straight line from their values at the buffer's start to those at its end. Pan is a
 // balance: centre leaves both sides alone; towards one side the other goes down (cos), to silence at ±1.
 //
-// An audio clip's own gain and fades (Clip::level) apply before the track's effects (addClip).
+// An audio clip's own gain and fades (Clip::level, each fade of its shape: model.h FADE SHAPES) apply
+// before the track's effects (addClip).
+//
+// PRE-FADER SENDS (Send::preFader) take the track's sound after its effects but before its fader and pan.
+// Only a track that has one keeps that sound (a copy in MixState::preBuf, made before the fader, in
+// processing), held back by a delay line of its own exactly as much as its main sound is, so it reaches
+// the returns in time with everything else; committing adds it to the return as a post-fader send adds
+// the faded sound. No allocation: preBuf grows with the other buffers (MixState::reserve), and the delay
+// lines are made on the calling thread before the tracks, like the main ones.
 //
 // This is the one mixer: playback (Engine::callback) and renders (render.h) both run it, so a render
 // is what playback sounds like, sample for sample, when buffers fall the same way.
@@ -98,11 +106,17 @@ struct MixState {
         enum Kind : char { Skipped, Unheard, Heard };
         Kind kind = Skipped;
         bool fed = false;  // its sound was kept for sidechains (in feedBuf)
+        bool pre = false;  // its sound before its fader was kept for pre-fader sends (in preBuf)
         int channels = 0, first = 0;
         double seconds = 0;  // how long processing it took
     };
     std::vector<Result> results;
     std::vector<std::vector<float>> trackBuf;  // its sound (2 rows of `capacity`)
+    // pre-fader sends (see the top): its sound before the fader (2 rows of `capacity`; only filled when it has
+    // such a send), and that sound's delay compensation line (made only for those tracks; null: none)
+    std::vector<std::vector<float>> preBuf;
+    std::vector<std::pair<const Track*, patch::DelayLine>> preDelays;
+    std::vector<patch::DelayLine*> preLines;
     std::vector<int> clipFrom;                 // its clips: trackClips[clipFrom[i] … clipFrom[i + 1])
     std::vector<const Clip*> trackClips;
     std::vector<patch::DelayLine*> lines;      // its delay compensation line (null: none)

@@ -860,6 +860,64 @@ void testFadesAndGain() {
                 { Color c = big.colorAt(x, y); if (c.r > 150 && c.g > 150 && c.b > 150) ++ink; }
         CHECK(ink > 100);
     }
+    // fade shapes (model.h FADE SHAPES): two submenus in the clip menu, ticked as the selected clips have them
+    ui::Action* inShapes = actionStarting(menu, "Fade-in shape");
+    ui::Action* outShapes = actionStarting(menu, "Fade-out shape");
+    CHECK(inShapes && outShapes && inShapes->submenu && outShapes->submenu && inShapes->enabled);
+    if (inShapes && outShapes && inShapes->submenu && outShapes->submenu) {
+        CHECK(inShapes->submenu->actions().size() == 5 && actionStarting(*inShapes->submenu, "Linear")->checked);
+        ui::Menu::activate(actionStarting(*inShapes->submenu, "Smooth"));
+        ui::Menu::activate(actionStarting(*outShapes->submenu, "Equal power"));
+        CHECK(clip->fadeInShape == FadeShape::Smooth && clip->fadeOutShape == FadeShape::EqualPower);
+    }
+    {  // …ticked now; and a MIDI clip alone has nothing to shape
+        ui::Menu again;
+        tl.fillMenu(again, Point(150, 60));
+        CHECK(actionStarting(*actionStarting(again, "Fade-in shape")->submenu, "Smooth")->checked);
+        CHECK(!actionStarting(*actionStarting(again, "Fade-in shape")->submenu, "Linear")->checked);
+    }
+    // right-clicking a fade handle: that fade's shapes alone
+    {
+        RectF hin, hout;
+        CHECK(clip_painter::fadeHandles(*clip, body, tl.pps, SR, hin, hout));
+        ui::Menu handleMenu;
+        CHECK(tl.fillFadeMenu(handleMenu, PointF(hout.x + 3, hout.y + 3)));
+        CHECK(handleMenu.actions().size() == 6 && handleMenu.actions()[0]->text == "Fade-out shape" &&
+              actionStarting(handleMenu, "Equal power")->checked);
+        ui::Menu::activate(actionStarting(handleMenu, "Fast"));
+        CHECK(clip->fadeOutShape == FadeShape::Fast && clip->fadeInShape == FadeShape::Smooth);
+        ui::Menu none;
+        CHECK(!tl.fillFadeMenu(none, PointF(200, 70)) && none.actions().empty());
+    }
+    // drawn as curves: a fast fade-out is shaded where it is quiet (the bottom-right of the fade), a slow
+    // one isn't (it stays loud there): the shading (darker) differs at a point under the straight line
+    {
+        auto shadeAt = [&](FadeShape shape) {
+            clip->fadeOutShape = shape;
+            tl.update();
+            Image pic = paintScroll(r.scroll);
+            RectF b2 = tl.clipRect(*clip, tl.trackTops())->adjusted(0, config::CLIP_HANDLE_H, 0, 0);
+            double fadeW = (double)clip->fadeOut / SR * tl.pps;
+            int x = (int)(b2.right() - fadeW * 0.3), y = (int)(b2.bottom() - b2.h * 0.5);  // (above a fast curve)
+            Color c = pic.colorAt(x, y);
+            return c.r + c.g + c.b;
+        };
+        int fast = shadeAt(FadeShape::Fast), slow = shadeAt(FadeShape::Slow);
+        CHECK(fast != slow);
+        // the waveform's cached tiles follow the shapes too (a tile of the fade-in, for each shape)
+        auto tileOf = [&](FadeShape shape) {
+            clip->fadeInShape = shape;
+            return Image(waveform_cache::tiles().tile(*clip, 0, 50, 52, tl.pps, SR, Color(200, 200, 200)));
+        };
+        Image smoothTile = tileOf(FadeShape::Smooth), slowTile = tileOf(FadeShape::Slow);
+        int differ = 0;
+        for (int y = 0; y < smoothTile.height(); ++y)
+            for (int x = 0; x < smoothTile.width(); ++x)
+                if (smoothTile.colorAt(x, y) != slowTile.colorAt(x, y)) ++differ;
+        CHECK(differ > 0);
+        clip->fadeInShape = FadeShape::Smooth;
+        savePng(outDir2() + "/fade_shapes.png", paintScroll(r.scroll));
+    }
     ui::Menu::activate(actionStarting(menu, "Remove fades"));
     CHECK(clip->fadeIn == 0 && clip->fadeOut == 0);
     track_dialogs::answer = nullptr;

@@ -32,8 +32,8 @@ void paintLoopStarts(Painter& p, const Clip& clip, const RectF& rect, const Rect
 // An audio clip's fade handles (in, out): squares where its fades end (at least clear of the clip's
 // trimming edges); false for a clip too narrow to have them.
 bool fadeHandles(const Clip& clip, const RectF& body, double pps, int sr, RectF& in, RectF& out);
-// each fade as a line from silence at the clip's edge to full level where it ends, the part it
-// quietens shaded; and the two handles
+// each fade as its shape's curve (a straight line for Linear) from silence at the clip's edge to full
+// level where it ends, the part it quietens shaded; and the two handles
 void paintFades(Painter& p, const Clip& clip, const RectF& body, double pps, int sr, Color color);
 // its name, and its gain when it has one ("Kick   -3.0 dB")
 std::string clipLabel(const Clip& clip);

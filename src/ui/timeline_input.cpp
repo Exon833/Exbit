@@ -420,6 +420,11 @@ bool Timeline::contextMenu(ui::MouseEvent& e) {
         menu.exec(e.globalPos, this);
         return true;
     }
+    ui::Menu fadeMenu;  // a fade handle: that fade's shapes (model.h FADE SHAPES), for its clip alone
+    if (fillFadeMenu(fadeMenu, PointF(e.pos))) {
+        fadeMenu.exec(e.globalPos, this);
+        return true;
+    }
     showMenu(e.globalPos, e.pos);
     return true;
 }
@@ -512,6 +517,7 @@ void Timeline::fillMenu(ui::Menu& menu, std::optional<Point> pos) {
     }
     ui::Action* noFades = menu.addAction("Remove fades", [this] { removeFadesSelected(); });
     noFades->setEnabled(anyFades);
+    addFadeShapeMenus(menu, audioClips);  // Fade-in shape ▸, Fade-out shape ▸ (model.h FADE SHAPES)
     ui::Action* stretch = menu.addAction("Stretch and pitch…", [this] { stretchSelected(); });
     stretch->setEnabled(!audioClips.empty());
     ui::Action* reverse = menu.addAction(allReversed ? "Play forwards again" : "Reverse (play backwards)",
