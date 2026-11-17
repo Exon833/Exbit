@@ -139,3 +139,36 @@ Button::separator { background-color: var(--line); }
 .toggle-solo { --toggle-color: var(--solo); }
 .toggle-record { --toggle-color: var(--record); }
 .toggle-accent { --toggle-color: var(--accent); }
+
+/* ======================================== Basic controls ========================================
+   Label, CheckBox, GroupBox, Separator, SplitterHandle, StatusBar, Window, tooltips, dialogs */
+
+/* (end of Basic controls) */
+
+
+
+/* ======================================== Fields and values ========================================
+   LineEdit, SpinBox, ComboBox, Slider */
+
+/* (end of Fields and values) */
+
+
+
+/* ======================================== Lists, scrolling, tabs and menus ========================================
+   ScrollBar, ScrollArea, ListWidget, TreeWidget, TabWidget, MenuBar, Menu, the file dialog */
+
+/* (end of Lists, scrolling, tabs and menus) */
+
+
+
+/* ======================================== Timeline ========================================
+   the ruler, lanes, clips, automation, the overview, the track rows; the layout's sizes */
+
+/* (end of Timeline) */
+
+
+
+/* ======================================== Panels, meters and editors ========================================
+   the transport, meters, the master strip, the MIDI editor, Steps, the patch panel, the Explorer, effect windows */
+
+/* (end of Panels, meters and editors) */
