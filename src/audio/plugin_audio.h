@@ -31,14 +31,16 @@ constexpr const char* EFFECT = "effect";
 
 // A MIDI message for an instrument, timed in frames from the buffer's start (the Python program's
 // mido messages timed in seconds). AllOff stands for its ALL_NOTES_OFF control changes: every note
-// held ends.
+// held ends. PitchBend and Control come from a MIDI keyboard played live (live.h): the bend wheel
+// (value -8192..8191) and a control change (pitch: the control number, value 0..127).
 struct MidiMsg {
-    enum Type { NoteOn, NoteOff, AllOff };
+    enum Type { NoteOn, NoteOff, AllOff, PitchBend, Control };
     Type type = NoteOn;
     int64_t frame = 0;
     int pitch = 0;
     int velocity = 0;
     int channel = 0;
+    int value = 0;  // PitchBend, Control
 };
 using Messages = std::vector<MidiMsg>;
 

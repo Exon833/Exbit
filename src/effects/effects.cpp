@@ -43,6 +43,8 @@ const std::vector<Entry>& entries() {
         // (Space, Tuner)
         e.push_back({{"space", "Space", "Reverb"}, makeSpace});
         e.push_back({{"tuner", "Tuner", "Utility"}, makeTuner});
+        // (the MIDI keyboard's controllers as a modulator: modulators.cpp, audio/midi_cc.h)
+        e.push_back({{"mod_cc", "MIDI Control", "Modulators"}, makeMidiControl});
         auto lower = [](std::string s) {
             for (auto& c : s) c = (char)std::tolower((unsigned char)c);
             return s;

@@ -15,7 +15,7 @@ namespace history {
 #define TRACK_FIELDS(X)                                                                                         \
     X(name) X(kind) X(muted) X(soloed) X(output) X(volumeDb) X(delayMs) X(pan) X(sends) X(instrument)          \
     X(midiEffects) X(sampler) X(needsInstrument) X(effects) X(cables) X(modCables) X(color) X(tone) X(group) X(frozen)       \
-    X(automation) X(takes) X(usesRack) X(rack) X(rackCables)
+    X(automation) X(takes) X(usesRack) X(rack) X(rackCables) X(bendRange)
 #define GROUP_FIELDS(X) X(name) X(muted) X(soloed) X(color) X(tone)
 #define CLIP_FIELDS(X)                                                                                          \
     X(kind) X(name) X(track) X(start) X(offset) X(length) X(color) X(tone) X(disabled) X(gainDb) X(fadeIn)     \
@@ -229,6 +229,7 @@ const char* trackChange(const TrackData& d, const Track& o) {
     if (!same(d.takes, o.takes)) return "Takes";
     if (!same(d.output, o.output)) return "Track output";
     if (!same(d.delayMs, o.delayMs)) return "Track delay";
+    if (!same(d.bendRange, o.bendRange)) return "Pitch bend range";
     return matches(d, o) ? nullptr : "Track settings";
 }
 

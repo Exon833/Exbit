@@ -154,7 +154,12 @@ DWORD WINAPI audioMain(LPVOID) {
             int n = std::max(0, std::min(block->noteCount, MAX_NOTES));
             for (int i = 0; i < n; i++) {
                 const Note& m = block->notes[i];
-                notes.push_back({m.frame, m.on != 0, m.pitch, m.velocity, m.channel});
+                plug::NoteMessage note{m.frame, m.on != 0, m.pitch, m.velocity, m.channel};
+                if (m.kind == plug::NoteMessage::PitchBend || m.kind == plug::NoteMessage::Control) {
+                    note.kind = (plug::NoteMessage::Kind)m.kind;
+                    note.value = m.value;
+                }
+                notes.push_back(note);
             }
             plugin->render(notes, out, frames);
         } else {

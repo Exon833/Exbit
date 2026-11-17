@@ -30,6 +30,7 @@ std::unique_ptr<Effect> makeLfo();                  // modulators.cpp
 std::unique_ptr<Effect> makeRandomModulator();      // modulators.cpp
 std::unique_ptr<Effect> makeLevelFollower();        // modulators.cpp
 std::unique_ptr<Effect> makeMacro();                // modulators.cpp
+std::unique_ptr<Effect> makeMidiControl();          // modulators.cpp (a controller of the MIDI keyboard)
 
 // --- Space (space.cpp) and Tuner (tuner.cpp) ---
 std::unique_ptr<Effect> makeSpace();

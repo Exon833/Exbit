@@ -36,7 +36,7 @@
 
 namespace bridge {
 
-constexpr uint32_t VERSION = 5;  // (5: files dragged out in IDLE's news, DROP_FILES)
+constexpr uint32_t VERSION = 6;  // (5: files dragged out in IDLE's news, DROP_FILES; 6: Note::kind, value)
 constexpr int MAX_FRAMES = 8192;       // the longest buffer (prepare()'s maxBlock is capped to it)
 constexpr int MAX_NOTES = 1024;        // notes per buffer
 constexpr int MAX_PARAM_CHANGES = 1024;  // parameter changes per buffer (more wait for the next)
@@ -247,8 +247,11 @@ inline bool readable(int fd, int ms) {
 
 // --- the audio thread's shared memory ---
 
+// plug::NoteMessage: a note (kind 0), the bend wheel (1: value -8192..8191) or a control change (2:
+// pitch the control number, value 0..127)
 struct Note {
     int32_t frame, on, pitch, velocity, channel;
+    int32_t kind, value;
 };
 
 struct ParamChange {
@@ -295,8 +298,9 @@ struct AudioBlock {
 static_assert(sizeof(ParamChange) == 16 && offsetof(ParamChange, value) == 8, "ParamChange");
 static_assert(offsetof(AudioBlock, tempo) == 48 && offsetof(AudioBlock, position) == 56, "AudioBlock");
 static_assert(offsetof(AudioBlock, sampleRate) == 72 && offsetof(AudioBlock, notes) == 88, "AudioBlock");
-static_assert(offsetof(AudioBlock, params) == 20568 && offsetof(AudioBlock, in) == 36960, "AudioBlock");
-static_assert(sizeof(AudioBlock) == 233568, "AudioBlock");
+static_assert(sizeof(Note) == 28, "Note");
+static_assert(offsetof(AudioBlock, params) == 28760 && offsetof(AudioBlock, in) == 45152, "AudioBlock");
+static_assert(sizeof(AudioBlock) == 241760, "AudioBlock");
 
 inline long futex(std::atomic<uint32_t>* word, int op, uint32_t value, const timespec* timeout = nullptr) {
     static_assert(sizeof(std::atomic<uint32_t>) == 4, "a futex is 32 bits");

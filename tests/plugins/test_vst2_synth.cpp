@@ -1,7 +1,9 @@
 // Tiny Test Synth: a VST2 instrument for Tiny DAW's tests (make plugins → build/test-plugins/TinyTestSynth.so),
 // written on plugins/vst2.h the way a VST2 plugin is written.
 //
-// A sine for every note held (no envelope: a note-off silences it at once), 16 voices.
+// A sine for every note held (no envelope: a note-off silences it at once), 16 voices. The bend wheel
+// (0xE0) bends them all by up to ±2 semitones, and the mod wheel (control 1) turns the sound down to
+// half (× 1 - value/254), both from the frame they arrive at (for the tests of where they arrive).
 // Parameters: 0 Volume (amplitude 0…1, default 0.5), 1 Octave (−2…+2 in fifths of the range, default
 // 0.5 = none), 2 Tempo seen (the host's tempo / 1000, as audioMasterGetTime told it while processing;
 // read only). Its settings are a chunk ("TTS1", volume, octave). It reports 16 frames of latency.
@@ -46,6 +48,7 @@ struct Synth {
     vst2::Effect effect;
     vst2::Callback host;
     float volume = 0.5f, octave = 0.5f, tempoSeen = 0;
+    int bend = 0, modWheel = 0;  // (-8192..8191; 0..127)
     double rate = 44100;
     Voice voices[VOICES];
     Pending pending[4096];
@@ -91,6 +94,10 @@ void apply(Synth* s, const Pending& p) {
     else if (kind == 0xB0 && (p.data1 == 120 || p.data1 == 123))
         for (auto& v : s->voices)
             v.pitch = -1;
+    else if (kind == 0xB0 && p.data1 == 1)
+        s->modWheel = p.data2 & 127;
+    else if (kind == 0xE0)
+        s->bend = ((p.data2 & 127) << 7 | (p.data1 & 127)) - 8192;
 }
 
 void processReplacing(vst2::Effect* e, float** /*in*/, float** out, int32_t frames) {
@@ -107,13 +114,13 @@ void processReplacing(vst2::Effect* e, float** /*in*/, float** out, int32_t fram
         for (auto& v : s->voices) {
             if (v.pitch < 0)
                 continue;
-            double f = 440.0 * std::pow(2.0, (v.pitch + 12 * shift - 69) / 12.0);
+            double f = 440.0 * std::pow(2.0, (v.pitch + 12 * shift - 69 + 2.0 * s->bend / 8192.0) / 12.0);
             sum += (float)std::sin(v.phase);
             v.phase += PI2 * f / s->rate;
             if (v.phase > PI2)
                 v.phase -= PI2;
         }
-        out[0][i] = out[1][i] = sum * s->volume;
+        out[0][i] = out[1][i] = sum * s->volume * (1.0f - s->modWheel / 254.0f);
     }
     while (next < s->pendingCount)
         apply(s, s->pending[next++]);

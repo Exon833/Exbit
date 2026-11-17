@@ -25,4 +25,8 @@ bool getText(ui::Window* parent, const std::string& title, const std::string& la
 // (the mixer's delay compensation lines it up). True if it was changed.
 bool askTrackDelay(ui::Window* parent, Track& track);
 
+// Right-click a MIDI track's row → Pitch bend range…: how many semitones the bend wheel bends its built-in
+// synth or sampler, all the way up or down (1…24; a VST instrument bends by its own setting). True if changed.
+bool askBendRange(ui::Window* parent, Track& track);
+
 }  // namespace track_dialogs

@@ -101,6 +101,7 @@ public:
     bool addAutomation(const TrackPtr& track);
     void toggleTakes(const TrackPtr& track);                // Show / Hide takes
     void setDelay(const TrackPtr& track);                   // Track delay…: ask how much later (or earlier) it plays
+    void setBendRange(const TrackPtr& track);               // Pitch bend range…: ask (MIDI tracks)
     // While playing (pos: the playhead frame), the fader and pan of tracks whose volume or pan is
     // automated show the automation's values; stopped (none), the tracks' own. Every frame.
     void showMixerValues(std::optional<int64_t> pos, int sr);

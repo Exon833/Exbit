@@ -669,6 +669,23 @@ public:
     VST3_IID(0x7F4EFE59, 0xF3204967, 0xAC27A3AE, 0xAFB63038);
 };
 
+// MIDI controllers a plugin takes as parameters (VST3 has no control-change or pitch-bend events):
+// the controller asked which parameter a controller of a channel moves
+using CtrlNumber = int16;
+enum ControllerNumbers : CtrlNumber {
+    kCtrlModWheel = 1,
+    kAfterTouch = 128,  // (beyond MIDI's 0..127 control numbers)
+    kPitchBend = 129,
+    kCountCtrlNumber
+};
+
+class IMidiMapping : public FUnknown {
+public:
+    virtual tresult PLUGIN_API getMidiControllerAssignment(int32 busIndex, int16 channel, CtrlNumber midiControllerNumber,
+                                                           ParamID& id) = 0;
+    VST3_IID(0xDF0FF9F7, 0x49B74669, 0xB63AB732, 0x7ADBF5E5);
+};
+
 struct UnitInfo {
     UnitID id;
     UnitID parentUnitId;

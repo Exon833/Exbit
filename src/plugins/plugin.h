@@ -53,12 +53,19 @@ struct ParamInfo {
     bool isProgramChange = false;
 };
 
+// A message for an instrument: a note on or off (kind Note: what every message was before pitch bend),
+// or a pitch bend or control change. VST2 plugins get them as MIDI (0x90/0x80, 0xE0, 0xB0); VST3 ones
+// get notes as note events and bends and controls as changes of the parameters the plugin maps them to
+// (IMidiMapping; a plugin that maps none ignores them).
 struct NoteMessage {
+    enum Kind : int { Note = 0, PitchBend = 1, Control = 2 };
     int frame;      // within the buffer
-    bool on;
-    int pitch;
-    int velocity;   // 0..127
+    bool on;        // (Note)
+    int pitch;      // (Note); Control: the control number 0..127
+    int velocity;   // 0..127 (Note)
     int channel;    // 0..15
+    Kind kind = Note;
+    int value = 0;  // PitchBend: -8192..8191 (0: centre); Control: 0..127
 };
 
 class Plugin {

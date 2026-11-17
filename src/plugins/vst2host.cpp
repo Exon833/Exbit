@@ -315,11 +315,31 @@ public:
                 for (int p = 0; p < 128; p++)
                     if (held.test((size_t)(ch * 128 + p)))
                         add(0, false, p, 0, ch);
+        // the bend wheel (0xE0, 14 bits from 0 = all the way down) and control changes (0xB0)
+        auto addMidi = [&](int32_t frame, int status, int data1, int data2) {
+            if (count >= MAX_EVENTS)
+                return;
+            vst2::MidiEvent& e = midi[(size_t)count];
+            e = vst2::MidiEvent();
+            e.delta_frames = frame;
+            e.midi[0] = (char)status;
+            e.midi[1] = (char)(data1 & 127);
+            e.midi[2] = (char)(data2 & 127);
+            list->events[count++] = &e;
+        };
         if (instrument)
             for (auto& note : pending_notes) {
                 int frame = note.frame - at;
-                if (frame >= 0 && frame < n)
+                if (frame < 0 || frame >= n)
+                    continue;
+                if (note.kind == NoteMessage::PitchBend) {
+                    int v = std::max(0, std::min(16383, note.value + 8192));
+                    addMidi(frame, 0xE0 | (note.channel & 15), v & 127, v >> 7);
+                } else if (note.kind == NoteMessage::Control) {
+                    addMidi(frame, 0xB0 | (note.channel & 15), note.pitch, std::max(0, std::min(127, note.value)));
+                } else {
                     add(frame, note.on, note.pitch, note.velocity, note.channel);
+                }
             }
         if (count == 0)
             return;

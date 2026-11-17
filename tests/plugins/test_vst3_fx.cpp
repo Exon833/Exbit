@@ -17,7 +17,9 @@
 //   "Tiny Test Fx Controller" (Component Controller Class).
 //   "Tiny Test Single" (Tools): a single-component plugin (the component is its controller),
 //      out = in × Level (parameter 1, default 1). Its sub-categories say neither instrument nor
-//      effect, so the probe has to create it to ask.
+//      effect, so the probe has to create it to ask. Its controller maps the mod wheel (CC 1) and the
+//      bend wheel to Level (IMidiMapping): where and what Level's last change was is told to the tests
+//      (TinyTestFx_counts 5, 6, 7).
 //   On Windows (make win-plugins, for the Wine tests) its window is a Win32 child window (HWND),
 //   redrawn on a timer of its own, and the module exports InitDll/ExitDll as Windows plugins do.
 #include "plugins/vst3_api.h"
@@ -53,6 +55,8 @@ constexpr int LATENCY = 64;
 enum : ParamID { GAIN = 100, DUCK = 101, METER = 102, PEAK = 103 };
 
 std::atomic<int> moduleEntries{0}, moduleExits{0}, instances{0};
+// (Tiny Test Single) Level's last change in a buffer: its sample offset, value × 10000, and changes seen
+std::atomic<int> levelOffset{-1}, levelValue{-1}, levelChanges{0};
 
 void copy16(const char* s, char16* out, int max) {
     int i = 0;
@@ -797,13 +801,13 @@ void View::pump() {
 
 // ===================================================================================== the single-component plugin
 
-class Single final : public IComponent, public IAudioProcessor, public IEditController {
+class Single final : public IComponent, public IAudioProcessor, public IEditController, public IMidiMapping {
 public:
     REFCOUNTED
     Single() { instances++; }
     tresult PLUGIN_API queryInterface(const TUID iid, void** obj) override {
         if (give<IComponent>(this, iid, obj) || give<IAudioProcessor>(this, iid, obj) ||
-            give<IEditController>(this, iid, obj))
+            give<IEditController>(this, iid, obj) || give<IMidiMapping>(this, iid, obj))
             return kResultOk;
         if (iidEqual(iid, IPluginBase::iid) || iidEqual(iid, FUnknown::iid)) {
             *obj = static_cast<IPluginBase*>(static_cast<IComponent*>(this));
@@ -870,8 +874,12 @@ public:
                 int32 offset;
                 ParamValue v;
                 if (q && q->getParameterId() == 1 && q->getPointCount() > 0 &&
-                    q->getPoint(q->getPointCount() - 1, offset, v) == kResultOk)
+                    q->getPoint(q->getPointCount() - 1, offset, v) == kResultOk) {
                     level = clamp01(v);
+                    levelOffset = offset;
+                    levelValue = (int)std::lround(v * 10000);
+                    levelChanges++;
+                }
             }
         if (data.numSamples <= 0 || data.numInputs < 1 || data.numOutputs < 1)
             return kResultOk;
@@ -916,6 +924,13 @@ public:
     }
     tresult PLUGIN_API setComponentHandler(IComponentHandler*) override { return kResultOk; }
     IPlugView* PLUGIN_API createView(FIDString) override { return nullptr; }
+    // the mod wheel and the bend wheel (any channel) move Level
+    tresult PLUGIN_API getMidiControllerAssignment(int32 bus, int16, CtrlNumber number, ParamID& id) override {
+        if (bus != 0 || (number != kCtrlModWheel && number != kPitchBend))
+            return kResultFalse;
+        id = 1;
+        return kResultTrue;
+    }
 
     static std::atomic<int> terminated;
 
@@ -1073,6 +1088,9 @@ EXPORT int TinyTestFx_counts(int which) {
         case 2: return instances.load();
         case 3: return factory.hostContextSet ? 1 : 0;
         case 4: return Single::terminated.load();
+        case 5: return levelOffset.load();
+        case 6: return levelValue.load();
+        case 7: return levelChanges.load();
         default: return -1;
     }
 }

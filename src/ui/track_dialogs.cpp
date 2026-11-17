@@ -85,4 +85,15 @@ bool askTrackDelay(ui::Window* parent, Track& track) {
     return true;
 }
 
+bool askBendRange(ui::Window* parent, Track& track) {
+    int range = track.bendRange;
+    if (!getInt(parent, "Pitch bend range",
+                track.name + ": semitones the bend wheel bends the built-in synth or sampler (all the way):", range, 1,
+                24))
+        return false;
+    if (range == track.bendRange) return false;
+    track.bendRange = range;
+    return true;
+}
+
 }  // namespace track_dialogs

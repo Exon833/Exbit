@@ -1,5 +1,5 @@
 // Modulators: units of the patch space that move other units' knobs instead of changing the sound
-// (Effect::isModulator; the cables that carry their values are audio/modulation.h's). Four kinds:
+// (Effect::isModulator; the cables that carry their values are audio/modulation.h's). Five kinds:
 //
 //   LFO            a wave (sine, triangle, saw up or down, square), in time with the song (1/32 to
 //                  8 bars) or at a rate in Hz, with a phase; two-way (-1…1) or one-way (0…1).
@@ -9,6 +9,9 @@
 //   Level Follower how loud what is wired into it is (its input, or its sidechain: another track's
 //                  sound, a kick ducking a pad), followed with an attack and a release, × a gain; 0…1.
 //   Macro          one knob (0…100 %): wire it to several knobs and turn them together.
+//   MIDI Control   a controller of the MIDI keyboard played in (audio/midi_cc.h): the mod wheel (CC 1,
+//                  the default), any other control number (0…1), or the bend wheel (-1…1, two-way),
+//                  followed with a Smooth time, so the mod wheel can open a filter on any plugin.
 //
 // While the song plays, the LFO's and Random's place comes from the song's position (seconds, or
 // beats on the tempo map), not from a counter of their own: playing from anywhere, looping, and
@@ -23,6 +26,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "audio/midi_cc.h"
 #include "effects/builtin.h"
 
 namespace effects {
@@ -200,11 +204,64 @@ public:
     std::vector<Meter> meters() const override { return nowMeter(v(value) / 100, false); }
 };
 
+// --- MIDI Control ---
+
+// its Controller choices: the 128 control numbers (the common ones named), then the bend wheel
+std::vector<std::string> controllerNames() {
+    std::vector<std::string> names;
+    for (int n = 0; n < 128; n++) {
+        const char* known = n == 0    ? "Bank select"
+                            : n == 1  ? "Mod wheel"
+                            : n == 2  ? "Breath"
+                            : n == 4  ? "Foot"
+                            : n == 7  ? "Volume"
+                            : n == 10 ? "Pan"
+                            : n == 11 ? "Expression"
+                            : n == 64 ? "Sustain pedal"
+                            : n == 71 ? "Resonance"
+                            : n == 74 ? "Brightness"
+                                      : nullptr;
+        names.push_back("CC " + std::to_string(n) + (known ? std::string(" ") + known : std::string()));
+    }
+    names.push_back("Pitch bend");
+    return names;
+}
+
+class MidiControl : public Modulator {
+public:
+    MidiControl()
+        : Modulator("mod_cc", "MIDI Control",
+                    {choice("controller", "Controller", controllerNames(), midi_cc::MOD_WHEEL),
+                     param("smooth", "Smooth", 0, 1000, 20, "ms")}) {}
+    int controller = key("controller"), smooth = key("smooth");
+    double now = 0;
+    bool started = false;
+
+    bool bends() const { return (int)v(controller) == midi_cc::PITCH_BEND; }
+    void start() override { started = false; }
+    double modulation(const ModClock& clock) override {
+        int c = std::max(0, std::min(midi_cc::COUNT - 1, (int)v(controller)));
+        double target = c == midi_cc::PITCH_BEND ? midi_cc::bend() : midi_cc::value(c);
+        double ms = v(smooth);
+        if (!started || ms <= 0 || clock.sr <= 0) {
+            now = target;
+            started = true;
+        } else {  // (one pole, stepped by the piece's length: the same glide whatever the steps' size)
+            now += (target - now) * (1 - std::exp(-(double)clock.frames / (ms / 1000 * clock.sr)));
+            if (std::fabs(target - now) < 1e-9) now = target;
+        }
+        lastModulation_.store(now, std::memory_order_relaxed);
+        return now;
+    }
+    std::vector<Meter> meters() const override { return nowMeter(lastModulation(), bends()); }
+};
+
 }  // namespace
 
 std::unique_ptr<Effect> makeLfo() { return std::make_unique<Lfo>(); }
 std::unique_ptr<Effect> makeRandomModulator() { return std::make_unique<Random>(); }
 std::unique_ptr<Effect> makeLevelFollower() { return std::make_unique<Follower>(); }
 std::unique_ptr<Effect> makeMacro() { return std::make_unique<Macro>(); }
+std::unique_ptr<Effect> makeMidiControl() { return std::make_unique<MidiControl>(); }
 
 }  // namespace effects

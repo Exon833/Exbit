@@ -681,6 +681,13 @@ static void testPanel2() {
     CHECK(fx != nullptr);
     if (fx) ui::Menu::activate(fx);
     CHECK(fxOpened.size() == 1 && fxOpened[0] == keys);
+    // a MIDI track's bend range (the bend wheel of a MIDI keyboard): shown when not ±2
+    CHECK(hasText(menuTexts(m3), "Pitch bend range…") && !hasText(texts, "Pitch bend range…"));
+    keys->bendRange = 12;
+    ui::Menu m4;
+    panel->fillTrackMenu(m4, keys);
+    CHECK(hasText(menuTexts(m4), "Pitch bend range… (±12)"));
+    keys->bendRange = 2;
     // Track delay… asks (the dialog answered by the test)
     track_dialogs::answer = [](const std::string& title, std::string& value) {
         CHECK(title == "Track delay" && value == "12.0");

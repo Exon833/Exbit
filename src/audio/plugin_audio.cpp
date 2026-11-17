@@ -141,6 +141,12 @@ bool playInstrument(PluginSlot& slot, const MidiMsg* messages, size_t count, flo
                 n.frame = (int)std::min<int64_t>(frames - 1, std::max<int64_t>(0, m.frame));
                 n.on = m.type == MidiMsg::NoteOn && m.velocity > 0;
                 n.pitch = m.pitch, n.velocity = m.velocity, n.channel = m.channel;
+                if (m.type == MidiMsg::PitchBend || m.type == MidiMsg::Control) {  // (the bend wheel, a control)
+                    n.on = false;
+                    n.velocity = 0;
+                    n.kind = m.type == MidiMsg::PitchBend ? plug::NoteMessage::PitchBend : plug::NoteMessage::Control;
+                    n.value = m.value;
+                }
                 // (sorted by frame: insertion keeps equal frames in their order and needs no memory)
                 scratch.notes.push_back(n);
                 for (size_t k = scratch.notes.size() - 1; k > 0 && scratch.notes[k - 1].frame > scratch.notes[k].frame; k--)

@@ -1087,7 +1087,7 @@ private:
             waitingCount = 0;  // (the notes-off, before this buffer's notes, ends them all)
         for (int i = 0; i < waitingCount; i++) {  // (first those of the buffers it was late for)
             const NoteMessage& m = waiting[i];
-            block->notes[block->noteCount++] = {0, m.on ? 1 : 0, m.pitch, m.velocity, m.channel};
+            block->notes[block->noteCount++] = {0, m.on ? 1 : 0, m.pitch, m.velocity, m.channel, (int32_t)m.kind, m.value};
         }
         waitingCount = 0;
         if (notes)
@@ -1097,7 +1097,8 @@ private:
                 if (block->noteCount >= MAX_NOTES)
                     keepNote(m);  // (too many: the rest with the next buffer)
                 else
-                    block->notes[block->noteCount++] = {m.frame - offset, m.on ? 1 : 0, m.pitch, m.velocity, m.channel};
+                    block->notes[block->noteCount++] = {m.frame - offset, m.on ? 1 : 0, m.pitch, m.velocity, m.channel,
+                                                        (int32_t)m.kind, m.value};
             }
         if (in)
             for (int c = 0; c < 2; c++)
@@ -1152,6 +1153,17 @@ private:
     void keepNote(const NoteMessage& m) {
         NoteMessage n = m;
         n.frame = 0;
+        if (n.kind != NoteMessage::Note) {  // a bend or control: only where it got to counts (the latest of each)
+            for (int i = waitingCount - 1; i >= 0; i--)
+                if (waiting[i].kind == n.kind && waiting[i].channel == n.channel &&
+                    (n.kind != NoteMessage::Control || waiting[i].pitch == n.pitch)) {
+                    waiting[i].value = n.value;
+                    return;
+                }
+            if (waitingCount < MAX_NOTES)
+                waiting[waitingCount++] = n;
+            return;
+        }
         if (!n.on)
             for (int i = waitingCount - 1; i >= 0; i--)
                 if (waiting[i].on && waiting[i].pitch == n.pitch && waiting[i].channel == n.channel) {

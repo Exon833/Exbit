@@ -110,12 +110,12 @@ void set(Effect& fx, const std::string& key, double value) {
 
 void testFactory() {
     const auto& all = list();
-    CHECK(all.size() == 22);
+    CHECK(all.size() == 23);
     std::vector<std::string> names;
     for (const auto& i : all) names.push_back(i.name);
     CHECK((names == std::vector<std::string>{"Bit-crusher", "Chorus", "Compressor", "Delay", "EQ", "Filter Motion",
                                              "Gate", "Level Follower", "LFO", "Limiter", "Macro",
-                                             "Multi-band compressor", "Phaser / Flanger", "Random", "Reverb",
+                                             "MIDI Control", "Multi-band compressor", "Phaser / Flanger", "Random", "Reverb",
                                              "Saturation", "Space", "Time FX", "Transient Shaper", "Tremolo / Pan",
                                              "Tuner", "Utility"}));
     CHECK(categoryOf("builtin:mod_lfo") == "Modulators" && categoryOf("builtin:mod_macro") == "Modulators");
