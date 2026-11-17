@@ -934,7 +934,7 @@ void testChooser() {
         CHECK(found.size() == 2 && found[0]->name == "Reverb" && found[1]->name == "Valhalla VintageVerb");
         c.search->setText("dynamics built-in");
         for (auto* i : c.shown()) CHECK(effects::isBuiltin(i->path) && categoryOf(*i) == "Dynamics");
-        CHECK(c.shown().size() == 4);  // compressor, multi-band, gate, limiter
+        CHECK(c.shown().size() == 5);  // compressor, multi-band, gate, limiter, transient shaper
         c.search->setText("nothing like this");
         CHECK(c.shown().empty() && c.list->count() == 1 && !c.list->item(0).enabled &&
               c.list->item(0).text == "Nothing here: try other words, or All" && !c.current());

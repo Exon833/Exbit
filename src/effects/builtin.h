@@ -20,6 +20,9 @@ std::unique_ptr<Effect> makeUtility();              // utility.cpp
 std::unique_ptr<Effect> makeFilterMotion();         // motion.cpp
 std::unique_ptr<Effect> makePhaserFlanger();        // motion.cpp
 std::unique_ptr<Effect> makeTremoloPan();           // motion.cpp
+// (transient shaping and time manipulation)
+std::unique_ptr<Effect> makeTransientShaper();      // transient.cpp
+std::unique_ptr<Effect> makeTimeFx();               // timefx.cpp
 
 // effects/delay.py's synced lengths (beats) and their names
 extern const double DELAY_BEATS[8];

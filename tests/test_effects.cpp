@@ -105,12 +105,12 @@ void set(Effect& fx, const std::string& key, double value) {
 
 void testFactory() {
     const auto& all = list();
-    CHECK(all.size() == 14);
+    CHECK(all.size() == 16);
     std::vector<std::string> names;
     for (const auto& i : all) names.push_back(i.name);
     CHECK((names == std::vector<std::string>{"Bit-crusher", "Chorus", "Compressor", "Delay", "EQ", "Filter Motion",
                                              "Gate", "Limiter", "Multi-band compressor", "Phaser / Flanger", "Reverb",
-                                             "Saturation", "Tremolo / Pan", "Utility"}));
+                                             "Saturation", "Time FX", "Transient Shaper", "Tremolo / Pan", "Utility"}));
     CHECK(find("builtin:multiband_compressor") && find("builtin:multiband_compressor")->category == "Dynamics");
     CHECK(find("eq")->path() == "builtin:eq" && find("eq")->label() == "EQ  (built-in)");
     CHECK(categoryOf("builtin:chorus") == "Modulation" && categoryOf("builtin:x") == "Other");
@@ -125,7 +125,8 @@ void testFactory() {
         CHECK(fx->id() == info.id && fx->name() == info.name && fx->vendor() == "Tiny DAW");
         CHECK(!fx->hasEditor() && !fx->isInstrument() && !fx->isVst2() && fx->subcategories() == "Fx");
         CHECK(fx->sampleRate() == 48000);
-        bool side = info.id == "compressor" || info.id == "gate" || info.id == "filter_motion";
+        bool side = info.id == "compressor" || info.id == "gate" || info.id == "filter_motion" ||
+                    info.id == "transient_shaper";
         CHECK(fx->hasSidechain() == side);
         CHECK(fx->latency() == (info.id == "limiter" ? 96 : 0));
     }
@@ -917,6 +918,445 @@ void testUtility() {
     CHECK_NEAR(db(rms(out.l, (size_t)(0.5 * SR), out.size()) / rms(monoBass.l, 0, monoBass.size())), 0, 0.05);
 }
 
+// --- transient shaper, time FX (transient.cpp, timefx.cpp) ---
+
+// through the effect from frame `from` to `to` (in blocks), into the same frames of `out`
+void runPart(plug::Plugin& fx, const Stereo& in, Stereo& out, size_t from, size_t to, int blockSize = 512,
+             const Stereo* side = nullptr) {
+    for (size_t at = from; at < to; at += blockSize) {
+        int n = (int)std::min<size_t>(blockSize, to - at);
+        const float* i[2] = {in.l.data() + at, in.r.data() + at};
+        float* o[2] = {out.l.data() + at, out.r.data() + at};
+        if (side) {
+            const float* s[2] = {side->l.data() + at, side->r.data() + at};
+            fx.process(i, s, o, n);
+        } else {
+            fx.process(i, nullptr, o, n);
+        }
+    }
+}
+
+Stereo noiseFor(double seconds, double amp, unsigned seed) {
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<float> u(-1.0f, 1.0f);
+    Stereo s((size_t)(seconds * SR));
+    for (size_t i = 0; i < s.size(); i++) {
+        s.l[i] = (float)(amp * u(rng));
+        s.r[i] = (float)(amp * u(rng));
+    }
+    return s;
+}
+
+// a drum's hit: a noise burst dying away (80 ms), after `onset` frames of silence
+Stereo drumHit(double seconds, size_t onset) {
+    Stereo s = noiseFor(seconds, 0.8, 11);
+    for (size_t i = 0; i < s.size(); i++) {
+        double env = i < onset ? 0.0 : std::exp(-(double)(i - onset) / (0.08 * SR));
+        s.l[i] = (float)(s.l[i] * env);
+        s.r[i] = (float)(s.r[i] * env);
+    }
+    return s;
+}
+
+double maxDiff(const Stereo& a, const Stereo& b, size_t from = 0, size_t to = (size_t)-1) {
+    double d = 0;
+    for (size_t i = from; i < std::min({a.size(), b.size(), to}); i++)
+        d = std::max({d, (double)std::fabs(a.l[i] - b.l[i]), (double)std::fabs(a.r[i] - b.r[i])});
+    return d;
+}
+double maxStep(const Stereo& s, size_t from = 1) {  // the largest sample-to-sample jump
+    double d = 0;
+    for (size_t i = std::max<size_t>(1, from); i < s.size(); i++)
+        d = std::max({d, (double)std::fabs(s.l[i] - s.l[i - 1]), (double)std::fabs(s.r[i] - s.r[i - 1])});
+    return d;
+}
+bool finite(const Stereo& s, double bound) {
+    for (size_t i = 0; i < s.size(); i++)
+        if (!std::isfinite(s.l[i]) || !std::isfinite(s.r[i]) || std::fabs(s.l[i]) > bound || std::fabs(s.r[i]) > bound)
+            return false;
+    return true;
+}
+// normalized autocorrelation of one side over [from, to) at `lag`
+double autocorrelation(const std::vector<float>& x, size_t from, size_t to, size_t lag) {
+    double xy = 0, xx = 0, yy = 0;
+    for (size_t i = from; i + lag < to; i++) {
+        xy += (double)x[i] * x[i + lag];
+        xx += (double)x[i] * x[i];
+        yy += (double)x[i + lag] * x[i + lag];
+    }
+    return xy / std::sqrt(std::max(1e-30, xx * yy));
+}
+size_t zeroCrossings(const std::vector<float>& x, size_t from, size_t to) {
+    size_t n = 0;
+    for (size_t i = from + 1; i < to; i++) n += (x[i - 1] < 0) != (x[i] < 0);
+    return n;
+}
+// a silent input gives a silent output, and the effect goes to sleep
+void checkSilentAndSleeps(Effect& fx) {
+    Stereo silence((size_t)(2.0 * SR));
+    Stereo out = run(fx, silence);
+    CHECK(peak(out.l, 0, out.size()) == 0 && peak(out.r, 0, out.size()) == 0);
+    CHECK(fx.asleep());
+}
+
+void testTransientShaper() {
+    auto ts = create("transient_shaper");
+    CHECK(ts->hasSidechain() && ts->latency() == 0 && ts->meters().size() == 1);
+    CHECK(ts->meters()[0].label == "Gain change");
+    checkSilentAndSleeps(*ts);
+    size_t onset = 4800, attackEnd = onset + 240;  // (the first 5 ms)
+    size_t tailFrom = onset + (size_t)(0.1 * SR), tailTo = onset + (size_t)(0.3 * SR);
+    Stereo hit = drumHit(0.6, onset);
+    // at 0 %: the sound untouched, bit for bit
+    ts->reset();
+    Stereo out = run(*ts, hit);
+    CHECK(maxDiff(out, hit) == 0);
+    double dryPeak = peak(hit.l, onset, attackEnd), dryTail = rms(hit.l, tailFrom, tailTo);
+    auto shaped = [&](double attack, double sustain, double& attackPeak, double& tail) {
+        set(*ts, "attack", attack);
+        set(*ts, "sustain", sustain);
+        ts->reset();
+        Stereo o = run(*ts, hit);
+        attackPeak = peak(o.l, onset, attackEnd);
+        tail = rms(o.l, tailFrom, tailTo);
+    };
+    double p, t;
+    // + attack: the hit's first 5 ms louder against its tail (the tail itself untouched)
+    shaped(100, 0, p, t);
+    CHECK(db(p / t) - db(dryPeak / dryTail) > 6);
+    CHECK_NEAR(db(t / dryTail), 0, 0.5);
+    // − attack: softer
+    shaped(-100, 0, p, t);
+    CHECK(db(p / t) - db(dryPeak / dryTail) < -3);
+    // − sustain: less of the tail's energy, the attack as it was
+    shaped(0, -100, p, t);
+    CHECK(db(t / dryTail) < -6);
+    CHECK_NEAR(db(p / dryPeak), 0, 0.5);
+    // + sustain: more of it
+    shaped(0, 100, p, t);
+    CHECK(db(t / dryTail) > 6);
+    // the meter: the gain change as the hit starts
+    set(*ts, "attack", 100);
+    set(*ts, "sustain", 0);
+    ts->reset();
+    out = Stereo(hit.size());
+    runPart(*ts, hit, out, 0, onset + 512);
+    CHECK(ts->meters()[0].fraction > 0.2 && ts->meters()[0].text[0] == '+');
+    // a steady sine, quiet or loud, at the most of either: unity gain (only the followers' difference counts)
+    for (double sustain : {100.0, -100.0})
+        for (double amp : {0.01, 0.1, 0.7}) {
+            set(*ts, "attack", 100);
+            set(*ts, "sustain", sustain);
+            ts->reset();
+            Stereo tone = sine(440, amp, 1.0);
+            out = run(*ts, tone);
+            size_t from = (size_t)(0.5 * SR);
+            double change = db(rms(out.l, from, out.size()) / rms(tone.l, from, tone.size()));
+            CHECK_NEAR(change, 0, 0.5);
+            CHECK(peak(out.l, from, out.size()) <= amp * dbToGain(0.5));
+        }
+    // the same sound whatever the buffer size
+    set(*ts, "attack", 60);
+    set(*ts, "sustain", -40);
+    ts->reset();
+    Stereo a = run(*ts, hit, 512);
+    ts->reset();
+    Stereo b = run(*ts, hit, 77);
+    CHECK(maxDiff(a, b) < 1e-6);
+    // the sidechain: a steady tone shaped by the hit wired into its SC jack, only with Sidechain on
+    set(*ts, "attack", 0);
+    set(*ts, "sustain", -100);
+    Stereo tone = sine(440, 0.2, 0.6);
+    ts->reset();
+    out = run(*ts, tone, 512, &hit);
+    CHECK_NEAR(db(rms(out.l, tailFrom, tailTo) / rms(tone.l, tailFrom, tailTo)), 0, 0.5);
+    set(*ts, "sidechain", 1);
+    ts->reset();
+    out = run(*ts, tone, 512, &hit);
+    CHECK(db(rms(out.l, tailFrom, tailTo) / rms(tone.l, tailFrom, tailTo)) < -6);
+    set(*ts, "sidechain", 0);
+    // output gain, and the soft clip holding it under full scale
+    set(*ts, "sustain", 0);
+    set(*ts, "output", 12);
+    ts->reset();
+    Stereo loud = sine(440, 0.5, 0.3);
+    out = run(*ts, loud);
+    CHECK_NEAR(peak(out.l, 4800, out.size()), 0.5 * dbToGain(12), 0.01);
+    set(*ts, "soft_clip", 1);
+    ts->reset();
+    out = run(*ts, loud);
+    CHECK(peak(out.l, 0, out.size()) < 1.0 && peak(out.l, 4800, out.size()) > 0.9);
+    Stereo quietTone = sine(440, 0.3, 0.3);
+    set(*ts, "output", 0);
+    ts->reset();
+    out = run(*ts, quietTone);
+    CHECK(maxDiff(out, quietTone) == 0);  // (below the knee: untouched)
+    // 10 s of noise at its extremes: finite, bounded
+    for (double extreme : {0.0, 1.0}) {
+        auto fx = create("transient_shaper");
+        for (size_t i = 0; i < fx->params().size(); i++) fx->setParam((uint32_t)i, extreme);
+        Stereo n = noiseFor(10.0, 1.0, 5);
+        Stereo side = noiseFor(10.0, 1.0, 6);
+        Stereo o = run(*fx, n, 512, &side);
+        CHECK(finite(o, 64));
+    }
+    // its state, back again
+    set(*ts, "attack", 35);
+    set(*ts, "release", 500);
+    set(*ts, "soft_clip", 1);
+    auto again = create("transient_shaper");
+    again->setState(ts->componentState(), "");
+    for (uint32_t i = 0; i < ts->params().size(); i++) {
+        CHECK_NEAR(again->getParam(i), ts->getParam(i), 1e-12);
+        CHECK_NEAR(again->value((int)i), ts->value((int)i), 1e-9);  // (a log scale's round trip: within rounding)
+    }
+    CHECK_NEAR(again->value("release"), 500, 1e-9);
+    CHECK(again->value("soft_clip") == 1);
+}
+
+void testTimeFx() {
+    auto fx = create("time_fx");
+    CHECK(!fx->hasSidechain() && fx->latency() == 0);
+    CHECK(fx->params()[fx->key("trigger")].isToggle() && fx->parameters()[fx->key("trigger")].stepCount == 1);
+    fx->setTransport(120, 4, 4, true, 0);
+    checkSilentAndSleeps(*fx);
+    // Trigger off: the input bit for bit
+    Stereo in = noiseFor(2.0, 0.5, 3);
+    fx->reset();
+    Stereo out = run(*fx, in);
+    CHECK(maxDiff(out, in) == 0);
+    // the transport stopped: the input bit for bit, triggered or not, in every mode
+    for (int mode = 0; mode < 3; mode++) {
+        auto f = create("time_fx");
+        set(*f, "mode", mode);
+        set(*f, "trigger", 1);
+        f->setTransport(120, 4, 4, false, 0);
+        out = run(*f, in);
+        CHECK(maxDiff(out, in) == 0);
+    }
+    const size_t BEAT = 24000;  // (at 120 BPM)
+
+    // --- tape stop: a 1/4 note to a standstill, silent after; Trigger off spins it up over a 1/4 ---
+    {
+        auto t = create("time_fx");
+        t->setTransport(120, 4, 4, true, 0);
+        set(*t, "stop_length", 1);
+        set(*t, "start_length", 1);
+        Stereo s = sine(220, 0.5, 3.0);
+        Stereo o(s.size());
+        size_t on = 47 * 512, off = 141 * 512;  // (at block edges: parameters are read a block at a time)
+        runPart(*t, s, o, 0, on);
+        set(*t, "trigger", 1);
+        runPart(*t, s, o, on, off);
+        set(*t, "trigger", 0);
+        runPart(*t, s, o, off, s.size());
+        CHECK(maxDiff(o, s, 0, on) == 0);
+        CHECK(rms(o.l, on, on + BEAT / 2) > 0.1);  // (slowing, still sounding)
+        CHECK(zeroCrossings(o.l, on + BEAT / 2, on + BEAT * 3 / 4) <
+              zeroCrossings(s.l, on + BEAT / 2, on + BEAT * 3 / 4) * 0.6);  // (lower: slower)
+        CHECK(rms(o.l, on + BEAT, off) < 1e-4);  // (stopped: silence)
+        CHECK(peak(o.l, on + BEAT + 64, off) < 1e-4);
+        CHECK(rms(o.l, off + BEAT / 4, off + BEAT / 2) > 0.05);  // (spinning up)
+        CHECK(maxDiff(o, s, off + BEAT + 1000, s.size()) == 0);  // (back on the live sound)
+        CHECK(maxStep(o) < 0.05);
+        CHECK(t->meters()[0].label == "Speed" && t->meters()[0].fraction == 1);
+        // a curve either way: still silent at its end, and no clicks
+        for (double curve : {-100.0, 100.0}) {
+            auto c = create("time_fx");
+            c->setTransport(120, 4, 4, true, 0);
+            set(*c, "stop_length", 0);  // (1/8)
+            set(*c, "curve", curve);
+            Stereo oc(s.size());
+            runPart(*c, s, oc, 0, on);
+            set(*c, "trigger", 1);
+            runPart(*c, s, oc, on, off);
+            CHECK(c->meters()[0].fraction == 0);
+            set(*c, "trigger", 0);
+            runPart(*c, s, oc, off, s.size());
+            CHECK(peak(oc.l, on + BEAT / 2 + 64, off) < 1e-4);
+            CHECK(maxStep(oc) < 0.05);
+            CHECK(maxDiff(oc, s, off + BEAT + 1000, s.size()) == 0);
+        }
+    }
+
+    // --- stutter: the 1/16 before the trigger (6000 frames at 120 BPM), over and over ---
+    {
+        auto st = create("time_fx");
+        st->setTransport(120, 4, 4, true, 0);
+        set(*st, "mode", 1);
+        const size_t SLICE = BEAT / 4;
+        size_t on = 94 * 512;
+        Stereo o(in.size());
+        runPart(*st, in, o, 0, on);
+        set(*st, "trigger", 1);
+        runPart(*st, in, o, on, in.size());
+        // each repeat the slice before the trigger, exactly (but for its crossfade in)
+        for (size_t k = 0; k < 3; k++) {
+            double d = 0;
+            for (size_t i = 400; i < SLICE; i++)
+                d = std::max(d, (double)std::fabs(o.l[on + k * SLICE + i] - in.l[on - SLICE + i]));
+            CHECK(d < 1e-6);
+        }
+        // its autocorrelation peaks at the slice's length (noise has none of its own)
+        CHECK(autocorrelation(o.l, on + SLICE, in.size() - SLICE, SLICE) > 0.95);
+        CHECK(std::fabs(autocorrelation(o.l, on + SLICE, in.size() - SLICE, SLICE / 2)) < 0.2);
+        CHECK(std::fabs(autocorrelation(in.l, on, in.size() - SLICE, SLICE)) < 0.1);
+        // off: the live sound again
+        size_t off = on + 30 * 512;
+        auto st2 = create("time_fx");
+        st2->setTransport(120, 4, 4, true, 0);
+        set(*st2, "mode", 1);
+        runPart(*st2, in, o, 0, on);
+        set(*st2, "trigger", 1);
+        runPart(*st2, in, o, on, off);
+        set(*st2, "trigger", 0);
+        runPart(*st2, in, o, off, in.size());
+        CHECK(maxDiff(o, in, off + 400, in.size()) == 0);
+        // fade per repeat (6 dB each), gate (the second half of each repeat silent)
+        auto sf = create("time_fx");
+        sf->setTransport(120, 4, 4, true, 0);
+        set(*sf, "mode", 1);
+        set(*sf, "repeat_fade", 6);
+        set(*sf, "gate", 50);
+        runPart(*sf, in, o, 0, on);
+        set(*sf, "trigger", 1);
+        runPart(*sf, in, o, on, in.size());
+        double r1 = rms(o.l, on + SLICE + 400, on + SLICE + SLICE / 2 - 200);
+        double r2 = rms(o.l, on + 2 * SLICE + 400, on + 2 * SLICE + SLICE / 2 - 200);
+        CHECK_NEAR(db(r2 / r1), -6, 0.5);
+        CHECK(peak(o.l, on + SLICE + SLICE / 2 + 200, on + 2 * SLICE) < 1e-6);
+        // pitch per repeat (−12: the next repeat an octave down) on a sine
+        auto sp = create("time_fx");
+        sp->setTransport(120, 4, 4, true, 0);
+        set(*sp, "mode", 1);
+        set(*sp, "slice", 3);  // (1/4: 24000 frames)
+        set(*sp, "repeat_pitch", -12);
+        Stereo tone = sine(1000, 0.5, 2.0);
+        Stereo ot(tone.size());
+        runPart(*sp, tone, ot, 0, on);
+        set(*sp, "trigger", 1);
+        runPart(*sp, tone, ot, on, tone.size());
+        double z0 = (double)zeroCrossings(ot.l, on + 1000, on + 20000);
+        double z1 = (double)zeroCrossings(ot.l, on + BEAT + 1000, on + BEAT + 20000);
+        CHECK_NEAR(z1 / z0, 0.5, 0.02);
+        CHECK(maxStep(ot) < 0.2);  // (a 1 kHz sine steps up to 0.065 by itself)
+        // a slice longer than what it has heard since it started: the one from the trigger on
+        auto sl = create("time_fx");
+        sl->setTransport(120, 4, 4, true, 0);
+        set(*sl, "mode", 1);
+        set(*sl, "slice", 5);  // (1 bar: 96000 frames, more than the 512 heard)
+        Stereo o2(in.size());
+        runPart(*sl, in, o2, 0, 512);
+        set(*sl, "trigger", 1);
+        runPart(*sl, in, o2, 512, in.size());
+        CHECK(maxDiff(o2, in, 0, in.size()) == 0);  // (the first time: as it comes in)
+    }
+
+    // --- half speed: an octave down, re-synced on every bar line (2 s at 120 BPM in 4/4) ---
+    {
+        auto h = create("time_fx");
+        h->setTransport(120, 4, 4, true, 0);
+        set(*h, "mode", 2);
+        set(*h, "trigger", 1);
+        Stereo tone = sine(880, 0.5, 3.0);
+        Stereo o = run(*h, tone);
+        double ratio = (double)zeroCrossings(o.l, 9600, 86400) / zeroCrossings(tone.l, 9600, 86400);
+        CHECK_NEAR(ratio, 0.5, 0.01);
+        const size_t BAR = 4 * BEAT;
+        double d = 0;  // (from the bar line on: the sound of the bar line, at half speed)
+        for (size_t t = 400; t < 4000; t += 2) d = std::max(d, (double)std::fabs(o.l[BAR + t] - tone.l[BAR + t / 2]));
+        CHECK(d < 1e-6);
+        CHECK(maxStep(o) < 0.1);  // (an 880 Hz sine steps up to 0.058 by itself)
+        // every 2 bars: no re-sync at the first bar line
+        auto h2 = create("time_fx");
+        h2->setTransport(120, 4, 4, true, 0);
+        set(*h2, "mode", 2);
+        set(*h2, "trigger", 1);
+        set(*h2, "resync", 1);
+        o = run(*h2, tone);
+        d = 0;
+        for (size_t t = 400; t < 4000; t += 2) d = std::max(d, (double)std::fabs(o.l[BAR + t] - tone.l[(BAR + t) / 2]));
+        CHECK(d < 1e-6);
+        // from another place in the song: bar lines from the transport's position (half a bar in)
+        auto h3 = create("time_fx");
+        h3->setTransport(120, 4, 4, true, BAR / 2);
+        set(*h3, "mode", 2);
+        set(*h3, "trigger", 1);
+        o = run(*h3, tone);
+        d = 0;
+        for (size_t t = 400; t < 4000; t += 2)
+            d = std::max(d, (double)std::fabs(o.l[BAR / 2 + t] - tone.l[BAR / 2 + t / 2]));
+        CHECK(d < 1e-6);
+    }
+
+    // --- no clicks: a sine through every mode, the trigger switched on, off and on again ---
+    for (int mode = 0; mode < 3; mode++) {
+        auto c = create("time_fx");
+        c->setTransport(120, 4, 4, true, 0);
+        set(*c, "mode", mode);
+        set(*c, "repeat_pitch", -5);
+        set(*c, "repeat_fade", 3);
+        set(*c, "gate", 60);
+        set(*c, "slice", 2);
+        Stereo s = sine(220, 0.5, 5.0);
+        Stereo o(s.size());
+        size_t edges[] = {47 * 512, 141 * 512, 200 * 512, 300 * 512, 330 * 512, s.size()};
+        size_t at = 0;
+        for (int e = 0; e < 6; e++) {
+            runPart(*c, s, o, at, edges[e]);
+            at = edges[e];
+            set(*c, "trigger", e % 2 == 0 ? 1 : 0);
+        }
+        double step = maxStep(o);
+        CHECK(step < 0.05);  // (a 220 Hz sine steps up to 0.0144 by itself)
+        if (step >= 0.05) fprintf(stderr, "  time_fx mode %d: a jump of %g\n", mode, step);
+        // and the transport stopping while engaged: back to the input, smoothly
+        set(*c, "trigger", 1);
+        Stereo o2(s.size());
+        runPart(*c, s, o2, 0, 100 * 512);
+        c->setTransport(120, 4, 4, false, 0);
+        runPart(*c, s, o2, 100 * 512, s.size());
+        CHECK(maxStep(o2, 100 * 512) < 0.05);
+        CHECK(maxDiff(o2, s, 102 * 512, s.size()) == 0);
+    }
+
+    // --- 10 s of loud noise at its extremes (every parameter at its lowest, then its highest; slow and
+    // fast tempos; the trigger switched every 0.3 s): finite, bounded ---
+    for (double tempo : {30.0, 300.0})
+        for (int mode = 0; mode < 3; mode++)
+            for (double extreme : {0.0, 1.0}) {
+                auto e = create("time_fx");
+                e->setTransport(tempo, extreme > 0.5 ? 7 : 4, extreme > 0.5 ? 8 : 4, true, 12345);
+                for (size_t i = 0; i < e->params().size(); i++) e->setParam((uint32_t)i, extreme);
+                set(*e, "mode", mode);
+                Stereo n = noiseFor(10.0, 1.0, 9);
+                Stereo o(n.size());
+                size_t step = (size_t)(0.3 * SR) / 512 * 512;
+                for (size_t at = 0, k = 0; at < n.size(); at += step, k++) {
+                    set(*e, "trigger", k % 2 == 0 ? 1 : 0);
+                    runPart(*e, n, o, at, std::min(n.size(), at + step));
+                }
+                CHECK(finite(o, 2.0));
+            }
+
+    // --- its state, back again; its texts ---
+    set(*fx, "mode", 2);
+    set(*fx, "slice", 4);
+    set(*fx, "curve", -40);
+    set(*fx, "repeat_pitch", -7);
+    set(*fx, "trigger", 1);
+    auto again = create("time_fx");
+    again->setState(fx->componentState(), "");
+    for (uint32_t i = 0; i < fx->params().size(); i++) CHECK_NEAR(again->getParam(i), fx->getParam(i), 1e-12);
+    CHECK(again->componentState() == fx->componentState());
+    auto text = [&](const char* key, double value) {
+        int i = fx->key(key);
+        return fx->paramText((uint32_t)i, fx->params()[i].toNormal(value));
+    };
+    CHECK(text("mode", 0) == "Tape stop" && text("slice", 5) == "1 bar" && text("stop_length", 5) == "4 bars");
+    CHECK(text("repeat_pitch", -3) == "-3.0 st" && text("resync", 2) == "4 bars");
+}
+
 // --- the framework ---
 
 void testBlocksAndPlaces() {
@@ -1115,6 +1555,8 @@ int main() {
     testBitcrusher();
     testSaturation();
     testUtility();
+    testTransientShaper();  // (transient.cpp)
+    testTimeFx();           // (timefx.cpp)
     testBlocksAndPlaces();
     testNoAllocation();
     testMix();
