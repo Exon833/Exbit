@@ -181,7 +181,10 @@ struct Marker {
 // --- one parameter of one of a track's plugins (or its own volume or pan) following a curve over time ---
 struct AutoPoint {
     double t, v;  // seconds, value 0…1
-    bool operator==(const AutoPoint& o) const { return t == o.t && v == o.v; }
+    // the shape of the segment from this point to the next (automation::valueAt): 0 straight; > 0 bows
+    // it up (above the straight line), < 0 down, -1…1; it stays monotonic. Stepped parameters ignore it.
+    double bend = 0;
+    bool operator==(const AutoPoint& o) const { return t == o.t && v == o.v && bend == o.bend; }
     bool operator!=(const AutoPoint& o) const { return !(*this == o); }
 };
 struct Automation {
@@ -195,8 +198,12 @@ struct Automation {
     int targetSteps = 0;
     bool hasTarget = false;
     double last = -1;      // the value last given to the plugin (audio thread); -1 = none
-    // replace the curve: kept in time order, values within 0…1
+    // replace the curve: kept in time order, values within 0…1 (bends within -1…1)
     void setPoints(std::vector<AutoPoint> pts);
+    // --- writing automation by moving the control (automation::Recorder) ---
+    bool armed = false;               // "Write": moving the control while playing writes the curve (GUI thread; not saved)
+    std::atomic<bool> touched{false}; // being written now: playback leaves the control to the user's hand
+    std::atomic<double> touchValue{0};  // …and its value meanwhile (the mixer plays a Volume / Pan lane at it)
 };
 
 // --- a MIDI effect on a MIDI track (audio/midi_effects.py): its kind and its values, by key ---

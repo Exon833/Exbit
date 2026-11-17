@@ -56,8 +56,9 @@ void mixerValues(const Track& track, bool hasStart, int64_t start, int sr, doubl
     for (auto& lane : *lanes) {
         if (lane->slot.get() != controls) continue;
         auto points = lane->points.get();
-        if (points->empty()) continue;
-        double value = valueAt(*points, (double)start / sr);
+        bool touched = lane->touched.load(std::memory_order_acquire);  // (being written: the user's hand decides)
+        if (points->empty() && !touched) continue;
+        double value = touched ? lane->touchValue.load(std::memory_order_relaxed) : valueAt(*points, (double)start / sr);
         if (lane->param == VOLUME)
             volumeDb = volumeOf(value);
         else if (lane->param == PAN)
@@ -105,6 +106,7 @@ void TweakWatcher::poll() {
     if (!usable(slot)) return;
     std::vector<uint32_t> edited = aload(slot->instance)->edited();
     modulation::userEdited(project_, slot.get(), edited);  // (knobs turned that modulation moves: their base)
+    writeEdits(edited);  // (armed lanes while playing: automation_write.h; after the base above, which it writes)
     std::vector<std::string> changed;  // latest first, each once
     for (auto it = edited.rbegin(); it != edited.rend(); ++it)
         for (auto& n : names_)
@@ -174,7 +176,37 @@ double valueAt(const std::vector<AutoPoint>& points, double seconds, int steps) 
     if (i == 0) return snap(points[0].v, steps);
     if (i == points.size() || steps > 0) return snap(points[i - 1].v, steps);
     const AutoPoint &a = points[i - 1], &b = points[i];
-    return b.t > a.t ? a.v + (b.v - a.v) * (seconds - a.t) / (b.t - a.t) : b.v;
+    if (!(b.t > a.t)) return b.v;
+    if (a.bend == 0) return a.v + (b.v - a.v) * (seconds - a.t) / (b.t - a.t);  // (straight: as it always was)
+    return a.v + (b.v - a.v) * bendShape((seconds - a.t) / (b.t - a.t), a.bend, b.v - a.v);
+}
+
+// --- curved segments (AutoPoint::bend) ---
+
+double bendShape(double x, double bend, double rise) {
+    if (bend == 0 || rise == 0) return x;
+    // an exponential: f(x) = (e^(c·x) − 1) / (e^c − 1) rises from 0 to 1 whatever c is, so a segment stays
+    // monotonic. c < 0 rises fast first (above the line when the segment rises): bend > 0 bows it up.
+    double c = -BEND_CURVE * std::max(-1.0, std::min(1.0, bend)) * (rise > 0 ? 1 : -1);
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    return std::expm1(c * x) / std::expm1(c);
+}
+
+void splitAt(std::vector<AutoPoint>& points, double seconds) {
+    // f restricted to [0, x0] and to [x0, 1] (rescaled) is the same curve with c·x0 and c·(1 − x0): the
+    // two halves keep the shape exactly with bend·x0 and bend·(1 − x0)
+    for (size_t i = 0; i + 1 < points.size(); ++i) {
+        AutoPoint &a = points[i], &b = points[i + 1];
+        if (seconds == a.t || seconds == b.t) return;  // (a point there already)
+        if (a.t < seconds && seconds < b.t) {
+            double x0 = (seconds - a.t) / (b.t - a.t);
+            AutoPoint mid{seconds, valueAt(points, seconds), a.bend * (1 - x0)};
+            a.bend *= x0;
+            points.insert(points.begin() + (long)i + 1, mid);
+            return;
+        }
+    }
 }
 
 void apply(Track& track, int64_t start, int sr) {
@@ -184,6 +216,10 @@ void apply(Track& track, int64_t start, int sr) {
         if (lane->slot && lane->slot->isControls()) continue;  // (the mixer applies volume and pan: mixerValues())
         auto points = lane->points.get();
         auto target = aload(lane->targetPlugin);
+        if (lane->touched.load(std::memory_order_acquire)) {
+            lane->last = -1;  // (being written: the user moves it; once let go, the curve sets it again)
+            continue;
+        }
         if (points->empty() || !target || !lane->slot || !lane->hasTarget || target != aload(lane->slot->instance))
             continue;
         double value = valueAt(*points, seconds, lane->targetSteps);

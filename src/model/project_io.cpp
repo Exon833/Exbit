@@ -221,7 +221,8 @@ Json describeAutomation(const Track& track, const Automation& lane) {
         }
     }
     Json points = Json::array();
-    for (auto& p : lane.points) points.push(Json::array({Json(p.t), Json(p.v)}));
+    for (auto& p : lane.points)  // [seconds, value], and its bend when it has one (older saves: none)
+        points.push(p.bend != 0 ? Json::array({Json(p.t), Json(p.v), Json(p.bend)}) : Json::array({Json(p.t), Json(p.v)}));
     return Json::object({{"plugin", plugin}, {"param", Json(lane.param)}, {"height", Json(lane.height)},
                          {"points", points}});
 }
@@ -251,8 +252,10 @@ std::vector<AutomationPtr> readAutomation(const Track& track, const Json& entrie
         lane->height = entry.integer("height", config::AUTOMATION_H);
         std::vector<AutoPoint> pts;
         for (const Json& p : entry["points"].items())
-            if (p.isArray() && p.size() == 2 && p[size_t(0)].isNumber() && p[size_t(1)].isNumber())
-                pts.push_back({p[size_t(0)].toDouble(), p[size_t(1)].toDouble()});
+            if (p.isArray() && (p.size() == 2 || p.size() == 3) && p[size_t(0)].isNumber() && p[size_t(1)].isNumber()) {
+                double bend = p.size() == 3 && p[size_t(2)].isNumber() ? p[size_t(2)].toDouble() : 0.0;
+                pts.push_back({p[size_t(0)].toDouble(), p[size_t(1)].toDouble(), bend});  // (setPoints keeps it within -1…1)
+            }
         lane->setPoints(std::move(pts));
         lanes.push_back(lane);
     }

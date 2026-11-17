@@ -2,7 +2,9 @@
 // output pair, level meters) and the master strip.
 //
 // A track's Auto button (under its outputs) shows or hides its automation lanes; each lane has a row
-// here: its plugin and parameter, + to automate another parameter, ✕ to remove the lane.
+// here: its plugin and parameter, Write (armed: while playing, moving the parameter writes the lane;
+// the row is tinted red: automation_write.h), + to automate another parameter, ✕ to remove the lane.
+// Right-click a track's row to arm (or disarm) all its lanes at once.
 //
 // Each track row has a volume slider under its meter (after its effects; double-click: 0 dB), with
 // its setting in dB next to it. A MIDI track has an instrument button (🎹): click it to open its
@@ -48,6 +50,7 @@ namespace lane_panel {
 constexpr int GROUP_BAR_W = 5;  // px: bar down the left of a group's tracks' rows
 Color groupBarColor(const Group& group);
 std::vector<int> trackOutputs(const Track& track);  // the device outputs (0-based) a track plays on: its pair
+Color automationRowColor(const Automation& lane);   // an automation lane's row: tinted red while armed for writing
 // A small dialog to tick tracks (those in `checked` already ticked). The ticked ones, or nullopt.
 std::optional<std::vector<TrackPtr>> chooseTracks(ui::Window* parent, const std::vector<TrackPtr>& tracks,
                                                   const std::vector<TrackPtr>& checked);

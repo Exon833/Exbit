@@ -39,8 +39,12 @@ void moveAutomation(Project& project, double atS, double shiftS, double cutTo) {
         for (auto& lane : track->automation) {
             const std::vector<AutoPoint>& points = *lane->points;
             if (points.empty()) continue;
+            // (curved segments cut at the edit point and at its end keep their shape on either side: splitAt)
+            std::vector<AutoPoint> shaped = points;
+            automation::splitAt(shaped, atS);
+            automation::splitAt(shaped, end);
             std::vector<AutoPoint> out;
-            for (auto& p : points)
+            for (auto& p : shaped)
                 if (p.t < atS) out.push_back(p);
             // (the curve as it was, up to the edit point: on a jump there, the value before it…)
             double atValue = automation::valueAt(points, atS);
@@ -53,10 +57,12 @@ void moveAutomation(Project& project, double atS, double shiftS, double cutTo) {
             double later = automation::valueAt(points, end);  // (…and on from it)
             if (inserting && later != atValue) edge.push_back({atS + EDGE_S, later});  // (a jump there: it stays)
             edge.push_back({atS + (inserting ? shiftS : EDGE_S), later});
+            for (auto& p : shaped)
+                if (p.t == end) edge.back().bend = p.bend;  // (the curve on from there, as it was)
             double last = edge.back().t;
             out.insert(out.end(), edge.begin(), edge.end());
-            for (auto& p : points)
-                if (p.t >= end && p.t + shiftS > last) out.push_back({p.t + shiftS, p.v});
+            for (auto& p : shaped)
+                if (p.t >= end && p.t + shiftS > last) out.push_back({p.t + shiftS, p.v, p.bend});
             lane->setPoints(std::move(out));
         }
     }

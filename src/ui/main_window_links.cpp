@@ -3,6 +3,7 @@
 // the recording offset, the Ableton Live import. See main_window.h.
 #include <algorithm>
 
+#include "audio/automation_write.h"
 #include "audio/midi_effects.h"
 #include "core/util.h"
 #include "ui/ableton_import.h"
@@ -157,6 +158,7 @@ void MainWindow::setUpMidi() {
 // --- the project replaced, the sample rate, closing ---------------------------------------------
 
 void MainWindow::projectReplaced() {
+    automation::recorder().releaseAll();  // (curves being written belonged to the project replaced)
     midi_effects::install(&project.timing);  // (their beats follow the project's timing)
     midi_effects_dialog::closeGone(project);
     sampler_dialog::closeGone(project);

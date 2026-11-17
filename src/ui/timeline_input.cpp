@@ -2,8 +2,10 @@
 // menus, keys, the wheel, editing automation points, and dropping files.
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 #include "audio/automation.h"
+#include "audio/automation_write.h"
 #include "core/util.h"
 #include "model/edits.h"
 #include "ui/master_lane.h"
@@ -26,6 +28,13 @@ void Timeline::automationPress(ui::MouseEvent& e, const Lane& lane) {
     PointF pos(e.pos);
     if (lane.owner->frozen) return;
     int index = pointAt(lane, pos);
+    if (index < 0 && (e.mods & plat::ModCtrl)) {  // Ctrl on a segment: curve it (dragBend)
+        int segment = segmentAt(lane, pos.x);
+        if (segment >= 0 && !automation::stepsOf(a)) {
+            drag = BendDrag{lane, segment, pos.y, a.points[segment].bend};
+            return;
+        }
+    }
     if (index < 0) {
         double seconds = (double)snappedFrameAt(pos.x, e.mods) / engine.sr;
         double value = std::min(1.0, std::max(0.0, automationValue(lane, pos.y)));  // (as setPoints keeps it)
@@ -61,6 +70,43 @@ void Timeline::dragPoint(PointF pos, Point globalPos, int mods) {
     automationEdited.emit();
 }
 
+// --- curved segments and shapes (AutoPoint::bend, automation_write.h) ---
+
+int Timeline::segmentAt(const Lane& lane, double x) const {
+    auto& points = *lane.automation->points;
+    for (size_t i = 0; i + 1 < points.size(); ++i)
+        if (points[i].t * pps <= x && x < points[i + 1].t * pps) return (int)i;
+    return -1;
+}
+
+void Timeline::setBend(const Lane& lane, int index, double bend) {
+    Automation& a = *lane.automation;
+    std::vector<AutoPoint> points = a.points.copy();
+    if (index < 0 || index + 1 >= (int)points.size()) return;
+    points[index].bend = std::max(-1.0, std::min(1.0, bend));
+    a.points = points;  // (the same times: still in order)
+    update();
+    automationEdited.emit();
+}
+
+void Timeline::dragBend(PointF pos, Point globalPos) {
+    // up bows the segment up, down bows it down: half the lane's height for a full bend
+    auto& d = std::get<BendDrag>(drag);
+    double range = std::max(1.0, automationY(d.lane, 0.0) - automationY(d.lane, 1.0));
+    double bend = std::max(-1.0, std::min(1.0, d.bend - 2 * (pos.y - d.y) / range));
+    setBend(d.lane, d.index, bend);
+    char text[48];
+    std::snprintf(text, sizeof text, "Curve: %+.0f %%", bend * 100);
+    ui::App::get().showToolTip(globalPos, text, this);
+}
+
+void Timeline::drawShape(const Lane& lane, double start, double end, int shape, bool perBar) {
+    Automation& a = *lane.automation;
+    a.points = automation::drawShape(a.points.copy(), start, end, (automation::Shape)shape, project.timing, perBar);
+    update();
+    automationEdited.emit();
+}
+
 void Timeline::showValueTip(const Lane& lane, double value, Point globalPos) {
     // the parameter's value as the plugin shows it, next to the mouse
     const Automation& a = *lane.automation;
@@ -87,18 +133,72 @@ void Timeline::automationMenu(Point globalPos, const Lane& lane, PointF pos) {
         return;
     }
     ui::Menu menu;
-    ui::Action* clear = menu.addAction("Clear the curve");
-    clear->setEnabled(!a->points.empty() && !frozen);
-    ui::Action* remove = menu.addAction("Remove this lane (" + a->param + ")");
-    remove->setEnabled(!frozen);
-    ui::Action* chosen = menu.exec(globalPos, this);
-    if (chosen == clear) {
+    fillAutomationMenu(menu, lane, pos);
+    menu.exec(globalPos, this);  // (the chosen entry runs)
+}
+
+void Timeline::fillAutomationMenu(ui::Menu& menu, const Lane& lane, PointF pos) {
+    AutomationPtr a = lane.automation;
+    bool frozen = lane.owner->frozen != nullptr;
+    // --- curved segments and shapes (automation_write.h) ---
+    bool locked = frozen && !(a->slot && a->slot->isControls());
+    int segment = segmentAt(lane, pos.x);
+    if (segment >= 0 && !automation::stepsOf(*a)) {
+        ui::Menu* curve = menu.addMenu("Curve this segment");
+        Lane l = lane;
+        const std::pair<const char*, double> bends[] = {
+            {"Bow up", 0.5}, {"Bow up strongly", 1.0}, {"Bow down", -0.5}, {"Bow down strongly", -1.0}, {"Straighten", 0.0}};
+        for (auto& [label, bend] : bends) {
+            double value = bend;
+            ui::Action* act = curve->addAction(label, [this, l, segment, value] { setBend(l, segment, value); });
+            act->setEnabled(!locked);
+            act->tooltip = value == 0 ? "A straight line again (or Ctrl+double-click the segment)"
+                                      : "Curve the line between these two points (or Ctrl+drag the segment up or down)";
+        }
+    }
+    {
+        double start = -1, end = -1;
+        std::string over;
+        if (selection.range && selection.range->end > selection.range->start) {
+            start = (double)selection.range->start / engine.sr;
+            end = (double)selection.range->end / engine.sr;
+            over = "the selection";
+        } else if (project.timing.loopEnd > project.timing.loopStart) {
+            start = project.timing.loopStart;
+            end = project.timing.loopEnd;
+            over = "the loop";
+        }
+        ui::Menu* shapes = menu.addMenu(over.empty() ? "Draw a shape (select a range or set the loop)"
+                                                     : "Draw a shape over " + over);
+        Lane l = lane;
+        auto add = [&](automation::Shape shape, bool perBar, const std::string& label) {
+            int s = (int)shape;
+            ui::Action* act = shapes->addAction(label, [this, l, start, end, s, perBar] { drawShape(l, start, end, s, perBar); });
+            act->setEnabled(!locked && end > start);
+            act->tooltip = "Replaces the curve over " + (over.empty() ? std::string("the range") : over) +
+                           " (select a time range on the track, or set the loop)";
+        };
+        add(automation::Shape::RampUp, false, "Ramp up");
+        add(automation::Shape::RampDown, false, "Ramp down");
+        shapes->addSeparator();
+        for (auto shape : {automation::Shape::Sine, automation::Shape::Triangle, automation::Shape::Saw,
+                           automation::Shape::Square}) {
+            std::string name = automation::shapeName(shape);
+            add(shape, true, name + ", a cycle per bar");
+            add(shape, false, name + ", a cycle per beat");
+        }
+    }
+    menu.addSeparator();
+    ui::Action* clear = menu.addAction("Clear the curve", [this, a] {
         a->points = std::vector<AutoPoint>{};
         update();
         automationEdited.emit();
-    } else if (chosen == remove) {
-        removeAutomation(lane.owner, a);
-    }
+    });
+    clear->setEnabled(!a->points.empty() && !frozen);
+    TrackPtr owner = lane.owner;
+    ui::Action* remove =
+        menu.addAction("Remove this lane (" + a->param + ")", [this, owner, a] { removeAutomation(owner, a); });
+    remove->setEnabled(!frozen);
 }
 
 void Timeline::removeAutomation(const TrackPtr& track, const AutomationPtr& a) {
@@ -247,7 +347,7 @@ bool Timeline::mouseMove(ui::MouseEvent& e) {
     if ((std::holds_alternative<MoveDrag>(drag) || std::holds_alternative<EdgeDrag>(drag) ||
          std::holds_alternative<FadeDrag>(drag) || std::holds_alternative<MarkerDrag>(drag) ||
          std::holds_alternative<PointDrag>(drag) || std::holds_alternative<LoopDrag>(drag) ||
-         std::holds_alternative<CopyDrag>(drag)) &&
+         std::holds_alternative<CopyDrag>(drag) || std::holds_alternative<BendDrag>(drag)) &&
         stillAClick(pos))
         return true;
     if (std::holds_alternative<CopyDrag>(drag)) startCopyDrag();
@@ -274,6 +374,8 @@ bool Timeline::mouseMove(ui::MouseEvent& e) {
         }
     } else if (std::holds_alternative<PointDrag>(drag)) {
         dragPoint(pos, e.globalPos, e.mods);
+    } else if (std::holds_alternative<BendDrag>(drag)) {
+        dragBend(pos, e.globalPos);
     } else if (auto* l = std::get_if<LoopDrag>(&drag)) {
         int sr = engine.sr;
         const Timing& t = project.timing;
@@ -353,9 +455,13 @@ bool Timeline::mouseDoubleClick(ui::MouseEvent& e) {
         if (fade.in) fade.clip->fadeIn = fade.clip->fadeLead = 0;
         else fade.clip->fadeOut = fade.clip->fadeTail = 0;
         update();
-    } else if (lane && lane->automation) {  // double-click a point: delete it
+    } else if (lane && lane->automation) {  // double-click a point: delete it (Ctrl, a segment: straighten it)
         int index = pointAt(*lane, pos);
-        if (index >= 0 && !lane->owner->frozen) {
+        int segment = index < 0 && (e.mods & plat::ModCtrl) ? segmentAt(*lane, pos.x) : -1;
+        if (segment >= 0 && !lane->owner->frozen) {
+            drag = std::monostate();
+            setBend(*lane, segment, 0.0);
+        } else if (index >= 0 && !lane->owner->frozen) {
             drag = std::monostate();
             deletePoint(*lane, index);
         }
@@ -390,6 +496,8 @@ void Timeline::updateCursor(PointF pos) {
     } else if (std::holds_alternative<LoopDrag>(drag) || std::holds_alternative<EdgeDrag>(drag) ||
                std::holds_alternative<FadeDrag>(drag) || std::holds_alternative<MarkerDrag>(drag) || loopEndAt(pos) >= 0) {
         setCursor(ui::Cursor::SizeHor);
+    } else if (std::holds_alternative<BendDrag>(drag)) {
+        setCursor(ui::Cursor::SizeVer);  // (curving a segment: up or down)
     } else if ((lane = laneAt(pos.y)) && lane->automation) {
         bool dragging = std::holds_alternative<PointDrag>(drag);
         bool grabbed = dragging || pointAt(*lane, pos) >= 0;

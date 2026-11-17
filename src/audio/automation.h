@@ -14,7 +14,8 @@
 // While a plugin's window is open, TweakWatcher notes which parameters you change there (the
 // plugin tells the host about each change made with the mouse; the parameter chooser lists the last
 // ones first). Several changing at once is a preset being loaded, not a tweak; parameters that
-// automation is moving don't count either.
+// automation is moving don't count either. While playing, the changes to a parameter whose lane is
+// armed ("Write") write its curve (automation_write.h).
 //
 // While playing (and when rendering), apply() sets each automated parameter to the curve's value
 // at the start of every buffer, before the plugin processes it.
@@ -71,10 +72,16 @@ public:
     std::set<std::string> automated() const;  // names of its parameters that automation moves (curves with points)
     void poll();
     SlotPtr slot;
+    // --- writing automation (automation_write.cpp): a control of a built-in effect's window held and let go,
+    // and edits noted at once (poll() notes the others) ---
+    void grab(uint32_t id);
+    void letGo(uint32_t id);
+    void writeEdits(const std::vector<uint32_t>& ids);  // to their armed lanes, while playing
 
 private:
     Project& project_;
     std::vector<std::pair<uint32_t, std::string>> names_;
+    const std::string* nameOf(uint32_t id) const;
 };
 
 // Drop the lanes of plugins the track no longer has (its volume and pan lanes, those of an instrument
@@ -84,9 +91,18 @@ bool prune(Track& track);
 void resolve(Project& project);
 int stepsOf(const Automation& lane);  // 0: any value; 1: two values, e.g. Off / On
 double snap(double value, int steps);  // at the nearest of the parameter's values: k / steps
-// The curve's value (0…1) at `seconds`: straight lines between points, flat before the first and
-// after the last. A stepped parameter (steps > 0) holds each point's value until the next.
+// The curve's value (0…1) at `seconds`: lines between points (straight, or curved by the first point's
+// bend), flat before the first and after the last. A stepped parameter (steps > 0) holds each point's
+// value until the next.
 double valueAt(const std::vector<AutoPoint>& points, double seconds, int steps = 0);
+// --- curved segments (AutoPoint::bend) ---
+constexpr double BEND_CURVE = 6;  // how far a full bend (±1) curves: e^6 ≈ 400 times faster at one end
+// How far along (0…1) a segment rising by `rise` (its end's value minus its start's) is at x (0…1 of its
+// time) with `bend`: x itself for no bend; bend > 0 above the straight line, < 0 below; 0 and 1 exact.
+double bendShape(double x, double bend, double rise);
+// A point added on the curve at `seconds` (between two points: the curve is unchanged, its bend shared
+// between the two halves). Nothing changes at or outside the points.
+void splitAt(std::vector<AutoPoint>& points, double seconds);
 // Set the track's automated plugin parameters to their values at timeline frame `start` (audio thread,
 // or the main thread when rendering). Volume and pan lanes are left to the mixer (mixerValues()).
 void apply(Track& track, int64_t start, int sr);

@@ -42,6 +42,7 @@ void Automation::setPoints(std::vector<AutoPoint> pts) {
     for (auto& p : pts) {
         p.t = std::max(0.0, p.t);
         p.v = std::min(1.0, std::max(0.0, p.v));
+        p.bend = std::isfinite(p.bend) ? std::min(1.0, std::max(-1.0, p.bend)) : 0.0;
     }
     std::stable_sort(pts.begin(), pts.end(), [](const AutoPoint& a, const AutoPoint& b) {
         return a.t < b.t || (a.t == b.t && a.v < b.v);

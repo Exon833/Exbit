@@ -51,6 +51,11 @@
 // standard height). Click to add a point (dragged at once), drag points (in time they snap like the
 // cursor, Alt: freely), double-click or right-click a point to delete it; right-click the lane for
 // its menu. A frozen track's lanes are locked, like its clips.
+// Curved segments (AutoPoint::bend): Ctrl+drag a segment between two points up or down to bow it that
+// way (Alt is the grid's: it adds a point off the grid), Ctrl+double-click it to straighten it; the
+// lane's right-click menu curves and straightens the segment there too, and draws shapes (ramps, sine,
+// triangle, saw, square: a cycle per bar or beat) over the selected range or the loop
+// (automation_write.h). A lane armed for writing (Write on its row) is tinted red.
 //
 // The loop range (project.timing) is a band on the ruler, bright while looping is on; drag its ends
 // to change it (they snap like the cursor). The main window hands it to the engine (loopChanged).
@@ -164,6 +169,12 @@ struct PointDrag {              // dragging a point of an automation lane
     Lane lane;
     int index = 0;              // the point's place in its curve
 };
+struct BendDrag {               // Ctrl+dragging a segment of an automation lane up or down: curving it
+    Lane lane;
+    int index = 0;              // the segment's first point
+    double y = 0;               // mouse y when the drag began
+    double bend = 0;            // its bend then
+};
 struct LoopDrag {               // dragging one end of the loop range on the ruler
     bool end = false;           // true: its end, false: its start
 };
@@ -177,7 +188,7 @@ struct RangeDrag {              // dragging over empty lane space or a clip's bo
     int endRow = 0;             // lane (among the tracks shown) where the range ends
 };
 using TimelineDrag = std::variant<std::monostate, MoveDrag, EdgeDrag, HeightDrag, PointDrag, LoopDrag, RangeDrag,
-                                  CopyDrag, FadeDrag, TakeDrag, MarkerDrag>;
+                                  CopyDrag, FadeDrag, TakeDrag, MarkerDrag, BendDrag>;
 
 // an audio clip's fade handle (Timeline::fadeHandleAt)
 struct FadeHit {
@@ -376,6 +387,10 @@ public:
     double automationY(const Lane& lane, double value) const;
     double automationValue(const Lane& lane, double y) const;  // snapped for a stepped parameter
     int pointAt(const Lane& lane, PointF pos) const;           // index of the point near pos, or -1
+    int segmentAt(const Lane& lane, double x) const;           // the first point of the segment at x, or -1
+    void setBend(const Lane& lane, int index, double bend);    // the segment from point `index`: curved (0: straight)
+    // the lane's curve over [start, end] seconds replaced by a shape (automation_write.h)
+    void drawShape(const Lane& lane, double start, double end, int shape, bool perBar);
     std::string valueText(const Automation& a, double value) const;  // as the plugin shows it (else "50 %")
     std::pair<std::string, std::string> rangeLabels(const Automation& a) const;  // texts at 1 and at 0
     void deletePoint(const Lane& lane, int index);
@@ -393,6 +408,8 @@ public:
     // the right-click menu; pos: where it was asked for on the timeline (none: not over a lane)
     void showMenu(Point globalPos, std::optional<Point> pos = std::nullopt);
     void automationMenu(Point globalPos, const Lane& lane, PointF pos);
+    // its entries (a segment's curve, shapes, clearing, removing): what automationMenu shows
+    void fillAutomationMenu(ui::Menu& menu, const Lane& lane, PointF pos);
     void startMove(PointF pos, const ClipPtr& grabbed);
     void startCopyDrag();            // Ctrl+drag went past the threshold: copies of the selection are dragged
     bool stillAClick(PointF pos);    // the mouse, held down, hasn't moved DRAG_THRESHOLD_PX since the press
@@ -435,6 +452,7 @@ private:
     void paintRecording(Painter& p, const std::map<const Track*, int>& tops);
     void automationPress(ui::MouseEvent& e, const Lane& lane);
     void dragPoint(PointF pos, Point globalPos, int mods);
+    void dragBend(PointF pos, Point globalPos);
     void showValueTip(const Lane& lane, double value, Point globalPos);
     ui::Window* dialogParent() const;
     // rangeLabels() worked out once per plugin instance (Python keeps them on the Automation)

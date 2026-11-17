@@ -100,6 +100,8 @@ void Timeline::paintLanes(Painter& p, const Rect& r, const std::vector<Lane>& ls
             p.fillRect(Rect(r.left(), lane.top, r.w, 1), c("ruler_bg"));
         } else if (lane.automation || lane.take) {  // (their contents: after the grid, paintArea)
             p.fillRect(area, c("automation_lane"));
+            if (lane.automation && lane.automation->armed)  // armed for writing (Write on its row): tinted red
+                p.fillRect(area, c("record").withAlpha(36));
         } else {  // the master lane's place: room to scroll the last track above the pinned master lane
             p.fillRect(Rect(r.left(), lane.top, r.w, height() - lane.top), c("below_lanes"));
         }
@@ -165,6 +167,8 @@ void Timeline::paintAutomation(Painter& p, const Rect& r, const Lane& lane, bool
     // Without points, a dashed line at the parameter's value now.
     const Automation& a = *lane.automation;
     if (background) p.fillRect(Rect(r.left(), lane.top, r.w, lane.height), c("automation_lane"));
+    if (background && a.armed)  // (armed for writing: as paintLanes tints it)
+        p.fillRect(Rect(r.left(), lane.top, r.w, lane.height), c("record").withAlpha(36));
     Color line = c("automation_line");
     Color color = line;
     auto target = targetOf(a);
@@ -223,6 +227,16 @@ void Timeline::paintAutomation(Painter& p, const Rect& r, const Lane& lane, bool
         for (size_t i = i0; i <= i1; ++i) {
             if (steps && i) curve.push_back(PointF(xs[i], ys[i - 1]));  // (stepped: holds the value until the point, then jumps)
             curve.push_back(PointF(xs[i], ys[i]));
+            const AutoPoint& from = points[i];
+            if (!steps && i < i1 && from.bend != 0 && points[i + 1].t > from.t) {  // (a curved segment: along its shape)
+                int pieces = std::max(2, std::min(64, (int)((xs[i + 1] - xs[i]) / 3)));
+                double rise = points[i + 1].v - from.v;
+                for (int k = 1; k < pieces; ++k) {
+                    double x = (double)k / pieces;
+                    double v = from.v + rise * automation::bendShape(x, from.bend, rise);
+                    curve.push_back(PointF(xs[i] + (xs[i + 1] - xs[i]) * (float)x, (float)automationY(lane, v)));
+                }
+            }
         }
         if (i1 == n - 1) curve.push_back(PointF(std::max((float)r.right() - 1, xs[n - 1]) + 1, ys[n - 1]));
         p.drawPolyline(curve, color, 1.5f);
@@ -247,7 +261,9 @@ void Timeline::paintAutomation(Painter& p, const Rect& r, const Lane& lane, bool
                 p.drawDashedLine(PointF(x0, y), PointF((float)r.right(), y), color, 1, 4, 2);
             }
         }
-        p.drawText(PointF((float)left + 8, (float)(lane.top + lane.height / 2 + 4)), "Click to add points to the curve",
+        p.drawText(PointF((float)left + 8, (float)(lane.top + lane.height / 2 + 4)),
+                   a.armed ? "Write is on: play the song and move the control to write the curve"
+                           : "Click to add points to the curve",
                    theme::uiFont(), c("ruler_text"));
     }
 }

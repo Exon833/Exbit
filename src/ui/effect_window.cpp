@@ -220,6 +220,9 @@ EffectWindow::EffectWindow(ui::Window* parent, SlotPtr slot_, const std::string&
             slider->setMinimumWidth(220);
             slider->setSizePolicy(ui::SizePolicy::Expanding, ui::SizePolicy::Fixed);
             slider->valueChanged.connect([this, i](int v) { edit(i, (double)v / SLIDER_STEPS); });
+            // --- writing automation: the slider held is one touch of its armed lane (automation_write.h) ---
+            slider->sliderPressed.connect([this, i] { if (watcher) watcher->grab((uint32_t)i); });
+            slider->sliderReleased.connect([this, i] { if (watcher) watcher->letGo((uint32_t)i); });
             auto* text = add<ui::Label>();
             text->setMinimumWidth(80);
             grid->addWidget(slider, i, 1);
@@ -253,6 +256,7 @@ bool EffectWindow::attach() {
 void EffectWindow::edit(int index, double normal) {
     if (updating_ || !effect) return;
     effect->windowEdit((uint32_t)index, normal);
+    if (watcher) watcher->writeEdits({(uint32_t)index});  // (written at once, armed and playing: automation_write.h)
     follow();
 }
 

@@ -6,6 +6,7 @@
 #include <cstdio>
 
 #include "audio/automation.h"
+#include "audio/automation_write.h"
 #include "audio/modulation.h"
 #include "audio/plugin_audio.h"
 #include "plugins/wine.h"
@@ -27,6 +28,14 @@ Color groupBarColor(const Group& group) {
 }
 
 std::vector<int> trackOutputs(const Track& track) { return {track.output, track.output + 1}; }
+
+Color automationRowColor(const Automation& lane) {
+    Color base = theme::c("automation_lane");
+    if (!lane.armed) return base;
+    Color red = theme::c("record");  // (armed for writing: tinted red, as in the timeline)
+    auto mix = [](int a, int b) { return (a * 3 + b) / 4; };
+    return Color(mix(base.r, red.r), mix(base.g, red.g), mix(base.b, red.b), base.a);
+}
 
 std::optional<std::vector<TrackPtr>> chooseTracks(ui::Window* parent, const std::vector<TrackPtr>& tracks,
                                                   const std::vector<TrackPtr>& checked) {
@@ -312,7 +321,14 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, Col
     row->addWidget(widgets::fxButton(frame, *track->effects, [open, track] { if (open) open(track); }));
     auto* pan = frame->add<PanKnob>(track->pan, [track](double v) {
         track->pan = v;  // the mixer reads it every buffer
+        automation::recorder().move(automation::armedControlLane(*track, automation::PAN), (v + 1) / 2);
     });
+    // (its Pan lane armed for writing, while playing: the knob held writes it: automation_write.h)
+    pan->grabbed = [track, pan](bool on) {
+        AutomationPtr lane = automation::armedControlLane(*track, automation::PAN);
+        if (on) automation::recorder().grab(lane, (pan->pan + 1) / 2);
+        else automation::recorder().release(lane);
+    };
     row->addWidget(pan);
     row->addWidget(widgets::toggleButton(frame, "M", "mute", track->muted,
                                          [setFlag, track](bool on) { setFlag(track->muted, on); }, "Mute"));
@@ -324,9 +340,17 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, Col
     auto* meter = frame->add<LevelMeter>(channels);
     meter->showChannels(lane_panel::trackOutputs(*track));
     auto* display = frame->add<LoudnessDisplay>();
-    auto* slider = frame->add<VolumeSlider>(track->volumeDb, [track](double db) {
+    auto toVolume = [](double db) { return (db - config::MIN_DB) / (double)(config::MAX_DB - config::MIN_DB); };
+    auto* slider = frame->add<VolumeSlider>(track->volumeDb, [track, toVolume](double db) {
         track->volumeDb = db;  // the mixer reads it every buffer
+        automation::recorder().move(automation::armedControlLane(*track, automation::VOLUME), toVolume(db));
     });
+    // (its Volume lane armed for writing, while playing: the fader held writes it: automation_write.h)
+    slider->sliderPressed.connect([track, slider, toVolume] {
+        automation::recorder().grab(automation::armedControlLane(*track, automation::VOLUME), toVolume(slider->value()));
+    });
+    slider->sliderReleased.connect(
+        [track] { automation::recorder().release(automation::armedControlLane(*track, automation::VOLUME)); });
     slider->hPolicy = ui::SizePolicy::Expanding;
     // outputs | the meter, the volume slider and its dB under it | LUFS (its two lines over both rows:
     // one row is too low for them at the default track height)
@@ -391,7 +415,7 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, Col
 LaneFrame* LanePanel::automationHeader(ui::Widget* parent, const Lane& lane) {
     AutomationPtr a = lane.automation;
     TrackPtr track = lane.owner;
-    auto* frame = parent->add<LaneFrame>(theme::c("automation_lane"), kindAccent(track->kind), lane.height);
+    auto* frame = parent->add<LaneFrame>(lane_panel::automationRowColor(*a), kindAccent(track->kind), lane.height);
     // (a line above it, as in the timeline: stacked lanes stay apart)
     frame->setTopLine(theme::c("grid_bar"));
     frame->onPress = [this, track] { timeline.setCurrentTrack(track); };
@@ -406,6 +430,23 @@ LaneFrame* LanePanel::automationHeader(ui::Widget* parent, const Lane& lane) {
     name->setElide(true);
     name->hPolicy = ui::SizePolicy::Expanding;
     row->addWidget(name, 1);
+    // --- Write: moving the control while playing writes this lane (automation_write.h) ---
+    if (!track->frozen || (a->slot && a->slot->isControls())) {  // (a frozen track's plugins are locked)
+        Timeline* tl = &timeline;
+        Color accent = kindAccent(track->kind);
+        ui::Button* write = widgets::toggleButton(
+            frame, "Write", "record", a->armed,
+            [tl, a, frame, accent](bool on) {
+                a->armed = on;
+                if (!on) automation::recorder().release(a);
+                frame->setColors(lane_panel::automationRowColor(*a), accent);
+                tl->update();  // (armed lanes are tinted red there too)
+            },
+            "Write: while the song plays, moving this parameter (" + a->param +
+                ") writes its curve, from when you grab the control until you let go");
+        write->setFixedWidth(40);
+        row->addWidget(write);
+    }
     if (!track->frozen) {
         std::weak_ptr<bool> alive = alive_;
         row->addWidget(widgets::iconButton(frame, "+", [this, alive, track] {
@@ -535,19 +576,14 @@ void LanePanel::showMixerValues(std::optional<int64_t> pos, int sr) {
         for (auto& a : track->automation)
             if (a->slot == track->controls && !a->points.empty()) automated = true;
         if (!automated) continue;
-        // automation.mixer_values: (volume dB, pan) the track plays with at `pos`: its own, or its lanes' values
+        // (volume dB, pan) the track plays with at `pos`: its own, or its lanes' values (one being written: the hand's)
         double volumeDb = track->volumeDb, pan = track->pan;
-        if (pos) {
-            for (auto& a : track->automation) {
-                if (a->slot != track->controls || a->points.empty()) continue;
-                double value = automation::valueAt(*a->points, (double)*pos / sr);
-                if (a->param == "Volume") volumeDb = config::MIN_DB + value * (config::MAX_DB - config::MIN_DB);
-                else if (a->param == "Pan") pan = value * 2 - 1;
-            }
-        }
+        automation::mixerValues(*track, pos.has_value(), pos.value_or(0), sr, volumeDb, pan);
         int db = (int)std::nearbyint(volumeDb);
-        mixer.slider->setValueSilently(db);  // (shown only: the track's own volume stays as it is)
-        mixer.reading->showValue(db);
+        if (!mixer.slider->isSliderDown()) {  // (never under the hand moving it)
+            mixer.slider->setValueSilently(db);  // (shown only: the track's own volume stays as it is)
+            mixer.reading->showValue(db);
+        }
         mixer.pan->showValue(pan);
     }
 }
@@ -602,6 +638,19 @@ void LanePanel::fillTrackMenu(ui::Menu& menu, const TrackPtr& track) {
     if (!track->automation.empty()) {
         menu.addAction(track->showAutomation ? "Hide automation" : "Show automation",
                        guard([this, track] { toggleAutomation(track, !track->showAutomation); }));
+        // --- writing automation (automation_write.h) ---
+        bool armed = automation::anyArmed(*track);
+        ui::Action* arm = menu.addAction(
+            armed ? "Disarm its automation lanes (stop writing)" : "Arm all its automation lanes for writing",
+            guard([this, track, armed] {
+                automation::armAll(*track, !armed);
+                if (armed)
+                    for (auto& lane : track->automation) automation::recorder().release(lane);
+                if (!armed) track->showAutomation = true;  // (shown: their Write switches lit)
+                timeline.lanesChanged();  // (the rows: their Write switches and tint)
+            }));
+        arm->tooltip = armed ? "Their Write switches off: playing the song moves the controls by their curves again"
+                             : "Every lane's Write switch on: while the song plays, moving a control writes its lane";
     }
     if (!track->takes.empty()) {
         menu.addAction(track->showTakes ? "Hide takes" : "Show takes (" + std::to_string(track->takes.size()) + ")",

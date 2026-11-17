@@ -121,6 +121,7 @@ public:
     bool mouseRelease(ui::MouseEvent& e) override;
     bool mouseDoubleClick(ui::MouseEvent& e) override;
     bool wheel(ui::WheelEvent& e) override { return false; }
+    std::function<void(bool)> grabbed;  // pressed (true) and let go (false): writing automation (automation_write.h)
 
 private:
     std::function<void(double)> slot_;
