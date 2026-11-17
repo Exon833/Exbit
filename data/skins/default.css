@@ -1,0 +1,99 @@
+/* Tiny DAW's default stylesheet: every skin is this, with the variables (and rules) it changes.
+   The colours are variables of :root (--lane …), used by the rules below and by the program's own
+   drawing (theme::c("lane") reads --lane). docs/skins.md lists every selector, part and property. */
+
+:root {
+    --skin-name: "Dark";
+    font-family: system-ui;   /* the interface font (system-ui: the system's own) */
+    font-size: 9pt;
+    --mono-font: "Consolas";  /* numbers: times, LUFS (Consolas falls back to a monospaced font) */
+
+    /* Window */
+    --window: #2b2d31;             /* Window background */
+    --window-text: #dcdde0;        /* Window text */
+    --base: #1e1f22;               /* Fields and lists */
+    --alternate-base: #2b2d31;     /* Lists, every other row */
+    --text: #dcdde0;               /* Text in fields and lists */
+    --button: #36383d;             /* Buttons */
+    --button-text: #dcdde0;        /* Button text */
+    --highlight: #3d7ab8;          /* Selected items */
+    --highlighted-text: #ffffff;   /* Selected items' text */
+    --tooltip-base: #1e1f22;       /* Tooltips */
+    --tooltip-text: #dcdde0;       /* Tooltip text */
+    --disabled-text: #6b6e75;      /* Disabled text */
+    --hint-text: #9a9da5;          /* Hints */
+    --dimmed-text: #70737c;        /* Dimmed notes (updates) */
+    --accent: #3d7ab8;             /* Lit buttons (FX with plugins, Preview, Metronome…) */
+    --accent-text: #ffffff;        /* Text on lit buttons */
+    --frame-edge: #111111;         /* Thin edges */
+
+    /* Timeline */
+    --lane: #232529;               /* Track lane */
+    --lane-alt: #282a2f;           /* Track lane, every other */
+    --below-lanes: #1d1e22;        /* Below the last track */
+    --master-lane: #1e2530;        /* Master lane and row */
+    --master-divider: #465a78;     /* Line above the master */
+    --group-lane: #33363e;         /* Group header (no colour of its own) */
+    --group-accent: #a0a0af;       /* Bar beside a group's tracks */
+    --ruler-bg: #18191c;           /* Ruler */
+    --ruler-text: #9696a0;         /* Ruler text */
+    --grid-fine: #2d2f35;          /* Grid: finer lines */
+    --grid: #373a40;               /* Grid: beats (and seconds) */
+    --grid-bar: #484c56;           /* Grid: bars */
+    --playhead: #ff5050;           /* Playback cursor */
+    --cursor: #5fafff;             /* Selection cursor */
+    --selection-fill: #78aae62d;   /* Selected range */
+    --selection-edge: #96c3f5c8;   /* Selected range's edges */
+    --automation-lane: #1c1f24;    /* Automation lane (and its row) */
+    --automation-line: #e0a84a;    /* Automation curve and its points */
+    --loop: #e0a33cb4;             /* Loop range on the ruler (looping on) */
+    --loop-off: #e0a33c46;         /* Loop range on the ruler (looping off) */
+    --frozen-tint: #bee1ff46;      /* Over a frozen track's clips */
+    --overview-bg: #141518;        /* Overview bar */
+    --overview-view: #c8d2e1c8;    /* Overview: outline of the view */
+    --overview-view-fill: #c8d2e11c; /* Overview: inside the outline */
+    --overview-edge: #373a40;      /* Overview: line under it */
+
+    /* Tracks and clips */
+    --row: #232529;                /* Track rows in the right-hand panel */
+    --row-alt: #282a2f;            /* Track rows in the right-hand panel, every other */
+    --clip-audio: #326996;         /* Audio clips (no colour of their own) */
+    --clip-midi: #377d55;          /* MIDI clips (no colour of their own) */
+    --accent-audio: #5096d2;       /* Audio track stripe */
+    --accent-midi: #5abe78;        /* MIDI track stripe */
+    --accent-return: #d0913c;      /* Return track stripe */
+    --mute: #c0392b;               /* Mute (M) when on */
+    --solo: #d4a017;               /* Solo (S) when on */
+    --record: #d0433a;             /* Recording: ● Rec when on, the take as it grows */
+
+    /* Meters */
+    --meter-bg: #121316;           /* Meter background */
+    --meter-ok: #46c86e;           /* Meter: up to -12 dB (and CPU load) */
+    --meter-warn: #dcbe3c;         /* Meter: up to 0 dB */
+    --meter-hot: #dc3c32;          /* Meter: at 0 dB */
+
+    /* MIDI editor */
+    --keys-white: #e8e8ea;         /* White keys */
+    --keys-black: #1b1c1f;         /* Black keys */
+    --keys-line: #b8b9be;          /* Lines between keys */
+    --keys-label: #3a3c42;         /* Key names (C4…) */
+    --key-sounding: #5fafff96;     /* The key sounding */
+    --roll-shade: #0000006e;       /* Outside the clip */
+    --selected-note: #ffffff;      /* Selected notes */
+
+    /* Explorer */
+    --sample-wave: #78afe6;        /* Sample waveform */
+
+    /* shades worked out from the colours above (theme::shades()) */
+    --hover: color-mix(in srgb, var(--button) 90%, var(--button-text) 10%);  /* a control under the mouse */
+    --pressed: color-mix(in srgb, var(--button) 82%, var(--button-text) 18%);  /* pressed, or switched on */
+    --disabled: color-mix(in srgb, var(--button) 50%, var(--window) 50%);  /* a disabled button's fill */
+    --line: color-mix(in srgb, var(--window) 90%, var(--window-text) 10%);  /* dividing lines, edges of menus */
+    --field-edge: color-mix(in srgb, var(--base) 86%, var(--text) 14%);  /* the edge of fields */
+    --field-hover: color-mix(in srgb, var(--base) 74%, var(--text) 26%);  /* … under the mouse */
+    --item-hover: color-mix(in srgb, var(--base) 93%, var(--text) 7%);  /* list rows under the mouse */
+    --panel: color-mix(in srgb, var(--window) 55%, var(--base) 45%);  /* boxes grouping controls */
+    --handle: color-mix(in srgb, var(--window) 78%, var(--window-text) 22%);  /* scroll bar handles */
+    --handle-hover: color-mix(in srgb, var(--window) 62%, var(--window-text) 38%);  /* … under the mouse */
+    --accent-hover: color-mix(in srgb, var(--accent) 85%, var(--accent-text) 15%);  /* lit buttons under the mouse */
+}
