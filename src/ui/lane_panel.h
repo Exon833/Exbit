@@ -128,6 +128,8 @@ public:
     // right-click a MIDI track's row → MIDI effects…: opens its MIDI effects window (by default
     // midi_effects_dialog::openMidiEffects; unset: the entry isn't offered)
     std::function<void(const TrackPtr&)> openMidiEffects;
+    // right-click a track's row: its presets and MIDI controller links (presets_ui::fillTrackMenu; unset: none)
+    std::function<void(ui::Menu&, const TrackPtr&)> fillPresetMenu;
     int channels;
     bool showLevels = true, showLoudness = true;  // Options menu
     // fed by the main window every frame (meters) and every CPU_REFRESH_MS (loudness)

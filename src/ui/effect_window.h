@@ -30,6 +30,7 @@
 #include "ui/toolkit/widget.h"
 
 namespace automation { class TweakWatcher; }
+namespace ui { class HBox; }
 
 namespace effect_window {
 constexpr int REFRESH_MS = 50;  // meters, and the controls following automation
@@ -114,6 +115,18 @@ public:
     MeterView* meterView = nullptr;  // (a TunerView for the Tuner)
     ui::ComboBox* analyzerBox = nullptr;  // what the analyzer listens to (an effect with one)
     ui::Button* defaultsButton = nullptr;
+
+    // --- presets and MIDI learn (effect_window_presets.cpp; presets_ui.h, midi_learn.h) ---
+    // "Presets ▾": save, load, rename or delete its presets, and compare (Keep this, Now / Kept); while
+    // settings are kept, the names of the parameters that differ between Now and Kept are marked.
+    // Right-click a control (or its name): link it to a MIDI controller.
+    ui::Button* presetsButton = nullptr;
+    std::vector<ui::Label*> nameLabels;  // each parameter's name (by index; null if not found)
+    std::vector<int> marked;             // the parameters marked now
+    void addPresetsButton(ui::HBox* row);
+    void showDifferences();              // (every follow())
+    int controlAt(Point pos);            // the parameter whose control or name is at pos (window coordinates), or -1
+    bool contextMenu(ui::MouseEvent& e) override;
 
 private:
     void edit(int index, double normal);

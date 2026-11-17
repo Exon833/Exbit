@@ -67,6 +67,7 @@ TrackPtr MidiInput::target() const {
 }
 
 void MidiInput::handle(const midi_in::Event& e) {
+    if (e.type == midi_in::Event::Control && controlHook && controlHook(e)) return;  // (MIDI learn's: midi_learn.h)
     out_.clear();
     sustain.handle(e, out_);
     std::vector<midi_in::Event> played = out_;  // (play() may be re-entered by the recorder)

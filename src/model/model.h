@@ -461,6 +461,19 @@ extern std::function<std::vector<Note>(const Track& track, const std::vector<Not
 extern std::function<AudioPtr(const Track& track, const std::vector<Note>& notes, int sr, double lengthS)> renderSampler;
 }  // namespace clip_hooks
 
+// --- a MIDI controller link (ui/midi_learn.h): a knob of a MIDI controller (a control change number) moving
+// a parameter, as if turned in its window ---
+// GUI thread only (the audio thread never reads them). Saved with the project by track index, plugin and
+// parameter name (project_io), only when there are any.
+struct MidiLink {
+    std::string controller;  // the MIDI input it was learned from (shown in the list; any input moves it)
+    int channel = 0;         // 0-15
+    int cc = 0;              // the control change number, 0-127
+    TrackPtr track;          // the track holding the parameter; null: the master's effects
+    SlotPtr slot;            // one of its plugins (instrument, rack instrument, effect), or its `controls` (Volume / Pan)
+    std::string param;       // the parameter's name (as automation names it)
+};
+
 // --- the project ---
 class Project {
 public:
@@ -475,6 +488,7 @@ public:
     std::map<std::string, int> tracksMade;  // "audio" / "midi" / "return" / "group": numbering for default names
     Timing timing;
     List<Marker> markers;           // by time
+    std::vector<MidiLink> midiLinks;  // MIDI controller links (ui/midi_learn.h; GUI thread only)
 
     void forgetGoneTracks();        // unplug sidechain cables from tracks that are gone (and sends to returns)
     std::vector<SlotPtr> pluginSlots() const;  // instruments, rack instruments, track effects, master effects

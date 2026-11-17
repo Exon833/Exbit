@@ -87,6 +87,8 @@ public:
 
     // recording MIDI: called with each note on / off as played (the pedal taken into account)
     std::function<void(const midi_in::Event&)> recorder;
+    // control changes are offered here first (GUI thread; MIDI learn: midi_learn.h): true = used, not played
+    std::function<bool(const midi_in::Event&)> controlHook;
     std::deque<LogEntry> log;              // (clock, heard frame, on, pitch, velocity), for Capture
     double capturedAt = -1.0;              // clock time of the last Capture: notes before it were captured
     double now() const;                    // the log's clock (plat::now(); tests may set `clock`)

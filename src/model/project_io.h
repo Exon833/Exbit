@@ -157,4 +157,13 @@ std::vector<MidiEffect> readMidiEffects(const Json& entries);
 // the scales the song's key and scale may name (midi_effects.SCALES; "" = none)
 const std::vector<std::string>& scaleNames();
 
+// --- MIDI controller links (model.h MidiLink, ui/midi_learn.h): the project's "midi_links", written only when
+// there are any (older files and projects without links unchanged): [{"controller": name, "channel": c, "cc": n,
+// "track": <its index> | "master", "plugin": "track" (its volume / pan) | "instrument" | ["rack", i] | <effect
+// index>, "param": name}]. Links whose track or plugin is gone are left out; reading leaves out those that name
+// nothing there. ---
+Json describeMidiLinks(const Project& project);
+std::vector<MidiLink> readMidiLinks(const Json& entries, const std::vector<TrackPtr>& tracks,
+                                    const std::vector<SlotPtr>& masterEffects);
+
 }  // namespace project_io

@@ -716,7 +716,7 @@ Json describe(const Project& project, int sr, const MasterSettings& master, Audi
     for (auto& t : tracks) trackList.push(describeTrack(*t, groups, sr, audioFile, states, tracks));
     Json masterEffects = Json::array();
     for (auto& s : project.masterEffects) masterEffects.push(describeSlot(*s, states));
-    return Json::object({
+    Json out = Json::object({
         {"format", Json(FORMAT)},
         {"version", Json(VERSION)},
         {"master", master.toJson()},
@@ -729,6 +729,11 @@ Json describe(const Project& project, int sr, const MasterSettings& master, Audi
         {"master_effects", masterEffects},
         {"master_cables", describeCables(*project.masterCables, *project.masterEffects, tracks)},
     });
+    if (!project.midiLinks.empty()) {  // (MIDI controller links: only then, so other projects save as before)
+        Json links = describeMidiLinks(project);
+        if (links.size()) out.set("midi_links", links);
+    }
+    return out;
 }
 
 std::string audioFolder(const std::string& jsonPath) {
@@ -1227,6 +1232,7 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
         for (const Json& s : field(data, "master_effects").items())
             if (s.isObject()) masterEffects.push_back(readSlot(s));
         std::vector<Cable> masterCables = readCables(field(data, "master_cables"), masterEffects, tracks);
+        std::vector<MidiLink> midiLinks = readMidiLinks(field(data, "midi_links"), tracks, masterEffects);
 
         // all read: now the project is replaced (its plugins retired, never destroyed under the audio thread)
         for (auto& slot : project.pluginSlots())
@@ -1246,6 +1252,7 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
         project.gatherGroups();
         project.timing = timing;
         project.setMarkers(markers);
+        project.midiLinks = midiLinks;
         master = MasterSettings::fromJson(field(data, "master"));
         return true;
     } catch (const Damaged& d) {
@@ -1254,6 +1261,72 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
     } catch (const LoadFailed&) {
         return false;
     }
+}
+
+// --- MIDI controller links (see the header) ----------------------------------------------------
+
+Json describeMidiLinks(const Project& project) {
+    Json out = Json::array();
+    for (const MidiLink& link : project.midiLinks) {
+        if (!link.slot || link.param.empty()) continue;
+        Json track, plugin;
+        if (!link.track) {
+            int fx = project.masterEffects.indexOf(link.slot);
+            if (fx < 0) continue;  // (gone)
+            track = Json("master");
+            plugin = Json(fx);
+        } else {
+            int row = project.tracks.indexOf(link.track);
+            if (row < 0) continue;
+            track = Json(row);
+            const Track& t = *link.track;
+            int rack = t.rack.indexOf(link.slot), fx = t.effects.indexOf(link.slot);
+            if (link.slot == t.controls) plugin = Json("track");
+            else if (t.instrument && link.slot == t.instrument) plugin = Json("instrument");
+            else if (rack >= 0) plugin = Json::array({Json("rack"), Json(rack)});
+            else if (fx >= 0) plugin = Json(fx);
+            else continue;
+        }
+        out.push(Json::object({{"controller", Json(link.controller)},
+                               {"channel", Json(link.channel)},
+                               {"cc", Json(link.cc)},
+                               {"track", track},
+                               {"plugin", plugin},
+                               {"param", Json(link.param)}}));
+    }
+    return out;
+}
+
+std::vector<MidiLink> readMidiLinks(const Json& entries, const std::vector<TrackPtr>& tracks,
+                                    const std::vector<SlotPtr>& masterEffects) {
+    std::vector<MidiLink> out;
+    for (const Json& e : entries.items()) {
+        if (!e.isObject()) continue;
+        MidiLink link;
+        link.controller = e.str("controller");
+        double channel = e.num("channel", 0), cc = e.num("cc", -1);
+        if (!(channel >= 0 && channel <= 15 && cc >= 0 && cc <= 127)) continue;
+        link.channel = (int)channel;
+        link.cc = (int)cc;
+        link.param = e.str("param");
+        const Json& plugin = e["plugin"];
+        size_t i;
+        if (e["track"].isString() && e["track"].toString() == "master") {
+            if (isIndex(plugin, masterEffects.size(), i)) link.slot = masterEffects[i];
+        } else if (isIndex(e["track"], tracks.size(), i)) {
+            link.track = tracks[i];
+            const Track& t = *link.track;
+            if (plugin.isString() && plugin.toString() == "track") link.slot = t.controls;
+            else if (plugin.isString() && plugin.toString() == "instrument") link.slot = t.instrument;
+            else if (plugin.isArray() && plugin.size() == 2 && plugin[size_t(0)].isString() &&
+                     plugin[size_t(0)].toString() == "rack" && isIndex(plugin[size_t(1)], t.rack.size(), i))
+                link.slot = t.rack[i];
+            else if (isIndex(plugin, t.effects.size(), i))
+                link.slot = t.effects[i];
+        }
+        if (link.slot && !link.param.empty()) out.push_back(link);
+    }
+    return out;
 }
 
 }  // namespace project_io

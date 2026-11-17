@@ -721,7 +721,7 @@ static void testExplorerWidget() {
     // folders: + adds (remembered), − removes (nothing deleted)
     ex->addFolderPath(root + "/Drums/");
     CHECK(ex->folders.size() == 2 && ex->folders[1] == root + "/Drums");
-    CHECK(ex->folderBox->count() == 2 && ex->folderBox->currentText() == "Drums");
+    CHECK(ex->folderBox->count() == 3 && ex->folderBox->currentText() == "Drums");
     CHECK(explorer::loadFolders().size() == 2);
     CHECK(ex->tree->rootPath() == root + "/Drums");
     CHECK(waitFor([&] { return !ex->indexing; }));
@@ -732,7 +732,7 @@ static void testExplorerWidget() {
     CHECK(util::isDir(root + "/Drums"));
     ex->removeFolder();
     CHECK(ex->folders.empty());
-    CHECK(ex->folderBox->count() == 1 && ex->folderBox->currentText() == "No folders yet: add one with +");
+    CHECK(ex->folderBox->count() == 2 && ex->folderBox->itemText(1) == "Presets (track presets)" && ex->folderBox->currentText() == "No folders yet: add one with +");
     CHECK(!ex->removeButton->isEnabled());
     CHECK(!ex->tree->isVisible());
     CHECK(waitFor([&] { return !ex->indexing; }));

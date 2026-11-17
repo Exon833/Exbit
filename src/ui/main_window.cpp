@@ -29,6 +29,8 @@
 #include "ui/master_lane.h"
 #include "ui/master_strip.h"
 #include "ui/midi_input.h"
+#include "ui/midi_learn.h"
+#include "ui/presets_ui.h"
 #include "ui/computer_keyboard.h"
 #include "ui/metronome_dialog.h"
 #include "ui/midi_editor.h"
@@ -260,6 +262,7 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     openFirstDevice();
     setUpMidi();
     history = std::make_unique<history::History>(project, engine.sr);
+    setUpPresets();  // (presets' menus, the Explorer's Presets place, MIDI learn: main_window_presets.cpp)
     {
         std::weak_ptr<bool> alive = alive_;
         historyTimer_ = App::get().every(HISTORY_MS, [this, alive] {
@@ -291,6 +294,10 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
 
 MainWindow::~MainWindow() {
     *alive_ = false;
+    // (presets and MIDI learn: their hooks let go first)
+    if (midi_learn::active() == learner.get()) midi_learn::setActive(nullptr);
+    if (midiInput) midiInput->controlHook = nullptr;
+    presets_ui::setHost({});
     historyWindow.reset();  // (it reads the history)
     if (frameId_ >= 0) App::get().removeFrame(frameId_);
     if (cpuTimer_ >= 0) App::get().cancelTimer(cpuTimer_);
@@ -581,6 +588,7 @@ void MainWindow::buildOptionsMenu() {
     ui::Menu* menu = menuBar->addMenu("&Options");
     menu->addAction("&Audio properties…", [this] { showAudioProperties(); });
     addMidiOptions(menu);  // Recording offset…, MIDI input…, Computer keyboard
+    addPresetOptions(menu);  // MIDI controller links…
     ui::Menu* starts = menu->addMenu("&New projects start from");  // (an empty project, or a template: templates.h)
     starts->aboutToShow = [this](ui::Menu* m) { templates::fillDefaultMenu(m, *this); };
     menu->addAction("&VST2 plugin folders…", [this] { chooseVst2Folders(); });

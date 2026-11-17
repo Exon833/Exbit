@@ -403,6 +403,9 @@ public:
     void wheel(double delta, int mods, double x);
     // files dropped at frame on lane (and the lanes below); no lane or the master lane: new tracks
     void dropPaths(const std::vector<std::string>& paths, int64_t frame, const std::optional<Lane>& lane);
+    // a track preset (model/presets.h) dropped onto a track's lane (track), or elsewhere (null: a new track);
+    // unset: such files are dropped as any other file
+    std::function<void(const std::string& path, const TrackPtr& track)> dropPreset;
 
     bool mousePress(ui::MouseEvent& e) override;
     bool mouseMove(ui::MouseEvent& e) override;

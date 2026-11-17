@@ -191,6 +191,11 @@ public:
     void stopPreview();
     void openPath(const std::string& path);  // double-click: add it at the cursor
 
+    // --- the track presets' place (the last entry of the folder box; model/presets.h) ---
+    // a track preset double-clicked (unset: nothing happens); dragging one out drags its file
+    std::function<void(const std::string& path)> openPreset;
+    void presetsChanged();                   // presets saved, renamed or deleted: their list shown afresh
+
     // the sample in the waveform
     const std::string& shownPath() const { return shownPath_; }
     AudioPtr shownAudio() const { return shownAudio_; }

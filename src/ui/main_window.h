@@ -58,6 +58,9 @@ class Autosave;
 namespace midi_input {
 class MidiInput;
 }
+namespace midi_learn {
+class Learner;
+}
 namespace computer_keyboard {
 class ComputerKeyboard;
 }
@@ -285,6 +288,13 @@ public:
     bool saveProject();
     bool saveProjectAs();
     bool saveProjectFile(const std::string& path);
+
+    // --- presets and MIDI learn (main_window_presets.cpp; presets_ui.h, midi_learn.h) ---
+    std::unique_ptr<midi_learn::Learner> learner;  // MIDI controller links (the project's), learnt from MIDI input
+    void setUpPresets();                 // the presets' menus, the Explorer's Presets place, MIDI learn
+    void addPresetOptions(ui::Menu* menu);  // Options → MIDI controller links…
+    void showMidiLinks();
+    void showMixerOf(const TrackPtr& track);  // a track's fader and pan moved by a MIDI controller: its row shows it
 
     // --- periodic updates ---
     void onFrame();
