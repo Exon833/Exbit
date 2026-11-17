@@ -230,6 +230,12 @@ protected:
 
     double v(int index) const { return value(index); }
     double tempo() const { return tempo_.load(std::memory_order_relaxed); }
+    // the transport, as setTransport() last told it: playing or stopped, a bar's length in beats
+    // (quarter notes: 4 in 4/4, 3 in 6/8), and the timeline frame where this block starts (it moves
+    // on by itself, block after block, while playing and no new position is told)
+    bool playing() const { return playing_.load(std::memory_order_relaxed); }
+    double beatsPerBar() const;
+    int64_t position() const { return position_.load(std::memory_order_relaxed); }
     double sr = 48000.0;
 
 private:
@@ -242,6 +248,9 @@ private:
     std::vector<std::atomic<double>> normals_, values_;
     std::atomic<bool> changed_{true};
     std::atomic<double> tempo_{120.0};
+    std::atomic<int> numerator_{4}, denominator_{4};
+    std::atomic<bool> playing_{false};
+    std::atomic<int64_t> position_{0};
     int64_t quiet_ = 0;  // frames its input and output have been silent for
     int maxBlock_ = 0;
     Rows in_, side_;  // (the input copied: process() may be given the same buffers in and out)

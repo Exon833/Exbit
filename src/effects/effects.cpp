@@ -29,6 +29,9 @@ const std::vector<Entry>& entries() {
             {{"reverb", "Reverb", "Reverb"}, makeReverb},
             {{"saturation", "Saturation", "Distortion"}, makeSaturation},
             {{"utility", "Utility", "Utility"}, makeUtility},
+            // (transient shaping and time manipulation: transient.cpp, timefx.cpp)
+            {{"transient_shaper", "Transient Shaper", "Dynamics"}, makeTransientShaper},
+            {{"time_fx", "Time FX", "Delay"}, makeTimeFx},
         };
         auto lower = [](std::string s) {
             for (auto& c : s) c = (char)std::tolower((unsigned char)c);

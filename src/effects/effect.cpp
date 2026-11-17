@@ -340,7 +340,19 @@ void Effect::reset() {
     changed_ = true;
 }
 
-void Effect::setTransport(double tempo, int, int, bool, int64_t) { tempo_.store(tempo, std::memory_order_relaxed); }
+void Effect::setTransport(double tempo, int numerator, int denominator, bool playing, int64_t positionFrames) {
+    tempo_.store(tempo, std::memory_order_relaxed);
+    numerator_.store(numerator, std::memory_order_relaxed);
+    denominator_.store(denominator, std::memory_order_relaxed);
+    playing_.store(playing, std::memory_order_relaxed);
+    position_.store(positionFrames, std::memory_order_relaxed);
+}
+
+double Effect::beatsPerBar() const {
+    int num = numerator_.load(std::memory_order_relaxed), den = denominator_.load(std::memory_order_relaxed);
+    if (num <= 0 || den <= 0) return 4.0;
+    return std::min(64.0, std::max(0.25, num * 4.0 / den));
+}
 
 bool Effect::silent(const float* const* x, int n) {
     for (int c = 0; c < 2; c++)
@@ -361,6 +373,7 @@ void Effect::process(const float* const in[2], const float* const sidechain[2], 
         }
         float* o[2] = {out[0] + done, out[1] + done};
         chunk(i, s[0] ? s : nullptr, o, n);
+        if (playing()) position_.fetch_add(n, std::memory_order_relaxed);  // (the next piece's place)
         done += n;
     }
 }
