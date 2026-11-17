@@ -33,6 +33,8 @@ struct Fonts {
     double uiSize = 0;     // its size in points
     std::string mono = "Consolas";  // times and LUFS numbers ("Consolas" falls back to a monospaced font)
 };
+// every variable theme reads as a colour: the colours' (--lane…) and the shades' (--hover…)
+std::vector<std::string> colorVariables();
 // "lane_alt" -> "--lane-alt": a colour's name as a stylesheet variable
 std::string variableName(const std::string& name);
 

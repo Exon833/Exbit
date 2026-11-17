@@ -51,10 +51,35 @@ std::vector<std::string> texts(const std::vector<css::Problem>& problems) {
     return out;
 }
 
-css::SheetPtr parseFile(const std::string& path, std::vector<css::Problem>& problems, bool& ok) {
+css::SheetPtr parseFile(const std::string& path, std::vector<css::Problem>& problems, bool& ok,
+                        std::string* textOut = nullptr) {
     std::string text;
     ok = util::readFile(path, text);
+    if (textOut) *textOut = text;
     return ok ? css::parse(text, util::baseName(path), problems) : nullptr;
+}
+
+// where `variable` is declared last among the files ({name, text}, in cascade order): its line and column
+bool declaredAt(const std::vector<std::pair<std::string, std::string>>& files, const std::string& variable,
+                css::Problem& where) {
+    for (size_t f = files.size(); f-- > 0;) {
+        const std::string& t = files[f].second;
+        size_t found = std::string::npos;
+        for (size_t at = t.find(variable); at != std::string::npos; at = t.find(variable, at + 1)) {
+            unsigned char before = at ? (unsigned char)t[at - 1] : ' ';
+            if (isalnum(before) || before == '-' || before == '_') continue;
+            size_t k = at + variable.size();
+            while (k < t.size() && (t[k] == ' ' || t[k] == '\t')) k++;
+            if (k < t.size() && t[k] == ':') found = at;  // (the last one counts)
+        }
+        if (found == std::string::npos) continue;
+        where.source = files[f].first;
+        where.line = 1 + (int)std::count(t.begin(), t.begin() + (long)found, '\n');
+        size_t lineStart = t.rfind('\n', found);
+        where.column = (int)(found - (lineStart == std::string::npos ? 0 : lineStart + 1)) + 1;
+        return true;
+    }
+    return false;
 }
 
 // the stylesheet's text with its --skin-name set to `name` (added at its end if it has none)
@@ -204,18 +229,35 @@ Skin find(const std::string& name, const std::string& user) {
 std::vector<std::string> apply(const Skin& s) {
     std::vector<css::Problem> problems;
     std::vector<css::SheetPtr> sheets;
+    std::vector<std::pair<std::string, std::string>> files;  // (name, text) of each, for where things are
     bool ok = false;
-    std::string def = defaultSheet();
-    if (css::SheetPtr d = parseFile(def, problems, ok)) sheets.push_back(d);
+    std::string def = defaultSheet(), text;
+    if (css::SheetPtr d = parseFile(def, problems, ok, &text)) {
+        sheets.push_back(d);
+        files.emplace_back(util::baseName(def), text);
+    }
     else {  // (the copy built into the program instead)
         problems.push_back({util::baseName(def), 0, 0, "can't read the program's own stylesheet " + def + " (using the one built in)"});
         sheets.push_back(theme::builtinSheet());
     }
     if (!s.path.empty() && util::absolutePath(s.path) != util::absolutePath(def)) {
-        if (css::SheetPtr sheet = parseFile(s.path, problems, ok)) sheets.push_back(sheet);
-        else problems.push_back({util::baseName(s.path), 0, 0, "can't read " + s.path});
+        if (css::SheetPtr sheet = parseFile(s.path, problems, ok, &text)) {
+            sheets.push_back(sheet);
+            files.emplace_back(util::baseName(s.path), text);
+        } else {
+            problems.push_back({util::baseName(s.path), 0, 0, "can't read " + s.path});
+        }
     }
     theme::setStyles(std::move(sheets), &problems);
+    // colour variables that aren't colours (any text is a variable's value: only its use tells)
+    for (const std::string& var : theme::colorVariables()) {
+        std::optional<std::string> v = theme::styles().root().variable(var);
+        css::Rgba rgba;
+        if (!v || css::parseColor(*v, rgba)) continue;
+        css::Problem p{"", 0, 0, var + ": '" + *v + "' is not a colour (the default is used)"};
+        if (!declaredAt(files, var, p)) p.source = s.name;
+        problems.push_back(p);
+    }
     colors::clearCache();
     auto copy = hooks();
     for (auto& h : copy)

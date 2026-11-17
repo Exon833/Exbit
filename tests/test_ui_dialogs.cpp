@@ -150,9 +150,14 @@ static void testSkinFiles() {
         CHECK(s.name == "Bob's \"own\"" && !s.builtin && s.path == mine);
         problems = skin::apply(s);
         CHECK(!problems.empty());
-        bool located = false;
-        for (auto& p : problems) located = located || util::startsWith(p, "Mine.css:");
-        CHECK(located);
+        bool located = false, notColour = false;
+        for (auto& p : problems) {
+            located = located || util::startsWith(p, "Mine.css:10:");  // (Button { color: ; })
+            notColour = notColour || p == "Mine.css:4:5: --lane: 'blu' is not a colour (the default is used)";
+        }
+        CHECK(located && notColour);
+        if (!located || !notColour)
+            for (auto& p : problems) printf("  %s\n", p.c_str());
         CHECK(theme::c("button").hex() == "#102030");
         CHECK(theme::c("lane").hex() == "#232529");  // (not a colour: default.css's)
         CHECK(same(theme::shades().hover, mixColor(Color::fromHex("#102030"), theme::c("button_text"), 0.10f)));

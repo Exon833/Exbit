@@ -46,7 +46,8 @@ extends; that program is in the repository's history.
   chain; compare two settings of one effect (Now / Kept); link any knob to a MIDI controller's knob.
 - **Projects**: templates, recent projects, backups of what each save replaces, autosave with crash
   recovery, Ableton Live set import.
-- **Look**: skins (Dark, Light, Midnight, OLED, High contrast, or your own, editable), interface size
+- **Look**: skins written in CSS (Dark, Light, Midnight, OLED, High contrast, or your own): every colour,
+  font, padding, border, corner and size of the interface, edited in your text editor and shown live; interface size
   75–200 %, a sample Explorer with search and previews, a project overview.
 
 ## The master scope
@@ -252,6 +253,49 @@ the song (2.7 ms at 48 kHz) whatever the buffer size. A Windows plugin's knobs m
 parameters are sent to its Wine host with the sound). An instrument's knobs move once per buffer
 (it plays before the effects). Modulation is saved with the project. (Not yet: modulating a track's
 own fader and pan, and modulators on the master.)
+
+## Skins (CSS)
+
+The whole interface is styled by stylesheets written in CSS. `data/skins/default.css` is the program's
+own: it holds every colour as a variable of `:root` (`--lane`, `--playhead`, `--meter-hot`… each with a
+comment saying what it colours), the shades worked out from them (`--hover: color-mix(…)`), the fonts, the
+layout's sizes (`--ruler-height`…), and the rules that draw every control and surface from them. A skin is
+a stylesheet put on top of it: it changes only what it names.
+
+```css
+/* a skin of your own: a few colours, and a rule */
+:root {
+    --skin-name: "Night owl";
+    --window: #15171c;
+    --lane: #1b1e25;
+    --playhead: #ff6b81;
+    font-family: "Noto Sans";
+    font-size: 10pt;
+}
+PushButton { border-radius: 8px; padding: 5px 16px; }
+.toggle-solo { --toggle-color: #2fbf71; }
+```
+
+- **Options → Skin** lists the skins: the program's own, then yours (`~/.local/share/TinyDAW/skins`).
+- **Edit this skin…** opens the skin's stylesheet in your text editor (the one your desktop opens `.css`
+  files with). One of the program's own skins is copied into your skins folder first, under a name you
+  choose. **Tiny DAW shows what you save at once**: it watches the file (and `default.css`), and the
+  status bar says "Skin … reloaded".
+- **Skin problems** lists what Tiny DAW left out of the stylesheet, with the file, line and column
+  (`Mine.css:12:5: unknown colour 'blu' (left out)`): like a browser, it skips what it can't read and keeps the
+  default there, so a typo never breaks the interface.
+- **Import skin…** copies a `.css` skin into your folder; **Export this skin…** saves a copy of it anywhere.
+- Skins of earlier versions (JSON) found in your skins folder are turned into stylesheets once, the
+  first time the skins are listed; the JSON files are moved into the folder's `old JSON skins`.
+
+Rules match the interface by **type** (`Button`, `PushButton`, `ToolButton`, …), `#name`, **class** (the
+program's own marks: `.lit`, `.accent`, `.toggle-mute`, …) and **state** (`:hover`, `:pressed`, `:checked`,
+`:disabled`, `:focus`, and each control's own, like a button's `:lit`), with parts (`Button::arrow`). The
+CSS understood: selectors (type, `*`, `.class`, `#id`, states, `:root`, `::part`, descendant and child,
+lists) with specificity and `!important`; colours (`#hex`, `rgb()`, `hsl()`, names, `transparent`,
+`currentColor`, `color-mix(in srgb, …)`); lengths in `px`, `pt`, `em`, `%` and `calc()`; `var()` with
+fallbacks; the `padding`, `margin`, `border`, `border-radius` and `background` shorthands. **docs/skins.md**
+lists every variable, type, part, class, state and property.
 
 ## Several cores
 

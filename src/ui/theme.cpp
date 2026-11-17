@@ -154,6 +154,15 @@ void refresh() {
 }
 }  // namespace
 
+std::vector<std::string> colorVariables() {
+    std::vector<std::string> out;
+    for (auto& info : colors()) out.push_back(variableName(info.name));
+    for (const char* v : {"--hover", "--pressed", "--disabled", "--line", "--field-edge", "--field-hover", "--item-hover",
+                          "--panel", "--handle", "--handle-hover", "--accent-hover"})
+        out.push_back(v);
+    return out;
+}
+
 std::string variableName(const std::string& name) {
     std::string v = "--" + name;
     for (char& ch : v)
