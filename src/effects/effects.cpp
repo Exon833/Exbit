@@ -23,11 +23,14 @@ const std::vector<Entry>& entries() {
             {{"compressor", "Compressor", "Dynamics"}, makeCompressor},
             {{"delay", "Delay", "Delay"}, makeDelay},
             {{"eq", "EQ", "EQ"}, makeEq},
+            {{"filter_motion", "Filter Motion", "Filter"}, makeFilterMotion},
             {{"gate", "Gate", "Dynamics"}, makeGate},
             {{"limiter", "Limiter", "Dynamics"}, makeLimiter},
             {{"multiband_compressor", "Multi-band compressor", "Dynamics"}, makeMultibandCompressor},
+            {{"phaser_flanger", "Phaser / Flanger", "Modulation"}, makePhaserFlanger},
             {{"reverb", "Reverb", "Reverb"}, makeReverb},
             {{"saturation", "Saturation", "Distortion"}, makeSaturation},
+            {{"tremolo_pan", "Tremolo / Pan", "Modulation"}, makeTremoloPan},
             {{"utility", "Utility", "Utility"}, makeUtility},
         };
         auto lower = [](std::string s) {

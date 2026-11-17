@@ -105,14 +105,17 @@ void set(Effect& fx, const std::string& key, double value) {
 
 void testFactory() {
     const auto& all = list();
-    CHECK(all.size() == 11);
+    CHECK(all.size() == 14);
     std::vector<std::string> names;
     for (const auto& i : all) names.push_back(i.name);
-    CHECK((names == std::vector<std::string>{"Bit-crusher", "Chorus", "Compressor", "Delay", "EQ", "Gate", "Limiter",
-                                             "Multi-band compressor", "Reverb", "Saturation", "Utility"}));
+    CHECK((names == std::vector<std::string>{"Bit-crusher", "Chorus", "Compressor", "Delay", "EQ", "Filter Motion",
+                                             "Gate", "Limiter", "Multi-band compressor", "Phaser / Flanger", "Reverb",
+                                             "Saturation", "Tremolo / Pan", "Utility"}));
     CHECK(find("builtin:multiband_compressor") && find("builtin:multiband_compressor")->category == "Dynamics");
     CHECK(find("eq")->path() == "builtin:eq" && find("eq")->label() == "EQ  (built-in)");
     CHECK(categoryOf("builtin:chorus") == "Modulation" && categoryOf("builtin:x") == "Other");
+    CHECK(categoryOf("builtin:filter_motion") == "Filter" && categoryOf("builtin:phaser_flanger") == "Modulation" &&
+          categoryOf("builtin:tremolo_pan") == "Modulation");
     CHECK(isBuiltin("builtin:eq") && !isBuiltin("/usr/lib/vst3/x.vst3"));
     for (const auto& info : all) {
         std::string error;
@@ -122,7 +125,7 @@ void testFactory() {
         CHECK(fx->id() == info.id && fx->name() == info.name && fx->vendor() == "Tiny DAW");
         CHECK(!fx->hasEditor() && !fx->isInstrument() && !fx->isVst2() && fx->subcategories() == "Fx");
         CHECK(fx->sampleRate() == 48000);
-        bool side = info.id == "compressor" || info.id == "gate";
+        bool side = info.id == "compressor" || info.id == "gate" || info.id == "filter_motion";
         CHECK(fx->hasSidechain() == side);
         CHECK(fx->latency() == (info.id == "limiter" ? 96 : 0));
     }
@@ -575,6 +578,230 @@ void testChorus() {
     CHECK(diff < 1e-6);
 }
 
+// --- the moving effects (Filter Motion, Phaser / Flanger, Tremolo / Pan) ---
+
+Stereo noise(double amp, double seconds, unsigned seed = 7) {
+    std::mt19937 gen(seed);
+    std::uniform_real_distribution<float> u(-1.0f, 1.0f);
+    Stereo s((size_t)(seconds * SR));
+    for (size_t i = 0; i < s.size(); i++) {
+        s.l[i] = (float)(amp * u(gen));
+        s.r[i] = (float)(amp * u(gen));
+    }
+    return s;
+}
+
+Stereo constant(double level, double seconds) {
+    Stereo s((size_t)(seconds * SR));
+    std::fill(s.l.begin(), s.l.end(), (float)level);
+    std::fill(s.r.begin(), s.r.end(), (float)level);
+    return s;
+}
+
+bool finite(const Stereo& s) {
+    for (size_t i = 0; i < s.size(); i++)
+        if (!std::isfinite(s.l[i]) || !std::isfinite(s.r[i])) return false;
+    return true;
+}
+double peakOf(const Stereo& s) { return std::max(peak(s.l, 0, s.size()), peak(s.r, 0, s.size())); }
+
+// what every moving effect does: silence in, silence out (and asleep); a sine at its defaults stays
+// finite and about as loud; its state saved and loaded into a fresh one gives the same settings
+void checkCommon(const char* id, const std::vector<std::pair<std::string, double>>& settings) {
+    auto fx = create(id);
+    Stereo silence((size_t)(2.0 * SR));
+    Stereo out = run(*fx, silence);
+    CHECK(peakOf(out) == 0 && fx->asleep());
+    Stereo tone = sine(440, 0.5, 2.0, 0.3);
+    out = run(*fx, tone);
+    CHECK(finite(out) && peakOf(out) < 1.0 && rms(out.l, (size_t)SR, out.size()) > 0.05);
+    if (!finite(out) || peakOf(out) >= 1.0) fprintf(stderr, "  %s: sine peak %g\n", id, peakOf(out));
+    for (const auto& [k, value] : settings) set(*fx, k, value);
+    auto again = create(id);
+    again->setState(fx->componentState(), "");
+    for (uint32_t i = 0; i < fx->params().size(); i++) CHECK_NEAR(again->getParam(i), fx->getParam(i), 1e-12);
+    for (const auto& [k, value] : settings) CHECK_NEAR(again->value(k), value, 1e-9);
+}
+
+// 10 s of loud noise at extreme settings: finite, and no louder than `most`
+void checkExtreme(const char* id, const std::vector<std::pair<std::string, double>>& settings, double most) {
+    auto fx = create(id);
+    fx->setTransport(240, 4, 4, true, 0);
+    for (const auto& [k, value] : settings) set(*fx, k, value);
+    Stereo in = noise(1.0, 10.0);
+    Stereo out = run(*fx, in, 256, &in);
+    double p = peakOf(out);
+    CHECK(finite(out) && p < most);
+    if (!finite(out) || p >= most) fprintf(stderr, "  %s at extremes: peak %g\n", id, p);
+    // and silence after it dies away to sleep
+    out = run(*fx, Stereo((size_t)(20.0 * SR)));
+    CHECK(fx->asleep() && peak(out.l, out.size() - 4800, out.size()) == 0);
+}
+
+// how many times the left side rises through `level`
+int risings(const std::vector<float>& x, double level) {
+    int count = 0;
+    for (size_t i = 1; i < x.size(); i++)
+        if (x[i - 1] < level && x[i] >= level) count++;
+    return count;
+}
+
+void testFilterMotion() {
+    checkCommon("filter_motion", {{"type", 2}, {"cutoff", 350}, {"lfo_depth", -1.5}, {"lfo_sync", 1},
+                                  {"lfo_beats", 6}, {"env_amount", 2.25}, {"sidechain", 1}});
+    for (int type = 0; type < 4; type++)
+        for (int slope = 0; slope < 2; slope++)
+            for (double drive : {0.0, 24.0})
+                for (int shape : {4, 6})
+                    checkExtreme("filter_motion",
+                                 {{"type", type}, {"slope", slope}, {"resonance", 100}, {"drive", drive},
+                                  {"lfo_rate", 20}, {"lfo_depth", shape == 4 ? 4.0 : -4.0}, {"lfo_shape", shape},
+                                  {"env_amount", 4}, {"env_attack", 0.1}, {"env_release", 5}, {"lfo_phase", 180},
+                                  {"cutoff", 1000}},
+                                 16);
+    // the low-pass at 200 Hz: a 10 kHz tone down by far more than 20 dB, the bass through
+    auto fx = create("filter_motion");
+    set(*fx, "cutoff", 200);
+    double high = gainAt(*fx, 10000), low = gainAt(*fx, 50);
+    CHECK(high < -20 && std::fabs(low) < 1.5);
+    if (high >= -20) fprintf(stderr, "  filter_motion: 10 kHz %g dB\n", high);
+    set(*fx, "slope", 1);
+    double steeper = gainAt(*fx, 10000);
+    CHECK(steeper < -60 && steeper < high - 30);
+    CHECK(std::fabs(gainAt(*fx, 50)) < 1.5);
+    // high-pass, band-pass, notch at 2 kHz
+    set(*fx, "slope", 0);
+    set(*fx, "cutoff", 2000);
+    set(*fx, "type", 1);
+    CHECK(gainAt(*fx, 100) < -40 && std::fabs(gainAt(*fx, 15000)) < 1.5);
+    set(*fx, "type", 2);
+    CHECK(std::fabs(gainAt(*fx, 2000)) < 0.5 && gainAt(*fx, 100) < -20 && gainAt(*fx, 15000) < -10);
+    set(*fx, "type", 3);
+    CHECK(gainAt(*fx, 2000) < -30 && std::fabs(gainAt(*fx, 100)) < 1);
+    // resonance: a peak at the cutoff
+    set(*fx, "type", 0);
+    set(*fx, "resonance", 100);
+    CHECK(gainAt(*fx, 2000) > 20);
+    // the LFO sweeps the cutoff: a 2 kHz tone through a low-pass at 1 kHz swells and fades, twice a second
+    auto swept = create("filter_motion");
+    set(*swept, "lfo_depth", 2);
+    set(*swept, "lfo_rate", 2);
+    Stereo tone = sine(2000, 0.3, 2.0);
+    Stereo out = run(*swept, tone);
+    std::vector<double> levels;
+    for (size_t at = 4800; at + 960 <= out.size(); at += 960) levels.push_back(rms(out.l, at, at + 960));
+    double lo = *std::min_element(levels.begin(), levels.end()), hi = *std::max_element(levels.begin(), levels.end());
+    CHECK(hi > 0.15 && lo < 0.06);
+    // stereo phase 180°: the two sides' cutoffs apart
+    set(*swept, "lfo_phase", 180);
+    swept->reset();
+    out = run(*swept, tone);
+    CHECK(std::fabs(rms(out.l, 12000, 12000 + 960) - rms(out.r, 12000, 12000 + 960)) > 0.05);
+    // the envelope follower: a low-pass at 100 Hz opened by a loud sidechain, not by a silent one
+    auto follower = create("filter_motion");
+    set(*follower, "cutoff", 100);
+    set(*follower, "env_amount", 4);
+    set(*follower, "sidechain", 1);
+    Stereo in = sine(3000, 0.3, 1.0), quiet((size_t)SR), loud = sine(80, 1.0, 1.0);
+    double shut = rms(run(*follower, in, 512, &quiet).l, 24000, 48000);
+    follower->reset();
+    double open = rms(run(*follower, in, 512, &loud).l, 24000, 48000);
+    CHECK(open > shut * 10);
+    // following its own input instead (the sidechain switched off): a loud input opens it
+    set(*follower, "sidechain", 0);
+    follower->reset();
+    double self = rms(run(*follower, sine(3000, 0.9, 1.0), 512, &quiet).l, 24000, 48000);
+    CHECK(self > shut * 10);
+    // its meter shows the cutoff now, its window the response
+    CHECK(follower->meters().size() == 1 && follower->hasCurve() && follower->curve().size() == 200);
+}
+
+void testPhaserFlanger() {
+    checkCommon("phaser_flanger", {{"mode", 1}, {"stages", 2}, {"feedback", -45}, {"centre", 1200},
+                                   {"delay", 4.5}, {"spread", 135}, {"lfo_shape", 3}});
+    for (int mode = 0; mode < 2; mode++)
+        for (double fb : {-90.0, 90.0})
+            checkExtreme("phaser_flanger",
+                         {{"mode", mode}, {"stages", 2}, {"feedback", fb}, {"depth", 100}, {"lfo_rate", 10},
+                          {"lfo_shape", 4}, {"delay", 10}, {"centre", 8000}},
+                         8);
+    // the phaser, still (depth 0): its 8 allpasses' notches cut a tone out deep somewhere, leave others
+    auto fx = create("phaser_flanger");
+    set(*fx, "depth", 0);
+    set(*fx, "feedback", 0);
+    double deepest = 0, loudest = -100;
+    for (int i = 0; i <= 60; i++) {
+        double g = gainAt(*fx, 100 * std::pow(100.0, i / 60.0));
+        deepest = std::min(deepest, g);
+        loudest = std::max(loudest, g);
+    }
+    CHECK(deepest < -15 && loudest > -1);
+    // the flanger, still, at 1 ms: a comb, its first notch at 500 Hz, a peak at 1 kHz
+    set(*fx, "mode", 1);
+    set(*fx, "delay", 1);
+    CHECK(gainAt(*fx, 500) < -30);
+    CHECK(std::fabs(gainAt(*fx, 1000)) < 0.1);
+    // moving (the defaults): the two sides apart (stereo spread 90°)
+    auto moving = create("phaser_flanger");
+    Stereo out = run(*moving, sine(1000, 0.3, 2.0));
+    double diff = 0;
+    for (size_t i = 4800; i < out.size(); i++) diff = std::max(diff, (double)std::fabs(out.l[i] - out.r[i]));
+    CHECK(diff > 0.05);
+}
+
+void testTremoloPan() {
+    checkCommon("tremolo_pan", {{"depth", 80}, {"phase", 90}, {"smoothing", 35}, {"lfo_shape", 5},
+                                {"lfo_sync", 1}, {"lfo_beats", 2}});
+    checkExtreme("tremolo_pan", {{"depth", 100}, {"lfo_rate", 30}, {"lfo_shape", 4}, {"smoothing", 0}}, 1.0001);
+    // full depth, square: the sound all there, then all gone
+    auto fx = create("tremolo_pan");
+    set(*fx, "depth", 100);
+    set(*fx, "lfo_shape", 4);
+    Stereo dc = constant(0.5, 2.0);
+    Stereo out = run(*fx, dc);
+    double lowest = 1, highest = 0;
+    for (size_t i = 4800; i < out.size(); i++) {
+        lowest = std::min(lowest, (double)std::fabs(out.l[i]));
+        highest = std::max(highest, (double)out.l[i]);
+    }
+    CHECK(lowest < 0.005 && highest > 0.495);
+    // stereo phase 180°: auto-pan, one side up as the other goes down (together: constant)
+    set(*fx, "lfo_shape", 0);
+    set(*fx, "phase", 180);
+    fx->reset();
+    out = run(*fx, dc);
+    double worst = 0, swing = 0;
+    for (size_t i = 0; i < out.size(); i++) {
+        worst = std::max(worst, std::fabs(out.l[i] + out.r[i] - 0.5));
+        swing = std::max(swing, (double)std::fabs(out.l[i] - out.r[i]));
+    }
+    CHECK(worst < 1e-5 && swing > 0.45);
+    // its rate (counted as the gain rises through 75 %, a twelfth into each cycle): 3 Hz free; synced, a 1/4 a cycle: 2 Hz at 120 BPM, 1.5 Hz at 90; stopped (no tempo
+    // given), still at the last one
+    auto rate = create("tremolo_pan");
+    set(*rate, "depth", 100);
+    set(*rate, "smoothing", 0);
+    set(*rate, "lfo_rate", 3);
+    Stereo four = constant(0.5, 4.0);
+    CHECK(risings(run(*rate, four).l, 0.375) == 12);
+    set(*rate, "lfo_sync", 1);
+    set(*rate, "lfo_beats", 4);
+    rate->setTransport(120, 4, 4, true, 0);
+    rate->reset();
+    CHECK(risings(run(*rate, four).l, 0.375) == 8);
+    rate->setTransport(90, 4, 4, true, 0);
+    rate->reset();
+    CHECK(risings(run(*rate, four).l, 0.375) == 6);
+    rate->setTransport(0, 4, 4, false, 0);
+    rate->reset();
+    CHECK(risings(run(*rate, four).l, 0.375) == 6);
+    set(*rate, "lfo_beats", 7);  // 1 bar at 90 BPM: 2.67 s a cycle (rising through 0.375 at 0.22 s, 2.89 s)
+    rate->reset();
+    CHECK(risings(run(*rate, four).l, 0.375) == 2);
+    // the meters: the left and right gains
+    CHECK(rate->meters().size() == 2);
+}
+
 // --- colour ---
 
 void testBitcrusher() {
@@ -694,7 +921,8 @@ void testUtility() {
 
 void testBlocksAndPlaces() {
     // the same sound whatever the buffer size (effects without block-wise envelopes), and in place
-    for (const char* id : {"eq", "delay", "reverb", "chorus", "utility", "bitcrusher", "saturation"}) {
+    for (const char* id : {"eq", "delay", "reverb", "chorus", "utility", "bitcrusher", "saturation", "filter_motion",
+                           "phaser_flanger", "tremolo_pan"}) {
         auto a = create(id), b = create(id), c = create(id);
         Stereo in = sine(330, 0.3, 0.5, 0.5);
         in.l[100] = 0.9f;
@@ -881,6 +1109,9 @@ int main() {
     testDelay();
     testReverb();
     testChorus();
+    testFilterMotion();
+    testPhaserFlanger();
+    testTremoloPan();
     testBitcrusher();
     testSaturation();
     testUtility();
