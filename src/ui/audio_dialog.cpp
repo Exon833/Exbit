@@ -2,6 +2,7 @@
 
 #include "audio/devices.h"
 #include "audio/engine.h"
+#include "audio/workers.h"
 #include "core/util.h"
 #include "ui/preferences.h"
 #include "ui/toolkit/layout.h"
@@ -83,7 +84,7 @@ AudioPropertiesDialog::AudioPropertiesDialog(Window* parent, const std::string& 
     form->addRow(hint);
 
     coreChoice = add<ComboBox>();
-    for (auto& c : audio_dialog::coreChoices((int)std::thread::hardware_concurrency()))
+    for (auto& c : audio_dialog::coreChoices(workers::availableCores()))
         coreChoice->addItem(c.second, std::to_string(c.first));
     coreChoice->setCurrentIndexSilently(std::max(0, coreChoice->findData(std::to_string(cores))));
     coreChoice->setToolTip(

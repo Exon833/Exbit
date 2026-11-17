@@ -40,10 +40,16 @@ inline void pause() {
 }
 }  // namespace
 
-Pool::Pool(int threads) {
+Pool::Pool(int threads, bool realtime) : realtime_(realtime) {
     threads = std::max(0, std::min(threads, MAX_WORKERS));
     threads_.reserve(threads);
-    for (int i = 0; i < threads; i++) threads_.emplace_back([this] { loop(); });
+    for (int i = 0; i < threads; i++) {
+        try {
+            threads_.emplace_back([this] { loop(); });
+        } catch (...) {  // (out of threads: go on with those made)
+            break;
+        }
+    }
 }
 
 Pool::~Pool() {
@@ -94,7 +100,7 @@ void Pool::run(int jobs, Job fn, void* ctx) {
 }
 
 void Pool::loop() {
-    audio::detail::raiseThreadPriority();
+    if (realtime_) audio::detail::raiseThreadPriority();
     using clock = std::chrono::steady_clock;
     while (!quit_.load(std::memory_order_acquire)) {
         uint32_t seen = wake_.load(std::memory_order_acquire);
@@ -116,9 +122,18 @@ std::atomic<int> chosen{0};
 void setChosenCores(int wanted) { chosen.store(std::max(0, wanted)); }
 int chosenCores() { return chosen.load(); }
 
+int availableCores() {
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    if (sched_getaffinity(0, sizeof set, &set) == 0) {
+        int n = CPU_COUNT(&set);
+        if (n > 0) return n;
+    }
+    return std::max(1, (int)std::thread::hardware_concurrency());
+}
+
 int workersFor(int wanted) {
-    int cores = (int)std::thread::hardware_concurrency();
-    if (cores < 1) cores = 1;
+    int cores = availableCores();
     int all = wanted <= 0 ? cores : std::min(wanted, cores);
     return std::max(0, std::min(all - 1, MAX_WORKERS));
 }

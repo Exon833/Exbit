@@ -604,8 +604,8 @@ void Engine::callback(const float* in, float* out, int frames) {
         Metering* m = metering.get();
         bool metered = m->active();
         tap_->m = m;
-    tap_->metered = metered;
-    tap_->cpu = &trackCpu;
+        tap_->metered = metered;
+        tap_->cpu = &trackCpu;
         auto rec = std::atomic_load(&recorder_);
         for (const Part& part : parts_) {  // (more parts where the loop jumps back, or a count-in ends)
             bool moving = part.hasStart;  // (not while counting in)

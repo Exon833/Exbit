@@ -255,6 +255,7 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
     const bool hasStart = b.hasStart, plugins = b.plugins;
     const int64_t start = b.start;
     auto t0 = std::chrono::steady_clock::now();
+    double waited = 0;  // (seconds spent waiting for the tracks its sidechains listen to)
     MixState::Result& res = st.results[ti];
     res = MixState::Result();
     Track& track = *tracks[ti];
@@ -301,8 +302,10 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
     live::LiveNotes* notes = live::find(b.live, &track);
     if (notes && (!audible || frozen || (vstInstrument && !plugins))) notes->clear();  // nothing to hear them through now
     bool playingLive = notes && notes->active();
+    // (an instrument chosen this very moment, after the buffer's preparation: it starts with the next one, so
+    // no note is sent it without its held notes being kept: instrument && !heldOf)
     if (!(audible || feeds) || !(clipCount || hasPlugins || playingLive || into || (line && line->sounding)) ||
-        (vstInstrument && !plugins)) {
+        (vstInstrument && !plugins) || (instrument && !st.heldOf[ti])) {
         res.seconds = secondsSince(t0);
         return;  // Skipped
     }
@@ -353,7 +356,11 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
             scratch.feeds.clear();
             for (size_t j = 0; j < n; j++) {
                 if (!st.listens[(size_t)ti * n + j] || st.position[j] >= st.position[ti]) continue;
-                spinUntil(st.finished[j]);
+                if (!st.finished[j].load(std::memory_order_acquire)) {  // (waiting isn't its work: not counted)
+                    auto w0 = std::chrono::steady_clock::now();
+                    spinUntil(st.finished[j]);
+                    waited += secondsSince(w0);
+                }
                 if (st.results[j].fed) scratch.feeds.push_back(feedOf(b, (int)j));
             }
             feedList = scratch.feeds.data();
@@ -378,7 +385,7 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
     } else {
         res.kind = MixState::Result::Unheard;
     }
-    res.seconds = secondsSince(t0);
+    res.seconds = std::max(0.0, secondsSince(t0) - waited);
 }
 
 // Committing a processed track (the calling thread, in the feeding order): its sound for sidechains, into

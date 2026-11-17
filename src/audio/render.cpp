@@ -186,7 +186,8 @@ std::optional<std::vector<float>> renderMix(Project& project, int64_t start, int
     int latency = 0;
     int64_t total = std::max<int64_t>(0, end - first + extra);
     std::vector<float> out((size_t)total * 2, 0.0f);
-    workers::Pool pool(workers::workersFor(workers::chosenCores()));  // (the tracks on several cores, as playback)
+    // (the tracks on several cores, as playback; not real-time threads: a render never outranks playback)
+    workers::Pool pool(workers::workersFor(workers::chosenCores()), false);
     mixer::MixState st;
     st.compensate = true;
     st.pool = &pool;

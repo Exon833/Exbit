@@ -49,11 +49,14 @@ void addTo(std::atomic<double>& a, double v) {
 }
 }  // namespace
 
+const Track* const TOMBSTONE = reinterpret_cast<const Track*>(uintptr_t(1));
+
 void TrackCpu::add(const Track* track, double seconds) {
     if (!track) return;
+    Slot* slots = tables_[current_.load(std::memory_order_acquire)];
     size_t h = hashOf(track);
     for (size_t k = 0; k < 32; k++) {  // (a short probe: a full table just stops measuring)
-        Slot& s = slots_[(h + k) % SLOTS];
+        Slot& s = slots[(h + k) % SLOTS];
         const Track* key = s.key.load(std::memory_order_acquire);
         if (key == track) {
             addTo(s.busy, seconds);
@@ -66,23 +69,47 @@ void TrackCpu::add(const Track* track, double seconds) {
                 return;
             }
         }
+        // (another track's slot, or a tombstone: on)
     }
 }
 
 void TrackCpu::addBudget(double seconds) { addTo(budget_, seconds); }
 
 std::vector<std::pair<const Track*, double>> TrackCpu::read(const std::vector<const Track*>& known) {
+    if (clearNext_ >= 0) {  // (the table left at the last read: nothing adds to it any more)
+        for (auto& s : tables_[clearNext_]) {
+            s.key.store(nullptr, std::memory_order_relaxed);
+            s.busy.store(0.0, std::memory_order_relaxed);
+        }
+        clearNext_ = -1;
+    }
     std::vector<std::pair<const Track*, double>> out;
     double budget = budget_.exchange(0.0);
-    for (auto& s : slots_) {
-        const Track* key = s.key.load(std::memory_order_acquire);
-        if (!key) continue;
-        double busy = s.busy.exchange(0.0);
-        if (std::find(known.begin(), known.end(), key) == known.end()) {
-            s.key.store(nullptr, std::memory_order_release);  // (gone: its row is free again)
-            continue;
+    int cur = current_.load(std::memory_order_acquire);
+    size_t tombstones = 0;
+    for (int t = 0; t < 2; t++)
+        for (auto& s : tables_[t]) {
+            const Track* key = s.key.load(std::memory_order_acquire);
+            if (!key) continue;
+            if (key == TOMBSTONE) {
+                if (t == cur) tombstones++;
+                continue;
+            }
+            double busy = s.busy.exchange(0.0);
+            if (std::find(known.begin(), known.end(), key) == known.end()) {
+                s.key.store(TOMBSTONE, std::memory_order_release);  // (gone: never taken again in this table)
+                if (t == cur) tombstones++;
+                continue;
+            }
+            if (budget <= 0) continue;
+            bool merged = false;  // (a track found in both tables, just after a move: one entry)
+            for (auto& o : out)
+                if (o.first == key) o.second += busy / budget, merged = true;
+            if (!merged) out.emplace_back(key, busy / budget);
         }
-        if (budget > 0) out.emplace_back(key, busy / budget);
+    if (tombstones > SLOTS / 4) {  // the audio thread moves to the other (clean) table; this one is cleared next time
+        current_.store(1 - cur, std::memory_order_release);
+        clearNext_ = cur;
     }
     std::sort(out.begin(), out.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
     return out;

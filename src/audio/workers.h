@@ -18,7 +18,8 @@
 // word and before the claim; they can't change while a job of their run is still unclaimed, because a
 // new run is published only once every job of the last one is done.
 //
-// Workers are real-time threads (SCHED_FIFO) when the system allows it, like the audio thread. After a
+// The engine's workers are real-time threads (SCHED_FIFO) when the system allows it, like the audio
+// thread (a render's pool isn't: Pool(n, false)). After a
 // run they keep looking for the next one for a short while (the mixer makes two or three runs per
 // buffer, back to back), then sleep on a futex until woken.
 #pragma once
@@ -33,7 +34,10 @@ using Job = void (*)(void* ctx, int index);
 
 class Pool {
 public:
-    explicit Pool(int threads);  // 0: no workers (run() does everything on the calling thread)
+    // threads 0: no workers (run() does everything on the calling thread). realtime: the workers are made
+    // real-time threads as the audio thread is (the engine's pool); renders' aren't, so a render never
+    // outranks playback. Fewer threads than asked if the system can't make more.
+    explicit Pool(int threads, bool realtime = true);
     ~Pool();
     Pool(const Pool&) = delete;
     Pool& operator=(const Pool&) = delete;
@@ -54,14 +58,17 @@ private:
     std::atomic<int> done_{0};
     std::atomic<uint32_t> wake_{0};  // futex word: changed (and woken) when a run is published
     std::atomic<bool> quit_{false};
+    bool realtime_ = true;
     std::vector<std::thread> threads_;
 };
 
 // How many workers to use for `wanted` (the user's choice: 0 = automatic, 1 = none (the audio thread
-// alone), n = that many cores in all): the processor's cores less one (the audio thread is the other),
+// alone), n = that many cores in all): the cores this program may use less one (the audio thread),
 // at most MAX_WORKERS.
 constexpr int MAX_WORKERS = 15;
 int workersFor(int wanted);
+// the processor cores this program may run on (its CPU affinity: taskset, cgroups), at least 1
+int availableCores();
 // the user's choice (Options → Audio properties → Processing cores), for renders, which make a Pool of
 // their own while they run (the engine's is the audio thread's). GUI thread.
 void setChosenCores(int wanted);

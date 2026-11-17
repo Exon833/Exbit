@@ -39,8 +39,10 @@ private:
 //
 // The audio thread adds to a fixed open-addressing table keyed by the Track* (no allocation, no lock);
 // the GUI thread takes and clears the totals now and then. A track that is gone is forgotten when the
-// GUI reads (its row may be taken by a new track later). More than SLOTS tracks at once: the rest aren't
-// measured.
+// GUI reads: its slot becomes a tombstone, never taken again (so a track can't end up in two slots). When
+// a quarter of the table is tombstones, the GUI moves the audio thread to the other table, and clears the
+// first at its next read (by then no add can still be writing to it). More than SLOTS tracks at once: the
+// rest aren't measured.
 class TrackCpu {
 public:
     static constexpr size_t SLOTS = 1024;
@@ -56,7 +58,9 @@ private:
         std::atomic<const Track*> key{nullptr};
         std::atomic<double> busy{0};
     };
-    Slot slots_[SLOTS];
+    Slot tables_[2][SLOTS];
+    std::atomic<int> current_{0};  // the table the audio thread adds to
+    int clearNext_ = -1;           // (GUI) the table to clear at the next read
     std::atomic<double> budget_{0};
 };
 

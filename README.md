@@ -23,8 +23,10 @@ extends; that program is in the repository's history.
   quantize, box select; the built-in synth and sampler; MIDI effects (arpeggiator, chord, scale,
   note length, velocity, random, pitch); a MIDI keyboard (with sustain pedal) or the computer
   keyboard; MIDI recording, Capture of what you just played, MIDI file import and export.
-- **Effects and plugins**: eleven built-in effects (EQ, compressor, multi-band compressor, gate,
-  limiter, reverb, delay, chorus, saturation, bit-crusher, utility), Linux VST3 and VST2 plugins,
+- **Effects and plugins**: eighteen built-in effects (EQ with a live spectrum, compressor,
+  multi-band compressor, gate, limiter, transient shaper, reverb, Space (a convolution reverb),
+  delay, Time FX, chorus, Phaser / Flanger, Tremolo / Pan, Filter Motion, saturation, bit-crusher,
+  utility, tuner), Linux VST3 and VST2 plugins,
   Windows VST3 and VST2 plugins through Wine (Tiny DAW's own bridge, no yabridge needed), each
   placed and wired by hand in a patch space with sidechains and a Mix (dry/wet) control;
   instrument patch panels; automation of any parameter, volume and pan; plugin delay compensation.
@@ -56,6 +58,40 @@ right-click it for its options, which are remembered:
 It shows the master after its volume (what is heard), outputs 1 and 2. While it is hidden nothing is
 kept for it, and the audio thread does nothing more for it at any time: the meters' copy of what was
 played is read on the interface thread.
+
+## Built-in effects
+
+Every built-in effect is in the plugin chooser of a track's FX window (search "built-in", or a
+category), has a Mix (dry / wet) control, can be automated, and sleeps while silence goes through
+it. Besides the EQ, compressor, multi-band compressor, gate, limiter, reverb, delay, chorus,
+saturation, bit-crusher and utility:
+
+- **Filter Motion** (Filter): a low-pass, high-pass, band-pass or notch filter (12 or 24 dB per
+  octave; resonance, drive) whose cutoff moves with a wave (sine, triangle, saws, square, smooth
+  random, sample and hold; in Hz or in time with the song, 1/16 to 4 bars; left and right apart by up
+  to 180°) and with the loudness of the sound, or of another track through its sidechain. Its window
+  draws the filter's curve and where the cutoff is now.
+- **Phaser / Flanger** (Modulation): 4, 8 or 12 phasing stages, or a flanger's short sweeping delay;
+  rate, depth, feedback (±), centre, stereo spread.
+- **Tremolo / Pan** (Modulation): the volume moved by a wave, the two sides together (tremolo) or
+  against each other (auto-pan, at 180°), with smoothing for the square wave.
+- **Transient Shaper** (Dynamics): more or less of a sound's attack and of what rings after it,
+  whatever its level (attack and sustain ±100 %, their times, output, a soft clip), from its own
+  sound or a sidechain; a meter shows the gain change.
+- **Time FX** (Delay): in time with the song, when Trigger is on (automate it, or switch it in the
+  window): **Tape stop** (slows to a halt over 1/8 to 4 bars, and spins back up when Trigger goes
+  off), **Stutter** (repeats the last slice, 1/32 to 1 bar, each repeat lower or quieter if you
+  like) or **Half speed** (an octave down, caught up every 1, 2 or 4 bars). Every jump is crossfaded.
+  With Trigger off the sound passes untouched.
+- **Space** (Reverb): a convolution reverb of six made rooms (Small room, Chamber, Hall, Plate,
+  Spring, Cathedral) with length, pre-delay, low and high cut, width; no added delay (the first part
+  of the room is played directly), and the rooms are built on a thread of their own and crossfaded
+  in, so turning the knobs never stops the sound. (Rooms from your own impulse-response files: not
+  yet.)
+- **Tuner** (Utility): shows the note played, how many cents off and its frequency, with the pitch of
+  A (415–466 Hz); the sound passes untouched.
+- The **EQ** window shows a live spectrum of the sound behind its curve (Off, before or after the
+  EQ), worked out only while the window is open.
 
 ## Several cores
 

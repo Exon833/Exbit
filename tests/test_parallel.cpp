@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "audio/automation.h"
+#include "audio/cpu.h"
 #include "audio/engine.h"
 #include "audio/mixer.h"
 #include "audio/patch.h"
@@ -88,6 +89,8 @@ void testPoolJobsMayWaitForEarlierOnes() {
 void testWorkersFor() {
     int cores = (int)std::thread::hardware_concurrency();
     CHECK(workers::workersFor(1) == 0);  // the audio thread alone
+    cores = workers::availableCores();
+    CHECK(cores >= 1 && cores <= (int)std::max(1u, std::thread::hardware_concurrency()));
     CHECK(workers::workersFor(0) == std::max(0, std::min(cores - 1, workers::MAX_WORKERS)));
     CHECK(workers::workersFor(2) == std::min(1, std::max(0, cores - 1)));
     CHECK(workers::workersFor(1000) == workers::workersFor(0));
@@ -425,6 +428,41 @@ void testPluginsOnWorkers() {
     for (auto& s : many.pluginSlots()) CHECK(!s->failed.load());
 }
 
+void testTrackCpu() {
+    // each track's share; a gone track forgotten without a track ever showing twice; many gone tracks
+    // (the table's tombstones) make it move to its other table and go on measuring
+    audio::TrackCpu cpu;
+    std::vector<Track> tracks(3000);
+    auto key = [&](int i) { return (const Track*)&tracks[i]; };
+    cpu.add(key(0), 0.25);
+    cpu.add(key(1), 0.6);
+    cpu.add(key(0), 0.25);
+    cpu.addBudget(2.0);
+    auto r = cpu.read({key(0), key(1)});
+    CHECK(r.size() == 2 && r[0].first == key(1) && r[1].first == key(0));
+    CHECK(r.size() == 2 && std::fabs(r[0].second - 0.3) < 1e-12 && std::fabs(r[1].second - 0.25) < 1e-12);
+    CHECK(cpu.read({key(0), key(1)}).empty());  // (nothing since: no budget)
+    bool once = true, measured = true;
+    for (int round = 0; round < 12; round++) {  // 250 tracks come and go each round: 3000 in all
+        std::vector<const Track*> known;
+        for (int i = round * 250; i < round * 250 + 250; i++) {
+            cpu.add(key(i), 0.001 * (1 + i % 7));
+            known.push_back(key(i));
+        }
+        cpu.addBudget(1.0);
+        auto shares = cpu.read(known);
+        std::vector<const Track*> seen;
+        for (auto& sh : shares) {
+            if (std::find(seen.begin(), seen.end(), sh.first) != seen.end()) once = false;
+            seen.push_back(sh.first);
+        }
+        if (shares.size() < 240) measured = false;  // (a few may miss a slot in a crowded probe; not most)
+        cpu.read({});                               // all of them gone
+    }
+    CHECK(once);
+    CHECK(measured);
+}
+
 }  // namespace
 
 int main() {
@@ -433,6 +471,7 @@ int main() {
     testPoolRunsEachJobOnce();
     testPoolJobsMayWaitForEarlierOnes();
     testWorkersFor();
+    testTrackCpu();
     testParallelMixIsBitIdentical();
     testTapAndWorkOnCallingThread();
     testRenderSameWithAnyCores();
