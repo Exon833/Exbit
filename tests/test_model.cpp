@@ -440,6 +440,103 @@ static void testHistory() {
     CHECK(!h.canUndo() && !h.canRedo());
 }
 
+// the steps by name (Edit → History…), and jumping to one
+static void testHistoryNames() {
+    Project p;
+    auto a = p.addTrack(Kind::Audio);
+    auto c = makeAudioClip("a", tone(SR, 0.01, 0.5), SR, SR);
+    c->track = a;
+    p.addClip(c);
+    auto c2 = makeAudioClip("b", tone(SR, 0.01, 0.5), SR, SR);
+    c2->track = a;
+    c2->start = SR;
+    p.addClip(c2);
+    history::History h(p, SR);
+    int changes = h.changes();
+    CHECK(h.labels().empty() && h.position() == 0);
+    p.addTrack(Kind::Midi);
+    CHECK(h.check(SR));
+    CHECK(h.changes() != changes);
+    c->start = 500;
+    h.check(SR);
+    c->start = 600;  // (both moved: plural)
+    c2->start = SR + 100;
+    h.check(SR);
+    a->volumeDb = -6;
+    h.check(SR);
+    c->fadeIn = 100;
+    h.check(SR);
+    p.removeClips({c2});
+    h.check(SR);
+    a->muted = true;
+    a->name = "Drums";
+    h.check(SR);  // (one step: the first change found names it)
+    h.nameNext("Something special");
+    p.timing.bpm = 100;
+    h.check(SR);
+    std::vector<std::string> want = {"Add track", "Move clip", "Move clips", "Volume", "Fades", "Delete clip", "Mute",
+                                     "Something special"};
+    CHECK(h.labels() == want);
+    CHECK(h.position() == 8);
+    // tempo is named by itself (the explicit name was for one step only)
+    p.timing.bpm = 110;
+    h.check(SR);
+    CHECK(h.labels().back() == "Tempo");
+    // jumping back keeps the names, the undone ones after the position (in order)
+    changes = h.changes();
+    CHECK(h.jumpTo(3, SR));
+    CHECK(h.changes() != changes);
+    CHECK(h.position() == 3 && h.undoSteps() == 3 && h.redoSteps() == 6);
+    CHECK(c->start == 600 && c2->start == SR + 100 && a->volumeDb == 0 && c->fadeIn == 0);
+    CHECK(p.clips.size() == 2 && p.timing.bpm != 110);
+    CHECK(h.labels().size() == 9 && h.labels()[3] == "Volume" && h.labels()[8] == "Tempo");
+    CHECK(!h.jumpTo(3, SR));   // (already there)
+    CHECK(!h.jumpTo(10, SR));  // (out of range)
+    CHECK(!h.jumpTo(-1, SR));
+    CHECK(h.jumpTo(9, SR));  // (all the way forward)
+    CHECK(h.position() == 9 && !h.canRedo() && p.timing.bpm == 110 && a->name == "Drums" && p.clips.size() == 1);
+    CHECK(h.jumpTo(0, SR));  // (as opened)
+    CHECK(h.position() == 0 && p.tracks.size() == 1 && c->start == 0 && p.clips.size() == 2);
+    // a new step after undoing forgets the redo steps' names
+    h.jumpTo(2, SR);
+    a->pan = 0.5;
+    h.check(SR);
+    want = {"Add track", "Move clip", "Pan"};
+    CHECK(h.labels() == want && h.position() == 3);
+    // a change not yet noted is a step of its own before jumping
+    a->soloed = true;
+    CHECK(h.jumpTo(1, SR));
+    CHECK(h.labels().size() == 4 && h.labels()[3] == "Solo" && !a->soloed && h.position() == 1);
+    // returns, sends, markers, clips added, tracks deleted
+    h.jumpTo(4, SR);
+    auto r = p.addTrack(Kind::Return);
+    h.check(SR);
+    CHECK(h.labels().back() == "Add track");
+    a->sends = std::vector<Send>{{r, -6}};
+    h.check(SR);
+    CHECK(h.labels().back() == "Sends");
+    p.setMarkers({{1, "Verse"}});
+    h.check(SR);
+    CHECK(h.labels().back() == "Markers");
+    auto c3 = copyClip(c);
+    c3->start = 3 * SR;
+    p.addClip(c3);
+    h.check(SR);
+    CHECK(h.labels().back() == "Add clip");
+    p.removeTrack(r);
+    h.check(SR);
+    CHECK(h.labels().back() == "Delete track");
+    // at most MAX_STEPS names, as many as steps
+    for (int i = 0; i < 120; i++) {
+        c->start = 1000 + i;
+        h.check(SR);
+    }
+    CHECK((int)h.labels().size() == history::MAX_STEPS && h.position() == history::MAX_STEPS);
+    // another sample rate starts afresh
+    h.check(44100);
+    CHECK(h.labels().empty() && h.position() == 0);
+}
+
 // ---------------------------------------------------------------------------------------------
 
 static void testSongTime() {
@@ -946,6 +1043,7 @@ int main() {
     testClips();
     testProjectTracks();
     testHistory();
+    testHistoryNames();
     testSongTime();
     testEdits();
     testRoundTrip();

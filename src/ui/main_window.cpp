@@ -20,6 +20,7 @@
 #include "ui/colors.h"
 #include "ui/cpu_monitor.h"
 #include "ui/explorer.h"
+#include "ui/history_window.h"
 #include "ui/instrument_menu.h"
 #include "ui/lane_panel.h"
 #include "ui/level_meter.h"
@@ -227,6 +228,7 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     overview->resizedTo.connect([this](int h) { overviewResized(h); });
     explorer = new Explorer([this](const std::string& path) { timeline->addFile(path, timeline->cursor); }, engine);
     status = add<ui::StatusBar>();
+    status->followHints(prefs.statusHints);  // (Options → Hints in the status bar)
     plugins->statusBar = status;
 
     buildLayout();
@@ -288,6 +290,7 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
 
 MainWindow::~MainWindow() {
     *alive_ = false;
+    historyWindow.reset();  // (it reads the history)
     if (frameId_ >= 0) App::get().removeFrame(frameId_);
     if (cpuTimer_ >= 0) App::get().cancelTimer(cpuTimer_);
     if (historyTimer_ >= 0) App::get().cancelTimer(historyTimer_);
@@ -440,6 +443,8 @@ void MainWindow::buildEditMenu() {
     ui::Menu* menu = menuBar->addMenu("&Edit");
     undoAction = menu->addAction("&Undo", [this] { undo(); }, "Ctrl+Z");
     redoAction = menu->addAction("&Redo", [this] { redo(); }, "Ctrl+Shift+Z");
+    menu->addAction("&History…", [this] { showHistory(); })->tooltip =
+        "Every change to the project by name: click one to go back (or forward) to it";
     menu->aboutToShow = [this](ui::Menu*) { showUndoState(); };
     menu->addSeparator();
     // (this window only: the MIDI editor copies notes with the same keys)
@@ -489,6 +494,7 @@ void MainWindow::noteChanges() {
     // is one step), and once the clips a MIDI effects or sampler window changed are rendered again (the
     // change and how the clips then sound are one step).
     if (history && !mouseHeld() && !rendersPending()) history->check(engine.sr);
+    if (historyWindow && historyWindow->isWindowShown()) historyWindow->refresh();  // (it follows while open)
 }
 
 void MainWindow::showUndoState() {
@@ -513,6 +519,32 @@ void MainWindow::stepHistory(bool forward) {
         showStatus(forward ? "Nothing to redo" : "Nothing to undo", 2000);
         return;
     }
+    historyMoved(forward);
+}
+
+void MainWindow::showHistory() {
+    if (!historyWindow) {
+        historyWindow = std::make_unique<HistoryWindow>(this, *history, [this](int position) { jumpHistory(position); });
+    }
+    noteChanges();  // (a change not yet noted shows as a step)
+    historyWindow->refresh();
+    historyWindow->open();
+    historyWindow->raiseWindow();
+}
+
+void MainWindow::jumpHistory(int position) {
+    if (mouseHeld() || dragging()) {
+        showStatus("Let go of the mouse first: undo and redo wait until the drag is done", 3000);
+        return;
+    }
+    flushRenders();
+    noteChanges();
+    int from = history->position();
+    if (!history->jumpTo(position, engine.sr)) return;
+    historyMoved(history->position() > from);
+}
+
+void MainWindow::historyMoved(bool forward) {
     timeline->selection.clear();  // (what was selected may be gone)
     timeline->relayout();
     timeline->tracksChanged.emit();  // the panel's rows, the FX windows
@@ -525,6 +557,7 @@ void MainWindow::stepHistory(bool forward) {
         (void)key;
         if (w.reload) w.reload();
     }
+    if (historyWindow && historyWindow->isWindowShown()) historyWindow->refresh();
     showStatus(forward ? "Redone" : "Undone", 2000);
 }
 
@@ -557,6 +590,12 @@ void MainWindow::buildOptionsMenu() {
             prefs.save();
         })->tooltip = "A Windows plugin whose Wine host crashed starts again by itself, with the settings it last had "
                       "(at most 3 times a minute; then it stays stopped)";
+    menu->addCheckable("&Hints in the status bar", prefs.statusHints, [this](bool on) {
+            prefs.statusHints = on;
+            prefs.save();
+            status->followHints(on);
+        })->tooltip = "The status bar at the bottom shows what the control under the mouse does (the first line "
+                      "of its tooltip)";
     menu->addSeparator();
 
     ui::Menu* refresh = menu->addMenu("Screen &refresh");

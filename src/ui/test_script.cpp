@@ -136,7 +136,7 @@ struct Runner {
             printf("    '%s' %s%s%s %dx%d at %d,%d\n", w->title().c_str(), w->isWindowShown() ? "shown" : "hidden",
                    w->isModal() ? " modal" : "", w->isPopup() ? " popup" : "", g.w, g.h, g.x, g.y);
         }
-        printf("    status: %s\n", main->status->message().c_str());
+        printf("    status: %s\n", main->status->shownText().c_str());
         printf("    title: %s, sr %d, playing %d, pos %lld, device open %d\n", main->title().c_str(), main->engine.sr,
                (int)main->engine.playing.load(), (long long)main->engine.pos.load(), (int)main->engine.isOpen());
         int i = 0;

@@ -1,7 +1,8 @@
 // The dialogs and skins (headless): skin files (parse, validate, write, the library), the colour
 // picker (wheel mapping, recent colours, tones), the skin editor, the metronome settings, Audio
 // properties, recording helpers (input choices, count-in, take placement), freezing / bouncing
-// and rendering the mix to a file. Pictures of every dialog go to build/ui-samples/dialogs/.
+// and rendering the mix to a file, the History window and the hint line. Pictures of every dialog go to
+// build/ui-samples/dialogs/.
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -14,18 +15,22 @@
 #include "check.h"
 #include "core/util.h"
 #include "gfx/image.h"
+#include "model/history.h"
 #include "model/model.h"
 #include "ui/audio_dialog.h"
 #include "ui/color_picker.h"
 #include "ui/colors.h"
+#include "ui/history_window.h"
 #include "ui/metronome_dialog.h"
 #include "ui/mix_export.h"
+#include "ui/preferences.h"
 #include "ui/record_offset_dialog.h"
 #include "ui/recording.h"
 #include "ui/skin.h"
 #include "ui/skin_dialog.h"
 #include "ui/theme.h"
 #include "ui/track_render.h"
+#include "ui/toolkit/layout.h"
 #include "ui/toolkit/menu.h"
 #include "ui/wine_prefixes_dialog.h"
 #include "ui/wine_setup.h"
@@ -1022,6 +1027,159 @@ static void testHighContrast() {
 }
 
 // Options → Wine prefixes: each prefix's facts, and the wine program chosen for it (or automatic)
+// Edit → History…: the steps by name, the current one highlighted; a click goes back (or forward) to one
+static void testHistoryWindow() {
+    const int sr = 48000;
+    Project p;
+    auto a = p.addTrack(Kind::Audio);
+    history::History h(p, sr);
+    a->volumeDb = -3;
+    h.check(sr);
+    a->pan = 0.5;
+    h.check(sr);
+    a->muted = true;
+    h.check(sr);
+    int jumps = 0;
+    HistoryWindow w(nullptr, h, [&](int position) {
+        jumps++;
+        h.jumpTo(position, sr);
+    });
+    w.open();
+    App::get().doLayouts();
+    ListWidget& list = *w.list;
+    CHECK(list.count() == 4);
+    CHECK(list.count() == 4 && list.item(0).text == HistoryWindow::START && list.item(1).text == "Volume" &&
+          list.item(2).text == "Pan" && list.item(3).text == "Mute");
+    CHECK(list.currentRow() == 3 && list.item(3).bold && !list.item(2).bold && !list.item(1).hasColor);
+    snap(w, "history");
+    auto clickRow = [&](int row) {
+        Point at = list.mapToWindow(Point(20, row * list.rowHeight + list.rowHeight / 2));
+        w.onEvent(nullptr, mouseEv(plat::Event::MouseMove, at.x, at.y, 0, 0));
+        w.onEvent(nullptr, mouseEv(plat::Event::MouseDown, at.x, at.y, plat::LeftButton, 0));
+        w.onEvent(nullptr, mouseEv(plat::Event::MouseUp, at.x, at.y, plat::LeftButton, plat::LeftButton));
+    };
+    // back to just after the first step: two undone (greyed, after the highlight)
+    clickRow(1);
+    CHECK(jumps == 1 && h.undoSteps() == 1 && h.redoSteps() == 2);
+    CHECK(a->volumeDb == -3 && a->pan == 0 && !a->muted);
+    CHECK(list.count() == 4 && list.currentRow() == 1 && list.item(1).bold && !list.item(3).bold);
+    CHECK(list.item(2).hasColor && list.item(3).hasColor && !list.item(0).hasColor);
+    snap(w, "history-undone");
+    clickRow(1);  // (where it is: nothing to do)
+    CHECK(jumps == 1);
+    // as opened, then all the way forward
+    clickRow(0);
+    CHECK(jumps == 2 && h.undoSteps() == 0 && a->volumeDb == 0 && list.currentRow() == 0);
+    clickRow(3);
+    CHECK(jumps == 3 && h.undoSteps() == 3 && a->muted && list.currentRow() == 3 && !list.item(3).hasColor);
+    // it follows new steps (refreshed by the main window as it notes them); only rebuilt when they changed
+    clickRow(2);
+    a->name = "Bass";
+    h.check(sr);
+    w.refresh();
+    CHECK(list.count() == 4 && list.item(3).text == "Rename track" && list.currentRow() == 3);
+    list.setItemText(0, "marked");
+    w.refresh();
+    CHECK(list.item(0).text == "marked");
+    h.check(44100);  // (afresh: another sample rate)
+    w.refresh();
+    CHECK(list.count() == 1 && list.item(0).text == HistoryWindow::START && list.currentRow() == 0);
+    w.reject();  // (Close)
+    CHECK(!w.isWindowShown());
+}
+
+// the hint line: the status bar shows the first line of the tooltip under the pointer
+static void testHintLine() {
+    Window w{plat::WindowOptions{}};
+    w.resizeWindow(400, 220);
+    w.moveWindow(0, 0);
+    VBox* root = vbox(&w, 10, 8);
+    auto* button = w.add<Button>("Hover me");
+    button->setToolTip("First line\nSecond line");
+    root->addWidget(button);
+    auto* plain = w.add<Label>("No tooltip here");
+    root->addWidget(plain);
+    root->addStretch();
+    auto* status = w.add<StatusBar>();
+    root->addWidget(status);
+    w.showWindow();
+    App::get().doLayouts();
+    auto moveOver = [&](Widget* x, int dx) {
+        Point at = x->mapToWindow(Point(5 + dx, 5));
+        w.onEvent(nullptr, mouseEv(plat::Event::MouseMove, at.x, at.y, 0, 0));
+    };
+    status->showMessage("Ready");
+    CHECK(status->shownText() == "Ready");
+    // not following hints: nothing changes
+    moveOver(button, 0);
+    App::get().advanceTimers(0.5);
+    CHECK(status->shownText() == "Ready" && status->hint().empty());
+    // following: after ~300 ms over the button, its tooltip's first line
+    status->followHints(true);
+    CHECK(status->followsHints());
+    moveOver(button, 1);
+    App::get().advanceTimers(0.1);
+    CHECK(status->shownText() == "Ready");
+    App::get().advanceTimers(0.25);
+    CHECK(status->hint() == "First line" && status->shownText() == "First line" && status->message() == "Ready");
+    snap(w, "hint-line");
+    // a timed message wins while it lasts, then the hint is back
+    status->showMessage("Saved", 1000);
+    CHECK(status->shownText() == "Saved");
+    moveOver(button, 2);
+    App::get().advanceTimers(0.4);
+    CHECK(status->shownText() == "Saved");
+    App::get().advanceTimers(0.7);
+    CHECK(status->shownText() == "First line");
+    // over a control without a tooltip: the normal text again
+    status->showMessage("Ready");
+    moveOver(plain, 0);
+    App::get().advanceTimers(0.35);
+    CHECK(status->hint().empty() && status->shownText() == "Ready");
+    // leaving the window: the hint goes
+    moveOver(button, 0);
+    App::get().advanceTimers(0.35);
+    CHECK(status->shownText() == "First line");
+    plat::Event leave;
+    leave.type = plat::Event::Leave;
+    w.onEvent(nullptr, leave);
+    CHECK(status->hint().empty() && status->shownText() == "Ready");
+    // another window's hints aren't this status bar's
+    {
+        Window other{plat::WindowOptions{}};
+        other.resizeWindow(200, 100);
+        other.moveWindow(600, 400);
+        auto* b2 = other.add<Button>("Other");
+        b2->setGeometry(10, 10, 100, 30);
+        b2->setToolTip("Somewhere else");
+        other.showWindow();
+        Point at = b2->mapToWindow(Point(5, 5));
+        other.onEvent(nullptr, mouseEv(plat::Event::MouseMove, at.x, at.y, 0, 0));
+        App::get().advanceTimers(0.35);
+        CHECK(status->hint().empty());
+        other.hideWindow();
+    }
+    // Options → Hints in the status bar, off: no hints (and the one shown goes)
+    moveOver(button, 1);
+    App::get().advanceTimers(0.35);
+    CHECK(status->hint() == "First line");
+    status->followHints(false);
+    CHECK(!status->followsHints() && status->hint().empty() && status->shownText() == "Ready");
+    moveOver(button, 2);
+    App::get().advanceTimers(0.35);
+    CHECK(status->hint().empty());
+    // …remembered between runs
+    Preferences prefs = Preferences::load();
+    CHECK(prefs.statusHints);
+    prefs.statusHints = false;
+    prefs.save();
+    CHECK(!Preferences::load().statusHints);
+    prefs.statusHints = true;
+    prefs.save();
+    CHECK(Preferences::load().statusHints);
+    w.hideWindow();
+}
+
 void testWinePrefixesDialog() {
     std::string dir = TMP + "/wine";
     auto prefix = [&](const std::string& name, const std::string& arch) {
@@ -1092,6 +1250,8 @@ int main() {
     testBounceKeepsTheMix();
     testHighContrast();
     testWinePrefixesDialog();
+    testHistoryWindow();
+    testHintLine();
     // the dialogs in another skin
     skin::apply(skin::find("Light"));
     {

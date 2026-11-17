@@ -38,6 +38,7 @@
 
 class CpuMonitor;
 class Explorer;
+class HistoryWindow;
 class LanePanel;
 class MasterStrip;
 class MidiEditor;
@@ -147,6 +148,7 @@ public:
     ui::Action* redoAction = nullptr;
     std::map<int, ui::Action*> sizeActions;  // Options → Interface size (%)
     std::vector<std::unique_ptr<ui::Shortcut>> extraShortcuts;  // (Ctrl+Y: redo's second shortcut)
+    std::unique_ptr<HistoryWindow> historyWindow;  // Edit → History… (made when first opened; hidden when closed)
 
     void showStatus(const std::string& text, int ms = 0);
 
@@ -170,6 +172,9 @@ public:
     void undo();
     void redo();
     void stepHistory(bool forward);
+    void showHistory();                  // Edit → History…: the steps by name (history_window.h)
+    void jumpHistory(int position);      // …a row clicked: undo or redo to just after that step
+    void historyMoved(bool forward);     // (after undo / redo / a jump: everything shows the project afresh)
     bool mouseHeld() const;
     bool dragging();                     // the timeline or a MIDI editor is in the middle of a drag
     void reloadEditors();                // the MIDI editors show their clip as it is now (after undo)

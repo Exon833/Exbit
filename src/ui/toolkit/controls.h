@@ -664,6 +664,14 @@ public:
     void clearMessage();
     ~StatusBar() override;
     const std::string& message() const { return text_; }
+    // (added) the hint line: while following hints, the first line of the tooltip under the pointer in
+    // its window (App::hintChanged) replaces the message shown, until the pointer leaves; a timed
+    // message (showMessage with ms > 0) wins over a hint while it lasts
+    void followHints(bool on);
+    bool followsHints() const { return hintSlot_ >= 0; }
+    void setHint(const std::string& text);
+    const std::string& hint() const { return hint_; }
+    std::string shownText() const;  // what it shows: the timed message, else the hint, else the message
     // (added) a text kept at the right end (QStatusBar::addPermanentWidget with a label); "" none
     void setPermanentText(const std::string& text, const std::string& tip = "");
     const std::string& permanentText() const { return permanent_; }
@@ -674,6 +682,8 @@ private:
     std::string text_, permanent_, permanentTip_;
     int permanentW() const;
     int timer_ = -1;
+    std::string hint_;
+    int hintSlot_ = -1;  // (connected to App::hintChanged)
 };
 
 }  // namespace ui
