@@ -25,8 +25,8 @@ extends; that program is in the repository's history.
   status bar.
 - **MIDI**: a piano roll with ghost notes of other clips, the song's key and scale, chord stamp,
   quantize, box select; a Steps view of the same clip; notes with their own chance, repeats (rolls),
-  slide, pan and fine pitch; linked clips (edit one, every linked copy changes); the built-in synth and
-  sampler; MIDI effects (arpeggiator, chord, scale, note length, velocity, random, pitch, groove); a MIDI keyboard (with sustain pedal) or the computer
+  slide, pan and fine pitch; linked clips (edit one, every linked copy changes); the built-in synth,
+  sampler and Pad Kit (a sample per pad, choke groups; slice a loop onto one); MIDI effects (arpeggiator, chord, scale, note length, velocity, random, pitch, groove); a MIDI keyboard (with sustain pedal) or the computer
   keyboard; MIDI recording, Capture of what you just played, MIDI file import and export.
 - **Modulators**: an LFO, Random, a Level Follower, a Macro knob and MIDI Control (the mod wheel or any
   controller of a MIDI keyboard), placed in the effects window like
@@ -153,6 +153,23 @@ saturation, bit-crusher and utility:
 - **Hints**: rest the mouse on a control for a moment and the status bar says what it does (the first
   line of its tooltip); a message the program shows wins while it lasts. Options → Hints in the status
   bar turns it off.
+
+## Pad Kit
+
+A drum kit made of samples: choose **Pad Kit…** in a MIDI track's instrument menu (▾ next to 🎹). Its window
+shows 16 pads (two banks: 32), each a sample on its own key from C2 (MIDI 36) up: its name, waveform and
+key, and its choke group's colour. Click a pad to hear it and select it; its settings (tuning, gain,
+pan, envelope, one-shot, start and end) are below. Drop sound files from the Explorer or the file
+manager onto a pad (several fill the pads from there on), or right-click a pad: Load sample…, Clear,
+Choke group ▸ (a pad of a group cuts off the others of the group: an open and a closed hi-hat). The
+MIDI editor's keys and Steps rows show the pads' names. It plays live and in clips alike, and is saved
+with the project (its samples in the project's audio folder).
+
+**Slice to a Pad Kit**: right-click an audio clip → Slice to a Pad Kit…: the hits it finds are drawn as
+lines on the clip, more or fewer with the Sensitivity; Slice makes a MIDI track under it with a Pad Kit
+holding a slice per pad (up to 32) and a MIDI clip that plays the slices where they were, so the loop
+sounds as before and can be rearranged note by note. The audio clip is switched off (kept, drawn as an
+outline; right-click to switch it on again); undo puts everything back.
 
 ## Note properties and Steps
 

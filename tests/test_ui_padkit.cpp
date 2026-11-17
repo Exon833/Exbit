@@ -266,7 +266,12 @@ static void testSliceToPadKit() {
     savePicture(*d, "slice_window");
     // Slice: a new MIDI track right under the clip's, a kit with a slice per pad, a clip replaying them
     size_t tracksBefore = project.tracks.size();
+    history::History steps(project, SR);  // (the slicing as one step to undo)
+    CHECK(!loop->disabled);
     d->accept();
+    // the audio clip is switched off (the loop plays from the kit now), and undo brings it back with the rest
+    CHECK(loop->disabled);
+    CHECK(steps.check(SR));
     CHECK(!tl->sliceWindow && !tl->slicePreview);
     CHECK(project.tracks.size() == tracksBefore + 1);
     TrackPtr made = project.tracks.size() > 1 ? project.tracks[1] : nullptr;
@@ -286,6 +291,10 @@ static void testSliceToPadKit() {
         xy += x * y, xx += x * x, yy += y * y;
     }
     CHECK(xy / std::sqrt(xx * yy + 1e-30) > 0.99);
+    CHECK(steps.undo(SR));
+    CHECK(!loop->disabled && project.tracks.size() == tracksBefore);
+    CHECK(steps.redo(SR));
+    CHECK(loop->disabled && project.tracks.size() == tracksBefore + 1);
     // Cancel leaves everything as it was
     tl->selection.selectOnly(loop);
     pad_kit_dialog::SliceDialog* d2 = tl->sliceToPadKit(loop);
