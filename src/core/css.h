@@ -12,7 +12,9 @@
 // hsl() / hsla(), the CSS named colours, transparent, currentColor, color-mix(in srgb, A p%, B q%). Lengths:
 // px (logical pixels: the interface size scales them), pt, em (of the node's font size), % (of what the
 // property refers to), and calc() of those (+ - * /). var(--name, fallback), nested. Numbers, keywords,
-// strings ('…' "…"), comma lists (font-family).
+// strings ('…' "…"), comma lists (font-family). Colours are rounded to 8 bits as the program's own colour code
+// rounds (halves to even): color-mix() of two opaque colours is exactly the program's own mixColor()
+// (gfx/geom.cpp), so color-mix(in srgb, A 90%, B) is mixColor(A, B, 0.10f) to the byte.
 //
 // CASCADE. An Engine stacks stylesheets in order (the defaults, then a skin, then more): later sheets win at
 // equal specificity. Custom properties (--name) and the text properties (color, font-family, font-size,
@@ -33,6 +35,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -143,10 +146,15 @@ public:
     std::vector<Problem> takeProblems() const;
 
 private:
+    struct Index;  // the sheets' selectors by their last compound's id / class / type (css.cpp)
+    Style computeWith(const Node& node, const Style* parent, const std::string& part) const;
+
     std::vector<SheetPtr> sheets_;
     int generation_ = 0;
+    std::shared_ptr<const Index> index_;
     mutable std::unique_ptr<Style> root_;
     mutable std::vector<Problem> problems_;
+    mutable std::set<std::string> reported_;  // (each problem once per set of sheets)
 };
 
 }  // namespace css
