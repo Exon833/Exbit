@@ -20,20 +20,58 @@
 #include "ui/theme.h"
 #include "ui/timeline.h"
 #include "ui/toolkit/dialogs.h"
+#include "ui/toolkit/style.h"
 #include "ui/track_dialogs.h"
+
+namespace {
+
+const char* kindClass(Kind kind) { return kind == Kind::Midi ? "midi" : kind == Kind::Return ? "return" : "audio"; }
+
+// what the stylesheets give a row: TrackRow with these classes and states under the panel, its ::tint and ::group-bar
+struct RowStyle {
+    css::Style row, tint, bar;
+    RowStyle(const ui::Widget* panel, std::vector<std::string> classes, std::vector<std::string> states = {}) {
+        auto st = paint::nodeStyles(panel, "TrackRow", classes, states, {"", "tint", "group-bar"});
+        row = std::move(st[0]);
+        tint = std::move(st[1]);
+        bar = std::move(st[2]);
+    }
+    Color background(Color def) const { return ui::style::color(row, "background-color", def); }
+    std::optional<Color> stripe() const {
+        if (!row.has("border-left-color")) return std::nullopt;
+        return ui::style::color(row, "border-left-color");
+    }
+    // padding (left, top, right, bottom) and gaps of its layouts
+    void margins(ui::BoxLayout* layout, int left, int top, int right, int bottom) const {
+        layout->setContentsMargins(ui::style::px(row, "padding-left", left), ui::style::px(row, "padding-top", top),
+                                   ui::style::px(row, "padding-right", right), ui::style::px(row, "padding-bottom", bottom));
+    }
+    int rowGap(int def) const { return ui::style::px(row, "row-gap", def); }
+    int columnGap(int def) const { return ui::style::px(row, "column-gap", def); }
+};
+
+}  // namespace
 
 namespace lane_panel {
 
-Color groupBarColor(const Group& group) {
-    return !group.color.empty() ? paint::groupFill(group) : theme::c("group_accent");
+int panelWidth() { return theme::metric("--panel-width", config::PANEL_W); }
+
+Color groupBarColor(const Group& group, const ui::Widget* panel) {
+    if (!group.color.empty()) return paint::groupFill(group);
+    RowStyle st(panel, {"group"});
+    return st.stripe().value_or(theme::c("group_accent"));
 }
 
 std::vector<int> trackOutputs(const Track& track) { return {track.output, track.output + 1}; }
 
-Color automationRowColor(const Automation& lane) {
-    Color base = theme::c("automation_lane");
+Color automationRowColor(const Automation& lane, const ui::Widget* panel, Kind kind) {
+    std::vector<std::string> states;
+    if (lane.armed) states.push_back("armed");
+    RowStyle st(panel, {"automation", kindClass(kind)}, states);
+    Color base = st.background(theme::c("automation_lane"));
     if (!lane.armed) return base;
-    Color red = theme::c("record");  // (armed for writing: tinted red, as in the timeline)
+    Color red = ui::style::background(st.tint);  // (armed for writing: tinted red, as in the timeline)
+    if (red.a == 0) return base;
     auto mix = [](int a, int b) { return (a * 3 + b) / 4; };
     return Color(mix(base.r, red.r), mix(base.g, red.g), mix(base.b, red.b), base.a);
 }
@@ -135,7 +173,7 @@ T* nest(ui::BoxLayout* into, int stretch = 0) {
     return raw;
 }
 
-Color kindAccent(Kind kind) { return colors::trackAccent(kind); }
+Color kindAccent(Kind kind) { return colors::trackAccent(kind); }  // (when TrackRow sets no border-left-color)
 
 std::string signedMs(double ms) {  // Python's f"{ms:+g}"
     char buf[32];
@@ -161,7 +199,8 @@ LanePanel::LanePanel(Project& project_, Timeline& timeline_, MasterStrip& master
     : project(project_), timeline(timeline_), masterStrip(masterStrip_), openPlugins(std::move(openPlugins_)),
       fillRenderMenu(std::move(fillRenderMenu_)), instruments(std::move(instruments_)), channels(channels_) {
     openMidiEffects = [](const TrackPtr& track) { midi_effects_dialog::openMidiEffects(track); };
-    setFixedWidth(config::PANEL_W);
+    setStyleType("TrackPanel");
+    setFixedWidth(lane_panel::panelWidth());
     ui::VBox* lay = ui::vbox(this, 0, 0);
     lay->addStretch(1);  // (the master row stays at the bottom of the screen: the main window pins it there)
     std::weak_ptr<bool> alive = alive_;
@@ -185,7 +224,7 @@ ui::Window* LanePanel::dialogParent() const {
 }
 
 Point LanePanel::sizeHint() const {
-    return Point(config::PANEL_W, lanes::layout(project).back().bottom() + theme::SCROLLBAR_W);
+    return Point(lane_panel::panelWidth(), lanes::layout(project).back().bottom() + theme::SCROLLBAR_W);
 }
 
 void LanePanel::setChannels(int channels_) {
@@ -213,7 +252,12 @@ void LanePanel::rebuild() {
     takeFrames.clear();
     bool pruned = false;
     for (auto& t : project.tracks) pruned = automation::prune(*t) || pruned;  // (lanes of plugins that are gone)
-    if (pruned) timeline.relayout();
+    // (another skin: its sizes, the panel's width and the lanes' heights, may be others; the main window rebuilds
+    // the rows after a skin change)
+    bool restyled = styled_ != theme::styles().generation();
+    styled_ = theme::styles().generation();
+    if (restyled) setFixedWidth(lane_panel::panelWidth());
+    if (pruned || restyled) timeline.relayout();
     rowsBox_ = add<ui::Widget>();
     ui::VBox* rows = ui::vbox(rowsBox_, 0, 0);
     static_cast<ui::BoxLayout*>(layout())->insertWidget(0, rowsBox_);
@@ -231,7 +275,7 @@ void LanePanel::rebuild() {
         } else if (lane.group) {
             frame = groupHeader(rowsBox_, lane.group);
         } else {
-            frame = trackHeader(rowsBox_, lane.track, theme::c(row % 2 ? "row_alt" : "row"));
+            frame = trackHeader(rowsBox_, lane.track, row % 2 != 0);
             frames[lane.track] = frame;
             ++row;
         }
@@ -252,7 +296,11 @@ void LanePanel::rebuild() {
     fitHeight();
 }
 
-LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, Color color) {
+LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, bool alternate) {
+    std::vector<std::string> states;
+    if (alternate) states.push_back("alternate");
+    RowStyle style(this, {"track", kindClass(track->kind)}, states);
+    Color color = style.background(theme::c(alternate ? "row_alt" : "row"));
     std::optional<Color> text;
     if (!track->color.empty()) {
         Color bg, fg;
@@ -260,24 +308,28 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, Col
         color = bg;
         text = fg;
     }
-    auto* frame = parent->add<LaneFrame>(color, kindAccent(track->kind), track->height, text);
+    auto* frame = parent->add<LaneFrame>(color, style.stripe().value_or(kindAccent(track->kind)), track->height, text);
     frame->fillMenu = [this, track](ui::Menu& menu) { fillTrackMenu(menu, track); };
     frame->onPress = [this, track] { timeline.setCurrentTrack(track); };  // clicking the row selects the track
     ui::HBox* outer = ui::hbox(frame, 0, 0);
     if (track->group) {
         auto* bar = frame->add<ui::Canvas>();
         GroupPtr group = track->group;
-        bar->onPaint = [bar, group](Painter& p) { p.fillRect(bar->rect(), lane_panel::groupBarColor(*group)); };
-        bar->setFixedWidth(lane_panel::GROUP_BAR_W);
+        // (TrackRow::group-bar: a box in the group's colour, else its own)
+        Color fill;
+        if (!paint::groupColor(*group, fill)) fill = ui::style::color(style.bar, "background-color", theme::c("group_accent"));
+        css::Style barBox = paint::withBackground(style.bar, fill);
+        bar->onPaint = [bar, barBox](Painter& p) { ui::style::box(p, bar->rect(), barBox); };
+        bar->setFixedWidth(ui::style::px(style.bar, "width", lane_panel::GROUP_BAR_W));
         bar->vPolicy = ui::SizePolicy::Expanding;
         bar->setToolTip("In " + group->name);
         outer->addWidget(bar);
     }
     auto* col = nest<ui::VBox>(outer, 1);
-    col->setContentsMargins(8, 5, 8, 5);
-    col->setSpacing(4);
+    style.margins(col, 8, 5, 8, 5);
+    col->setSpacing(style.rowGap(4));
     auto* row = nest<ui::HBox>(col);
-    row->setSpacing(4);
+    row->setSpacing(style.columnGap(4));
     std::string delay = track->delayMs ? "  (" + signedMs(track->delayMs) + " ms)" : "";
     auto* name = frame->add<NameLabel>((track->frozen ? "❄ " + track->name : track->name) + delay);
     name->doubleClicked.connect([this, track] { rename(track); });
@@ -417,14 +469,16 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, Col
 LaneFrame* LanePanel::automationHeader(ui::Widget* parent, const Lane& lane) {
     AutomationPtr a = lane.automation;
     TrackPtr track = lane.owner;
-    auto* frame = parent->add<LaneFrame>(lane_panel::automationRowColor(*a), kindAccent(track->kind), lane.height);
+    RowStyle style(this, {"automation", kindClass(track->kind)});
+    Color accent = style.stripe().value_or(kindAccent(track->kind));
+    auto* frame = parent->add<LaneFrame>(lane_panel::automationRowColor(*a, this, track->kind), accent, lane.height);
     // (a line above it, as in the timeline: stacked lanes stay apart)
-    frame->setTopLine(theme::c("grid_bar"));
+    if (style.row.has("border-top-color")) frame->setTopLine(ui::style::color(style.row, "border-top-color"));
     frame->onPress = [this, track] { timeline.setCurrentTrack(track); };
-    ui::VBox* col = ui::vbox(frame, 0, 2);
-    col->setContentsMargins(14, 4, 8, 4);
+    ui::VBox* col = ui::vbox(frame, 0, style.rowGap(2));
+    style.margins(col, 14, 4, 8, 4);
     auto* row = nest<ui::HBox>(col);
-    row->setSpacing(2);
+    row->setSpacing(style.columnGap(2));
     std::string slotName = a->slot ? a->slot->name : "";
     auto* name = frame->add<ui::Label>(a->param);
     name->setToolTip(slotName + ": " + a->param);
@@ -435,13 +489,14 @@ LaneFrame* LanePanel::automationHeader(ui::Widget* parent, const Lane& lane) {
     // --- Write: moving the control while playing writes this lane (automation_write.h) ---
     if (!track->frozen || (a->slot && a->slot->isControls())) {  // (a frozen track's plugins are locked)
         Timeline* tl = &timeline;
-        Color accent = kindAccent(track->kind);
+        std::weak_ptr<bool> alive = alive_;
+        Kind kind = track->kind;
         ui::Button* write = widgets::toggleButton(
             frame, "Write", "record", a->armed,
-            [tl, a, frame, accent](bool on) {
+            [this, alive, tl, a, frame, accent, kind](bool on) {
                 a->armed = on;
                 if (!on) automation::recorder().release(a);
-                frame->setColors(lane_panel::automationRowColor(*a), accent);
+                frame->setColors(lane_panel::automationRowColor(*a, alive.expired() ? nullptr : this, kind), accent);
                 tl->update();  // (armed lanes are tinted red there too)
             },
             "Write: while the song plays, moving this parameter (" + a->param +
@@ -472,10 +527,12 @@ LaneFrame* LanePanel::takeHeader(ui::Widget* parent, const Lane& lane) {
     // the take's name and length, Use (all of it) and ✕ (delete it from the takes)
     ClipPtr take = lane.take;
     TrackPtr track = lane.owner;
-    auto* frame = parent->add<LaneFrame>(theme::c("automation_lane"), kindAccent(track->kind), lane.height);
+    RowStyle style(this, {"take", kindClass(track->kind)});
+    auto* frame = parent->add<LaneFrame>(style.background(theme::c("automation_lane")),
+                                         style.stripe().value_or(kindAccent(track->kind)), lane.height);
     frame->onPress = [this, track] { timeline.setCurrentTrack(track); };
-    ui::HBox* row = ui::hbox(frame, 0, 4);
-    row->setContentsMargins(14, 4, 8, 4);
+    ui::HBox* row = ui::hbox(frame, 0, style.columnGap(4));
+    style.margins(row, 14, 4, 8, 4);
     char seconds[32];
     std::snprintf(seconds, sizeof seconds, "%.1f", (double)take->frames() / timeline.engine.sr);
     auto* name = frame->add<ui::Label>(take->name + "  (" + seconds + " s)");
@@ -496,18 +553,20 @@ LaneFrame* LanePanel::takeHeader(ui::Widget* parent, const Lane& lane) {
 }
 
 LaneFrame* LanePanel::groupHeader(ui::Widget* parent, const GroupPtr& group) {
+    RowStyle style(this, {"group"});
+    Color fill = style.background(theme::c("group_lane"));
     std::optional<Color> text;
     if (!group->color.empty()) {
-        Color bg, fg;
-        colors::trackColors(group->color, group->tone, bg, fg);
+        Color fg;
+        colors::trackColors(group->color, group->tone, fill, fg);
         text = fg;
     }
-    auto* frame = parent->add<LaneFrame>(paint::groupFill(*group), lane_panel::groupBarColor(*group), config::GROUP_H, text);
+    auto* frame = parent->add<LaneFrame>(fill, lane_panel::groupBarColor(*group, this), lanes::groupHeight(), text);
     frame->fillMenu = [this, group](ui::Menu& menu) { fillGroupMenu(menu, group); };
-    ui::VBox* col = ui::vbox(frame, 0, 3);
-    col->setContentsMargins(4, 4, 8, 4);
+    ui::VBox* col = ui::vbox(frame, 0, style.rowGap(3));
+    style.margins(col, 4, 4, 8, 4);
     auto* row = nest<ui::HBox>(col);
-    row->setSpacing(3);
+    row->setSpacing(style.columnGap(3));
     Timeline* tl = &timeline;
     row->addWidget(widgets::iconButton(frame, group->folded ? "▸" : "▾", [tl, group] { tl->toggleFold(group); },
                                        group->folded ? "Show its tracks" : "Fold its tracks away"));
@@ -705,7 +764,7 @@ void LanePanel::chooseColor(const TrackPtr& track) {
 }
 
 void LanePanel::chooseColor(const GroupPtr& group) {
-    std::string initial = !group->color.empty() ? group->color : theme::c("group_accent").hexRgb();
+    std::string initial = !group->color.empty() ? group->color : lane_panel::groupBarColor(*group, this).hexRgb();
     ColorPickerDialog dialog(dialogParent(), initial, group->tone, ColorSubject::Group);
     if (dialog.exec() == ui::Dialog::Accepted) {
         group->color = dialog.chosen;
@@ -764,5 +823,5 @@ void LanePanel::fitHeight() {
     // areas have the same range (the timeline's ruler is matched by the CPU monitor).
     int h = lanes::layout(project).back().bottom() + theme::SCROLLBAR_W;
     setFixedHeight(h);
-    if (height() != h) resize(width() > 0 ? width() : config::PANEL_W, h);
+    if (height() != h) resize(width() > 0 ? width() : lane_panel::panelWidth(), h);
 }

@@ -468,6 +468,150 @@ FileList::placeholder { height: 60px; color: var(--hint-text); }
 /* ======================================== Timeline ========================================
    the ruler, lanes, clips, automation, the overview, the track rows; the layout's sizes */
 
+/* The layout's sizes (also where the mouse grabs things). */
+:root {
+    --ruler-height: 24px;          /* the timeline's ruler (and the CPU monitor beside it) */
+    --master-height: 86px;         /* the master lane and its row */
+    --group-height: 52px;          /* a group's header lane and row */
+    --take-height: 46px;           /* a take lane and its row */
+    --automation-padding: 6px;     /* above and below the curve in an automation lane */
+    --panel-width: 250px;          /* the track rows' panel */
+    --overview-height: 44px;       /* the overview's standard height (the least it can be dragged to) */
+    --overview-max-height: 320px;  /* … the most */
+    --clip-header-height: 16px;    /* a clip's name strip (drag it to move the clip) */
+    --clip-edge-width: 6px;        /* a clip's ends (drag them to trim it) */
+    --fade-handle-size: 7px;       /* an audio clip's fade handles */
+    --link-badge-width: 14px;      /* a linked clip's chain mark */
+    --link-badge-height: 8px;
+    --cursor-arrow-width: 11px;    /* a cursor's arrow on the ruler */
+    --cursor-arrow-height: 7px;
+}
+
+/* The timeline: its grid's lines, both cursors (color, stroke-width), the selected range (a box over each lane,
+   and a line at each end), the take growing while recording, where slices start (the slice window: a line, and a
+   mark width x height at its top). */
+Timeline::grid-fine { color: var(--grid-fine); stroke-width: 1px; }
+Timeline::grid { color: var(--grid); stroke-width: 1px; }
+Timeline::grid-bar { color: var(--grid-bar); stroke-width: 1px; }
+Timeline::cursor { color: var(--cursor); stroke-width: 1px; }
+Timeline::playhead { color: var(--playhead); stroke-width: 1px; }
+Timeline::selection { background-color: var(--selection-fill); }
+Timeline::selection-edge { color: var(--selection-edge); stroke-width: 1px; }
+Timeline::recording { background-color: color-mix(in srgb, var(--record) 27.45%, transparent); }
+Timeline::slice { color: var(--selected-note); stroke-width: 1px; width: 5px; height: 3px; }
+
+/* The ruler (a box; color: its labels and ticks). baseline: a text's baseline from the ruler's top. A tick's
+   height runs up from the ruler's bottom (labelled lines cross all of it). The loop band (Ruler:looping while
+   looping is on) and the markers' flags fill the lower part of it (height); ::loop-edge marks the band's ends
+   (background-color unset: the band's colour, opaque). A flag is as wide as its name with padding-left at both
+   sides (padding-right when more); ::marker-line is its place across the ruler. */
+Ruler { background-color: var(--ruler-bg); color: var(--ruler-text); }
+Ruler::label { padding-left: 4px; baseline: 15px; }
+Ruler::tick { height: 6px; stroke-width: 1px; }
+Ruler::tick-fine { height: 3px; stroke-width: 1px; }
+Ruler::tick-beat { height: 6px; stroke-width: 1px; }
+Ruler::tick-bar { height: 10px; stroke-width: 1px; }
+Ruler::loop { background-color: var(--loop-off); height: 50%; }
+Ruler:looping::loop { background-color: var(--loop); }
+Ruler::loop-edge { width: 2px; }
+Ruler::marker { background-color: var(--accent); color: var(--accent-text); height: 50%; padding: 0 2px 0 5px; }
+Ruler::marker-line { background-color: var(--accent); width: 2px; }
+Ruler::tempo { color: var(--accent); margin-left: 6px; baseline: 15px; }
+
+/* Lanes (boxes as wide as the timeline): a track's (:alternate every other), a group's header (.group: in the
+   group's own colour when it has one; padding around its miniature clips), an automation lane's (.automation;
+   :armed while armed for writing, :locked when its curve can't be edited) and a take lane's (.take), and the room
+   under the last one (.below). ::overlay is a box over a lane. An automation lane's color is its curve's. */
+Lane { background-color: var(--lane); }
+Lane:alternate { background-color: var(--lane-alt); }
+Lane.group { background-color: var(--group-lane); border-top: 1px solid var(--ruler-bg); padding: 6px 0; }
+Lane.automation, Lane.take { background-color: var(--automation-lane); border-top: 1px solid var(--grid-bar); }
+Lane.below { background-color: var(--below-lanes); }
+Lane:armed::overlay { background-color: color-mix(in srgb, var(--record) 14.12%, transparent); }
+Lane.automation { color: var(--automation-line); }
+Lane.automation:locked { color: color-mix(in srgb, var(--automation-line) 43.14%, transparent); }
+Lane.automation::curve { stroke-width: 1.5px; }
+Lane.automation::level { stroke-width: 1px; }  /* the value now, dashed, while there are no points */
+Lane.automation::point { width: 4px; height: 4px; }
+Lane.automation::range { background-color: color-mix(in srgb, var(--automation-line) 5.49%, transparent); }
+Lane.automation::range-edge { color: color-mix(in srgb, var(--automation-line) 27.45%, transparent); stroke-width: 1px; }
+Lane.automation::guide { color: color-mix(in srgb, var(--automation-line) 15.69%, transparent); }  /* dotted */
+Lane.automation::label {  /* the values at the top and the bottom of the range */
+    color: color-mix(in srgb, var(--automation-line) 66.67%, transparent);
+    font-size: calc(1em - 2px);
+    padding: 2px 6px 1px;
+    width: 220px;
+    height: 14px;
+}
+Lane.automation::value {  /* a stepped parameter's values, on their lines */
+    background-color: var(--automation-lane);
+    color: color-mix(in srgb, var(--automation-line) 66.67%, transparent);
+    font-size: calc(1em - 2px);
+    padding: 0 4px 0 2px;
+    margin-left: 4px;
+}
+Lane.automation::hint { color: var(--ruler-text); padding-left: 8px; baseline: calc(50% + 4px); }
+
+/* Clips. Their colours are the clips' own (or --clip-audio / --clip-midi), with automatic contrast: ::body (all
+   of it) and ::header (the name strip) are boxes in them. stroke-width: the outline (padding: a switched-off
+   clip's, that far inside). States :selected :disabled :frozen :muted :linked :looping; classes .audio .midi. */
+Clip { stroke-width: 1.5px; }
+Clip:selected { stroke-width: 2px; }
+Clip:disabled { padding: 0.75px; }
+Clip:frozen::overlay { background-color: var(--frozen-tint); }
+Clip::name { padding: 3px 6px; }
+Clip::fade { background-color: rgba(0, 0, 0, 0.2745); stroke-width: 1.2px; }
+Clip::loop-start { stroke-width: 2px; height: calc(var(--clip-header-height) + 4px); }
+Clip::link { stroke-width: 1.6px; }
+
+/* The master lane, pinned under the tracks (its border-top: the line above it, over the grid). */
+MasterLane { background-color: var(--master-lane); border-top: 1px solid var(--master-divider); }
+
+/* The overview bar (padding: above and below its rows, which are Lane boxes), the editor's view on it, and the
+   cursors. */
+Overview {
+    background-color: var(--overview-bg);
+    border: 0 solid var(--overview-edge);  /* (a box's borders are drawn in one colour, its border-top-color) */
+    border-bottom-width: 1px;
+    padding: 3px 0;
+}
+Overview Lane.group, Overview Lane.automation, Overview Lane.take { border-top-width: 0; }
+Overview::view {
+    background-color: var(--overview-view-fill);
+    outline-color: var(--overview-view);
+    outline-style: solid;
+    outline-width: 1px;
+    outline-offset: -1px;
+}
+Overview::cursor { color: var(--cursor); stroke-width: 1px; }
+Overview::playhead { color: var(--playhead); stroke-width: 1px; }
+
+/* The track rows in the panel beside the lanes (TrackPanel): a track's (:alternate every other), an automation
+   lane's (:armed: a quarter of ::tint is mixed in), a take's, a group's header. border-left-color: the stripe
+   down a row's left; row-gap / column-gap: between its lines / its controls. */
+TrackRow { background-color: var(--row); padding: 5px 8px; row-gap: 4px; column-gap: 4px; }
+TrackRow:alternate { background-color: var(--row-alt); }
+TrackRow.audio { border-left-color: var(--accent-audio); }
+TrackRow.midi { border-left-color: var(--accent-midi); }
+TrackRow.return { border-left-color: var(--accent-return); }
+TrackRow.automation {
+    background-color: var(--automation-lane);
+    border-top-color: var(--grid-bar);
+    padding: 4px 8px 4px 14px;
+    row-gap: 2px;
+    column-gap: 2px;
+}
+TrackRow.automation:armed::tint { background-color: var(--record); }
+TrackRow.take { background-color: var(--automation-lane); padding: 4px 8px 4px 14px; column-gap: 4px; }
+TrackRow.group {
+    background-color: var(--group-lane);
+    border-left-color: var(--group-accent);
+    padding: 4px 8px 4px 4px;
+    row-gap: 3px;
+    column-gap: 3px;
+}
+TrackRow::group-bar { background-color: var(--group-accent); width: 5px; }
+
 /* (end of Timeline) */
 
 

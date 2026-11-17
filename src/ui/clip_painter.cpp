@@ -6,12 +6,65 @@
 
 #include "config.h"
 #include "ui/colors.h"
+#include "ui/paint_helpers.h"
 #include "ui/theme.h"
+#include "ui/toolkit/style.h"
 #include "ui/waveform_cache.h"
 
 namespace clip_painter {
 
 using waveform_cache::TILE_W;
+
+int headerHeight() { return theme::metric("--clip-header-height", config::CLIP_HANDLE_H); }
+int edgeWidth() { return theme::metric("--clip-edge-width", config::CLIP_EDGE_PX); }
+int fadeHandleSize() { return theme::metric("--fade-handle-size", FADE_HANDLE_PX); }
+int linkBadgeWidth() { return theme::metric("--link-badge-width", LINK_BADGE_W); }
+int linkBadgeHeight() { return theme::metric("--link-badge-height", LINK_BADGE_H); }
+
+// --- what the stylesheets give a clip ---
+
+
+void Looks::refresh() {
+    paint::Stamp stamp{generation_, states_};
+    if (!stamp.stale(owner_)) return;
+    generation_ = stamp.generation;
+    states_ = stamp.states;
+    looks_.clear();
+}
+
+const Look& Looks::get(const Clip& clip, bool selected, bool audible, bool frozen, int linkedWith) {
+    bool linked = linkedWith >= 2, looping = clip.kind == Kind::Audio ? clip.loopingAudio() : clip.loop;
+    int k = (selected ? 1 : 0) | (clip.disabled ? 2 : 0) | (frozen ? 4 : 0) | (!audible ? 8 : 0) | (linked ? 16 : 0) |
+            (looping ? 32 : 0) | (clip.kind == Kind::Midi ? 64 : 0);
+    auto it = looks_.find(k);
+    if (it != looks_.end()) return it->second;
+    std::vector<std::string> states;
+    if (selected) states.push_back("selected");
+    if (clip.disabled) states.push_back("disabled");
+    if (frozen) states.push_back("frozen");
+    if (!audible) states.push_back("muted");
+    if (linked) states.push_back("linked");
+    if (looping) states.push_back("looping");
+    auto st = paint::nodeStyles(owner_, "Clip", {clip.kind == Kind::Midi ? "midi" : "audio"}, states,
+                                {"", "body", "header", "overlay", "name", "fade", "loop-start", "link"});
+    Look l;
+    l.border = std::max(0.f, paint::length(st[0], "stroke-width", 1.5f));
+    l.disabledInset = paint::length(st[0], "padding-top", 0);
+    l.body = paint::withBackground(st[1], ui::style::background(st[1]));
+    l.header = paint::withBackground(st[2], ui::style::background(st[2]));
+    l.overlay = paint::withBackground(st[3], ui::style::background(st[3]));
+    l.overlayShown = paint::shows(l.overlay);
+    l.nameFont = ui::style::font(st[4], theme::uiFont());
+    l.namePadTop = ui::style::px(st[4], "padding-top");
+    l.namePadLeft = ui::style::px(st[4], "padding-left");
+    l.namePadRight = ui::style::px(st[4], "padding-right");
+    l.fadeShade = ui::style::background(st[5]);
+    l.fadeStroke = std::max(0.f, paint::length(st[5], "stroke-width", 1.2f));
+    l.loopStroke = std::max(0.f, paint::length(st[6], "stroke-width", 2));
+    l.loopHeight = ui::style::px(st[6], "height", headerHeight() + 4);
+    l.linkStroke = std::max(0.f, paint::length(st[7], "stroke-width", 1.6f));
+    return looks_.emplace(k, std::move(l)).first->second;
+}
 
 Rect pixels(const RectF& r) {
     // a pixel is filled when its centre (x + 0.5) lies in [left, right)
@@ -20,8 +73,8 @@ Rect pixels(const RectF& r) {
     return Rect(x0, y0, x1 - x0, y1 - y0);
 }
 
-void paintClip(Painter& p, const Clip& clip, const RectF& rect, const Rect& visible, int viewLeft, double pps, int sr,
-               bool selected, bool audible, bool frozen, bool handles, int linkedWith) {
+void paintClip(Painter& p, const Look& look, const Clip& clip, const RectF& rect, const Rect& visible, int viewLeft,
+               double pps, int sr, bool selected, bool audible, bool frozen, bool handles, int linkedWith) {
     std::string color, tone;
     colors::clipColor(clip, color, tone);  // its own, its track's, or its kind's default
     colors::ClipColors cc = colors::clipColors(color, audible, tone);
@@ -30,45 +83,49 @@ void paintClip(Painter& p, const Clip& clip, const RectF& rect, const Rect& visi
     RectF named = linked ? rect.adjusted(0, 0, -(rect.right() - badge.x) + 2, 0) : rect;  // (the name stops short of it)
     if (clip.disabled) {
         // the whole line inside the clip's box
-        if (selected) p.strokeRect(rect.adjusted(0.75f, 0.75f, -0.75f, -0.75f), cc.selectedBorder, 2);
-        else p.strokeRect(rect.adjusted(0.75f, 0.75f, -0.75f, -0.75f), cc.fill, 1.5f);
-        paintName(p, clip, named, viewLeft, cc.fill);
-        if (linked) paintLinkBadge(p, badge, cc.fill);
+        float in = look.disabledInset;
+        if (look.border > 0)
+            p.strokeRect(rect.adjusted(in, in, -in, -in), selected ? cc.selectedBorder : cc.fill, look.border);
+        paintName(p, look, clip, named, viewLeft, cc.fill);
+        if (linked) paintLinkBadge(p, badge, cc.fill, look.linkStroke);
         return;
     }
-    p.fillRect(pixels(rect), cc.fill);
-    p.fillRect(pixels(RectF(rect.x, rect.y, rect.w, (float)config::CLIP_HANDLE_H)), cc.handle);
-    RectF body = rect.adjusted(0, (float)config::CLIP_HANDLE_H, 0, 0);
+    const int headerH = headerHeight();
+    ui::style::box(p, pixels(rect), look.bodyIn(cc.fill));
+    ui::style::box(p, pixels(RectF(rect.x, rect.y, rect.w, (float)headerH)), look.headerIn(cc.handle));
+    RectF body = rect.adjusted(0, (float)headerH, 0, 0);
     if (body.bottom() >= visible.top() && body.y <= visible.bottom() - 1)  // not just the name strip
         paintContents(p, clip, body, visible, pps, sr, cc.content);
-    if (clip.kind == Kind::Audio && !frozen && handles) paintFades(p, clip, body, pps, sr, cc.border);
-    if (clip.loopingAudio()) paintLoopStarts(p, clip, rect, visible, pps, sr, cc.border);
-    if (frozen) p.fillRect(pixels(rect), theme::c("frozen_tint"));
-    if (selected) p.strokeRect(rect, cc.selectedBorder, 2);  // square corners
-    else p.strokeRect(rect, cc.border, 1.5f);
-    paintName(p, clip, named, viewLeft, cc.text);
-    if (linked) paintLinkBadge(p, badge, cc.text);
+    if (clip.kind == Kind::Audio && !frozen && handles)
+        paintFades(p, clip, body, pps, sr, cc.border, look.fadeShade, look.fadeStroke);
+    if (clip.loopingAudio()) paintLoopStarts(p, clip, rect, visible, pps, sr, cc.border, look.loopStroke, look.loopHeight);
+    if (look.overlayShown) ui::style::box(p, pixels(rect), look.overlay);  // (a frozen track's: its icy tint)
+    if (look.border > 0) p.strokeRect(rect, selected ? cc.selectedBorder : cc.border, look.border);  // square corners
+    paintName(p, look, clip, named, viewLeft, cc.text);
+    if (linked) paintLinkBadge(p, badge, cc.text, look.linkStroke);
 }
 
 // --- linked MIDI clips: the chain mark ---
 
 bool linkBadge(const RectF& rect, RectF& badge) {
-    if (rect.w < LINK_BADGE_W + 2 * config::CLIP_EDGE_PX + 12) return false;  // (too narrow: the name goes first)
-    float x = rect.right() - config::CLIP_EDGE_PX - 2 - LINK_BADGE_W;
-    badge = RectF(x, rect.y + (config::CLIP_HANDLE_H - LINK_BADGE_H) / 2.0f, (float)LINK_BADGE_W, (float)LINK_BADGE_H);
+    const int w = linkBadgeWidth(), h = linkBadgeHeight(), edge = edgeWidth();
+    if (rect.w < w + 2 * edge + 12) return false;  // (too narrow: the name goes first)
+    float x = rect.right() - edge - 2 - w;
+    badge = RectF(x, rect.y + (headerHeight() - h) / 2.0f, (float)w, (float)h);
     return true;
 }
 
-void paintLinkBadge(Painter& p, const RectF& badge, Color color) {
+void paintLinkBadge(Painter& p, const RectF& badge, Color color, float width) {
     // two links of a chain, side by side and overlapping, slightly tilted apart by their heights
     float h = badge.h - 2, w = badge.w * 0.62f;
     RectF left(badge.x + 0.5f, badge.y + 1, w, h);
     RectF right(badge.right() - w - 0.5f, badge.y + 1, w, h);
-    p.strokeRoundedRect(left, h / 2, color, 1.6f);
-    p.strokeRoundedRect(right, h / 2, color, 1.6f);
+    p.strokeRoundedRect(left, h / 2, color, width);
+    p.strokeRoundedRect(right, h / 2, color, width);
 }
 
-void paintLoopStarts(Painter& p, const Clip& clip, const RectF& rect, const Rect& visible, double pps, int sr, Color color) {
+void paintLoopStarts(Painter& p, const Clip& clip, const RectF& rect, const Rect& visible, double pps, int sr, Color color,
+                     float width, int height) {
     // (in its audio's time: repeats begin at its loop's end, then every pass)
     double endS = clip.loopStart + clip.loopLength;
     double firstS = (double)clip.offset / sr, lastS = (double)(clip.offset + clip.frames()) / sr;
@@ -79,26 +136,29 @@ void paintLoopStarts(Painter& p, const Clip& clip, const RectF& rect, const Rect
         if (atS >= lastS) break;
         if (atS > firstS) {
             float x = (float)(rect.x + (atS - firstS) * pps);
-            if (visible.left() - 2 <= x && x <= visible.right() - 1 + 2)
-                p.drawLine(PointF(x, rect.y), PointF(x, rect.y + config::CLIP_HANDLE_H + 4), color, 2);
+            float reach = std::max(2.f, width);  // (its antialiased edges)
+            if (visible.left() - reach <= x && x <= visible.right() - 1 + reach)
+                p.drawLine(PointF(x, rect.y), PointF(x, rect.y + height), color, width);
         }
     }
 }
 
 bool fadeHandles(const Clip& clip, const RectF& body, double pps, int sr, RectF& in, RectF& out) {
-    if (body.w < 4 * (config::CLIP_EDGE_PX + FADE_HANDLE_PX)) return false;
+    const int edge = edgeWidth(), size = fadeHandleSize();
+    if (body.w < 4 * (edge + size)) return false;
     int64_t fadeIn, fadeOut;
     double a, b;
     clip.fadeParts(fadeIn, fadeOut, a, b);
-    const double least = config::CLIP_EDGE_PX + 1, centre = body.x + body.w / 2.0;
-    double xIn = std::min(std::max(body.x + (double)fadeIn / sr * pps, body.x + least), centre - FADE_HANDLE_PX);
-    double xOut = std::max(std::min(body.right() - (double)fadeOut / sr * pps, body.right() - least - FADE_HANDLE_PX), centre);
-    in = RectF((float)xIn, body.y + 1, FADE_HANDLE_PX, FADE_HANDLE_PX);
-    out = RectF((float)xOut, body.y + 1, FADE_HANDLE_PX, FADE_HANDLE_PX);
+    const double least = edge + 1, centre = body.x + body.w / 2.0;
+    double xIn = std::min(std::max(body.x + (double)fadeIn / sr * pps, body.x + least), centre - size);
+    double xOut = std::max(std::min(body.right() - (double)fadeOut / sr * pps, body.right() - least - size), centre);
+    in = RectF((float)xIn, body.y + 1, (float)size, (float)size);
+    out = RectF((float)xOut, body.y + 1, (float)size, (float)size);
     return true;
 }
 
-void paintFades(Painter& p, const Clip& clip, const RectF& body, double pps, int sr, Color color) {
+void paintFades(Painter& p, const Clip& clip, const RectF& body, double pps, int sr, Color color, Color shadeColor,
+                float lineWidth) {
     // Each fade as its shape's curve (model.h FADE SHAPES), from the clip's edge to where it reaches full
     // level, with the part of the clip it makes quieter shaded above it. A piece of a longer fade starts
     // part-way along its curve (fadeParts: how far the fade is at the edge).
@@ -121,9 +181,10 @@ void paintFades(Painter& p, const Clip& clip, const RectF& body, double pps, int
         }
         std::vector<PointF> shade{PointF(s.edge, body.y)};
         shade.insert(shade.end(), curve.begin(), curve.end());
-        p.fillPolygon(shade, fadeShade());
-        if (steps == 1) p.drawLine(curve[0], curve[1], color, 1.2f);
-        else p.drawPolyline(curve, color, 1.2f, LineCap::Flat, LineJoin::Round);
+        p.fillPolygon(shade, shadeColor);
+        if (lineWidth <= 0) continue;
+        if (steps == 1) p.drawLine(curve[0], curve[1], color, lineWidth);
+        else p.drawPolyline(curve, color, lineWidth, LineCap::Flat, LineJoin::Round);
     }
     RectF in, out;
     if (fadeHandles(clip, body, pps, sr, in, out))
@@ -137,14 +198,15 @@ std::string clipLabel(const Clip& clip) {
     return clip.name + buf;
 }
 
-void paintName(Painter& p, const Clip& clip, const RectF& rect, int viewLeft, Color color) {
-    Font font = theme::uiFont();
+void paintName(Painter& p, const Look& look, const Clip& clip, const RectF& rect, int viewLeft, Color color) {
+    const Font& font = look.nameFont;
     std::string name = clipLabel(clip);
     float textW = font.width(name);
-    float x = std::max(rect.x + 6, std::min(std::max(rect.x, (float)viewLeft) + 6, rect.right() - textW - 6));
+    float x = std::max(rect.x + look.namePadLeft,
+                       std::min(std::max(rect.x, (float)viewLeft) + look.namePadLeft, rect.right() - textW - look.namePadRight));
     p.save();
-    p.setClip(pixels(rect.adjusted(1, 1, -1, -1)));
-    p.drawText(PointF(x, rect.y + 3 + std::round(font.ascent())), name, font, color);
+    p.setClip(pixels(rect.adjusted(1, 1, -1, -1)));  // (inside its outline)
+    p.drawText(PointF(x, rect.y + look.namePadTop + std::round(font.ascent())), name, font, color);
     p.restore();
 }
 
@@ -187,20 +249,21 @@ void paintContents(Painter& p, const Clip& clip, const RectF& body, const Rect& 
 }
 
 void paintRange(Painter& p, const TimeRange& range, const std::vector<std::pair<int, int>>& spans,
-                const std::function<double(int64_t)>& xOf, const Rect& visible) {
+                const std::function<double(int64_t)>& xOf, const Rect& visible, const css::Style& fill, Color edge,
+                int edgeWidth) {
     double x0 = xOf(range.start), x1 = xOf(range.end);
-    if (x1 + 2 < visible.left() || x0 - 2 > visible.right() - 1) return;  // +2: edge lines round to nearby pixels
+    int reach = 2 + std::max(0, edgeWidth / 2);  // (edge lines round to nearby pixels)
+    if (x1 + reach < visible.left() || x0 - reach > visible.right() - 1) return;
     if (spans.empty()) return;
-    Color fill = theme::c("selection_fill");
     int top = spans[0].first, bottom = spans[0].first + spans[0].second;
     for (auto& s : spans) {
-        p.fillRect(pixels(RectF((float)x0, (float)s.first, (float)(x1 - x0), (float)s.second)), fill);
+        ui::style::box(p, pixels(RectF((float)x0, (float)s.first, (float)(x1 - x0), (float)s.second)), fill);
         top = std::min(top, s.first);
         bottom = std::max(bottom, s.first + s.second);
     }
-    Color edge = theme::c("selection_edge");
-    p.drawVLine((int)std::lround(x0), top, bottom + 1, edge);
-    p.drawVLine((int)std::lround(x1), top, bottom + 1, edge);
+    paint::Line l{edge, edgeWidth};
+    paint::vline(p, (int)std::lround(x0), top, bottom + 1, l);
+    paint::vline(p, (int)std::lround(x1), top, bottom + 1, l);
 }
 
 }  // namespace clip_painter

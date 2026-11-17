@@ -27,6 +27,14 @@
 // A group has a header row above its tracks (fold ▾/▸, mute, solo, ungroup, and a meter showing
 // its tracks together); its tracks' rows have a bar in the group's colour down their left side.
 // The rows follow the same lanes as the timeline (lanes.h).
+//
+// STYLES: the panel is the stylesheets' `TrackPanel`, its width the :root variable --panel-width. Each row is a
+// node `TrackRow` under it: .track (:alternate every other), .automation (:armed while armed for writing),
+// .take or .group, and the kind of its track (.audio, .midi, .return). A row reads its background-color (a
+// track's or group's own colour wins), border-left-color (the stripe down its left: its kind's, or a group's),
+// border-top-color (an automation row's line above it), padding (around its controls) and row-gap / column-gap
+// (between its lines / its controls); TrackRow::tint (an armed automation row: a quarter of its colour is mixed
+// in) and TrackRow::group-bar (width; background-color: a grouped track's bar, when the group has no colour).
 #pragma once
 #include <functional>
 #include <map>
@@ -47,10 +55,14 @@ class Timeline;
 class MasterStrip;
 
 namespace lane_panel {
-constexpr int GROUP_BAR_W = 5;  // px: bar down the left of a group's tracks' rows
-Color groupBarColor(const Group& group);
+constexpr int GROUP_BAR_W = 5;  // (default: TrackRow::group-bar's width) px: bar down the left of a group's tracks' rows
+int panelWidth();               // --panel-width (PANEL_W)
+// the bar down a group's tracks' rows, and its header row's stripe: its own colour, else the skin's (`panel`: the
+// node above the rows in the stylesheets; null: the root)
+Color groupBarColor(const Group& group, const ui::Widget* panel = nullptr);
 std::vector<int> trackOutputs(const Track& track);  // the device outputs (0-based) a track plays on: its pair
-Color automationRowColor(const Automation& lane);   // an automation lane's row: tinted red while armed for writing
+// an automation lane's row (of a track of `kind`): tinted red while armed for writing
+Color automationRowColor(const Automation& lane, const ui::Widget* panel = nullptr, Kind kind = Kind::Audio);
 // A small dialog to tick tracks (those in `checked` already ticked). The ticked ones, or nullopt.
 std::optional<std::vector<TrackPtr>> chooseTracks(ui::Window* parent, const std::vector<TrackPtr>& tracks,
                                                   const std::vector<TrackPtr>& checked);
@@ -155,7 +167,8 @@ public:
 private:
     ui::Widget* rowsBox_ = nullptr;  // holds the rows (replaced on every rebuild)
     std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
-    LaneFrame* trackHeader(ui::Widget* parent, const TrackPtr& track, Color color);
+    int styled_ = -1;                // the stylesheets' generation the rows were made with
+    LaneFrame* trackHeader(ui::Widget* parent, const TrackPtr& track, bool alternate);
     LaneFrame* automationHeader(ui::Widget* parent, const Lane& lane);
     LaneFrame* takeHeader(ui::Widget* parent, const Lane& lane);
     LaneFrame* groupHeader(ui::Widget* parent, const GroupPtr& group);

@@ -13,6 +13,7 @@
 #include "ui/theme.h"
 #include "ui/timeline.h"
 #include "ui/toolkit/dialogs.h"
+#include "ui/toolkit/style.h"
 #include "ui/track_dialogs.h"
 
 namespace {
@@ -40,7 +41,7 @@ std::string trimmed(const std::string& s) {
 // --- fades ----------------------------------------------------------------------------------------
 
 FadeHit Timeline::fadeHandleAt(PointF pos) const {
-    if (pos.y < config::RULER_H) return {};
+    if (pos.y < lanes::rulerHeight()) return {};
     auto tops = trackTops();
     auto& clips = *project.clips;
     for (auto it = clips.rbegin(); it != clips.rend(); ++it) {
@@ -48,7 +49,7 @@ FadeHit Timeline::fadeHandleAt(PointF pos) const {
         if (clip.kind != Kind::Audio || clip.disabled) continue;
         auto rect = clipRect(clip, tops);
         if (!rect || clip.track->frozen) continue;
-        RectF body = rect->adjusted(0, (float)config::CLIP_HANDLE_H, 0, 0);
+        RectF body = rect->adjusted(0, (float)clip_painter::headerHeight(), 0, 0);
         RectF in, out;
         if (!clip_painter::fadeHandles(clip, body, pps, engine.sr, in, out)) continue;
         if (containsQt(in.adjusted(-2, -2, 2, 2), pos)) return {*it, true};
@@ -332,20 +333,24 @@ void Timeline::fromBeats(const ClipPtr& clip, int64_t frame) {
 
 // --- take lanes -------------------------------------------------------------------------------------
 
-void Timeline::paintTake(Painter& p, const Rect& r, const Lane& lane, bool background) {
-    // a take lane: its take as a clip, and the part being chosen while dragging across it
-    if (background) p.fillRect(Rect(r.left(), lane.top, r.w, lane.height), theme::c("automation_lane"));
-    p.fillRect(Rect(r.left(), lane.top, r.w, 1), theme::c("grid_bar"));
+void Timeline::paintTake(Painter& p, const Rect& r, const Lane& lane) {
+    // a take lane (its background: paintLanes): its top edge again (over the grid), its take as a clip, and the
+    // part being chosen while dragging across it (Timeline::selection)
+    const TimelineLook& lk = look();
+    const LaneLook& l = lk.lanes->get(LaneKind::Take);
+    if (l.topEdge.width > 0) p.fillRect(Rect(r.left(), lane.top, r.w, l.topEdge.width), l.topEdge.color);
     const Clip& take = *lane.take;
     double x0 = xOf(take.start), x1 = xOf(take.end());
     if (x1 >= r.left() && x0 <= r.right() - 1)
-        clip_painter::paintClip(p, take, RectF((float)x0, (float)lane.top + 2, (float)(x1 - x0), (float)lane.height - 4), r,
+        clip_painter::paintClip(p, clipLooks_.get(take, false, true, false, 0), take,
+                                RectF((float)x0, (float)lane.top + 2, (float)(x1 - x0), (float)lane.height - 4), r,
                                 scroll->horizontalScrollBar()->value(), pps, engine.sr, false, true, false, false);
     if (auto* d = std::get_if<TakeDrag>(&drag)) {
         if (d->lane.take == lane.take) {
             int64_t a = std::min(d->frame, d->to), b = std::max(d->frame, d->to);
-            p.fillRect(clip_painter::pixels(RectF((float)xOf(a), (float)lane.top, (float)(xOf(b) - xOf(a)), (float)lane.height)),
-                       theme::c("selection_fill"));
+            ui::style::box(
+                p, clip_painter::pixels(RectF((float)xOf(a), (float)lane.top, (float)(xOf(b) - xOf(a)), (float)lane.height)),
+                lk.selection);
         }
     }
 }
@@ -388,34 +393,39 @@ void Timeline::fillTakeMenu(ui::Menu& menu, const Lane& lane) {
 // --- markers ----------------------------------------------------------------------------------------
 
 std::vector<std::pair<Marker, Rect>> Timeline::markerFlags() const {
-    Font font = theme::uiFont();
-    const int top = config::RULER_H / 2;
+    // (Ruler::marker: its height, font and padding: as wide as its name with its padding-left at both sides, or
+    // padding-right at the right when that is more)
+    const TimelineLook& lk = look();
+    const Font& font = lk.markerFont;
+    const int top = lk.rulerHeight - lk.markerHeight;
+    const int room = lk.markerPadLeft + std::max(lk.markerPadLeft, lk.markerPadRight);
     auto& markers = *project.markers;
     std::vector<int> xs;
     for (auto& m : markers) xs.push_back((int)std::nearbyint(m.seconds * pps));
     std::vector<std::pair<Marker, Rect>> flags;
     for (size_t i = 0; i < markers.size(); ++i) {
-        int width = (int)std::ceil(font.width(markers[i].name)) + 10;
+        int width = (int)std::ceil(font.width(markers[i].name)) + room;
         if (i + 1 < xs.size()) width = std::max(timeline::MARKER_MIN_PX, std::min(width, xs[i + 1] - xs[i] - 1));
-        flags.push_back({markers[i], Rect(xs[i], top, width, config::RULER_H - top)});
+        flags.push_back({markers[i], Rect(xs[i], top, width, lk.markerHeight)});
     }
     return flags;
 }
 
 void Timeline::paintMarkers(Painter& p, const Rect& r) {
-    Font font = theme::uiFont();
+    // each marker's flag (Ruler::marker) and its place across the ruler (Ruler::marker-line), boxes
+    const TimelineLook& lk = look();
     for (auto& [marker, flag] : markerFlags()) {
-        if (flag.right() - 1 < r.left() || flag.left() > r.right() - 1) continue;
-        p.fillRect(flag, theme::c("accent"));
-        p.fillRect(Rect(flag.left(), 0, 2, config::RULER_H), theme::c("accent"));  // its place, across the ruler
-        Rect text = flag.adjusted(5, 0, -2, 0);
-        if (text.w > 0)
-            p.drawText(RectF(text), AlignLeft | AlignVCenter, marker.name, font, theme::c("accent_text"), true);
+        Rect place(flag.left(), 0, lk.markerLineW, lk.rulerHeight);
+        if (std::max(flag.right(), place.right()) - 1 < r.left() || flag.left() > r.right() - 1) continue;
+        ui::style::box(p, flag, lk.marker);
+        ui::style::box(p, place, lk.markerLine);
+        Rect text = flag.adjusted(lk.markerPadLeft, 0, -lk.markerPadRight, 0);
+        if (text.w > 0) p.drawText(RectF(text), AlignLeft | AlignVCenter, marker.name, lk.markerFont, lk.markerText, true);
     }
 }
 
 std::optional<Marker> Timeline::markerAt(PointF pos) const {
-    if (pos.y >= config::RULER_H) return std::nullopt;
+    if (pos.y >= lanes::rulerHeight()) return std::nullopt;
     auto flags = markerFlags();
     Point at((int)std::lround(pos.x), (int)std::lround(pos.y));
     for (auto it = flags.rbegin(); it != flags.rend(); ++it)
@@ -517,13 +527,15 @@ std::string Timeline::editTime(const std::function<bool(std::string& note, std::
 
 void Timeline::paintTempoChanges(Painter& p, const Rect& r) {
     // each tempo change after its bar's number on the ruler
-    Font font = theme::uiFont();
+    // (Ruler::tempo: after the bar's number, Ruler::label, by its margin-left)
+    const TimelineLook& lk = look();
     const Timing& t = project.timing;
     for (auto& change : t.changes) {
         int x = (int)(t.barSeconds(change.bar - 1) * pps);
         if (r.left() - 200 <= x && x <= r.right() - 1)
-            p.drawText(PointF((float)x + 10 + font.width(std::to_string(change.bar)), 15),
-                       g(change.bpm) + " BPM " + std::to_string(change.beatsPerBar) + "/4", font, theme::c("accent"));
+            p.drawText(PointF((float)x + (lk.labelPadLeft + lk.tempoMargin) + lk.labelFont.width(std::to_string(change.bar)),
+                              (float)lk.tempoBaseline),
+                       g(change.bpm) + " BPM " + std::to_string(change.beatsPerBar) + "/4", lk.tempoFont, lk.tempoColor);
     }
 }
 
