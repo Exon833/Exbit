@@ -28,7 +28,8 @@ extends; that program is in the repository's history.
   Windows VST3 and VST2 plugins through Wine (Tiny DAW's own bridge, no yabridge needed), each
   placed and wired by hand in a patch space with sidechains and a Mix (dry/wet) control;
   instrument patch panels; automation of any parameter, volume and pan; plugin delay compensation.
-- **Audio**: ALSA, PulseAudio (PipeWire through either) and JACK; recording with count-in and a
+- **Audio**: ALSA, PulseAudio (PipeWire through either) and JACK; tracks worked out on every
+  processor core at once, with each track's CPU use shown; recording with count-in and a
   measurable recording offset; freeze and bounce; render to WAV, FLAC, MP3 or OGG with peak or
   loudness normalizing; stems; level meters with peak hold and clip lights; LUFS; a master scope.
 - **Projects**: templates, recent projects, backups of what each save replaces, autosave with crash
@@ -39,7 +40,7 @@ extends; that program is in the repository's history.
 ## The master scope
 
 Under the Master row (the right-hand column), a small window shows what the master plays, as a
-**waveform** (an oscilloscope: the default) or a **spectrum**. View → Master scope shows or hides it;
+**waveform** (an oscilloscope: the default) or a **spectrum**. Options → Master scope shows or hides it;
 right-click it for its options, which are remembered:
 
 - **Combined channels** (left and right mixed) or **separate** (left and right side by side), in
@@ -55,6 +56,25 @@ right-click it for its options, which are remembered:
 It shows the master after its volume (what is heard), outputs 1 and 2. While it is hidden nothing is
 kept for it, and the audio thread does nothing more for it at any time: the meters' copy of what was
 played is read on the interface thread.
+
+## Several cores
+
+The tracks of a song are worked out side by side on all of the processor's cores, so a song with
+many tracks of plugins doesn't have to fit on one core (the audio thread and up to 15 worker
+threads, real-time ones where the system allows it; `src/audio/workers.h`). It sounds exactly the
+same, bit for bit, as when everything runs on one thread: each track is worked out into a buffer of
+its own, and the tracks are then added together in the same order as always (`src/audio/mixer.h`).
+A track whose sidechain listens to another waits for that one; return tracks follow the tracks that
+send to them. Renders (export, stems, freeze, bounce) use the cores too. Windows plugins gain the
+most: each waits for its Wine host, and now they wait at the same time.
+
+- **Options → Audio properties → Processing cores**: Automatic (all of them), 1 (everything on the
+  audio thread, as before: try it if a plugin misbehaves), or a number in between. Changing it
+  reopens the audio device.
+- **Options → CPU per track**: a thin bar along the bottom of each track's row shows how much of one
+  core the track takes (the whole width is half a core; it turns yellow, then red, as it grows). The
+  Audio CPU monitor's tooltip names the costliest tracks either way. With several cores the tracks'
+  shares can add up to more than the Audio CPU figure, which is the share of the audio thread's time.
 
 ## Build
 
@@ -172,6 +192,10 @@ new Wine prefix, installs them there with that installer as Options → Install 
 and tests them through the Wine host like any installed plugin, without needing any commercial
 Windows plugin.
 
+`test_parallel` mixes projects with and without worker threads and checks that they sound the same
+bit for bit; with `TINYDAW_PARALLEL_FX=<plugin>` and `TINYDAW_PARALLEL_SYNTH=<plugin>` it plays those
+plugins (Windows ones too) on the workers instead of the test plugins, and reports whether they do.
+
 Testing aids of the running program (hidden; see `src/ui/test_script.h`):
 
 | variable | what it does |
@@ -201,8 +225,8 @@ Testing aids of the running program (hidden; see `src/ui/test_script.h`):
     src/platform/    windows, events, main loop, clipboard, drops (Xlib)
     src/model/       the project, timing and the tempo map, edits, undo history, song time, project files
     src/audio/       devices (ALSA, PulseAudio, JACK), MIDI input, sound files and codecs (incl. MP3
-                     and Vorbis encoders), engine, mixer, patch cables, synth, sampler, MIDI effects,
-                     stretch, automation, metronome, loudness, metering, rendering
+                     and Vorbis encoders), engine, mixer and its worker threads, patch cables, synth,
+                     sampler, MIDI effects, stretch, automation, metronome, loudness, metering, rendering
     src/effects/     the built-in effects
     src/plugins/     VST3 (our own declaration of the interfaces) and VST2 hosting, the plugin
                      library and cache, the out-of-process type probe, Windows plugins through

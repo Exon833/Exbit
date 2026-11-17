@@ -6,11 +6,23 @@
 #include "ui/preferences.h"
 #include "ui/toolkit/layout.h"
 
+#include <thread>
+
 using namespace ui;
 
 namespace audio_dialog {
 
 bool hasExclusive(const std::string& driverType) { return false; }
+
+std::vector<std::pair<int, std::string>> coreChoices(int available) {
+    available = std::max(1, available);
+    std::vector<std::pair<int, std::string>> out;
+    out.emplace_back(0, "Automatic (all " + std::to_string(available) + ")");
+    out.emplace_back(1, "1 (the audio thread alone)");
+    for (int n = 2; n < available; n *= 2) out.emplace_back(n, std::to_string(n));
+    if (available > 1) out.emplace_back(available, std::to_string(available));
+    return out;
+}
 
 std::string bufferText(int frames, int sr) {
     if (frames == 0) return "Driver default";
@@ -37,7 +49,8 @@ AudioPropertiesDialog::AudioPropertiesDialog(Window* parent, const std::string& 
       driverType(driverType_),
       device(device_),
       bufferSize(bufferSize_),
-      exclusive(exclusive_) {
+      exclusive(exclusive_),
+      cores(engine.cores) {
     FormLayout* form = ui::form(this, 11, 6);
     setMinimumSize(480, 0);
 
@@ -68,6 +81,16 @@ AudioPropertiesDialog::AudioPropertiesDialog(Window* parent, const std::string& 
     hint->setProperty("hint", "true");
     hint->setWordWrap(true);
     form->addRow(hint);
+
+    coreChoice = add<ComboBox>();
+    for (auto& c : audio_dialog::coreChoices((int)std::thread::hardware_concurrency()))
+        coreChoice->addItem(c.second, std::to_string(c.first));
+    coreChoice->setCurrentIndexSilently(std::max(0, coreChoice->findData(std::to_string(cores))));
+    coreChoice->setToolTip(
+        "Tracks are worked out side by side on this many processor cores, so a song with many\n"
+        "tracks of plugins doesn't have to fit on one. The sound is the same either way.\n"
+        "1: everything on the audio thread, as before (try it if a plugin misbehaves).");
+    form->addRow("Processing cores", coreChoice);
 
     if (engine.isOpen()) {
         Label* now = add<Label>(audio_dialog::nowPlaying(engine));
@@ -110,6 +133,7 @@ void AudioPropertiesDialog::done(int result) {
         device = devices->currentData();
         bufferSize = buffers->currentDataInt(0);
         exclusive = exclusiveBox->isChecked() && audio_dialog::hasExclusive(driverType);
+        cores = std::max(0, coreChoice->currentDataInt(0));
     }
     Dialog::done(result);
 }

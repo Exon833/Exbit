@@ -13,6 +13,8 @@ namespace audio_dialog {
 // the driver types that have an exclusive mode (taking the device for this program alone). None of
 // Linux's: an ALSA hw device is always the program's alone, PulseAudio is always shared.
 bool hasExclusive(const std::string& driverType);
+// the choices of Processing cores: (cores, text) — 0 "Automatic (all 16)", 1 "1 (the audio thread alone)", 2, 4…
+std::vector<std::pair<int, std::string>> coreChoices(int available);
 // "Driver default" / "512 frames  (10.7 ms)"
 std::string bufferText(int frames, int sr);
 // what the open device is doing: "ALSA: 48000 Hz, 2 outputs, 2 inputs, 512 frames per buffer, 21.3 ms
@@ -29,12 +31,14 @@ public:
     std::string driverType, device;
     int bufferSize;
     bool exclusive;
+    int cores;  // Engine::cores
 
     ui::ComboBox* types;
     ui::Label* about;
     ui::ComboBox* devices;
     ui::CheckBox* exclusiveBox;
     ui::ComboBox* buffers;
+    ui::ComboBox* coreChoice;
     void showType();               // list the chosen driver type's devices (keeping the current one)
     void done(int result) override;
 };

@@ -8,7 +8,7 @@
 //   note heard, standing still, its name shown) and how many cycles;
 //   for the spectrum: the FFT size, the window function, how fast it falls back, the slope (dB per
 //   octave) and the range shown.
-// View → Master scope shows or hides it (the master's row is SCOPE_H shorter without it).
+// Options → Master scope shows or hides it (the master's row is SCOPE_H shorter without it).
 #pragma once
 #include <functional>
 #include <string>

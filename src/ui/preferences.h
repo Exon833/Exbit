@@ -24,6 +24,7 @@ struct Preferences {
     std::string deviceName;                 // output device to open; "" or a missing one = the type's default
     bool wasapiExclusive = false;           // (kept for the settings' sake: "exclusive" where a driver has it)
     int bufferSize = 512;
+    int processingCores = 0;                // the tracks worked out on this many cores; 0 = all (Engine::cores)
     bool levelMeters = true;
     bool loudnessMeters = true;
     int refreshFps = 60;
@@ -51,6 +52,7 @@ struct Preferences {
     std::string favouritePlugins;           // the effect chooser's favourites, "path|plugin name" a line
     std::string recentPlugins;              // …and the plugins chosen last, newest first
     std::string recordOffsets;              // Options → Recording offset: JSON {"driver|device": ms}
+    bool trackCpu = false;                  // Options → CPU per track
     std::string scope;                      // the master scope's options: JSON (ScopeSettings::toJson); "" the defaults
     int interfaceScale = 100;               // % the whole interface is drawn at (from the next start: main.cpp)
     bool nativeWayland = true;              // (the Python program's Qt-on-Wayland choice; kept for its settings)

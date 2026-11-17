@@ -34,12 +34,28 @@ CpuMonitor::CpuMonitor() {
 void CpuMonitor::showLoad(std::optional<std::pair<double, double>> load, int late) {
     load_ = load;
     late_ = late;
-    setToolTip("Audio CPU: share of each buffer's time spent computing audio.\n"
-               "Current = last " + std::to_string(config::CPU_REFRESH_MS) + " ms, avg = rolling ~" +
-               g(config::CPU_AVERAGE_SECONDS) + " s.\n"
-               "Near 100 % you will hear dropouts.\n"
-               "⚠ = late audio buffers since Play (likely clicks): " + std::to_string(late));
+    tip();
     update();
+}
+
+void CpuMonitor::showTracks(std::vector<std::pair<std::string, double>> tracks) {
+    if (tracks == tracks_) return;
+    tracks_ = std::move(tracks);
+    tip();
+}
+
+void CpuMonitor::tip() {
+    std::string t = "Audio CPU: share of each buffer's time spent computing audio.\n"
+                    "Current = last " + std::to_string(config::CPU_REFRESH_MS) + " ms, avg = rolling ~" +
+                    g(config::CPU_AVERAGE_SECONDS) + " s.\n"
+                    "Near 100 % you will hear dropouts.\n"
+                    "⚠ = late audio buffers since Play (likely clicks): " + std::to_string(late_);
+    if (!tracks_.empty()) {
+        t += "\n\nThe costliest tracks (share of one core; tracks run on several cores at once):";
+        for (auto& tr : tracks_) t += "\n" + pct("  ", tr.second) + "  " + tr.first;
+        t += "\n(Options → CPU per track shows it on every row)";
+    }
+    setToolTip(t);
 }
 
 void CpuMonitor::paint(Painter& p) {

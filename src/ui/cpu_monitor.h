@@ -3,6 +3,8 @@
 // As tall as the timeline's ruler, so the panel's rows line up with the lanes.
 #pragma once
 #include <optional>
+#include <string>
+#include <vector>
 #include <utility>
 
 #include "ui/toolkit/widget.h"
@@ -16,6 +18,8 @@ public:
     CpuMonitor();
     // (current, average) as fractions, or nullopt when no audio is running; late buffers since Play
     void showLoad(std::optional<std::pair<double, double>> load, int late = 0);
+    // the costliest tracks now, for its tooltip: (name, share of a core), costliest first
+    void showTracks(std::vector<std::pair<std::string, double>> tracks);
     std::optional<std::pair<double, double>> load() const { return load_; }
     int late() const { return late_; }
     void paint(Painter& p) override;
@@ -23,4 +27,6 @@ public:
 private:
     std::optional<std::pair<double, double>> load_;
     int late_ = 0;
+    std::vector<std::pair<std::string, double>> tracks_;
+    void tip();
 };

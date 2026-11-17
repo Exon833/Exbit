@@ -186,8 +186,10 @@ std::optional<std::vector<float>> renderMix(Project& project, int64_t start, int
     int latency = 0;
     int64_t total = std::max<int64_t>(0, end - first + extra);
     std::vector<float> out((size_t)total * 2, 0.0f);
+    workers::Pool pool(workers::workersFor(workers::chosenCores()));  // (the tracks on several cores, as playback)
     mixer::MixState st;
     st.compensate = true;
+    st.pool = &pool;
     int64_t pos = first;
     // until the end, plus the time plugins with look-ahead hold the sound back (known as it plays)
     while (pos - first < total + latency) {

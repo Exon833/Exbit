@@ -30,32 +30,51 @@
 //
 // This is the one mixer: playback (Engine::callback) and renders (render.h) both run it, so a render
 // is what playback sounds like, sample for sample, when buffers fall the same way.
+//
+// SEVERAL CORES. With a worker pool (MixState::pool), the tracks of a buffer are worked out at the same
+// time on several threads. Each track's work is split in two:
+//   - processing: its clips or instruments, its effects, fader and pan, its delay compensation, into a
+//     buffer of its own. Tracks share nothing here, so they run in parallel, each waiting only for the
+//     tracks its sidechains listen to (which come before it in the feeding order).
+//   - committing: adding it into the outputs and into the returns it sends to, keeping its sound for
+//     sidechains, and telling the tap. Done by the calling thread alone, track after track in the
+//     feeding order, once they're processed.
+// So the sums are made in the same order as on one thread, and the sound is the same, bit for bit, with
+// or without workers (tests/test_parallel.cpp checks it). The returns are processed after every other
+// track is committed (their input is what was sent to them): in parallel among themselves, unless one of
+// them sends to, or listens to, another return (then one after the other, as on one thread).
 #pragma once
 #include <array>
+#include <atomic>
 #include <cstdint>
+#include <memory>
 #include <utility>
 #include <vector>
 
 #include "audio/live.h"
 #include "audio/patch.h"
 #include "audio/plugin_audio.h"
+#include "audio/workers.h"
 #include "model/model.h"
 
 namespace mixer {
 
-// told every track's sound in each buffer, so the engine can meter it
+// told every track's sound in each buffer, so the engine can meter it (always on the calling thread)
 struct TrackTap {
     virtual ~TrackTap() = default;
     // silent in this buffer (no clips and no plugins that could still ring, muted, or not soloed)
     virtual void silent(const Track* track, int frames) = 0;
     // its sound: `channels` planar channels, on device outputs [first, first + channels)
     virtual void sound(const Track* track, const float* const ch[2], int channels, int first, int frames) = 0;
+    // how long working the track out took in this buffer (seconds, on whichever thread did it)
+    virtual void work(const Track* /*track*/, double /*seconds*/) {}
 };
 
 // What the caller keeps between buffers (the delay compensation's lines) and scratch.
 struct MixState {
     bool compensate = true;  // plugin delay compensation (the Python program's delays dict; false = None)
     std::vector<std::pair<const Track*, patch::DelayLine>> delays;
+    workers::Pool* pool = nullptr;  // tracks worked out on its threads too (see the top); null = this thread only
     void reserve(int frames, int tracks);  // make room ahead (the engine does when the device opens)
 
     // scratch (no need to touch)
@@ -68,15 +87,38 @@ struct MixState {
         const Track* track;
     };
     std::vector<Active> active;
-    std::vector<const Clip*> clips;
-    std::vector<float> sig, master;
+    std::vector<float> master;
     std::vector<std::vector<float>> feedBuf, sentBuf;
     std::vector<char> sentUsed;
     std::vector<int> mixOrder;
     std::vector<std::pair<const Track*, std::array<uint16_t, 128>>> held;  // the clips' notes each track's instruments hold
-    std::vector<patch::Feed> feeds;
-    plugin_audio::Messages messages;
-    std::vector<plugin_audio::NoteEvent> events;
+    std::vector<patch::Feed> feeds;  // committed tracks' sound for sidechains, in the feeding order
+    // per track (by its index in the track list)
+    struct Result {
+        enum Kind : char { Skipped, Unheard, Heard };
+        Kind kind = Skipped;
+        bool fed = false;  // its sound was kept for sidechains (in feedBuf)
+        int channels = 0, first = 0;
+        double seconds = 0;  // how long processing it took
+    };
+    std::vector<Result> results;
+    std::vector<std::vector<float>> trackBuf;  // its sound (2 rows of `capacity`)
+    std::vector<int> clipFrom;                 // its clips: trackClips[clipFrom[i] … clipFrom[i + 1])
+    std::vector<const Clip*> trackClips;
+    std::vector<patch::DelayLine*> lines;      // its delay compensation line (null: none)
+    std::vector<uint16_t*> heldOf;             // its entry of `held` (tracks playing instrument plugins)
+    std::vector<int> position;                 // its place in `order`
+    std::unique_ptr<std::atomic<char>[]> finished;  // processed in this buffer (what sidechain listeners wait for)
+    int finishedSize = 0;
+    std::vector<int> jobs;                     // the tracks of one parallel run, in order
+    // what one track's processing borrows: one per thread that can be processing at once
+    struct Scratch {
+        std::atomic<bool> busy{false};
+        plugin_audio::Messages messages;
+        std::vector<plugin_audio::NoteEvent> events;
+        std::vector<patch::Feed> feeds;
+    };
+    std::vector<std::unique_ptr<Scratch>> scratch;
 };
 
 // is a TrackSource of `track` among these cables (another track's sound into a sidechain)?

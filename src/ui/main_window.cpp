@@ -135,6 +135,8 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     skin::apply(skin);
     metronomeSettings = metronome_dialog::loadSettings();
     engine.blocksize = prefs.bufferSize;
+    engine.cores = prefs.processingCores;
+    workers::setChosenCores(prefs.processingCores);
 
     menuBar = add<ui::MenuBar>();
     transport = add<TransportBar>();
@@ -576,6 +578,15 @@ void MainWindow::buildOptionsMenu() {
     scopeAction = menu->addCheckable("Master &scope", master->scope->settings.shown, [this](bool on) { showScope(on); });
     scopeAction->tooltip = "Under the Master row: the waveform or spectrum of what the master plays (right-click it "
                            "for its options)";
+    auto* cpuAction = menu->addCheckable("&CPU per track", prefs.trackCpu, [this](bool on) {
+        prefs.trackCpu = on;
+        prefs.save();
+        if (!on)
+            for (auto& kv : panel->frames) kv.second->setLoad(-1);
+    });
+    cpuAction->tooltip = "A thin bar along the bottom of each track's row: how much of one processor core the track "
+                         "takes (its plugins and effects). The Audio CPU monitor's tooltip "
+                         "lists the costliest tracks";
     menu->addSeparator();
     ui::Menu* colours = menu->addMenu("&Colours");
     colours->addCheckable("&Random colour for new tracks", prefs.randomTrackColors,
@@ -745,7 +756,7 @@ void MainWindow::chooseVst2Folders() {
 }
 
 void MainWindow::showScope(bool on) {
-    // View → Master scope (and "Hide the scope" in its menu): the Master row and lane that much taller
+    // Options → Master scope (and "Hide the scope" in its menu): the Master row and lane that much taller
     lanes::setMasterScopeHeight(on ? config::SCOPE_H : 0);
     master->setScopeShown(on);
     for (auto& pin : masterPins) pin->setHeight(lanes::masterHeight());
@@ -825,6 +836,7 @@ void MainWindow::showAudioProperties() {
     std::string type, dev;
     int buffer;
     bool exclusive;
+    int cores;
     {
         AudioPropertiesDialog d(this, p.driverType, device, p.bufferSize, p.wasapiExclusive, engine);
         if (!d.exec()) return;
@@ -832,9 +844,18 @@ void MainWindow::showAudioProperties() {
         dev = d.device;
         buffer = d.bufferSize;
         exclusive = d.exclusive;
+        cores = d.cores;
+    }
+    bool coresChanged = cores != p.processingCores;
+    if (coresChanged) {  // (takes effect when the device opens again: below)
+        p.processingCores = engine.cores = cores;
+        workers::setChosenCores(cores);
+        p.save();
     }
     if (type != p.driverType || dev != device || buffer != p.bufferSize || exclusive != p.wasapiExclusive)
         setAudioDevice(type, dev, buffer, exclusive);
+    else if (coresChanged && !device.empty())
+        openDevice();
 }
 
 void MainWindow::setAudioDevice(const std::string& driverType, const std::string& dev, int bufferSize, bool exclusive) {
@@ -1525,6 +1546,27 @@ void MainWindow::onCpuTimer() {
     double cur = 0, avg = 0;
     if (engine.isOpen() && engine.cpu.read(config::CPU_AVERAGE_SECONDS, cur, avg)) load = std::make_pair(cur, avg);
     cpuMonitor->showLoad(load, engine.cpu.late);
+    {  // each track's share of a core (the monitor's tooltip; the rows' bars: Options → CPU per track)
+        std::vector<const Track*> known;
+        for (auto& t : *project.tracks) known.push_back(t.get());
+        auto shares = engine.trackCpu.read(known);
+        if (load) {
+            std::vector<std::pair<std::string, double>> top;
+            for (auto& s : shares) {
+                if (top.size() == 5 || s.second < 0.001) break;
+                for (auto& t : *project.tracks)
+                    if (t.get() == s.first) top.emplace_back(t->name, s.second);
+            }
+            cpuMonitor->showTracks(top);
+        }
+        if (prefs.trackCpu && load)
+            for (auto& kv : panel->frames) {
+                double share = 0;
+                for (auto& s : shares)
+                    if (s.first == kv.first.get()) share = s.second;
+                kv.second->setLoad(share);
+            }
+    }
     if (!prefs.loudnessMeters) return;
     auto& metering = *engine.metering;
     metering.updateLoudness();

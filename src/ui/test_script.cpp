@@ -1,6 +1,8 @@
 // The hidden testing aid of test_script.h.
 #include "ui/test_script.h"
 
+#include "effects/effects.h"
+
 #include <signal.h>
 
 #include <cstdio>
@@ -205,6 +207,14 @@ struct Runner {
                 if (!info && p.name == path) info = &p;
             for (auto& p : main->plugins->library().plugins)
                 if (!info && (p.path == path || p.path.find(path) != std::string::npos)) info = &p;
+            plug::PluginInfo builtin;  // (built-in effects aren't in the library: "builtin:<key>" or the key)
+            if (!info) {
+                std::string key = path.rfind("builtin:", 0) == 0 ? path.substr(8) : path;
+                if (const auto* e = effects::find(key)) {
+                    builtin = {e->path(), e->name, plug::EFFECT, ""};
+                    info = &builtin;
+                }
+            }
             if (!info) return say("no such plugin: " + path);
             SlotPtr slot = main->plugins->load(*info);
             if (!slot) return say("could not load " + path);

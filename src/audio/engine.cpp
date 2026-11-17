@@ -116,10 +116,15 @@ bool keepTake(Track& track, const ClipPtr& clip) {
 class Engine::Tap : public mixer::TrackTap {
 public:
     Metering* m = nullptr;
-    void silent(const Track* t, int frames) override { m->tapSilence(t, frames); }
-    void sound(const Track* t, const float* const ch[2], int channels, int first, int frames) override {
-        m->tap(t, ch, channels, first, frames);
+    bool metered = false;   // (meters on: else only the tracks' work is taken)
+    TrackCpu* cpu = nullptr;
+    void silent(const Track* t, int frames) override {
+        if (metered) m->tapSilence(t, frames);
     }
+    void sound(const Track* t, const float* const ch[2], int channels, int first, int frames) override {
+        if (metered) m->tap(t, ch, channels, first, frames);
+    }
+    void work(const Track* t, double seconds) override { cpu->add(t, seconds); }
 };
 
 Engine::Engine(Project& p) : project(p), sr(config::FALLBACK_SAMPLE_RATE), tap_(new Tap) {
@@ -220,6 +225,9 @@ bool Engine::open(const std::string& type, const std::string& device, int bs, bo
     exclusive = excl;
     int block = std::max(stream->blocksize(), blocksize);
     patch::setBlockHint(std::max(block, 1024));
+    mix_.pool = nullptr;  // (no stream runs here: close() stopped it)
+    pool_ = std::make_unique<workers::Pool>(workers::workersFor(cores));
+    mix_.pool = pool_.get();
     mix_.reserve(std::max(block, 1024), (int)project.tracks.size() + 16);
     patch::ensureStates(project);
     cpu.reset();
@@ -244,6 +252,8 @@ void Engine::close() {
         stream_->stop();
         stream_.reset();
     }
+    mix_.pool = nullptr;  // (the stream is stopped: nothing mixes now)
+    pool_.reset();
 }
 
 std::string Engine::deviceName() const { return stream_ ? stream_->deviceName() : ""; }
@@ -594,6 +604,8 @@ void Engine::callback(const float* in, float* out, int frames) {
         Metering* m = metering.get();
         bool metered = m->active();
         tap_->m = m;
+    tap_->metered = metered;
+    tap_->cpu = &trackCpu;
         auto rec = std::atomic_load(&recorder_);
         for (const Part& part : parts_) {  // (more parts where the loop jumps back, or a count-in ends)
             bool moving = part.hasStart;  // (not while counting in)
@@ -609,7 +621,7 @@ void Engine::callback(const float* in, float* out, int frames) {
             float* partOut = out + (size_t)part.offset * channels;
             try {
                 latency = mixer::mixClips(project, partOut, channels, part.frames, moving, part.start, mix_,
-                                          metered ? tap_.get() : nullptr, sr, restart, plugins, live.get());
+                                          tap_.get(), sr, restart, plugins, live.get());
             } catch (const std::exception& e) {  // never let an error stop the audio stream: play silence, remember why
                 std::memset(partOut, 0, sizeof(float) * (size_t)part.frames * channels);
                 setError(e.what());
@@ -637,6 +649,7 @@ void Engine::callback(const float* in, float* out, int frames) {
         }
     }
     cpu.add(now() - started, budget);
+    trackCpu.addBudget(budget);
 }
 
 }  // namespace audio

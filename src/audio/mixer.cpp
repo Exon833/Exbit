@@ -2,7 +2,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <chrono>
 #include <cstring>
+#include <sched.h>
+#include <stdexcept>
 
 #include "audio/automation.h"
 #include "config.h"
@@ -14,10 +17,10 @@ namespace mixer {
 void MixState::reserve(int frames, int tracks) {
     if (frames > capacity) {
         capacity = frames;
-        sig.assign((size_t)frames * 2, 0.0f);
         master.assign((size_t)frames * 2, 0.0f);
         for (auto& f : feedBuf) f.assign((size_t)frames * 2, 0.0f);
         for (auto& f : sentBuf) f.assign((size_t)frames * 2, 0.0f);
+        for (auto& f : trackBuf) f.assign((size_t)frames * 2, 0.0f);
     }
     if (tracks > trackCapacity) {
         trackCapacity = tracks;
@@ -32,13 +35,31 @@ void MixState::reserve(int frames, int tracks) {
         held.reserve(tracks);
         mixOrder.reserve(tracks);
         sentUsed.reserve(tracks);
+        results.reserve(tracks);
+        clipFrom.reserve((size_t)tracks + 1);
+        lines.reserve(tracks);
+        heldOf.reserve(tracks);
+        position.reserve(tracks);
+        jobs.reserve(tracks);
         while ((int)feedBuf.size() < tracks) feedBuf.emplace_back((size_t)capacity * 2, 0.0f);
         while ((int)sentBuf.size() < tracks) sentBuf.emplace_back((size_t)capacity * 2, 0.0f);
+        while ((int)trackBuf.size() < tracks) trackBuf.emplace_back((size_t)capacity * 2, 0.0f);
+        if (finishedSize < tracks) {
+            finished.reset(new std::atomic<char>[(size_t)tracks]);
+            finishedSize = tracks;
+        }
     }
+    // one scratch for the calling thread and one for each worker
+    size_t threads = 1 + (pool ? (size_t)pool->threads() : 0);
+    while (scratch.size() < threads) {
+        auto s = std::make_unique<Scratch>();
+        s->messages.reserve(2048);
+        s->events.reserve(2048);
+        scratch.push_back(std::move(s));
+    }
+    for (auto& s : scratch) s->feeds.reserve(std::max(trackCapacity, 1));
     if (active.capacity() < 1024) active.reserve(1024);
-    if (clips.capacity() < 256) clips.reserve(256);
-    if (messages.capacity() < 2048) messages.reserve(2048);
-    if (events.capacity() < 2048) events.reserve(2048);
+    if (trackClips.capacity() < 1024) trackClips.reserve(1024);
 }
 
 bool listensTo(const std::vector<Cable>& cables, const Track* track) {
@@ -184,6 +205,271 @@ void feedingOrder(const TrackList& tracks, const std::vector<Cable>& masterCable
     orderTracks(tracks, masterCables, st);
 }
 
+namespace {
+
+// One buffer's mixing, shared by the threads working on it (see the top of mixer.h).
+struct Buffer {
+    const TrackList* tracks;
+    MixState* st;
+    float* out;
+    int outChannels, frames, sr, latest;
+    int64_t start;
+    bool hasStart, restart, plugins;
+    const live::LiveMap* live;
+    const Track* only;
+    TrackTap* tap;
+    Transport transport;
+    // the first error a worker met (rethrown on the calling thread once the run is over)
+    std::atomic<bool> failed{false};
+    char error[256] = {0};
+};
+
+double secondsSince(std::chrono::steady_clock::time_point t0) {
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+}
+
+void spinUntil(const std::atomic<char>& flag) {
+    for (int spins = 0; !flag.load(std::memory_order_acquire); spins++) {
+        if (spins < 4096) {
+#if defined(__x86_64__) || defined(__i386__)
+            __builtin_ia32_pause();
+#endif
+        } else {
+            sched_yield();
+        }
+    }
+}
+
+patch::Feed feedOf(const Buffer& b, int ti) {
+    MixState& st = *b.st;
+    std::vector<float>& fb = st.feedBuf[ti];
+    return {(*b.tracks)[ti].get(), {fb.data(), fb.data() + st.capacity}, st.latency[ti]};
+}
+
+// Processing a track (see the top of mixer.h): into st.trackBuf[ti], what happened into st.results[ti].
+void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
+    MixState& st = *b.st;
+    const TrackList& tracks = *b.tracks;
+    const size_t n = tracks.size();
+    const int frames = b.frames, sr = b.sr, cap = st.capacity;
+    const bool hasStart = b.hasStart, plugins = b.plugins;
+    const int64_t start = b.start;
+    auto t0 = std::chrono::steady_clock::now();
+    MixState::Result& res = st.results[ti];
+    res = MixState::Result();
+    Track& track = *tracks[ti];
+    bool isReturn = track.kind == Kind::Return;
+    bool into = isReturn && st.sentUsed[ti];  // (a return's input: what the tracks send it)
+    const Clip* const* clips = st.trackClips.data() + st.clipFrom[ti];
+    size_t clipCount = (size_t)(st.clipFrom[ti + 1] - st.clipFrom[ti]);
+    ClipPtr frozen = aload(track.frozen);
+    if (plugins && hasStart && !frozen && !track.automation.empty())
+        automation::apply(track, start, sr);  // its automated parameters, for this buffer
+    bool vstInstrument = playsPlugins(track);
+    bool instrument = vstInstrument && plugins;  // its instrument plugins play the notes
+    auto effects = track.effects.get();
+    bool hasPlugins = false;
+    if (plugins) {
+        hasPlugins = instrument;
+        for (auto& s : *effects)
+            if (active(s.get())) hasPlugins = true;
+    }
+    const Clip* frozenClip[1] = {nullptr};
+    if (frozen) {  // frozen: its rendering plays instead of its clips and plugins
+        clipCount = 0;
+        if (hasStart && frozen->start < start + frames && frozen->end() > start) {
+            frozenClip[0] = frozen.get();
+            clips = frozenClip;
+            clipCount = 1;
+        }
+        vstInstrument = instrument = hasPlugins = false;
+    }
+    int first = track.output < b.outChannels ? track.output : 0;  // device lacks that output: use 1/2
+    int channels = std::min(2, b.outChannels - first);
+    patch::DelayLine* line = st.lines[ti];
+    if (line && b.restart) line->clear();  // what it held belongs to where playback was
+    const Track* only = b.only;
+    bool audible = only ? !track.needsInstrument && (&track == only || [&] {  // (a stem: it, and what sends to it)
+        auto sends = track.sends.get();
+        for (auto& s : *sends)
+            if (s.track.get() == only) return true;
+        return false;
+    }())
+                        : Project::audibleIn(track, tracks);
+    bool feeds = st.feeder[ti] && plugins;  // (a sidechain listens to it: worked out even if not heard)
+    if (!audible && line) line->clear();
+    live::LiveNotes* notes = live::find(b.live, &track);
+    if (notes && (!audible || frozen || (vstInstrument && !plugins))) notes->clear();  // nothing to hear them through now
+    bool playingLive = notes && notes->active();
+    if (!(audible || feeds) || !(clipCount || hasPlugins || playingLive || into || (line && line->sounding)) ||
+        (vstInstrument && !plugins)) {
+        res.seconds = secondsSince(t0);
+        return;  // Skipped
+    }
+    std::vector<float>& buf = st.trackBuf[ti];
+    float* sig[2] = {buf.data(), buf.data() + cap};
+    std::memset(sig[0], 0, sizeof(float) * frames);
+    std::memset(sig[1], 0, sizeof(float) * frames);
+    if (instrument) {  // keeps rendering even without notes, so releases ring out
+        noteMessages(clips, clipCount, hasStart, start, frames, b.restart, scratch.messages, scratch.events,
+                     st.heldOf[ti]);
+        if (notes) notes->take(frames, sr, scratch.messages);
+        auto rack = patch::rackStateOf(track.rackState);
+        patch::playInstruments(track, scratch.messages.data(), scratch.messages.size(), sig, channels, frames, sr,
+                               *rack, b.transport);
+        if (!hasStart && !(notes && notes->holding())) {
+            // stopped, nothing played live, yet a note is on: let it go
+            auto letGo = [](const SlotPtr& slot) {
+                if (!usable(slot)) return;
+                auto inst = aload(slot->instance);
+                if (inst && inst->holding()) inst->notesOff();
+            };
+            if (track.usesRack) {
+                auto r = track.rack.get();
+                for (auto& s : *r) letGo(s);
+            } else {
+                letGo(aload(track.instrument));
+            }
+        }
+    } else {
+        for (size_t k = 0; k < clipCount; k++) addClip(sig, channels, frames, *clips[k], start);
+        if (into) {
+            const float* in = st.sentBuf[ti].data();
+            for (int c = 0; c < channels; c++)
+                for (int i = 0; i < frames; i++) sig[c][i] += in[(size_t)c * cap + i];
+        }
+        if (notes) {
+            scratch.messages.clear();
+            notes->take(frames, sr, scratch.messages);
+            notes->addVoices(sig, channels, frames, sr);
+        }
+    }
+    if (plugins && !frozen) {
+        // the sidechains' sources: a return's, every track committed before it (all of them but the returns
+        // after it); another track's, the tracks it listens to, processed before it (and waited for)
+        const patch::Feed* feedList = st.feeds.data();
+        size_t feedCount = st.feeds.size();
+        if (!isReturn) {
+            scratch.feeds.clear();
+            for (size_t j = 0; j < n; j++) {
+                if (!st.listens[(size_t)ti * n + j] || st.position[j] >= st.position[ti]) continue;
+                spinUntil(st.finished[j]);
+                if (st.results[j].fed) scratch.feeds.push_back(feedOf(b, (int)j));
+            }
+            feedList = scratch.feeds.data();
+            feedCount = scratch.feeds.size();
+        }
+        auto state = patch::stateOf(track.patchState);
+        patch::runPatch(st.cables[ti], *effects, sig, channels, frames, sr, *state, feedList, feedCount,
+                        instrumentLatency(track), b.transport);
+    }
+    applyFader(sig, channels, frames, track, hasStart, start, sr);  // its fader and pan, after its effects
+    if (feeds) {
+        std::vector<float>& fb = st.feedBuf[ti];
+        std::memcpy(fb.data(), sig[0], sizeof(float) * frames);
+        std::memcpy(fb.data() + cap, channels == 2 ? sig[1] : sig[0], sizeof(float) * frames);
+        res.fed = true;
+    }
+    res.channels = channels;
+    res.first = first;
+    if (audible) {
+        if (line) line->process(sig, frames);
+        res.kind = MixState::Result::Heard;
+    } else {
+        res.kind = MixState::Result::Unheard;
+    }
+    res.seconds = secondsSince(t0);
+}
+
+// Committing a processed track (the calling thread, in the feeding order): its sound for sidechains, into
+// the returns it sends to, the tap, and the outputs.
+void commitTrack(Buffer& b, int ti) {
+    MixState& st = *b.st;
+    const TrackList& tracks = *b.tracks;
+    const size_t n = tracks.size();
+    const int frames = b.frames, cap = st.capacity;
+    const MixState::Result& res = st.results[ti];
+    const Track& track = *tracks[ti];
+    if (b.tap) b.tap->work(&track, res.seconds);
+    if (res.fed) st.feeds.push_back(feedOf(b, ti));
+    if (res.kind != MixState::Result::Heard) {
+        if (b.tap) b.tap->silent(&track, frames);
+        return;
+    }
+    int channels = res.channels;
+    std::vector<float>& tb = st.trackBuf[ti];
+    float* sig[2] = {tb.data(), tb.data() + cap};
+    auto sends = track.sends.get();
+    for (auto& send : *sends) {  // (to returns: after the fader and pan, in time with the others)
+        if (!(send.db > config::MIN_DB) || !send.track || send.track->kind != Kind::Return) continue;
+        int target = -1;
+        for (size_t j = 0; j < n; j++)
+            if (tracks[j] == send.track) target = (int)j;
+        if (target < 0) continue;
+        std::vector<float>& buf = st.sentBuf[target];
+        if (!st.sentUsed[target]) {
+            std::memset(buf.data(), 0, sizeof(float) * frames);
+            std::memset(buf.data() + cap, 0, sizeof(float) * frames);
+            st.sentUsed[target] = 1;
+        }
+        float g = (float)dsp::dbToGain(send.db, config::MIN_DB);
+        for (int c = 0; c < channels; c++) {
+            float* d = buf.data() + (size_t)c * cap;
+            for (int i = 0; i < frames; i++) d[i] += sig[c][i] * g;
+        }
+    }
+    if (b.tap) b.tap->sound(&track, sig, channels, res.first, frames);
+    if (b.only && &track != b.only) return;
+    for (int c = 0; c < channels; c++) {
+        float* o = b.out + res.first + c;
+        const float* s = sig[c];
+        for (int i = 0; i < frames; i++) o[(size_t)i * b.outChannels] += s[i];
+    }
+}
+
+MixState::Scratch& borrowScratch(MixState& st) {
+    for (;;)
+        for (auto& s : st.scratch) {
+            bool expected = false;
+            if (!s->busy.load(std::memory_order_relaxed) &&
+                s->busy.compare_exchange_strong(expected, true, std::memory_order_acquire))
+                return *s;
+        }
+}
+
+// a parallel run's job: st.jobs[index]'s track (errors are kept to be rethrown on the calling thread)
+void runJob(void* ctx, int index) {
+    Buffer& b = *static_cast<Buffer*>(ctx);
+    MixState& st = *b.st;
+    int ti = st.jobs[index];
+    MixState::Scratch& scratch = borrowScratch(st);
+    try {
+        processTrack(b, ti, scratch);
+    } catch (const std::exception& e) {
+        st.results[ti] = MixState::Result();
+        bool expected = false;
+        if (b.failed.compare_exchange_strong(expected, true)) {
+            std::strncpy(b.error, e.what(), sizeof(b.error) - 1);
+        }
+    } catch (...) {
+        st.results[ti] = MixState::Result();
+        bool expected = false;
+        if (b.failed.compare_exchange_strong(expected, true)) std::strncpy(b.error, "unknown error", sizeof(b.error) - 1);
+    }
+    scratch.busy.store(false, std::memory_order_release);
+    st.finished[ti].store(1, std::memory_order_release);
+}
+
+// st.jobs processed (on the pool), then committed in their order
+void runParallel(Buffer& b) {
+    MixState& st = *b.st;
+    st.pool->run((int)st.jobs.size(), runJob, &b);
+    if (b.failed.load()) throw std::runtime_error(b.error);
+    for (int ti : st.jobs) commitTrack(b, ti);
+}
+
+}  // namespace
+
 int mixClips(Project& project, float* out, int outChannels, int frames, bool hasStart, int64_t start, MixState& st,
              TrackTap* tap, int sr, bool restart, bool plugins, const live::LiveMap* live, const Track* only) {
     auto tracksPtr = project.tracks.get();
@@ -240,153 +526,113 @@ int mixClips(Project& project, float* out, int outChannels, int frames, bool has
             if (clip->start < end && clip->end() >= start && !clip->disabled)
                 st.active.push_back({clip.get(), aload(clip->track).get()});
     }
-    float* sig[2] = {st.sig.data(), st.sig.data() + cap};
-    for (int ti : st.order) {
-        Track& track = *tracks[ti];
-        bool isReturn = track.kind == Kind::Return;
-        bool into = isReturn && st.sentUsed[ti];  // (a return's input: what the tracks send it)
-        st.clips.clear();
+    // --- before the tracks: what may allocate, or is shared, made here on this thread ---
+    st.results.assign(n, MixState::Result());
+    st.position.assign(n, 0);
+    for (size_t k = 0; k < st.order.size(); k++) st.position[st.order[k]] = (int)k;
+    st.clipFrom.assign(n + 1, 0);
+    st.trackClips.clear();
+    for (size_t ti = 0; ti < n; ti++) {  // each track's clips, in the project's order
+        st.clipFrom[ti] = (int)st.trackClips.size();
         for (auto& a : st.active)
-            if (a.track == &track) st.clips.push_back(a.clip);
-        ClipPtr frozen = aload(track.frozen);
-        if (plugins && hasStart && !frozen && !track.automation.empty())
-            automation::apply(track, start, sr);  // its automated parameters, for this buffer
-        bool vstInstrument = playsPlugins(track);
-        bool instrument = vstInstrument && plugins;  // its instrument plugins play the notes
-        auto effects = track.effects.get();
-        bool hasPlugins = false;
-        if (plugins) {
-            hasPlugins = instrument;
-            for (auto& s : *effects)
-                if (active(s.get())) hasPlugins = true;
+            if (a.track == tracks[ti].get()) st.trackClips.push_back(a.clip);
+    }
+    st.clipFrom[n] = (int)st.trackClips.size();
+    st.lines.assign(n, nullptr);
+    if (st.compensate) {  // each track held back to line up with the latest one (a return: by its own delay)
+        for (size_t ti = 0; ti < n; ti++) {
+            const Track& track = *tracks[ti];
+            bool known = false;
+            for (auto& d : st.delays)
+                if (d.first == &track) known = true;
+            if (!known) st.delays.emplace_back(&track, patch::DelayLine());
         }
-        if (frozen) {  // frozen: its rendering plays instead of its clips and plugins
-            st.clips.clear();
-            if (hasStart && frozen->start < start + frames && frozen->end() > start) st.clips.push_back(frozen.get());
-            vstInstrument = instrument = hasPlugins = false;
-        }
-        int first = track.output < outChannels ? track.output : 0;  // device lacks that output: use 1/2
-        int channels = std::min(2, outChannels - first);
-        patch::DelayLine* line = nullptr;
-        if (st.compensate) {  // hold it back to line up with the latest track (a return: by its own delay)
-            int wanted = (isReturn ? (int)std::max<int64_t>(0, delayFrames(track, sr)) : latest - st.latency[ti]) +
+        for (size_t ti = 0; ti < n; ti++) {  // (pointers taken once `delays` stops growing)
+            const Track& track = *tracks[ti];
+            int first = track.output < outChannels ? track.output : 0;
+            int channels = std::min(2, outChannels - first);
+            int wanted = (track.kind == Kind::Return ? (int)std::max<int64_t>(0, delayFrames(track, sr))
+                                                     : latest - st.latency[ti]) +
                          (first >= 2 ? master : 0);
+            patch::DelayLine* line = nullptr;
             for (auto& d : st.delays)
                 if (d.first == &track) line = &d.second;
-            if (!line) {
-                st.delays.emplace_back(&track, patch::DelayLine());
-                line = &st.delays.back().second;
-                line->init(wanted, channels);
-            } else if (line->frames != wanted || line->channels != channels) {
-                line->init(wanted, channels);  // (rare: a latency or delay changed)
-            }
-            if (restart) line->clear();  // what it held belongs to where playback was
+            if (line->frames != wanted || line->channels != channels) line->init(wanted, channels);
+            st.lines[ti] = line;
         }
-        bool audible = only ? !track.needsInstrument && (&track == only || [&] {  // (a stem: it, and what sends to it)
-            auto sends = track.sends.get();
-            for (auto& s : *sends)
-                if (s.track.get() == only) return true;
-            return false;
-        }())
-                            : Project::audibleIn(track, tracks);
-        bool feeds = st.feeder[ti] && plugins;  // (a sidechain listens to it: worked out even if not heard)
-        if (!audible && line) line->clear();
-        live::LiveNotes* notes = live::find(live, &track);
-        if (notes && (!audible || frozen || (vstInstrument && !plugins))) notes->clear();  // nothing to hear them through now
-        bool playingLive = notes && notes->active();
-        if (!(audible || feeds) ||
-            !(!st.clips.empty() || hasPlugins || playingLive || into || (line && line->sounding)) ||
-            (vstInstrument && !plugins)) {
-            if (tap) tap->silent(&track, frames);
-            continue;
-        }
-        std::memset(sig[0], 0, sizeof(float) * frames);
-        std::memset(sig[1], 0, sizeof(float) * frames);
-        if (instrument) {  // keeps rendering even without notes, so releases ring out
-            uint16_t* held = nullptr;
+    }
+    st.heldOf.assign(n, nullptr);
+    if (plugins) {  // the notes each instrument track holds: an entry made for each, then pointers taken
+        for (size_t ti = 0; ti < n; ti++) {
+            Track& track = *tracks[ti];
+            if (!playsPlugins(track)) continue;
+            bool known = false;
             for (auto& h : st.held)
-                if (h.first == &track) held = h.second.data();
-            if (!held) {
-                st.held.emplace_back(&track, std::array<uint16_t, 128>{});
-                held = st.held.back().second.data();
-            }
-            noteMessages(st.clips.data(), st.clips.size(), hasStart, start, frames, restart, st.messages, st.events,
-                         held);
-            if (notes) notes->take(frames, sr, st.messages);
-            auto rack = patch::rackStateOf(track.rackState);
-            patch::playInstruments(track, st.messages.data(), st.messages.size(), sig, channels, frames, sr, *rack,
-                                   transport);
-            if (!hasStart && !(notes && notes->holding())) {
-                // stopped, nothing played live, yet a note is on: let it go
-                auto letGo = [](const SlotPtr& slot) {
-                    if (!usable(slot)) return;
-                    auto inst = aload(slot->instance);
-                    if (inst && inst->holding()) inst->notesOff();
-                };
-                if (track.usesRack) {
-                    auto r = track.rack.get();
-                    for (auto& s : *r) letGo(s);
-                } else {
-                    letGo(aload(track.instrument));
-                }
-            }
+                if (h.first == &track) known = true;
+            if (!known) st.held.emplace_back(&track, std::array<uint16_t, 128>{});
+            patch::rackStateOf(track.rackState);  // (made here if the GUI didn't)
+        }
+        for (size_t ti = 0; ti < n; ti++)  // (once `held` stops growing)
+            for (auto& h : st.held)
+                if (h.first == tracks[ti].get()) st.heldOf[ti] = h.second.data();
+    }
+    for (size_t ti = 0; ti < n; ti++) st.finished[ti].store(0, std::memory_order_relaxed);
+
+    Buffer b;
+    b.tracks = &tracks;
+    b.st = &st;
+    b.out = out;
+    b.outChannels = outChannels;
+    b.frames = frames;
+    b.sr = sr;
+    b.latest = latest;
+    b.start = start;
+    b.hasStart = hasStart;
+    b.restart = restart;
+    b.plugins = plugins;
+    b.live = live;
+    b.only = only;
+    b.tap = tap;
+    b.transport = transport;
+
+    // --- the tracks ---
+    bool parallel = st.pool && st.pool->threads() > 0 && n >= 2;
+    if (!parallel) {
+        MixState::Scratch& scratch = *st.scratch[0];
+        for (int ti : st.order) {
+            processTrack(b, ti, scratch);
+            st.finished[ti].store(1, std::memory_order_relaxed);
+            commitTrack(b, ti);
+        }
+    } else {
+        st.jobs.clear();  // every track but the returns, at once
+        for (int ti : st.order)
+            if (tracks[ti]->kind != Kind::Return) st.jobs.push_back(ti);
+        runParallel(b);
+        // the returns: at once too, unless one sends to or listens to another (then in order, as on one thread)
+        bool linked = false;
+        for (int ti : st.order) {
+            const Track& t = *tracks[ti];
+            if (t.kind != Kind::Return) continue;
+            auto sends = t.sends.get();
+            for (auto& s : *sends)
+                if (s.track && s.track->kind == Kind::Return) linked = true;
+            for (auto& c : *st.cables[ti])
+                if (c.first.type == End::TrackSource && c.first.track && c.first.track->kind == Kind::Return)
+                    linked = true;
+        }
+        st.jobs.clear();
+        for (int ti : st.order)
+            if (tracks[ti]->kind == Kind::Return) st.jobs.push_back(ti);
+        if (!linked) {
+            runParallel(b);
         } else {
-            for (const Clip* clip : st.clips) addClip(sig, channels, frames, *clip, start);
-            if (into) {
-                const float* in = st.sentBuf[ti].data();
-                for (int c = 0; c < channels; c++)
-                    for (int i = 0; i < frames; i++) sig[c][i] += in[(size_t)c * cap + i];
+            MixState::Scratch& scratch = *st.scratch[0];
+            for (int ti : st.jobs) {
+                processTrack(b, ti, scratch);
+                st.finished[ti].store(1, std::memory_order_relaxed);
+                commitTrack(b, ti);
             }
-            if (notes) {
-                st.messages.clear();
-                notes->take(frames, sr, st.messages);
-                notes->addVoices(sig, channels, frames, sr);
-            }
-        }
-        if (plugins && !frozen) {
-            auto state = patch::stateOf(track.patchState);
-            patch::runPatch(st.cables[ti], *effects, sig, channels, frames, sr, *state, st.feeds.data(), st.feeds.size(),
-                            instrumentLatency(track), transport);
-        }
-        applyFader(sig, channels, frames, track, hasStart, start, sr);  // its fader and pan, after its effects
-        if (feeds) {
-            std::vector<float>& fb = st.feedBuf[ti];
-            if ((int)fb.size() < cap * 2) fb.assign((size_t)cap * 2, 0.0f);  // (rare)
-            std::memcpy(fb.data(), sig[0], sizeof(float) * frames);
-            std::memcpy(fb.data() + cap, channels == 2 ? sig[1] : sig[0], sizeof(float) * frames);
-            st.feeds.push_back({&track, {fb.data(), fb.data() + cap}, st.latency[ti]});
-        }
-        if (!audible) {
-            if (tap) tap->silent(&track, frames);
-            continue;
-        }
-        if (line) line->process(sig, frames);
-        auto sends = track.sends.get();
-        for (auto& send : *sends) {  // (to returns: after the fader and pan, in time with the others)
-            if (!(send.db > config::MIN_DB) || !send.track || send.track->kind != Kind::Return) continue;
-            int target = -1;
-            for (size_t j = 0; j < n; j++)
-                if (tracks[j] == send.track) target = (int)j;
-            if (target < 0) continue;
-            std::vector<float>& buf = st.sentBuf[target];
-            if ((int)buf.size() < cap * 2) buf.assign((size_t)cap * 2, 0.0f);  // (rare)
-            if (!st.sentUsed[target]) {
-                std::memset(buf.data(), 0, sizeof(float) * frames);
-                std::memset(buf.data() + cap, 0, sizeof(float) * frames);
-                st.sentUsed[target] = 1;
-            }
-            float g = (float)dsp::dbToGain(send.db, config::MIN_DB);
-            for (int c = 0; c < channels; c++) {
-                float* b = buf.data() + (size_t)c * cap;
-                for (int i = 0; i < frames; i++) b[i] += sig[c][i] * g;
-            }
-        }
-        if (tap) tap->sound(&track, sig, channels, first, frames);
-        if (only && &track != only) continue;
-        for (int c = 0; c < channels; c++) {
-            float* o = out + first + c;
-            const float* s = sig[c];
-            for (int i = 0; i < frames; i++) o[(size_t)i * outChannels] += s[i];
         }
     }
     if (plugins && !only) {

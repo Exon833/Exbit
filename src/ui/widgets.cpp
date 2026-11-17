@@ -1,9 +1,11 @@
 // Small building blocks shared by the panel widgets (widgets.py).
 #include "ui/widgets.h"
 
+#include <algorithm>
 #include <cmath>
 #include <functional>
 
+#include "ui/cpu_monitor.h"
 #include "ui/formatting.h"
 #include "ui/theme.h"
 
@@ -77,6 +79,24 @@ void LaneFrame::paintOver(Painter& p) {
     }
     if (accent_) p.fillRect(Rect(0, 0, 3, h), *accent_);
     else p.fillRect(Rect(0, 0, 1, h), theme::c("frame_edge"));
+    if (load_ >= 0) {  // (Options → CPU per track)
+        // the full width is half a core (a track taking more is a lot); coloured as the CPU monitor at
+        // twice its share (a quarter of a core: warning colour, 40 %: hot); anything measurable shows
+        int x0 = accent_ ? 3 : 1, full = std::max(0, w - x0 - 1);
+        double scaled = std::min(1.0, load_ * 2);
+        int bar = (int)std::lround(full * scaled);
+        if (load_ >= 0.001) bar = std::max(1, bar);
+        p.fillRect(Rect(x0, h - 3, full, 2), theme::c("meter_bg"));
+        if (bar > 0) p.fillRect(Rect(x0, h - 3, bar, 2), cpu_monitor::loadColor(scaled));
+    }
+}
+
+void LaneFrame::setLoad(double share) {
+    if (share < 0) share = -1;
+    // (repainted only when the bar would change by a pixel or more)
+    if ((share < 0) == (load_ < 0) && std::fabs(share - load_) * 2 * std::max(1, width()) < 1) return;
+    load_ = share;
+    update();
 }
 
 bool LaneFrame::mousePress(ui::MouseEvent& e) {

@@ -103,7 +103,9 @@ Preferences Preferences::load() {
     p.deviceName = getStr("device_name", p.deviceName);
     p.wasapiExclusive = getBool("wasapi_exclusive", p.wasapiExclusive);
     p.bufferSize = getInt("buffer_size", p.bufferSize);
+    p.processingCores = std::max(0, getInt("processing_cores", p.processingCores));
     p.levelMeters = getBool("level_meters", p.levelMeters);
+    p.trackCpu = getBool("track_cpu", p.trackCpu);
     p.loudnessMeters = getBool("loudness_meters", p.loudnessMeters);
     p.refreshFps = getInt("refresh_fps", p.refreshFps);
     p.metronome = getBool("metronome", p.metronome);
@@ -187,7 +189,9 @@ void Preferences::save() const {
     put("device_name", deviceName);
     put("wasapi_exclusive", wasapiExclusive);
     put("buffer_size", bufferSize);
+    put("processing_cores", processingCores);
     put("level_meters", levelMeters);
+    put("track_cpu", trackCpu);
     put("loudness_meters", loudnessMeters);
     put("refresh_fps", refreshFps);
     put("metronome", metronome);

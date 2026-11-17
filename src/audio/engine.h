@@ -139,6 +139,8 @@ public:
     std::string driverType;        // "ALSA", "PulseAudio", once open
     std::string deviceId;
     bool exclusive = false;
+    int cores = 0;                 // processor cores the tracks are worked out on: 0 = all (automatic), 1 = the
+                                   // audio thread alone (mixer.h, SEVERAL CORES); takes effect when a device opens
     std::atomic<int64_t> pos{0};   // playhead, in frames (seek() to move it)
     std::atomic<bool> playing{false};
     int inputs = 0;                // input channels on the stream (duplex); 0: none (record from the default input)
@@ -147,6 +149,7 @@ public:
     std::atomic<bool> masterMute{false};
     std::shared_ptr<Metering> metering;  // replaced when a device opens
     CpuMeter cpu;
+    TrackCpu trackCpu;             // each track's share of a core (cpu.h)
     std::atomic<int> latency{0};   // frames the sound lags behind pos (plugin delay compensation), set by the callback
     std::atomic<bool> pluginsPaused{false};
     std::atomic<bool> recordingMidi{false};  // recording MIDI (the GUI keeps the notes): playback doesn't loop
@@ -271,6 +274,7 @@ private:
     double askedLatency_ = 0;              // the delay asked for when opening: stands in for an implausible one
     // audio thread only
     mixer::MixState mix_;
+    std::unique_ptr<workers::Pool> pool_;  // (made when a device opens, gone when it closes)
     std::unique_ptr<Tap> tap_;
     std::vector<Part> parts_;
     std::vector<BeatTime> beats_;  // (metronome scratch)

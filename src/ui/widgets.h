@@ -26,6 +26,9 @@ public:
     void setCurrent(bool on);              // the property "current"
     bool isCurrent() const { return current_; }
     void setTopLine(std::optional<Color> c);
+    // Options → CPU per track: a thin bar along its bottom: the track's share of a core (full width: half a core;
+    // < 0: none)
+    void setLoad(double share);
     void applyTextColor();                 // give the labels inside it the text colour (after adding some)
     Color color() const { return color_; }
     std::optional<Color> accent() const { return accent_; }
@@ -43,6 +46,7 @@ private:
     Color color_;
     std::optional<Color> accent_, text_, topLine_;
     bool current_ = false;
+    double load_ = -1;
 };
 
 // Keeps `widget` across the bottom of `viewport` (a scroll area's), `margin` px above its bottom
