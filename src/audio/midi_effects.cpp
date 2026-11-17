@@ -381,7 +381,12 @@ std::vector<Note> process(const MidiEffect& e, const std::vector<Note>& notes, d
     }
     std::vector<Note> out;  // (each note becomes what liveOne() makes of it)
     for (auto& n : notes)
-        for (auto& pv : liveOne(e, n.pitch, n.velocity)) out.push_back({n.start, n.end, pv.first, pv.second});
+        for (auto& pv : liveOne(e, n.pitch, n.velocity)) {
+            Note m = n;  // (keeping the note's own properties: its pan, fine tuning, slide)
+            m.pitch = pv.first;
+            m.velocity = pv.second;
+            out.push_back(m);
+        }
     return out;
 }
 

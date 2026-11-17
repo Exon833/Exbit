@@ -71,6 +71,45 @@ const std::vector<std::pair<std::string, std::string>>& folds() {
     return f;
 }
 
+// --- the notes' own properties in the lane ---
+
+const std::vector<LaneInfo>& lanes() {
+    static const std::vector<LaneInfo> l = {
+        {Lane::Velocity, "Velocity", "1\xe2\x80\x93" "127", 1, 127, 1, false},
+        {Lane::Chance, "Chance", "0\xe2\x80\x93" "100 %", 0, 100, 1, false},
+        {Lane::Repeats, "Repeats", "1\xe2\x80\x93" "8 hits", 1, note_props::MAX_REPEATS, 1, false},
+        {Lane::Pan, "Pan", "L \xe2\x80\x93 R", -1, 1, 0.01, true},
+        {Lane::Fine, "Fine", "\xc2\xb1" "100 cents", -100, 100, 1, true},
+    };
+    return l;
+}
+
+const LaneInfo& laneInfo(Lane lane) { return lanes()[std::min(lanes().size() - 1, (size_t)lane)]; }
+
+double laneValue(const Note& n, Lane lane) {
+    switch (lane) {
+    case Lane::Velocity: return n.velocity;
+    case Lane::Chance: return n.chance;
+    case Lane::Repeats: return n.repeats;
+    case Lane::Pan: return n.pan;
+    case Lane::Fine: return n.fine;
+    }
+    return 0;
+}
+
+void setLaneValue(Note& n, Lane lane, double value) {
+    const LaneInfo& info = laneInfo(lane);
+    if (!std::isfinite(value)) return;
+    value = std::min(info.high, std::max(info.low, std::nearbyint(value / info.step) * info.step));
+    switch (lane) {
+    case Lane::Velocity: n.velocity = value; break;
+    case Lane::Chance: n.chance = value; break;
+    case Lane::Repeats: n.repeats = (int)value; break;
+    case Lane::Pan: n.pan = std::fabs(value) < 1e-9 ? 0.0 : value; break;  // (the middle exactly: a plain note)
+    case Lane::Fine: n.fine = value; break;
+    }
+}
+
 }  // namespace midi_editor
 
 namespace {
@@ -126,6 +165,38 @@ int wrappedHeight(const std::string& text, const Font& f, float width) {
     return (int)std::ceil((lines - 1) * f.lineSpacing() + f.ascent() + f.descent());
 }
 
+// the hint under the toolbar: the piano roll's, the Steps view's
+const char* const ROLL_HINT =
+    "Click to add a note, drag to move, drag its right end to resize, right-click to delete. Shift+drag: select "
+    "with a box; Ctrl+drag: copy; arrows: move (Shift+arrows: octave, length); Ctrl+C / X / V, Ctrl+D duplicate, "
+    "Ctrl+U quantize, G slide. Alt: no snapping.";
+const char* const STEPS_HINT =
+    "Click a pad to add a note one step long, click a lit pad to remove it; drag along to paint (or clear) more. "
+    "Ctrl+click: select; right-click: delete; + Row: another pitch; G slide. Ctrl+wheel: zoom (the grid follows).";
+
+// A note's box (the piano roll's and the Steps view's): its velocity in the fill's lightness, its chance in
+// the fill's opacity, its repeats as ticks across it; switched off: an outline.
+void paintNoteBox(Painter& p, const RectF& r, const Note& n, Color color, bool chosen, bool isOff) {
+    Color fill = color.lighter(100 + (int)(n.velocity / 127 * 60));
+    if (!isOff) p.fillRect(r, n.chance < 100 ? fill.withAlpha(70 + (int)(std::max(0.0, n.chance) / 100 * 185)) : fill);
+    if (n.repeats > 1 && r.w >= 3.0f * (float)n.repeats)
+        for (int k = 1; k < n.repeats; ++k)
+            p.fillRect(RectF(r.x + r.w * (float)k / (float)n.repeats - 0.5f, r.y + 2, 1, std::max(1.0f, r.h - 4)),
+                       fill.darker(170));
+    if (chosen) p.strokeRect(r, theme::c("selected_note"), 2);
+    else p.strokeRect(r, isOff ? fill : fill.darker(160), 1);
+}
+
+// a sliding note's tail: a short line from the pitch it glides from (`from`) into its start (`to`), arrowed
+void paintSlideTail(Painter& p, PointF from, PointF to, Color c) {
+    p.drawLine(from, to, c, 2, LineCap::Round);
+    float dx = to.x - from.x, dy = to.y - from.y, len = std::sqrt(dx * dx + dy * dy);
+    if (len < 1) return;
+    dx /= len, dy /= len;
+    for (float side : {-1.0f, 1.0f})
+        p.drawLine(to, PointF(to.x - 5 * dx + side * 3 * dy, to.y - 5 * dy - side * 3 * dx), c, 1.5f, LineCap::Round);
+}
+
 RectF normalized(Point a, Point b) {
     float x0 = (float)std::min(a.x, b.x), y0 = (float)std::min(a.y, b.y);
     return RectF(x0, y0, (float)std::abs(a.x - b.x), (float)std::abs(a.y - b.y));
@@ -165,6 +236,8 @@ MidiEditor::MidiEditor(ui::Window* parent, ClipPtr clip_, Project& project_, aud
     }
 
     roll = add<PianoRoll>(this);
+    steps = add<StepGrid>(this);
+    steps->hide();  // (the piano roll first)
     velocity = add<VelocityLane>(this);
     ruler = add<EditorRuler>(this);
     hbar = add<ui::ScrollBar>(ui::Orientation::Horizontal);
@@ -175,9 +248,7 @@ MidiEditor::MidiEditor(ui::Window* parent, ClipPtr clip_, Project& project_, aud
     vbar->valueChanged.connect([this](int) { refresh(); });
     int vbarW = vbar->sizeHint().x;
 
-    hint = add<ui::Label>("Click to add a note, drag to move, drag its right end to resize, right-click to delete. "
-                          "Shift+drag: select with a box; Ctrl+drag: copy; arrows: move (Shift+arrows: octave, "
-                          "length); Ctrl+C / X / V, Ctrl+D duplicate, Ctrl+U quantize. Alt: no snapping.");
+    hint = add<ui::Label>(ROLL_HINT);
     hint->setProperty("hint", "true");  // the skin's hint colour
     hint->setWordWrap(true);  // (a narrow window wraps it, rather than the hint making the window wide)
 
@@ -185,6 +256,12 @@ MidiEditor::MidiEditor(ui::Window* parent, ClipPtr clip_, Project& project_, aud
     auto tools = std::make_unique<ui::HBox>();
     tools->setContentsMargins(4, 2, 4, 0);
     tools->spacing = 4;
+    stepsButton = ui::toolButton(this, "Steps", nullptr,
+                                 "Show the clip as steps: a row per pitch it uses, a column per grid step. Click a "
+                                 "pad to add or remove a note one step long; again for the piano roll");
+    stepsButton->setCheckable(true);
+    stepsButton->toggled.connect([this](bool on) { setStepsView(on); });
+    tools->addWidget(stepsButton);
     tools->addWidget(buildGhostsButton());
     tools->addWidget(buildStampButton());
     tools->addSpacing(8);
@@ -210,6 +287,11 @@ MidiEditor::MidiEditor(ui::Window* parent, ClipPtr clip_, Project& project_, aud
                                   "The selected notes stop playing but stay where they are; again to switch them back "
                                   "on (0)");
     tools->addWidget(switchButton);
+    slideButton = ui::toolButton(this, "Slide", [this] { toggleSlide(); },
+                                 "The selected notes glide from the previous note's pitch into their own (an 808 "
+                                 "glide); again to stop them (G)");
+    slideButton->setCheckable(true);  // (lit while every selected note slides: syncNoteTools)
+    tools->addWidget(slideButton);
     tools->addWidget(add<ui::Label>("Keys"));
     struct KeyButton { const char* text; const char* tip; int step; };
     for (const KeyButton& kb : {KeyButton{"\xe2\x88\x92", "Shorter keys: more of them in view (Alt+wheel)", -2},
@@ -236,6 +318,7 @@ MidiEditor::MidiEditor(ui::Window* parent, ClipPtr clip_, Project& project_, aud
     auto top = std::make_unique<ui::HBox>();
     top->spacing = 0;
     top->addWidget(roll, 1);
+    top->addWidget(steps, 1);  // (one of the two shows)
     top->addWidget(vbar);
     col->addLayout(std::move(top), 1);
     auto bottom = std::make_unique<ui::HBox>();
@@ -437,8 +520,15 @@ int MidiEditor::noteAt(double x, double y, bool* atEnd) const {
 void MidiEditor::fit() {
     double from, to;
     windowS(from, to);
-    double width = std::max(200, roll->width() - KEYS_W - 20);
+    double width = std::max(200, view()->width() - KEYS_W - 20);
     pps = std::min(2000.0, std::max(20.0, width / std::max(0.5, to - from)));
+    if (stepsView) {  // (the rows from the top)
+        updateRanges();
+        hbar->setValue((int)(from * pps));
+        vbar->setValue(0);
+        refresh();
+        return;
+    }
     double lo = 60, hi = 60;
     if (!notes.empty()) {
         lo = hi = notes[0].pitch;
@@ -455,9 +545,15 @@ void MidiEditor::fit() {
 }
 
 void MidiEditor::updateRanges() {
-    int viewW = roll->width() - KEYS_W;
+    int viewW = view()->width() - KEYS_W;
     hbar->setRange(0, std::max(0, (int)(lengthS() * pps) - viewW));
     hbar->setPageStep(std::max(1, viewW));
+    if (stepsView) {  // (its rows, and "+ Row" under them)
+        vbar->setRange(0, std::max(0, ((int)stepRows().size() + 1) * STEP_ROW_H - steps->height()));
+        vbar->setPageStep(std::max(1, steps->height()));
+        vbar->setSingleStep(STEP_ROW_H);
+        return;
+    }
     vbar->setRange(0, std::max(0, (int)rows().size() * rowH - roll->height()));
     vbar->setPageStep(std::max(1, roll->height()));
     vbar->setSingleStep(rowH);
@@ -473,6 +569,10 @@ void MidiEditor::zoom(double factor, double x) {
 
 void MidiEditor::setRowHeight(int height) {
     height = std::min(MAX_ROW_H, std::max(MIN_ROW_H, height));
+    if (stepsView) {  // (the piano roll's keys: the Steps view's scroll stays)
+        rowH = height;
+        return;
+    }
     int middle = rowAt(roll->height() / 2.0);
     rowH = height;
     updateRanges();
@@ -481,6 +581,12 @@ void MidiEditor::setRowHeight(int height) {
 }
 
 void MidiEditor::refold(const std::function<void()>& change) {
+    if (stepsView) {  // (the piano roll's rows: the Steps view's scroll stays)
+        change();
+        syncScaleTools();
+        refresh();
+        return;
+    }
     int middle = pitchAt(roll->height() / 2.0);
     change();
     updateRanges();
@@ -524,8 +630,10 @@ void MidiEditor::wheelAt(const ui::WheelEvent& e, double x) {
 
 void MidiEditor::refresh() {
     roll->update();
+    steps->update();
     velocity->update();
     ruler->update();
+    syncNoteTools();
 }
 
 void MidiEditor::resized() {
@@ -784,7 +892,7 @@ void MidiEditor::copyNotes(bool cut) {
     noteClipboard.clear();
     for (int i : chosen)
         noteClipboard.push_back({notes[i].start - first, notes[i].end - first, notes[i].pitch, notes[i].velocity,
-                                 off.count(i) > 0});
+                                 off.count(i) > 0, notes[i]});
     if (cut) deleteNotes(chosen);
 }
 
@@ -806,7 +914,7 @@ void MidiEditor::pasteNotes() {
     int start = (int)notes.size();
     for (size_t k = 0; k < noteClipboard.size(); ++k) {
         const CopiedNote& c = noteClipboard[k];
-        Note n;
+        Note n = c.note;  // (its own properties)
         n.start = c.start + at;
         n.end = c.end + at;
         n.pitch = c.pitch;
@@ -943,8 +1051,10 @@ bool MidiEditor::keyPress(ui::KeyEvent& e) {
     } else if (e.key == 'A' && ctrl) {  // (the notes shown: not in folded rows)
         selected.clear();
         for (size_t i = 0; i < notes.size(); ++i)
-            if (yOf(notes[i].pitch)) selected.insert((int)i);
+            if (shows(notes[i])) selected.insert((int)i);
         refresh();
+    } else if (e.key == 'G' && !(e.mods & (plat::ModCtrl | plat::ModAlt | plat::ModShift | plat::ModMeta))) {
+        toggleSlide();
     } else if (e.key == 'D' && ctrl) {
         duplicate(e.mods);
     } else if (e.key == 'U' && ctrl) {
@@ -1213,7 +1323,7 @@ bool PianoRoll::overridesShortcut(const ui::KeyEvent& e) const {
     case plat::Key_Delete: case plat::Key_Backspace: case plat::Key_Left: case plat::Key_Right: case plat::Key_Up:
     case plat::Key_Down: case plat::Key_Escape:
         return !ctrl;
-    case '0':
+    case '0': case 'G':
         return !ctrl && !(e.mods & plat::ModShift);
     case 'A': case 'C': case 'D': case 'U': case 'V': case 'X':
         return ctrl && !(e.mods & plat::ModShift);
@@ -1260,11 +1370,24 @@ void PianoRoll::paint(Painter& p) {
         RectF r((float)ed.xOf(n.start), (float)(*y + 1), (float)std::max(NOTE_MIN_PX, (n.end - n.start) * ed.pps),
                 (float)(ed.rowH - 2));
         if (r.right() < KEYS_W || r.x > w || r.bottom() < 0 || r.y > h) continue;
-        Color fill = color.lighter(100 + (int)(n.velocity / 127 * 60));
-        bool isOff = ed.off.count((int)i) > 0;
-        if (!isOff) p.fillRect(r, fill);  // (switched off: an outline)
-        if (ed.selected.count((int)i)) p.strokeRect(r, selectedC, 2);
-        else p.strokeRect(r, isOff ? fill : fill.darker(160), 1);
+        paintNoteBox(p, r, n, color, ed.selected.count((int)i) > 0, ed.off.count((int)i) > 0);
+    }
+    std::vector<note_props::Slide> slid = note_props::slides(ed.notes);  // sliding notes: a tail into each
+    for (size_t i = 0; i < ed.notes.size(); ++i) {
+        const Note& n = ed.notes[i];
+        std::optional<double> y = n.slide ? ed.yOf(n.pitch) : std::nullopt;
+        if (!y) continue;
+        float x = (float)ed.xOf(n.start), mid = (float)(*y + ed.rowH / 2.0);
+        if (x < KEYS_W || x > w + 20) continue;
+        float from = mid + (float)ed.rowH;  // (from below, when it has nothing to slide from)
+        if (slid[i].from >= 0) {
+            const Note& before = ed.notes[(size_t)slid[i].from];
+            std::optional<double> yb = ed.yOf(before.pitch);
+            from = yb ? (float)(*yb + ed.rowH / 2.0) : mid + (before.pitch > n.pitch ? -1.0f : 1.0f) * ed.rowH;
+        }
+        float most = 3.0f * (float)ed.rowH;  // (a long way: just its start)
+        from = std::min(mid + most, std::max(mid - most, from));
+        paintSlideTail(p, PointF(x - 14, from), PointF(x + 1, mid), color.lighter(170));
     }
     ed.paintCursorLines(p, h);
     if (ed.drag.kind == MidiEditor::Drag::Box) {  // (Shift+drag: the selection box)
@@ -1540,6 +1663,36 @@ void PianoRoll::resized() { ed_->updateRanges(); }
 VelocityLane::VelocityLane(MidiEditor* editor) : ed_(editor) {
     setFixedHeight(VELOCITY_H);
     setSizePolicy(ui::SizePolicy::Expanding, ui::SizePolicy::Fixed);
+    chooser = ui::toolButton(this, laneInfo(Lane::Velocity).name, nullptr,
+                             "What this lane shows and edits: each note's velocity, chance (how often it plays), "
+                             "repeats (a roll of hits), pan or fine tuning");
+    ui::Menu* menu = widgets::ownedMenu(chooser);
+    for (const LaneInfo& info : lanes()) {
+        Lane which = info.lane;
+        ui::Action* a = menu->addAction(info.name, [this, which] { ed_->setLane(which); });
+        a->checkable = true;
+        a->checked = which == Lane::Velocity;
+        a->group = 4;
+        ed_->laneActions[(int)which] = a;
+    }
+    chooser->setMenu(menu);
+    chooser->setFocusPolicy(ui::FocusPolicy::None);  // (the keys stay the roll's)
+    context = widgets::ownedMenu(this);
+    resized();
+}
+
+void VelocityLane::resized() {
+    if (!chooser) return;  // (while it is being made)
+    Point hint = chooser->sizeHint();
+    chooser->setGeometry(Rect(2, 4, KEYS_W - 4, hint.y));
+}
+
+std::string VelocityLane::toolTipAt(Point p) const {
+    if (p.x < KEYS_W) return "";
+    const LaneInfo& info = laneInfo(ed_->lane);
+    return std::string("Each note's ") + (info.lane == Lane::Fine ? "fine tuning" : info.name) +
+           ": click or drag across the bars to set it; drag a selected note's bar to change every selected "
+           "note by as much. Right-click for more";
 }
 
 int VelocityLane::velocityAt(int y) const {
@@ -1547,65 +1700,147 @@ int VelocityLane::velocityAt(int y) const {
     return (int)std::min(127.0, std::max(1.0, pyRound((h - 3.0 - y) / (h - 6.0) * 127)));
 }
 
+double VelocityLane::valueAt(int y, bool rounded) const {
+    const LaneInfo& info = laneInfo(ed_->lane);
+    int h = height();
+    if (info.lane == Lane::Velocity && rounded) return velocityAt(y);
+    double along = (h - 3.0 - y) / (h - 6.0);
+    double v = info.lane == Lane::Velocity ? along * 127 : info.low + along * (info.high - info.low);
+    if (!rounded) return v;
+    Note n;
+    setLaneValue(n, info.lane, v);
+    return laneValue(n, info.lane);
+}
+
 void VelocityLane::paint(Painter& p) {
     MidiEditor& ed = *ed_;
+    const LaneInfo& info = laneInfo(ed.lane);
     int w = width(), h = height();
     p.fillRect(rect(), theme::c("meter_bg"));
     p.fillRect(Rect(0, 0, w, 1), theme::c("ruler_bg"));
-    for (int level : {32, 64, 96, 127}) {
-        int y = (int)(h - 3 - level / 127.0 * (h - 6));
-        p.fillRect(Rect(KEYS_W, y, w, 1), level != 127 ? theme::c("grid") : theme::c("grid_fine"));
+    // where a value's bar reaches (0…1 of the height); velocity counts from 0, as it always has
+    auto along = [&](double v) {
+        return info.lane == Lane::Velocity ? v / 127 : (v - info.low) / (info.high - info.low);
+    };
+    if (info.lane == Lane::Velocity) {
+        for (int level : {32, 64, 96, 127}) {
+            int y = (int)(h - 3 - level / 127.0 * (h - 6));
+            p.fillRect(Rect(KEYS_W, y, w, 1), level != 127 ? theme::c("grid") : theme::c("grid_fine"));
+        }
+    } else {
+        for (double part : {0.25, 0.5, 0.75, 1.0}) {
+            int y = (int)(h - 3 - part * (h - 6));
+            p.fillRect(Rect(KEYS_W, y, w, 1),
+                       part == 1.0 ? theme::c("grid_fine") : info.centred && part == 0.5 ? theme::c("grid_bar")
+                                                                                          : theme::c("grid"));
+        }
     }
     Color color = ed.color();
     Color light = color.lighter(130), dark = color.darker(150);
+    double base = info.centred ? 0.5 : 0.0;  // (pan and fine: from the middle line, up or down)
     for (size_t i = 0; i < ed.notes.size(); ++i) {
         const Note& n = ed.notes[i];
         double x = ed.xOf(n.start);
-        if (x < KEYS_W - 4 || x > w || !ed.yOf(n.pitch)) continue;  // (folded away: not in the roll, nor here)
-        double bar = n.velocity / 127 * (h - 6);
+        if (x < KEYS_W - 4 || x > w || !ed.shows(n)) continue;  // (folded away: not in the roll, nor here)
+        double top = along(laneValue(n, info.lane)) * (h - 6), bottom = base * (h - 6);
+        double hi = std::max(top, bottom), lo = std::min(top, bottom);
         Color fill = ed.selected.count((int)i) ? theme::c("selected_note") : !ed.off.count((int)i) ? light : dark;
-        p.fillRect(aliased(x, h - 3 - bar, 4, bar), fill);
-        p.fillRect(aliased(x - 2, h - 5 - bar, 8, 3), fill);
+        p.fillRect(aliased(x, h - 3 - hi, 4, hi - lo), fill);
+        p.fillRect(aliased(x - 2, h - 5 - top, 8, 3), fill);
     }
     ed.paintCursorLines(p, h);
     p.fillRect(Rect(0, 0, KEYS_W, h), theme::c("ruler_bg"));
-    p.drawText(RectF(4, 0, KEYS_W - 6, (float)h), AlignLeft | AlignVCenter, "Velocity", theme::uiFont(),
-               theme::c("ruler_text"));
+    p.drawText(RectF(4, (float)(chooser->y() + chooser->height() + 2), KEYS_W - 6, 16), AlignLeft | AlignTop,
+               info.range, theme::uiFont(), theme::c("ruler_text"));
+}
+
+std::vector<int> VelocityLane::barsUnder(Point pos) const {
+    MidiEditor& ed = *ed_;
+    std::vector<std::pair<double, int>> near;
+    for (size_t i = 0; i < ed.notes.size(); ++i) {
+        if (!ed.shows(ed.notes[i])) continue;
+        double d = std::fabs(ed.xOf(ed.notes[i].start) + 2 - pos.x);
+        if (d <= 6) near.push_back({d, (int)i});
+    }
+    std::vector<int> out;
+    if (near.empty()) return out;
+    double closest = near[0].first;
+    for (auto& n : near) closest = std::min(closest, n.first);
+    for (auto& n : near)
+        if (n.first == closest) out.push_back(n.second);
+    return out;
 }
 
 bool VelocityLane::setUnder(Point pos) {
     MidiEditor& ed = *ed_;
-    std::vector<std::pair<double, int>> near;
-    for (size_t i = 0; i < ed.notes.size(); ++i) {
-        if (!ed.yOf(ed.notes[i].pitch)) continue;
-        double d = std::fabs(ed.xOf(ed.notes[i].start) + 2 - pos.x);
-        if (d <= 6) near.push_back({d, (int)i});
-    }
-    if (near.empty()) return false;
-    double closest = near[0].first;
-    for (auto& n : near) closest = std::min(closest, n.first);
-    int value = velocityAt(pos.y);
-    for (auto& n : near)
-        if (n.first == closest) ed.notes[n.second].velocity = value;
-    ed.lastVelocity = value;
+    std::vector<int> under = barsUnder(pos);
+    if (under.empty()) return false;
+    double value = valueAt(pos.y);
+    for (int i : under) setLaneValue(ed.notes[(size_t)i], ed.lane, value);
+    if (ed.lane == Lane::Velocity) ed.lastVelocity = (int)value;
     ed.refresh();
     return true;
 }
 
 bool VelocityLane::mousePress(ui::MouseEvent& e) {
-    if (e.button == plat::LeftButton && e.pos.x >= KEYS_W) {
-        MidiEditor::Drag d;
+    MidiEditor& ed = *ed_;
+    if (e.button == plat::RightButton) {  // the lanes, Slide, and the default value back
+        context->clear();
+        for (const LaneInfo& info : lanes()) {
+            Lane which = info.lane;
+            ui::Action* a = context->addAction(std::string("Show ") + (which == Lane::Fine ? "fine tuning" : info.name),
+                                               [this, which] { ed_->setLane(which); });
+            a->checkable = true;
+            a->checked = which == ed.lane;
+            a->group = 5;
+        }
+        context->addSeparator();
+        bool any = false;
+        for (int i : ed.selected) any = any || i < (int)ed.notes.size();
+        ui::Action* slide = context->addAction("Slide the selected notes", [this] { ed_->toggleSlide(); }, "G");
+        slide->enabled = any;
+        ui::Action* reset = context->addAction(
+            std::string("Default ") + (ed.lane == Lane::Fine ? "fine tuning" : laneInfo(ed.lane).name) +
+                " for the selected notes",
+            [this] { ed_->resetLane(); });
+        reset->enabled = any;
+        context->popup(e.globalPos, this);
+        return true;
+    }
+    if (e.button != plat::LeftButton || e.pos.x < KEYS_W) return true;
+    std::vector<int> under = barsUnder(e.pos);
+    int chosen = 0;
+    for (int i : ed.selected) chosen += i < (int)ed.notes.size();
+    bool onSelected = false;
+    for (int i : under) onSelected = onSelected || ed.selected.count(i);
+    MidiEditor::Drag d;
+    if (onSelected && chosen > 1) {  // one of several selected notes: all of them, by as much as the mouse moves
+        d.kind = MidiEditor::Drag::LaneShift;
+        d.startPos = e.pos;
+        for (int i : ed.selected)
+            if (i < (int)ed.notes.size()) d.origin[i] = ed.notes[(size_t)i];
+    } else {
         d.kind = MidiEditor::Drag::Velocity;
         d.changed = setUnder(e.pos);
-        ed_->drag = d;
     }
+    ed.drag = d;
     return true;
 }
 
 bool VelocityLane::mouseMove(ui::MouseEvent& e) {
-    if (ed_->drag.kind == MidiEditor::Drag::Velocity) {
+    MidiEditor& ed = *ed_;
+    if (ed.drag.kind == MidiEditor::Drag::Velocity) {
         bool changed = setUnder(e.pos);
-        ed_->drag.changed = ed_->drag.changed || changed;
+        ed.drag.changed = ed.drag.changed || changed;
+    } else if (ed.drag.kind == MidiEditor::Drag::LaneShift) {
+        double by = valueAt(e.pos.y, false) - valueAt(ed.drag.startPos.y, false);
+        for (auto& kv : ed.drag.origin) {
+            if (kv.first >= (int)ed.notes.size()) continue;
+            Note& n = ed.notes[(size_t)kv.first];
+            setLaneValue(n, ed.lane, laneValue(kv.second, ed.lane) + by);
+            if (laneValue(n, ed.lane) != laneValue(kv.second, ed.lane)) ed.drag.changed = true;
+        }
+        ed.refresh();
     }
     return true;
 }
@@ -1613,7 +1848,7 @@ bool VelocityLane::mouseMove(ui::MouseEvent& e) {
 bool VelocityLane::mouseRelease(ui::MouseEvent& e) {
     MidiEditor::Drag d = ed_->drag;
     ed_->drag = MidiEditor::Drag();
-    if (d.kind == MidiEditor::Drag::Velocity && d.changed) ed_->commit();
+    if ((d.kind == MidiEditor::Drag::Velocity || d.kind == MidiEditor::Drag::LaneShift) && d.changed) ed_->commit();
     return true;
 }
 
@@ -1676,6 +1911,386 @@ bool EditorRuler::mouseMove(ui::MouseEvent& e) {
 }
 
 bool EditorRuler::wheel(ui::WheelEvent& e) {
+    ed_->wheelAt(e, e.pos.x);
+    return true;
+}
+
+// =================================================================================================
+// The notes' own properties (the lane, Slide) and the Steps view
+// =================================================================================================
+
+ui::Widget* MidiEditor::view() const {
+    if (stepsView) return steps;
+    return roll;
+}
+
+bool MidiEditor::shows(const Note& n) const { return stepsView || yOf(n.pitch).has_value(); }
+
+void MidiEditor::setLane(Lane which) {
+    lane = which;
+    for (auto& kv : laneActions) kv.second->checked = kv.first == (int)which;
+    velocity->chooser->setText(laneInfo(which).name);
+    velocity->update();
+}
+
+void MidiEditor::syncNoteTools() {
+    if (!slideButton) return;
+    bool any = false, all = true;
+    for (int i : selected)
+        if (i < (int)notes.size()) {
+            any = true;
+            all = all && notes[(size_t)i].slide;
+        }
+    if (slideButton->isChecked() != (any && all)) slideButton->setCheckedSilently(any && all);
+}
+
+void MidiEditor::toggleSlide() {
+    std::vector<int> chosen;
+    for (int i : selected)
+        if (i < (int)notes.size()) chosen.push_back(i);
+    if (chosen.empty()) {
+        syncNoteTools();  // (a click on Slide with nothing selected lit it: not)
+        return;
+    }
+    bool all = true;
+    for (int i : chosen) all = all && notes[(size_t)i].slide;
+    for (int i : chosen) notes[(size_t)i].slide = !all;
+    commit();
+}
+
+void MidiEditor::resetLane() {
+    Note plain;  // (the defaults; velocity: a new note's)
+    double value = lane == Lane::Velocity ? DEFAULT_VELOCITY : laneValue(plain, lane);
+    bool changed = false;
+    for (int i : selected) {
+        if (i >= (int)notes.size() || laneValue(notes[(size_t)i], lane) == value) continue;
+        setLaneValue(notes[(size_t)i], lane, value);
+        changed = true;
+    }
+    if (changed) commit();
+}
+
+void MidiEditor::eraseNotes(const std::set<int>& gone) {
+    std::vector<Note> kept;
+    std::set<int> offs, chosen;
+    for (size_t i = 0; i < notes.size(); ++i) {
+        if (gone.count((int)i)) continue;
+        if (off.count((int)i)) offs.insert((int)kept.size());
+        if (selected.count((int)i)) chosen.insert((int)kept.size());
+        kept.push_back(notes[i]);
+    }
+    notes = std::move(kept);
+    off = std::move(offs);
+    selected = std::move(chosen);
+}
+
+void MidiEditor::setStepsView(bool on) {
+    if (on != stepsView) {
+        drag = Drag();
+        release();
+        double from = tAt(KEYS_W);
+        if (on) {
+            rollScroll_ = vbar->value();
+            stepsView = true;
+            roll->hide();
+            steps->show();
+            // a step STEP_CELL_PX wide: the fixed grid's, or 1/16 when the grid follows the zoom
+            const Timing& t = project.timing;
+            double at = std::max(0.0, from);
+            if (t.beats) {
+                double stepSeconds = (t.grid > 0 ? stepBeats(at) : 0.25) * t.beatSAt(originS() + at);
+                if (stepSeconds > 0) pps = std::min(4000.0, std::max(10.0, STEP_CELL_PX / stepSeconds));
+            }
+        } else {
+            stepsView = false;
+            steps->hide();
+            roll->show();
+        }
+        hint->setText(on ? STEPS_HINT : ROLL_HINT);
+        relayout();  // (the view shown gets its size)
+        resized();   // (the hint's height)
+        updateRanges();
+        hbar->setValue((int)(std::max(0.0, from) * pps));
+        vbar->setValue(on ? 0 : rollScroll_);
+        view()->setFocus();
+    }
+    if (stepsButton && stepsButton->isChecked() != on) stepsButton->setCheckedSilently(on);
+    refresh();
+}
+
+std::vector<int> MidiEditor::stepRows() const {
+    std::set<int> pitches(extraStepRows.begin(), extraStepRows.end());
+    for (const Note& n : notes) pitches.insert((int)n.pitch);
+    if (pitches.empty()) pitches.insert(STEP_FIRST_PITCH);
+    return std::vector<int>(pitches.rbegin(), pitches.rend());
+}
+
+std::pair<double, double> MidiEditor::stepCell(double t) const {
+    const Timing& timing = project.timing;
+    double o = originS();
+    if (timing.beats) {  // (the song's grid, tempo changes and all, as the piano roll's lines)
+        double step = stepBeats(std::max(0.0, t));
+        double k = std::floor(timing.beatAt(o + t) / step + 1e-9);
+        return {timing.secondsAt(k * step) - o, timing.secondsAt((k + 1) * step) - o};
+    }
+    double step = stepS();
+    double k = std::floor((o + t) / step + 1e-9);
+    return {k * step - o, (k + 1) * step - o};
+}
+
+std::set<int> MidiEditor::notesInCell(int pitch, double t) const {
+    std::pair<double, double> cell = stepCell(t);
+    std::set<int> found;
+    for (size_t i = 0; i < notes.size(); ++i)
+        if ((int)notes[i].pitch == pitch && notes[i].start >= cell.first - 1e-9 && notes[i].start < cell.second - 1e-9)
+            found.insert((int)i);
+    return found;
+}
+
+bool MidiEditor::setCell(int pitch, double t, bool on) {
+    std::pair<double, double> cell = stepCell(t);
+    if (cell.second <= 1e-9 || pitch < 0 || pitch > 127) return false;  // (wholly before the notes' start)
+    std::set<int> here = notesInCell(pitch, t);
+    if (on) {
+        if (!here.empty()) return false;
+        Note n;
+        n.start = std::max(0.0, cell.first);
+        n.end = cell.second;
+        n.pitch = pitch;
+        n.velocity = lastVelocity;
+        notes.push_back(n);
+        return true;
+    }
+    if (here.empty()) return false;
+    eraseNotes(here);
+    extraStepRows.insert(pitch);  // (its row stays while the editor is open, though no note uses it now)
+    return true;
+}
+
+void MidiEditor::addStepRow(int pitch) {
+    if (pitch < 0 || pitch > 127) return;
+    extraStepRows.insert(pitch);
+    updateRanges();
+    std::vector<int> rows = stepRows();
+    int row = (int)(std::find(rows.begin(), rows.end(), pitch) - rows.begin());
+    int y = row * STEP_ROW_H;
+    if (y < vbar->value()) vbar->setValue(y);  // (scrolled to it)
+    else if (y + STEP_ROW_H > vbar->value() + steps->height()) vbar->setValue(y + STEP_ROW_H - steps->height());
+    soundBriefly(pitch, lastVelocity, NOTE_SOUND_S);
+    refresh();
+}
+
+// --- the Steps view's widget ---
+
+StepGrid::StepGrid(MidiEditor* editor) : ed_(editor) {
+    setMouseTracking(true);
+    setFocusPolicy(ui::FocusPolicy::Strong);
+    setMinimumHeight(200);
+    setSizePolicy(ui::SizePolicy::Expanding, ui::SizePolicy::Expanding);
+    rowMenu = widgets::ownedMenu(this);
+    rowMenu->aboutToShow = [this](ui::Menu* menu) {  // a pitch for the new row: next to the rows, or any
+        menu->clear();
+        std::vector<int> rows = ed_->stepRows();
+        std::set<int> have(rows.begin(), rows.end());
+        auto offer = [&](ui::Menu* m, const std::string& text, int pitch) {
+            ui::Action* a = m->addAction(text, [this, pitch] { ed_->addStepRow(pitch); });
+            a->enabled = pitch >= 0 && pitch <= 127 && !have.count(pitch);
+        };
+        offer(menu, "Above: " + noteName(rows.front() + 1), rows.front() + 1);
+        offer(menu, "Below: " + noteName(rows.back() - 1), rows.back() - 1);
+        menu->addSeparator();
+        for (int octave = 9; octave >= -1; --octave) {
+            int c = (octave + 1) * 12;
+            ui::Menu* sub = menu->addMenu(noteName(c) + " \xe2\x80\x93 " + noteName(std::min(127, c + 11)));
+            for (int p = std::min(127, c + 11); p >= c; --p) offer(sub, noteName(p), p);
+        }
+    };
+}
+
+int StepGrid::rowAt(int y) const {
+    int r = (int)std::floor((double)(y + ed_->vbar->value()) / STEP_ROW_H);
+    if (r < 0 || r > (int)ed_->stepRows().size()) return -1;
+    return r;
+}
+
+std::optional<int> StepGrid::yOfRow(int row) const {
+    int y = row * STEP_ROW_H - ed_->vbar->value();
+    if (y + STEP_ROW_H < 0 || y > height()) return std::nullopt;
+    return y;
+}
+
+void StepGrid::resized() { ed_->updateRanges(); }
+
+bool StepGrid::overridesShortcut(const ui::KeyEvent& e) const { return ed_->roll->overridesShortcut(e); }
+
+std::string StepGrid::toolTipAt(Point p) const {
+    int r = rowAt(p.y);
+    if (r < 0) return "";
+    if (r == (int)ed_->stepRows().size()) return p.x < KEYS_W ? "Add a row for another pitch" : "";
+    if (p.x < KEYS_W) return "Press to hear this pitch";
+    return "Click to add a note one step long here (or remove the one here); drag along to paint. Ctrl+click: "
+           "select its notes; right-click: delete them";
+}
+
+void StepGrid::paint(Painter& p) {
+    MidiEditor& ed = *ed_;
+    int w = width(), h = height();
+    std::vector<int> rows = ed.stepRows();
+    const Timing& timing = ed.project.timing;
+    double origin = ed.originS();
+    p.fillRect(rect(), theme::c("ruler_bg"));
+    // the steps in view, and whether each is in an even beat (pads shaded by beats, as a drum machine's)
+    std::vector<std::pair<double, double>> cells;
+    std::vector<bool> even;
+    for (double t = std::max(0.0, ed.tAt(KEYS_W)); t < ed.tAt(w) && cells.size() < 4096;) {
+        std::pair<double, double> c = ed.stepCell(t);
+        if (!(c.second > c.first)) break;
+        cells.push_back(c);
+        double beat = timing.beats ? std::floor(timing.beatAt(origin + std::max(0.0, c.first)) + 1e-9)
+                                   : std::floor((double)cells.size() / 4);
+        even.push_back(((int64_t)beat) % 2 == 0);
+        t = c.second + 1e-7;
+    }
+    Color band = theme::c("lane"), pad = theme::c("lane_alt");
+    Color padOdd = pad.darker(112);
+    int rowsDown = (int)rows.size() * STEP_ROW_H - ed.vbar->value();
+    for (size_t r = 0; r < rows.size(); ++r) {
+        std::optional<int> y = yOfRow((int)r);
+        if (!y) continue;
+        p.fillRect(Rect(KEYS_W, *y, w, STEP_ROW_H), band);
+        for (size_t k = 0; k < cells.size(); ++k) {
+            double x0 = ed.xOf(std::max(0.0, cells[k].first)), x1 = ed.xOf(cells[k].second);
+            p.fillRoundedRect(RectF((float)x0 + 1, (float)*y + 2, (float)std::max(1.0, x1 - x0 - 2), STEP_ROW_H - 4), 2,
+                              even[k] ? pad : padOdd);
+        }
+    }
+    double lo, hi;  // shade what the clip doesn't play
+    ed.windowS(lo, hi);
+    int bottom = std::min(h, rowsDown);
+    if (bottom > 0) {
+        Color shade = theme::c("roll_shade");
+        p.fillRect(aliased(KEYS_W, 0, std::max(0.0, ed.xOf(lo) - KEYS_W), bottom), shade);
+        p.fillRect(aliased(ed.xOf(hi), 0, w, bottom), shade);
+    }
+    std::map<int, int> rowOf;
+    for (size_t r = 0; r < rows.size(); ++r) rowOf[rows[r]] = (int)r;
+    Color color = ed.color();
+    for (size_t i = 0; i < ed.notes.size(); ++i) {
+        const Note& n = ed.notes[i];
+        std::optional<int> y = yOfRow(rowOf[(int)n.pitch]);
+        if (!y) continue;
+        double x0 = ed.xOf(n.start), x1 = ed.xOf(n.end);
+        if (x1 < KEYS_W || x0 > w) continue;
+        RectF r((float)x0 + 1, (float)*y + 3, (float)std::max(NOTE_MIN_PX, x1 - x0 - 2), STEP_ROW_H - 6);
+        paintNoteBox(p, r, n, color, ed.selected.count((int)i) > 0, ed.off.count((int)i) > 0);
+        if (n.slide)  // (a tail into it, as in the piano roll)
+            paintSlideTail(p, PointF((float)x0 - 9, (float)*y + STEP_ROW_H - 3), PointF((float)x0 + 2, (float)*y + STEP_ROW_H / 2.0f),
+                           color.lighter(170));
+    }
+    ed.paintCursorLines(p, h);
+    // the rows' names (the piano roll's keys), and "+ Row"
+    p.fillRect(Rect(0, 0, KEYS_W, std::min(h, rowsDown)), theme::c("keys_white"));
+    Font font = theme::uiFont();
+    for (size_t r = 0; r <= rows.size(); ++r) {
+        std::optional<int> y = yOfRow((int)r);
+        if (!y) continue;
+        if (r == rows.size()) {
+            p.drawText(RectF(6, (float)*y, KEYS_W - 8, STEP_ROW_H), AlignLeft | AlignVCenter, "+ Row", font,
+                       theme::c("ruler_text"));
+            continue;
+        }
+        int pitch = rows[r];
+        if (ed.held && *ed.held == pitch) p.fillRect(Rect(0, *y, KEYS_W, STEP_ROW_H), theme::c("key_sounding"));
+        else if (isBlackKey(pitch)) p.fillRect(Rect(0, *y, 6, STEP_ROW_H), theme::c("keys_black"));
+        p.fillRect(Rect(0, *y + STEP_ROW_H - 1, KEYS_W, 1), theme::c("keys_line"));
+        p.drawText(RectF(0, (float)*y, KEYS_W - 4, STEP_ROW_H), AlignRight | AlignVCenter, noteName(pitch), font,
+                   theme::c("keys_label"));
+    }
+    p.fillRect(Rect(KEYS_W - 1, 0, 1, h), theme::c("ruler_bg"));
+}
+
+bool StepGrid::mousePress(ui::MouseEvent& e) {
+    MidiEditor& ed = *ed_;
+    std::vector<int> rows = ed.stepRows();
+    int r = rowAt(e.pos.y);
+    if (r < 0) return true;
+    if (r == (int)rows.size()) {  // "+ Row"
+        if (e.button == plat::LeftButton && e.pos.x < KEYS_W)
+            rowMenu->popup(mapToGlobal(Point(0, *yOfRow(r) + STEP_ROW_H)), this);
+        return true;
+    }
+    int pitch = rows[(size_t)r];
+    if (e.pos.x < KEYS_W) {  // a row's name: it sounds while held
+        if (e.button == plat::LeftButton) {
+            ed.hold(pitch);
+            ed.drag = MidiEditor::Drag();
+            ed.drag.kind = MidiEditor::Drag::Keys;
+            ed.refresh();
+        }
+        return true;
+    }
+    double t = ed.tAt(e.pos.x);
+    std::set<int> here = ed.notesInCell(pitch, t);
+    if (e.button == plat::RightButton) {
+        if (!here.empty()) {
+            ed.extraStepRows.insert(pitch);  // (the row stays)
+            ed.deleteNotes(here);
+        }
+        return true;
+    }
+    if (e.button != plat::LeftButton) return true;
+    if (e.mods & plat::ModCtrl) {  // its notes in or out of the selection
+        bool all = !here.empty();
+        for (int i : here) all = all && ed.selected.count(i);
+        for (int i : here) {
+            if (all) ed.selected.erase(i);
+            else ed.selected.insert(i);
+        }
+        ed.refresh();
+        return true;
+    }
+    MidiEditor::Drag d;
+    d.kind = MidiEditor::Drag::Cells;
+    d.startPos = e.pos;
+    d.lighting = here.empty();
+    d.changed = ed.setCell(pitch, t, d.lighting);
+    ed.drag = d;
+    if (d.lighting) ed.hold(pitch);  // (a new note is heard while the mouse is held)
+    ed.refresh();
+    return true;
+}
+
+bool StepGrid::mouseMove(ui::MouseEvent& e) {
+    MidiEditor& ed = *ed_;
+    std::vector<int> rows = ed.stepRows();
+    int r = rowAt(e.pos.y);
+    bool onRow = r >= 0 && r < (int)rows.size();
+    if (ed.drag.kind == MidiEditor::Drag::Keys) {
+        if (onRow) ed.hold(rows[(size_t)r]);
+        ed.refresh();
+    } else if (ed.drag.kind == MidiEditor::Drag::Cells) {
+        if (onRow && e.pos.x >= KEYS_W && ed.setCell(rows[(size_t)r], ed.tAt(e.pos.x), ed.drag.lighting)) {
+            ed.drag.changed = true;
+            if (ed.drag.lighting) ed.hold(rows[(size_t)r]);
+            ed.refresh();
+        }
+    } else {
+        setCursor(onRow && e.pos.x >= KEYS_W ? ui::Cursor::Hand : ui::Cursor::Arrow);
+    }
+    return true;
+}
+
+bool StepGrid::mouseRelease(ui::MouseEvent& e) {
+    MidiEditor& ed = *ed_;
+    MidiEditor::Drag d = ed.drag;
+    ed.drag = MidiEditor::Drag();
+    ed.release();
+    if (d.kind == MidiEditor::Drag::Cells && d.changed) ed.commit();
+    if (ui::Widget::alive(this)) ed.refresh();
+    return true;
+}
+
+bool StepGrid::wheel(ui::WheelEvent& e) {
     ed_->wheelAt(e, e.pos.x);
     return true;
 }
