@@ -248,7 +248,7 @@ public:
     void checkFxWindows();
     void closeFxWindows();
     void openMidiEditor(const ClipPtr& clip);
-    void notesEdited();
+    void notesEdited(const Clip* from = nullptr);  // (from: the clip whose editor changed it; its linked clips' editors reload)
     void checkMidiEditors();
     void restorePlugins();
 

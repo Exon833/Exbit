@@ -907,7 +907,7 @@ static void testMidiEffectsDialog() {
     sampler_dialog::setHost(host);
     // the kinds, as audio/midi_effects has them
     const auto& kinds = midi_effects_dialog::kinds();
-    CHECK(kinds.size() == 7 && kinds[0].name == "Arpeggiator" && kinds[6].name == "Pitch");
+    CHECK(kinds.size() == 8 && kinds[0].name == "Arpeggiator" && kinds[6].name == "Pitch" && kinds[7].name == "Groove");
     CHECK(!kinds[0].live && kinds[1].live);
     const midi_effects_dialog::Param& gate = kinds[0].params[2];
     CHECK(gate.key == "gate" && gate.text(80) == "80 %");
@@ -920,9 +920,9 @@ static void testMidiEffectsDialog() {
     CHECK(d && d->title() == "MIDI effects \xe2\x80\x94 Piano");
     CHECK(midi_effects_dialog::openMidiEffects(f.track) == d);  // (one per track)
     CHECK(d->list->count() == 0);
-    // Add ▾: the seven, clips-only ones marked
+    // Add ▾: the eight, clips-only ones marked
     Menu* menu = d->addButton->menu();
-    CHECK(menu->actions().size() == 7);
+    CHECK(menu->actions().size() == 8);
     CHECK(menu->actions()[0]->text == "Arpeggiator  (clips only)" && menu->actions()[1]->text == "Chord");
     Menu::activate(menu->actions()[6].get());  // Pitch
     Menu::activate(menu->actions()[1].get());  // Chord

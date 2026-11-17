@@ -56,13 +56,17 @@ void Timeline::paintArea(Painter& p, const Rect& r) {
         else if (lane.take) paintTake(p, r, lane, false);
     }
     int left = scroll->horizontalScrollBar()->value();
+    std::map<const ClipLink*, int> linkCounts = links::counts(project);  // (linked clips: their chain marks)
     for (auto& clip : project.clips) {
         auto rect = clipRect(*clip, tops);
         if (!rect) continue;
         if (rect->right() + 2 >= r.left() && rect->x - 2 <= r.right() - 1  // +2: antialiased border
-            && rect->bottom() + 2 >= r.top() && rect->y - 2 <= r.bottom() - 1)
+            && rect->bottom() + 2 >= r.top() && rect->y - 2 <= r.bottom() - 1) {
+            auto linked = clip->link ? linkCounts.find(clip->link.get()) : linkCounts.end();
             clip_painter::paintClip(p, *clip, *rect, r, left, pps, engine.sr, selection.contains(clip),
-                                    project.audible(*clip->track), clip->track->frozen != nullptr);
+                                    project.audible(*clip->track), clip->track->frozen != nullptr, true,
+                                    linked != linkCounts.end() ? linked->second : 0);
+        }
     }
     if (selection.range) {
         std::vector<std::pair<int, int>> spans;

@@ -185,6 +185,7 @@ void Timeline::setLoopNotes(const std::vector<ClipPtr>& clips, bool on) {
             clip->lengthS = clip->length >= 0 ? (double)(clip->offset + clip->frames()) / sr : clip->lengthS;
         clip->loop = on;
         prepareLive(clip);
+        linkedNotesChanged(clip);  // (its linked clips loop, or not, with it)
     }
     relayout();
 }

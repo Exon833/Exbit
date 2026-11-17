@@ -90,10 +90,19 @@ std::vector<ClipPtr> paste(Timeline& timeline, std::string& reason) {
                      ": select another track to paste onto";
             return {};
         }
-        ClipPtr copy = copyClip(item.clip);
+        ClipPtr copy = links::plainCopy(item.clip);
         copy->track = track;
         copy->start = timeline.cursor + item.offset;
         placed.push_back(copy);
+    }
+    // linked MIDI clips copied together stay linked among themselves (a new link: not to the originals)
+    std::map<const ClipLink*, std::vector<ClipPtr>> together;
+    for (size_t i = 0; i < placed.size(); ++i)
+        if (held->clips[i].clip->link) together[held->clips[i].clip->link.get()].push_back(placed[i]);
+    for (auto& kv : together) {
+        if (kv.second.size() < 2) continue;
+        auto link = std::make_shared<ClipLink>();
+        for (auto& c : kv.second) c->link = link;
     }
     for (auto& c : placed)  // (their new tracks' sound: rendered before the audio thread sees them)
         if (c->kind == Kind::Midi) c->prepare(timeline.engine.sr);

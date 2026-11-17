@@ -60,6 +60,8 @@ const std::vector<std::pair<std::string, std::vector<MidiEffect::Param>>>& MidiE
         {"Velocity", {{"scale", 100}, {"offset", 0}, {"random", 0}, {"lowest", 1}, {"highest", 127}}},
         {"Random", {{"chance", 50}, {"range", 12}, {"seed", 1}}},
         {"Pitch", {{"semitones", 0}}},
+        // (new kinds go last)
+        {"Groove", {{"swing", 60}, {"grid", 1}, {"accent", 0}, {"timing", 0}, {"velocity", 0}, {"seed", 1}}},
     };
     return table;
 }
@@ -540,3 +542,85 @@ void Project::purgeRetired(double now) {
                                   [now](auto& r) { return now - r.first > 2.0 && r.second.use_count() == 1; }),
                    retired_.end());
 }
+
+// --- linked MIDI clips (see model.h) ---
+
+namespace links {
+
+std::vector<ClipPtr> partners(const Project& p, const Clip& c) {
+    std::vector<ClipPtr> out;
+    if (!c.link) return out;
+    for (auto& o : p.clips)
+        if (o->link == c.link) out.push_back(o);
+    return out;
+}
+
+int count(const Project& p, const Clip& c) {
+    if (!c.link) return 0;
+    int n = 0;
+    for (auto& o : p.clips) n += o->link == c.link;
+    return n;
+}
+
+std::map<const ClipLink*, int> counts(const Project& p) {
+    std::map<const ClipLink*, int> out;
+    for (auto& c : p.clips)
+        if (c->link) out[c->link.get()]++;
+    return out;
+}
+
+ClipPtr linkedCopy(const ClipPtr& c) {
+    if (c->kind != Kind::Midi) return plainCopy(c);
+    if (!c->link) c->link = std::make_shared<ClipLink>();
+    return copyClip(c);
+}
+
+ClipPtr plainCopy(const ClipPtr& c) {
+    ClipPtr k = copyClip(c);
+    k->link = nullptr;
+    return k;
+}
+
+std::vector<ClipPtr> notesChanged(Project& p, const ClipPtr& from, int sr) {
+    std::vector<ClipPtr> changed;
+    if (!from || !from->link || from->kind != Kind::Midi) return changed;
+    for (auto& o : partners(p, *from)) {
+        if (o == from) continue;
+        if (o->notes == from->notes && o->mutedNotes == from->mutedNotes && o->lengthS == from->lengthS &&
+            o->loop == from->loop)
+            continue;
+        if (o->length < 0) o->length = std::max<int64_t>(1, o->frames());  // (its window as it is now)
+        o->notes = from->notes;  // (the same immutable vectors: never changed in place)
+        o->mutedNotes = from->mutedNotes;
+        o->lengthS = from->lengthS;
+        o->loop = from->loop;
+        // prepared on a copy, then swapped in whole (the audio thread may be playing it)
+        Clip ready = *o;
+        ready.track = std::atomic_load(&o->track);
+        ready.prepare(sr);
+        o->baseFrames = ready.baseFrames;
+        std::atomic_store(&o->peaks, ready.peaks);
+        std::atomic_store(&o->played, ready.played);
+        std::atomic_store(&o->events, ready.events);
+        std::atomic_store(&o->data, ready.data);
+        changed.push_back(o);
+    }
+    return changed;
+}
+
+void makeUnique(Project& p, const std::vector<ClipPtr>& clips) {
+    std::set<ClipLink*> touched;
+    for (auto& c : clips)
+        if (c->link) {
+            touched.insert(c->link.get());
+            c->link = nullptr;
+        }
+    if (touched.empty()) return;
+    std::map<ClipLink*, std::vector<ClipPtr>> left;
+    for (auto& c : p.clips)
+        if (c->link && touched.count(c->link.get())) left[c->link.get()].push_back(c);
+    for (auto& kv : left)
+        if (kv.second.size() == 1) kv.second[0]->link = nullptr;  // (a link of one clip is no link)
+}
+
+}  // namespace links

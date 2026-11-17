@@ -20,7 +20,8 @@ namespace history {
 #define CLIP_FIELDS(X)                                                                                          \
     X(kind) X(name) X(track) X(start) X(offset) X(length) X(color) X(tone) X(disabled) X(gainDb) X(fadeIn)     \
     X(fadeOut) X(fadeLead) X(fadeTail) X(loop) X(source) X(sourceSr) X(sourcePath) X(stretch) X(pitch)         \
-    X(sourceBpm) X(reverse) X(loopStart) X(loopLength) X(notes) X(lengthS) X(mutedNotes) X(played) X(events)
+    X(sourceBpm) X(reverse) X(loopStart) X(loopLength) X(notes) X(lengthS) X(mutedNotes) X(played) X(events)  \
+    X(link)
 #define CLIP_AUDIO_FIELDS(X) X(data) X(peaks) X(baseFrames)  // (not for looping audio clips)
 #define SLOT_FIELDS(X) X(path) X(name) X(kind) X(pluginName) X(bypass) X(placed) X(atX) X(atY) X(volumeDb) X(mix)
 #define LANE_FIELDS(X) X(slot) X(param) X(points)

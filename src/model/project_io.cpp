@@ -605,6 +605,11 @@ Json describe(const Project& project, int sr, const MasterSettings& master, Audi
     std::vector<GroupPtr> groups = project.groups();
     std::vector<TrackPtr> tracks = *project.tracks;
     Json clips = Json::array();
+    // linked MIDI clips (model.h): a "link" number per clip sharing its link with another one saved
+    std::map<const ClipLink*, int> linkSize, linkNumber;
+    for (auto& clip : project.clips)
+        if (clip->link && clip->kind == Kind::Midi && project.tracks.indexOf(clip->track) >= 0)
+            linkSize[clip->link.get()]++;
     for (auto& clip : project.clips) {
         int row = project.tracks.indexOf(clip->track);
         if (row < 0) continue;  // (on no track of the project)
@@ -640,6 +645,10 @@ Json describe(const Project& project, int sr, const MasterSettings& master, Audi
             entry.set("midi_length", Json(clip->lengthS));
             entry.set("muted_notes", notesJson(clip->mutedNotes));
             entry.set("loop", Json(clip->loop));
+            if (clip->link && linkSize[clip->link.get()] >= 2) {  // (only then: unlinked projects save as before)
+                auto made = linkNumber.emplace(clip->link.get(), (int)linkNumber.size() + 1);
+                entry.set("link", Json(made.first->second));
+            }
         }
         clips.push(entry);
     }
@@ -1097,6 +1106,7 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
         Timing timing = readTiming(field(data, "timing"));
         std::vector<std::string> missing;
         std::vector<ClipPtr> clips;
+        std::map<double, ClipPtr> linked;  // linked MIDI clips: "link" number -> the first clip with it
         const Json& clipEntries = need(data, "clips");
         for (const Json& entry : clipEntries.items()) {
             if (!entry.isObject()) throw Damaged{"a clip is not an object"};
@@ -1126,6 +1136,19 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
                 clip->mutedNotes = readNotes(entry["muted_notes"], false);
                 clip->lengthS = need(entry, "midi_length").toDouble();
                 clip->loop = entry.flag("loop", false);
+                const Json& link = entry["link"];  // (linked MIDI clips: the first one's notes are everyone's)
+                if (link.isNumber()) {
+                    auto made = linked.emplace(link.toDouble(), clip);
+                    if (!made.second) {
+                        const ClipPtr& first = made.first->second;
+                        if (!first->link) first->link = std::make_shared<ClipLink>();
+                        clip->link = first->link;
+                        clip->notes = first->notes;
+                        clip->mutedNotes = first->mutedNotes;
+                        clip->lengthS = first->lengthS;
+                        clip->loop = first->loop;
+                    }
+                }
             }
             clip->track = tracks[row];
             window(*clip, entry);

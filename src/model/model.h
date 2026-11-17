@@ -100,6 +100,7 @@ struct SamplerSettings;
 struct PluginSlot;
 struct Clip;
 struct Automation;
+struct ClipLink;
 using TrackPtr = std::shared_ptr<Track>;
 using GroupPtr = std::shared_ptr<Group>;
 using SlotPtr = std::shared_ptr<PluginSlot>;
@@ -201,7 +202,7 @@ struct Automation {
 // --- a MIDI effect on a MIDI track (audio/midi_effects.py): its kind and its values, by key ---
 // Never changed in place: with() makes a changed copy, and the track's list is replaced.
 struct MidiEffect {
-    std::string kind;                     // "Arpeggiator", "Chord", "Scale", "Note Length", "Velocity", "Random", "Pitch"
+    std::string kind;                     // "Arpeggiator", "Chord", "Scale", "Note Length", "Velocity", "Random", "Pitch", "Groove"
     std::map<std::string, double> values;  // every parameter's value (MidiEffect::make fills the defaults)
     double get(const std::string& key) const;  // its value (the default if not set)
     MidiEffect with(const std::string& key, double value) const;
@@ -360,6 +361,8 @@ struct Clip {
                                                           // the clip reaches when looping, after the MIDI effects
     struct Event { int64_t on, off; int pitch, velocity; };
     std::shared_ptr<const std::vector<Event>> events;  // for VST instruments (frames, relative to the clip start)
+    // MIDI clips linked to each other share it (see "linked MIDI clips" at the end); null = its notes are its own
+    std::shared_ptr<ClipLink> link;
 
     int64_t frames() const { return length >= 0 ? length : (data ? data->frames() - offset : 0); }
     int64_t end() const { return start + frames(); }
@@ -455,3 +458,39 @@ public:
 private:
     std::vector<std::pair<double, std::shared_ptr<plug::Plugin>>> retired_;
 };
+
+// --- linked MIDI clips ---
+// Copies of a MIDI clip can be LINKED (the timeline's Ctrl+Alt-drag or "Duplicate as linked"): they hold
+// the same ClipLink and always the same notes, switched-off notes, lengthS (a loop's pass) and loop switch,
+// the very same immutable note vectors. After editing one (the MIDI editor, quantize, the loop switch, a
+// length), links::notesChanged gives every other one the same and prepares it again (its audio and events,
+// for its own track and place). Their start, track, name, colour, window (offset, length) and being
+// disabled stay their own. A plain copy (Ctrl-drag, Ctrl+D, paste) is independent; the pieces of an
+// explicit split, and joined clips, are independent too (the timeline makes them unique); a clip trimmed
+// by one placed over it or by cutting a range out stays linked (the same notes in a smaller window).
+// A linked clip on a frozen track takes the notes too; the track plays its frozen sound (as it was frozen)
+// until it is unfrozen. Freezing and bouncing render each clip as it is prepared, linked or not.
+// Undo restores every clip's fields, so linked clips come back together. Saved as a "link" number per
+// clip (project_io). GUI thread: the audio thread only reads what notesChanged prepares, swapped in
+// atomically.
+struct ClipLink {};
+namespace links {
+// every clip of the project sharing c's link, c included, in the project's order; empty: c isn't linked
+std::vector<ClipPtr> partners(const Project& p, const Clip& c);
+// how many clips of the project share c's link (0: none)
+int count(const Project& p, const Clip& c);
+// is c linked to at least one other clip of the project?
+inline bool linked(const Project& p, const Clip& c) { return count(p, c) >= 2; }
+// how many clips of the project share each link (every clip's badge, worked out in one pass)
+std::map<const ClipLink*, int> counts(const Project& p);
+// a copy of a MIDI clip linked to it (it gets a link first if it had none); an audio clip: a plain copy
+ClipPtr linkedCopy(const ClipPtr& c);
+// a copy of a clip that is independent of it (no link)
+ClipPtr plainCopy(const ClipPtr& c);
+// after `from`'s notes (or switched-off notes, lengthS, loop switch) changed: every other clip linked to
+// it gets them and is prepared again at `sr`; one playing to the end of its notes (length -1) keeps the
+// window it had. Returns the clips changed.
+std::vector<ClipPtr> notesChanged(Project& p, const ClipPtr& from, int sr);
+// these clips leave their links, keeping their notes; a link left with a single clip is undone too
+void makeUnique(Project& p, const std::vector<ClipPtr>& clips);
+}  // namespace links

@@ -10,6 +10,10 @@
 // right after. A clip only goes onto a track of its own kind: when the lanes don't fit, nothing is
 // pasted and the status bar says why.
 //
+// Pasted clips are independent of the clips they were copied from, also linked MIDI clips (model.h):
+// only linked clips copied TOGETHER stay linked to each other, by a link of their own (each paste a new
+// one), never to the originals.
+//
 // One clipboard for the program (it lives as long as it runs); it is in frames, so after the sample
 // rate changed it asks for a new copy instead of pasting.
 //

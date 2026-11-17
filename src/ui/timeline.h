@@ -28,6 +28,14 @@
 // Ctrl+C / Ctrl+X / Ctrl+V copy, cut and paste clips (clipboard.h); Ctrl+drag a clip's name strip
 // drags copies, leaving the clips where they are (a Ctrl+click without dragging still adds or removes
 // it from the selection).
+// Linked MIDI clips (model.h, "linked MIDI clips"): Ctrl+Alt+drag a MIDI clip's name strip drags LINKED
+// copies (audio clips in the selection are copied plainly); the Alt pressed with it doesn't free the drag
+// from the grid until it is let go and pressed again. Right-click → Duplicate as linked does the same
+// as Ctrl+D with linked copies, and Make unique takes the selected clips out of their links (keeping
+// their notes). Editing the notes of one linked clip, its loop switch or its length changes them all
+// (links::notesChanged). A linked clip shows a chain mark at the right of its name strip; the tooltip
+// there says how many clips share its notes. Splitting a linked clip (S) makes its pieces unique, and so
+// does joining (Ctrl+J: a new clip); Ctrl-drag, Ctrl+D and paste make independent copies.
 // Double-click a MIDI clip to edit its notes (editNotes → the MIDI editor); double-click empty space
 // on a MIDI track (or right-click → New MIDI clip) to make a new, empty MIDI clip there.
 // Clips are renamed with Ctrl+R, the right-click menu, or a double-click on their name strip.
@@ -122,11 +130,13 @@ struct MoveDrag {               // dragging the selected clips; positions relati
     std::map<ClipPtr, Origin> origin;  // clip -> (start frame, lane index) when the drag began
     int64_t anchor = 0;         // start frame of the clip grabbed: it is the one put on the grid
     int rowsMoved = 0;          // last lane offset that suited every clip's kind
+    bool altLinks = false;      // Alt held since a Ctrl+Alt press (linked copies): it snaps until Alt is let go
 };
 enum class ClipSide { None, Left, Right };
 struct CopyDrag {               // Ctrl held on a clip's name strip: a click toggles it in the selection; dragging
     ClipPtr clip;               // drags copies of the selection (with it), leaving the clips where they are
     PointF pos;
+    bool linked = false;        // Ctrl+Alt: the MIDI clips' copies are linked to them (model.h)
 };
 struct EdgeDrag {               // dragging one end of a clip to trim it or lengthen it again
     ClipPtr clip;
@@ -285,6 +295,16 @@ public:
     void stretchSelected();     // Stretch and pitch…: each replaced by a stretched one (replacing what it covers)
     void reverseSelected();     // Reverse (play backwards) / Play forwards again
     void joinSelected();        // Ctrl+J: per track, the selected clips (or what lies in the range) become one
+    // --- linked MIDI clips (timeline_links.cpp) ---
+    void duplicateLinkedSelected();  // Duplicate as linked: as Ctrl+D, the selected MIDI clips' copies linked to them
+    void makeUniqueSelected();       // Make unique: the selected clips leave their links, keeping their notes
+    // after a clip's notes, loop switch or length changed here: its linked clips get them too
+    void linkedNotesChanged(const ClipPtr& clip);
+    // the linked clip whose chain mark (at the right of its name strip) is under pos, or null
+    ClipPtr linkBadgeAt(PointF pos) const;
+    std::string toolTipAt(Point pos) const override;  // a chain mark: how many clips share its notes
+    // the project's clips that aren't in `before` (pieces an explicit split made) leave their links
+    void splitPiecesUnique(const std::vector<ClipPtr>& before);
     void crossfadeSelected();   // Crossfade…: two selected audio clips that meet overlap, one fading into the other
     // clips looping or not: a MIDI clip's notes repeat (each pass as long as the clip is now); an audio
     // clip's window as it is now becomes its loop, repeated when it is made longer (model's looped())

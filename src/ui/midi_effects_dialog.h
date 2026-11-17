@@ -36,7 +36,7 @@ struct Kind {
     bool live = true;   // applies to notes played live too (it doesn't change their timing)
     std::vector<Param> params;
 };
-// the seven kinds, in midi_effects.KINDS order (Arpeggiator, Chord, Scale, Note Length, Velocity, Random, Pitch)
+// the kinds, in midi_effects.KINDS order (Arpeggiator, Chord, Scale, Note Length, Velocity, Random, Pitch, Groove)
 const std::vector<Kind>& kinds();
 const Kind* kindOf(const std::string& name);
 

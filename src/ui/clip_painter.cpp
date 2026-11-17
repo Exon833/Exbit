@@ -21,15 +21,19 @@ Rect pixels(const RectF& r) {
 }
 
 void paintClip(Painter& p, const Clip& clip, const RectF& rect, const Rect& visible, int viewLeft, double pps, int sr,
-               bool selected, bool audible, bool frozen, bool handles) {
+               bool selected, bool audible, bool frozen, bool handles, int linkedWith) {
     std::string color, tone;
     colors::clipColor(clip, color, tone);  // its own, its track's, or its kind's default
     colors::ClipColors cc = colors::clipColors(color, audible, tone);
+    RectF badge;
+    bool linked = linkedWith >= 2 && linkBadge(rect, badge);
+    RectF named = linked ? rect.adjusted(0, 0, -(rect.right() - badge.x) + 2, 0) : rect;  // (the name stops short of it)
     if (clip.disabled) {
         // the whole line inside the clip's box
         if (selected) p.strokeRect(rect.adjusted(0.75f, 0.75f, -0.75f, -0.75f), cc.selectedBorder, 2);
         else p.strokeRect(rect.adjusted(0.75f, 0.75f, -0.75f, -0.75f), cc.fill, 1.5f);
-        paintName(p, clip, rect, viewLeft, cc.fill);
+        paintName(p, clip, named, viewLeft, cc.fill);
+        if (linked) paintLinkBadge(p, badge, cc.fill);
         return;
     }
     p.fillRect(pixels(rect), cc.fill);
@@ -42,7 +46,26 @@ void paintClip(Painter& p, const Clip& clip, const RectF& rect, const Rect& visi
     if (frozen) p.fillRect(pixels(rect), theme::c("frozen_tint"));
     if (selected) p.strokeRect(rect, cc.selectedBorder, 2);  // square corners
     else p.strokeRect(rect, cc.border, 1.5f);
-    paintName(p, clip, rect, viewLeft, cc.text);
+    paintName(p, clip, named, viewLeft, cc.text);
+    if (linked) paintLinkBadge(p, badge, cc.text);
+}
+
+// --- linked MIDI clips: the chain mark ---
+
+bool linkBadge(const RectF& rect, RectF& badge) {
+    if (rect.w < LINK_BADGE_W + 2 * config::CLIP_EDGE_PX + 12) return false;  // (too narrow: the name goes first)
+    float x = rect.right() - config::CLIP_EDGE_PX - 2 - LINK_BADGE_W;
+    badge = RectF(x, rect.y + (config::CLIP_HANDLE_H - LINK_BADGE_H) / 2.0f, (float)LINK_BADGE_W, (float)LINK_BADGE_H);
+    return true;
+}
+
+void paintLinkBadge(Painter& p, const RectF& badge, Color color) {
+    // two links of a chain, side by side and overlapping, slightly tilted apart by their heights
+    float h = badge.h - 2, w = badge.w * 0.62f;
+    RectF left(badge.x + 0.5f, badge.y + 1, w, h);
+    RectF right(badge.right() - w - 0.5f, badge.y + 1, w, h);
+    p.strokeRoundedRect(left, h / 2, color, 1.6f);
+    p.strokeRoundedRect(right, h / 2, color, 1.6f);
 }
 
 void paintLoopStarts(Painter& p, const Clip& clip, const RectF& rect, const Rect& visible, double pps, int sr, Color color) {

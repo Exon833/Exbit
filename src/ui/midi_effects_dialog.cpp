@@ -102,7 +102,8 @@ MidiEffectsDialog::MidiEffectsDialog(ui::Window* window, TrackPtr track_)
     ui::Menu* menu = widgets::ownedMenu(addButton);
     for (const Kind& k : kinds()) {
         std::string name = k.name;
-        menu->addAction(name + (k.live ? "" : "  (clips only)"), [this, name] { addEffect(name); });
+        ui::Action* item = menu->addAction(name + (k.live ? "" : "  (clips only)"), [this, name] { addEffect(name); });
+        item->tooltip = midi_effects::describe(name);
     }
     addButton->setMenu(menu);
     buttons->addWidget(addButton);
@@ -114,8 +115,8 @@ MidiEffectsDialog::MidiEffectsDialog(ui::Window* window, TrackPtr track_)
         buttons->addWidget(button);
     }
     left->addLayout(std::move(buttons));
-    ui::Label* hint = add<ui::Label>("Arpeggiator and Note Length change the clips' notes only; the others also change "
-                                     "notes played live (the MIDI editor's keys, a MIDI keyboard).");
+    ui::Label* hint = add<ui::Label>("Arpeggiator, Note Length and Groove change the clips' notes only; the others "
+                                     "also change notes played live (the MIDI editor's keys, a MIDI keyboard).");
     hint->setWordWrap(true);
     hint->setProperty("hint", "true");
     left->addWidget(hint);
