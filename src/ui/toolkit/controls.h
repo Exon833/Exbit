@@ -155,6 +155,12 @@ private:
 };
 
 // --- text entry ---
+// Stylesheets: LineEdit. Its box (background, border, radius); its padding is the room around the text (and gives
+// its size). States :hover :focus :disabled :pressed, :frameless (frame off: inside a SpinBox / ComboBox),
+// :read-only, :clear-hover (the clear button under the mouse). Parts ::placeholder (color), ::selection (a box:
+// background, border…; color: the selected text's; its padding reaches past the text), ::cursor (background-color,
+// width), ::clear-button (color; width; margin-left: the room before it; margin-right: after it; icon-size: the
+// cross; stroke-width). Its font is the stylesheets' unless the program set one (setFont).
 class LineEdit : public Widget {
 public:
     explicit LineEdit(const std::string& text = "", Widget* parent = nullptr);
@@ -207,11 +213,11 @@ public:
     void leave() override { update(); }
     Point minimumSizeHint() const override;
     Font font() const;
+    void styleStates(std::vector<std::string>& out) const override;
 private:
     std::string text_, placeholder_;
     std::vector<std::pair<std::string, size_t>> undo_, redo_;
     bool clearHover_ = false, dirty_ = false;
-    int textX() const;
     Rect textArea() const;
     Rect clearRect() const;
     void edited(const std::string& before, size_t beforeCursor);
@@ -230,7 +236,13 @@ private:
     void ensureCursorVisible();
 };
 
-// QSpinBox / QDoubleSpinBox: a number field with ▴▾ buttons, the wheel and the arrow keys
+// QSpinBox / QDoubleSpinBox: a number field with ▴▾ buttons, the wheel and the arrow keys.
+// Stylesheets: SpinBox (its editor is a LineEdit:frameless inside its border). Its box; its padding gives its size
+// around the widest number. States :hover :focus (its editor has the focus) :disabled :pressed, :up-hover
+// :down-hover (a button under the mouse), :up-pressed :down-pressed (held), :at-maximum :at-minimum (the value at
+// that end, not wrapping: that button is off). Parts ::up-button and ::down-button (a box drawn over the inside of
+// the border, clipped to the button; color: the arrow's; icon-size; stroke-width; width: the buttons' column, the
+// up button's).
 class SpinBox : public Widget {
 public:
     explicit SpinBox(Widget* parent = nullptr);
@@ -272,11 +284,13 @@ public:
     int decimals() const { return decimals_; }
     Point minimumSizeHint() const override { return sizeHint(); }
     bool mouseMove(MouseEvent& e) override;
+    void styleStates(std::vector<std::string>& out) const override;
     ~SpinBox() override;
 private:
     int hoverPart_ = 0, pressPart_ = 0;           // 1 up, -1 down
     float wheelAcc_ = 0;
     int partAt(Point p) const;
+    int buttonsWidth() const;                     // the ▴▾ column (0 when hidden)
     bool parse(const std::string& text, double& v) const;
     double clampRound(double v) const;
     void stopRepeat();
@@ -284,14 +298,20 @@ private:
     int decimals_ = 0;
     bool tracking_ = true, buttons_ = true, wrapping_ = false, wheelOn_ = true;
     std::string suffix_, prefix_;
-    LineEdit* edit_;
+    LineEdit* edit_ = nullptr;
     int repeatTimer_ = -1;
     void refresh();
     void commit();
     std::string format(double v) const;
 };
 
-// QComboBox: items (text + data); a drop-down list when clicked
+// QComboBox: items (text + data); a drop-down list when clicked.
+// Stylesheets: ComboBox. Its box; its text from its padding's left (the padding gives its size). States :hover
+// :focus :disabled :pressed, :open (its list is open), :editable. Part ::arrow (width: the right-hand box, over the
+// border; padding-left: the arrow's place in it; a box: background…; color; icon-size; stroke-width). Its list is
+// a ComboPopup: its box and padding; parts ::item (a box; padding; color; font; states :hover and :selected on the
+// highlighted row, :disabled on a disabled one: the popup's states while an item's style is computed) and
+// ::separator (height: its row; margin: the line's ends; a box: background…; stroke-width: the line's thickness).
 class ComboBox : public Widget {
 public:
     explicit ComboBox(Widget* parent = nullptr);
@@ -337,7 +357,9 @@ public:
     struct Item { std::string text, data; bool separator = false, enabled = true; };
     const std::vector<Item>& items() const { return items_; }
     void choose(int i);                          // as chosen in the list (currentIndexChanged, activated)
+    void styleStates(std::vector<std::string>& out) const override;
 private:
+    int arrowWidth() const;                      // ::arrow's width (the right-hand box)
     std::vector<Item> items_;
     int current_ = -1;
     bool wheelOn_ = true, editable_ = false;

@@ -1285,6 +1285,117 @@ static void testStylesheets() {
     w.hideWindow();
 }
 
+// the fields take their look from the stylesheets: LineEdit (padding, ::selection, ::clear-button), SpinBox
+// (:up-hover::up-button, the buttons' width, :focus from its editor), ComboBox (::arrow, :open) and its list
+// (ComboPopup::item:selected / :disabled, ::separator)
+static void testFieldStylesheets() {
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(400, 200);
+    w.moveWindow(100, 100);
+    auto* le = w.add<LineEdit>("Hello world");
+    le->setClearButton(true);
+    auto* sp = w.add<SpinBox>();
+    sp->setRange(0, 10);
+    sp->setValue(5);
+    auto* cb = w.add<ComboBox>();
+    cb->addItem("One");
+    cb->addItem("Two");
+    cb->insertSeparator();
+    cb->addItem("Three");
+    cb->setItemEnabled(3, false);
+    // what the stylesheets see
+    CHECK(le->type() == "LineEdit" && sp->type() == "SpinBox" && cb->type() == "ComboBox");
+    CHECK(sp->editor()->hasState("frameless") && !le->hasState("frameless"));
+    CHECK(!sp->hasState("at-maximum") && !sp->hasState("at-minimum"));
+    sp->setValue(10);
+    CHECK(sp->hasState("at-maximum"));
+    sp->setValue(5);
+    Point leBefore = le->sizeHint(), spBefore = sp->sizeHint(), cbBefore = cb->sizeHint();
+
+    std::vector<css::Problem> problems;
+    css::SheetPtr extra = css::parse(
+        "LineEdit { padding: 3px 9px; background-color: #102030; }\n"
+        "LineEdit::selection { background-color: #ff0000; }\n"
+        "LineEdit::clear-button { width: 20px; }\n"
+        "SpinBox { border-color: #00ff00; border-radius: 0; }\n"
+        "SpinBox::up-button, SpinBox::down-button { width: 20px; }\n"
+        "SpinBox:up-hover::up-button { background-color: #0000ff; border-radius: 0; }\n"
+        "SpinBox:focus { border-color: #ffffff; }\n"
+        "ComboBox::arrow { width: 30px; }\n"
+        "ComboBox:open { border-color: #ff00ff; }\n"
+        "ComboPopup { padding: 4px; }\n"
+        "ComboPopup::item:selected { background-color: #00ffff; }\n"
+        "ComboPopup::item:disabled { color: #ffff00; }\n"
+        "ComboPopup::separator { background-color: #ff8000; stroke-width: 3px; }\n",
+        "fields.css", problems);
+    CHECK(problems.empty());
+    theme::setStyles({theme::builtinSheet(), extra});
+    // sizes: the padding (+8), the clear button (+4), the buttons' column (+4), the arrow's box (+12)
+    CHECK(le->sizeHint().x == leBefore.x + 8 + 4 && le->sizeHint().y == leBefore.y);
+    CHECK(sp->sizeHint().x == spBefore.x + 4 && cb->sizeHint().x == cbBefore.x + 12);
+    le->setGeometry(10, 10, 200, 24);
+    sp->setGeometry(10, 50, 80, 24);
+    cb->setGeometry(10, 90, 150, 24);
+    w.showWindow();
+    App::get().doLayouts();
+    // the editor sits inside the border, short of the wider buttons
+    CHECK(sp->editor()->geometry().x == 1 && sp->editor()->geometry().w == 80 - 2 - 20);
+    w.setFocusWidget(le);
+    le->selectAll();
+    App::get().tick();
+    {
+        const Image& fb = w.framebuffer();
+        CHECK(fb.colorAt(10 + 5, 10 + 12) == Color::fromHex("#102030"));        // the field's own fill
+        CHECK(fb.colorAt(10 + 9, 10 + 12) == Color::fromHex("#ff0000") ||
+              fb.colorAt(10 + 10, 10 + 12) == Color::fromHex("#ff0000"));      // the selection, from the padding
+        CHECK(fb.colorAt(10, 50 + 12) == Color::fromHex("#00ff00"));            // the spin box's own border
+    }
+    // the up button under the mouse: its hover box (over the inside of the border, clipped to the button)
+    moveTo(w, 10 + 80 - 3, 50 + 4);
+    CHECK(sp->hasState("up-hover") && !sp->hasState("down-hover"));
+    App::get().tick();
+    CHECK(w.framebuffer().colorAt(10 + 80 - 19, 50 + 2) == Color::fromHex("#0000ff"));
+    CHECK(w.framebuffer().colorAt(10 + 80 - 19, 50 + 20) != Color::fromHex("#0000ff"));
+    // the spin box's focus is its editor's
+    sp->editor()->setFocus();
+    CHECK(sp->hasState("focus"));
+    App::get().tick();
+    CHECK(w.framebuffer().colorAt(10, 50 + 12) == Color::fromHex("#ffffff"));
+    // the combo's list: open, the highlighted row, the disabled one, the separator
+    cb->showPopup();
+    CHECK(cb->isPopupOpen() && cb->hasState("open"));
+    App::get().tick();
+    CHECK(w.framebuffer().colorAt(10, 90 + 12) == Color::fromHex("#ff00ff"));
+    Window* pop = App::get().popups().back();
+    CHECK(pop->type() == "ComboPopup" && !pop->hasState("selected"));
+    pop->update();
+    App::get().tick();
+    {
+        const Image& fb = pop->framebuffer();
+        Font uf = theme::uiFont();
+        int rowH = (int)std::ceil(uf.ascent() + uf.descent()) + 6;  // (its font's height and the item's 3px 6px)
+        CHECK(fb.colorAt(1 + 4 + 2, 1 + 4 + rowH / 2) == Color::fromHex("#00ffff"));  // "One": the current one
+        CHECK(fb.colorAt(1 + 4 + 2, 1 + 4 + rowH + rowH / 2) != Color::fromHex("#00ffff"));
+        int sepY = 1 + 4 + 2 * rowH + (7 - 3) / 2;                                     // a 3 px line across 7 px
+        CHECK(fb.colorAt(1 + 4 + 4, sepY) == Color::fromHex("#ff8000") && fb.colorAt(1 + 4 + 4, sepY + 2) == Color::fromHex("#ff8000"));
+        CHECK(fb.colorAt(1 + 4 + 3, sepY) != Color::fromHex("#ff8000"));            // (its margin)
+        bool yellow = false;  // "Three" (disabled) is drawn in its colour (anti-aliased: yellow-ish pixels)
+        for (int y = 1 + 4 + 2 * rowH + 7; y < 1 + 4 + 3 * rowH + 7 && !yellow; ++y)
+            for (int x = 1 + 4; x < 60 && !yellow; ++x) {
+                Color c = fb.colorAt(x, y);
+                yellow = c.r > 150 && c.g > 150 && c.b < 90;
+            }
+        CHECK(yellow);
+    }
+    cb->hidePopup();
+    CHECK(!cb->hasState("open"));
+
+    // back to the default: sizes as before
+    theme::setSkin();
+    CHECK(le->sizeHint().x == leBefore.x && sp->sizeHint().x == spBefore.x && cb->sizeHint().x == cbBefore.x);
+    w.hideWindow();
+}
+
 int main() {
     App::get().initHeadless();
     util::makeDirs("build/toolkit-samples");
@@ -1293,6 +1404,7 @@ int main() {
     testLayouts();
     testPaintingColours();
     testStylesheets();
+    testFieldStylesheets();
     testButtonsAndClicks();
     testLineEdit();
     testSpinBox();
