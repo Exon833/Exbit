@@ -953,10 +953,10 @@ public:
         for (int i = 0; i < visRows; ++i) limit += hs[i];
         viewH = std::min(total, std::max(limit, rowH));
         bool needBar = total > viewH;
-        int w = std::max(combo->width(), maxW + itemAround.w() + around0.w() + (needBar ? theme::metric("scrollbar-width", theme::SCROLLBAR_W) : 0) + kSlack);
+        int w = std::max(combo->width(), maxW + itemAround.w() + around0.w() + (needBar ? theme::scrollbarWidth() : 0) + kSlack);
         int h = viewH + around0.h();
         bar->setVisible(needBar);
-        bar->setGeometry(w - around0.right - theme::metric("scrollbar-width", theme::SCROLLBAR_W), around0.top, theme::metric("scrollbar-width", theme::SCROLLBAR_W), viewH);
+        bar->setGeometry(w - around0.right - theme::scrollbarWidth(), around0.top, theme::scrollbarWidth(), viewH);
         bar->setRange(0, std::max(0, total - viewH));
         bar->setPageStep(viewH);
         bar->setSingleStep(rowH);
@@ -1000,7 +1000,7 @@ public:
         for (int k = 0; k < 3; ++k) fonts[k] = style::font(looks[k], theme::uiFont());
         style::Insets sepMargin = style::insets(sep, "margin");
         int sepLine = std::max(0, style::px(sep, "stroke-width", 1));
-        int right = width() - a.right - (bar->isVisible() ? theme::metric("scrollbar-width", theme::SCROLLBAR_W) : 0);
+        int right = width() - a.right - (bar->isVisible() ? theme::scrollbarWidth() : 0);
         Rect view(a.left, a.top, right - a.left, viewH);
         p.save();
         p.setClip(view);

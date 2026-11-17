@@ -43,8 +43,13 @@ std::string g(double v) {  // Python's :g
 
 CpuMonitor::CpuMonitor() {
     setStyleType("CpuMonitor");
-    setFixedSize(theme::metric("panel-width", config::PANEL_W), theme::metric("ruler-height", config::RULER_H));
+    fit();
     showLoad(std::nullopt);
+}
+
+void CpuMonitor::fit() {
+    Point size(theme::metric("panel-width", config::PANEL_W), theme::metric("ruler-height", config::RULER_H));
+    if (minimumSize() != size || maximumSize() != size) setFixedSize(size.x, size.y);
 }
 
 void CpuMonitor::showLoad(std::optional<std::pair<double, double>> load, int late) {

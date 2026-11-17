@@ -92,22 +92,33 @@ class ExplorerDock : public ui::Widget {
 public:
     ExplorerDock(Explorer* explorer, std::function<void()> onClose) {
         auto* col = ui::vbox(this, 0, 0);
-        auto* bar = add<ui::Widget>();
-        bar->setFixedHeight(22);
+        auto* bar = bar_ = add<ui::Widget>();
         auto* row = ui::hbox(bar, 0, 0);
         row->setContentsMargins(6, 0, 2, 0);
         auto* title = bar->add<ui::Label>("Explorer");
         row->addWidget(title, 1);
-        auto* x = bar->add<ui::Button>("✕");
+        auto* x = close_ = bar->add<ui::Button>("✕");
         x->setStyle(ui::Button::Style::Tool);
         x->setProperty("autoRaise", "true");
-        x->setFixedSize(18, 18);
         x->setToolTip("Close the Explorer (View → Explorer, Ctrl+E shows it again)");
         x->clicked.connect(std::move(onClose));
         row->addWidget(x);
         col->addWidget(bar);
         adopt(std::unique_ptr<ui::Widget>(explorer));
         col->addWidget(explorer, 1);
+        fit();
+    }
+    // (also after a skin change: App::repaintAll calls every widget's resized())
+    void resized() override { fit(); }
+
+private:
+    ui::Widget* bar_ = nullptr;
+    ui::Button* close_ = nullptr;
+    // the title bar's and the ✕'s sizes from the skin (--dock-title-height, --dock-close-size)
+    void fit() {
+        int h = theme::metric("dock-title-height", 22), x = theme::metric("dock-close-size", 18);
+        if (bar_->minimumSize().y != h || bar_->maximumSize().y != h) bar_->setFixedHeight(h);
+        if (close_->minimumSize() != Point(x, x) || close_->maximumSize() != Point(x, x)) close_->setFixedSize(x, x);
     }
 };
 
@@ -136,8 +147,8 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     App::get().mainWindow = this;
     skin = skin::find(prefs.skin);  // before anything is built: widgets take its colours
     theme::rounded = prefs.roundedCorners;
+    skinStamp_ = skinFilesStamp();  // (before reading: see showSkin)
     skinProblems = skin::apply(skin);
-    skinStamp_ = skinFilesStamp();
     metronomeSettings = metronome_dialog::loadSettings();
     engine.blocksize = prefs.bufferSize;
     engine.cores = prefs.processingCores;
@@ -160,7 +171,7 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     }
     // the master scope under the Master row (its options kept: options/scope); its height first
     ScopeSettings scopeSettings = ScopeSettings::fromJson(Json::parse(prefs.scope));
-    lanes::setMasterScopeHeight(scopeSettings.shown ? config::SCOPE_H : 0);
+    lanes::setMasterScopeHeight(scopeSettings.shown ? theme::metric("scope-height", config::SCOPE_H) : 0);
     master = std::make_unique<MasterStrip>(engine, [this] { openMasterPlugins(); });
     master->scope->settings = scopeSettings;
     master->setScopeShown(scopeSettings.shown);
@@ -351,12 +362,12 @@ void MainWindow::buildLayout() {
 
     panelScroll->setHorizontalPolicy(ui::ScrollArea::Policy::AlwaysOff);
     panelScroll->setVerticalPolicy(ui::ScrollArea::Policy::AlwaysOff);
-    panelScroll->setFixedWidth(config::PANEL_W);
+    panelScroll->setFixedWidth(lane_panel::panelWidth());
     // the master lane and its row stay at the bottom of the screen, over the tracks scrolling beneath
     std::unique_ptr<ui::Widget> lane = timeline->takeMasterView();
     masterPins.push_back(std::make_unique<PinToBottom>(std::move(lane), scroll->viewport(), lanes::masterHeight()));
     masterPins.push_back(std::make_unique<PinToBottom>(master->releaseFrame(), panelScroll->viewport(),
-                                                       lanes::masterHeight(), theme::metric("scrollbar-width", theme::SCROLLBAR_W)));
+                                                       lanes::masterHeight(), theme::scrollbarWidth()));
     ui::ScrollBar* timelineBar = scroll->verticalScrollBar();
     ui::ScrollBar* panelBar = panelScroll->verticalScrollBar();
     timelineBar->valueChanged.connect([panelBar](int v) { panelBar->setValue(v); });
@@ -377,7 +388,7 @@ void MainWindow::buildLayout() {
     auto* row = ui::hbox(body, 0, 0);
     explorerDock = body->add<ExplorerDock>(explorer, [this] { setExplorerVisible(false); });
     explorerHandle = body->add<ui::SplitterHandle>(ui::Orientation::Horizontal);
-    setExplorerWidth(config::EXPLORER_W);
+    setExplorerWidth(theme::metric("explorer-width", config::EXPLORER_W));
     auto start = std::make_shared<int>(0);
     explorerHandle->pressed.connect([this, start] { *start = explorerWidth; });
     explorerHandle->dragged.connect([this, start](int d) { setExplorerWidth(*start + d); });
@@ -414,7 +425,7 @@ void MainWindow::setExplorerVisible(bool on) {
 }
 
 void MainWindow::setExplorerWidth(int w) {
-    int most = std::max(160, width() - config::PANEL_W - 200);
+    int most = std::max(160, width() - lane_panel::panelWidth() - 200);
     explorerWidth = std::max(120, std::min(most, w));
     explorerDock->setFixedWidth(explorerWidth);
 }
@@ -750,9 +761,11 @@ void MainWindow::chooseSkin(const skin::Skin& s) {
 }
 
 void MainWindow::showSkin(const skin::Skin& s) {
-    // put a skin on the whole program at once
+    // put a skin on the whole program at once. (Its files' stamp is taken before they are read: one saved
+    // in between is then seen as changed and read again, never missed.)
+    std::string stamp = skinFilesStamp();
     skinProblems = skin::apply(s);
-    skinStamp_ = skinFilesStamp();
+    skinStamp_ = stamp;
     restyle();
 }
 
@@ -787,7 +800,13 @@ void MainWindow::checkSkinFile() {
 }
 
 void MainWindow::restyle() {
-    // rebuild or repaint what took its colours from the old skin
+    // rebuild or repaint what took its colours from the old skin, and put the skin's sizes back where they were
+    // set once (the panel's width, the master row's height and margin, the scope's, the Explorer's)
+    lanes::setMasterScopeHeight(master->scope->settings.shown ? theme::metric("scope-height", config::SCOPE_H) : 0);
+    panelScroll->setFixedWidth(lane_panel::panelWidth());
+    for (auto& pin : masterPins) pin->setHeight(lanes::masterHeight());
+    if (masterPins.size() > 1) masterPins[1]->setMargin(theme::scrollbarWidth());
+    setExplorerWidth(explorerWidth);
     panel->rebuild();
     master->restyle();
     overviewCaption->update();
@@ -900,7 +919,7 @@ void MainWindow::chooseVst2Folders() {
 
 void MainWindow::showScope(bool on) {
     // Options → Master scope (and "Hide the scope" in its menu): the Master row and lane that much taller
-    lanes::setMasterScopeHeight(on ? config::SCOPE_H : 0);
+    lanes::setMasterScopeHeight(on ? theme::metric("scope-height", config::SCOPE_H) : 0);
     master->setScopeShown(on);
     for (auto& pin : masterPins) pin->setHeight(lanes::masterHeight());
     if (scopeAction) scopeAction->setChecked(on);

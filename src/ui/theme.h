@@ -60,7 +60,9 @@ const Fonts& fonts();
 // Options → Rounded corners
 extern bool rounded;
 constexpr int RADIUS = 3;       // px, the corners of buttons and fields
-constexpr int SCROLLBAR_W = 10; // px, the thickness of scroll bars
+constexpr int SCROLLBAR_W = 10; // px, the thickness of scroll bars (the default of --scrollbar-width)
+// the thickness of scroll bars: --scrollbar-width
+inline int scrollbarWidth() { return metric("scrollbar-width", SCROLLBAR_W); }
 inline int radius(int px = RADIUS) { return rounded ? px : 0; }
 
 // the shades worked out from the skin: default.css's --hover, --pressed… (color-mix of the colours, so a

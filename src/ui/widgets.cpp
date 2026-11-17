@@ -167,6 +167,12 @@ void PinToBottom::setHeight(int height) {
     place();
 }
 
+void PinToBottom::setMargin(int margin) {
+    margin_ = margin;
+    cover_->setVisible(margin > 0);
+    place();
+}
+
 void PinToBottom::init(int height, int margin) {
     height_ = height;
     margin_ = margin;

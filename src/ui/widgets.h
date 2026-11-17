@@ -79,6 +79,7 @@ public:
     PinToBottom& operator=(const PinToBottom&) = delete;
     void place();
     void setHeight(int height);  // (the master's row: taller while the master scope is shown)
+    void setMargin(int margin);  // (room kept free on the right: a scroll bar's width, after a skin change)
     ui::Widget* widget() const { return widget_; }
     ui::Widget* cover() const { return cover_; }
 

@@ -391,7 +391,7 @@ int FileView::rowOf(const Item* item) const {
     return -1;
 }
 
-int FileView::viewWidth() const { return width() - (bar_->isVisible() ? theme::SCROLLBAR_W : 0); }
+int FileView::viewWidth() const { return width() - (bar_->isVisible() ? theme::scrollbarWidth() : 0); }
 
 FileView::Item* FileView::itemAt(Point p) const {
     if (p.x < 0 || p.x >= viewWidth() || p.y < top() || p.y >= height()) return nullptr;
@@ -403,7 +403,7 @@ void FileView::syncBar() {
     int total = (int)rows_.size() * rowHeight, vh = height() - top();
     bool need = total > vh && vh > 0;
     bar_->setVisible(need);
-    bar_->setGeometry(width() - theme::SCROLLBAR_W, top(), theme::SCROLLBAR_W, std::max(0, vh));
+    bar_->setGeometry(width() - theme::scrollbarWidth(), top(), theme::scrollbarWidth(), std::max(0, vh));
     bar_->setPageStep(std::max(1, vh));
     bar_->setSingleStep(rowHeight);
     bar_->setRange(0, std::max(0, total - vh));

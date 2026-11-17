@@ -31,12 +31,15 @@ public:
     std::optional<std::pair<double, double>> load() const { return load_; }
     int late() const { return late_; }
     void paint(Painter& p) override;
+    // (also after a skin change, App::repaintAll: the panel's width and the ruler's height may be others)
+    void resized() override { fit(); }
 
 private:
     std::optional<std::pair<double, double>> load_;
     int late_ = 0;
     std::vector<std::pair<std::string, double>> tracks_;
     void tip();
+    void fit();  // as wide as the panel, as tall as the ruler (--panel-width, --ruler-height)
     // what it is drawn with (kept: it repaints several times a second)
     struct Look {
         const css::Style* self = nullptr;  // (its own style: background and border)

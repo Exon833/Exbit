@@ -622,6 +622,9 @@ TrackRow::group-bar { background-color: var(--group-accent); width: 5px; }
 :root {
     --meter-gap: 1px;              /* between a meter's bars */
     --scope-height: 78px;          /* the master scope (with the gap above it) */
+    --explorer-width: 250px;       /* the Explorer's width at the start (it can be dragged) */
+    --dock-title-height: 22px;     /* the Explorer's title bar */
+    --dock-close-size: 18px;       /* its ✕ button */
     --transport-button-size: 28px; /* the playback buttons (square) */
     --transport-icon-size: 14px;   /* their icons */
     --transport-time-width: 200px; /* the time display's room (less when the bar is short of room) */

@@ -224,7 +224,7 @@ ui::Window* LanePanel::dialogParent() const {
 }
 
 Point LanePanel::sizeHint() const {
-    return Point(lane_panel::panelWidth(), lanes::layout(project).back().bottom() + theme::SCROLLBAR_W);
+    return Point(lane_panel::panelWidth(), lanes::layout(project).back().bottom() + theme::scrollbarWidth());
 }
 
 void LanePanel::setChannels(int channels_) {
@@ -821,7 +821,7 @@ void LanePanel::updateHeights() {
 void LanePanel::fitHeight() {
     // All lanes + master, plus room matching the timeline's horizontal scrollbar, so both scroll
     // areas have the same range (the timeline's ruler is matched by the CPU monitor).
-    int h = lanes::layout(project).back().bottom() + theme::SCROLLBAR_W;
+    int h = lanes::layout(project).back().bottom() + theme::scrollbarWidth();
     setFixedHeight(h);
     if (height() != h) resize(width() > 0 ? width() : lane_panel::panelWidth(), h);
 }
