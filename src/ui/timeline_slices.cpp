@@ -53,8 +53,8 @@ TrackPtr Timeline::makeSlicedKit(const ClipPtr& clip, const std::vector<int64_t>
     made->notes = std::make_shared<const std::vector<Note>>(sliced.notes);
     made->lengthS = sliced.lengthS;
     made->length = frames;  // (exactly as long as the audio clip: what it played, where it played it)
-    // the loop now plays from the kit: the audio clip switched off (kept, drawn as an outline: right-click → Enable
-    // it on again; undo brings it back with the rest)
+    // the loop now plays from the kit: the audio clip switched off (kept, drawn as an outline: right-click →
+    // Enable clips brings it back; so does undo, with the rest)
     clip->disabled = true;
     placeClip(made, clip->start, track);  // (prepared on its track: through the kit)
     tracksChanged.emit();                 // (its row shows its instrument now)
