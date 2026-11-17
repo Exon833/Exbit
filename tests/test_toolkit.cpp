@@ -1394,6 +1394,8 @@ static void testFieldStylesheets() {
     theme::setSkin();
     CHECK(le->sizeHint().x == leBefore.x && sp->sizeHint().x == spBefore.x && cb->sizeHint().x == cbBefore.x);
     w.hideWindow();
+}
+
 // the basic controls (Label, CheckBox, GroupBox, Separator, SplitterHandle, StatusBar, TabWidget, ButtonBox), windows
 // and tooltips take their sizes and colours from the stylesheets: default.css's are today's, a sheet over it changes them
 static void testBasicControlStyles() {
