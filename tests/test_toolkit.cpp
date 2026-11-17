@@ -1517,6 +1517,102 @@ static void testRestyleRelayout() {
     w.hideWindow();
 }
 
+// lists, scroll bars, sliders, menus and the menu bar take their sizes and colours (and their parts', in the
+// parts' own states) from the stylesheets
+static void testListAndMenuStylesheets() {
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(320, 200);
+    auto* list = w.add<ListWidget>();
+    for (const char* t : {"one", "two", "three", "four"}) list->addItem(t);
+    list->setAlternatingColors(true);
+    list->setGeometry(0, 0, 120, 150);
+    list->setCurrentRow(1);
+    auto* bar = w.add<ScrollBar>(Orientation::Vertical);
+    bar->setRange(0, 100);
+    bar->setPageStep(50);
+    auto* slider = w.add<Slider>();
+    slider->setRange(0, 100);
+    slider->setValue(50);
+    auto* mb = w.add<MenuBar>();
+    mb->addMenu("File");
+    // the defaults: default.css's
+    CHECK(list->type() == "ListWidget" && bar->hasState("vertical") && slider->hasState("horizontal"));
+    CHECK(bar->sizeHint().x == 10 && slider->sizeHint() == Point(84, 16) && list->sizeHint() == Point(256, 192));
+    Point barBefore = mb->sizeHint();
+    w.showWindow();
+    App::get().tick();
+    CHECK(list->rowHeight == 22);
+    CHECK(w.framebuffer().colorAt(60, 33) == theme::c("highlight"));       // row 1: selected
+    CHECK(w.framebuffer().colorAt(60, 77) == theme::c("alternate_base"));  // row 3: every other
+
+    std::vector<css::Problem> problems;
+    css::SheetPtr extra = css::parse(
+        ":root { --scrollbar-width: 14px; }\n"
+        "ListWidget::item { height: 30px; }\n"
+        "ListWidget::item:alternate { background-color: #0000ff; }\n"
+        "ListWidget::item:hover { background-color: #00ffff; }\n"
+        "ListWidget::item:selected { background-color: #ff0000; }\n"
+        "ScrollBar::thumb { background-color: #00ff00; margin: 0; border-radius: 0; }\n"
+        "ScrollBar::thumb:hover { background-color: #008000; }\n"
+        "Slider { height: 24px; }\n"
+        "Slider::handle { width: 16px; height: 16px; background-color: #ffff00; border-radius: 0; }\n"
+        "MenuBar::item { padding: 10px 8px; }\n"
+        "Menu { border-width: 0; }\n"
+        "Menu::item { padding: 8px 24px; }\n"
+        "Menu::item:hover { background-color: #ff00ff; }\n",
+        "lists.css", problems);
+    CHECK(problems.empty());
+    theme::setStyles({theme::builtinSheet(), extra});
+    App::get().repaintAll();  // (as a skin change does)
+    // sizes
+    CHECK(bar->sizeHint().x == 14 && slider->sizeHint() == Point(84, 24));
+    CHECK(mb->sizeHint().y == barBefore.y + 12);
+    bar->setGeometry(200, 0, 14, 100);
+    slider->setGeometry(220, 120, 60, 24);
+    mb->setGeometry(0, 160, 100, mb->sizeHint().y);
+    App::get().tick();  // (the list reads its rows' height again when painted)
+    CHECK(list->rowHeight == 30);
+    const Image& fb = w.framebuffer();
+    CHECK(fb.colorAt(60, 45) == Color(255, 0, 0));   // row 1 (30..60): selected (and every other: selected wins)
+    CHECK(fb.colorAt(60, 105) == Color(0, 0, 255));  // row 3 (90..120): every other
+    CHECK(fb.colorAt(60, 75) == theme::c("base"));   // row 2: plain
+    CHECK(fb.colorAt(203, 10) == Color(0, 255, 0));  // the thumb: no margin, green
+    CHECK(fb.colorAt(220 + 30, 120 + 12) == Color(255, 255, 0));  // the handle, 16 x 16 in the middle
+    CHECK(fb.colorAt(220 + 30 - 7, 120 + 5) == Color(255, 255, 0) && fb.colorAt(220 + 30 - 9, 120 + 5) != Color(255, 255, 0));
+    // the parts' own :hover: the row and the thumb under the mouse (not the whole list, or bar)
+    w.onEvent(nullptr, mouseEv(plat::Event::MouseMove, 60, 75, 0, 0));
+    App::get().tick();
+    CHECK(fb.colorAt(60, 75) == Color(0, 255, 255) && fb.colorAt(60, 105) == Color(0, 0, 255));
+    w.onEvent(nullptr, mouseEv(plat::Event::MouseMove, 205, 10, 0, 0));
+    App::get().tick();
+    CHECK(fb.colorAt(203, 10) == Color(0, 128, 0));
+    w.onEvent(nullptr, mouseEv(plat::Event::MouseMove, 205, 90, 0, 0));  // (on the bar, below the thumb)
+    App::get().tick();
+    CHECK(fb.colorAt(203, 10) == Color(0, 255, 0));
+    // a menu: its items 8 px above and below, no edge; the item under the mouse magenta
+    Menu menu;
+    menu.addAction("First");
+    menu.addAction("Second");
+    menu.popup(Point(100, 100), &w);
+    CHECK(menu.isOpen() && !App::get().popups().empty());
+    Window* mp = App::get().popups().back();
+    int lineH = (barBefore.y - 8);  // (the font's line: the bar was it and 4 px above and below)
+    CHECK(mp->height() == 4 + 2 * (lineH + 16) + 4);
+    mp->onEvent(nullptr, mouseEv(plat::Event::MouseMove, 40, 4 + lineH + 16 + 5, 0, 0));
+    App::get().tick();
+    CHECK(mp->framebuffer().colorAt(40, 4 + lineH + 16 + 5) == Color(255, 0, 255));
+    CHECK(mp->framebuffer().colorAt(40, 4 + 5) == theme::c("base"));
+    CHECK(mp->framebuffer().colorAt(0, 0) == theme::c("base"));  // (no edge)
+    menu.close();
+    // back to the default skin: default.css's sizes again
+    theme::setSkin();
+    App::get().repaintAll();
+    App::get().tick();
+    CHECK(list->rowHeight == 22 && bar->sizeHint().x == 10 && slider->sizeHint() == Point(84, 16));
+    CHECK(mb->sizeHint() == barBefore);
+    w.hideWindow();
+}
+
 int main() {
     App::get().initHeadless();
     util::makeDirs("build/toolkit-samples");
@@ -1528,6 +1624,7 @@ int main() {
     testFieldStylesheets();
     testBasicControlStyles();
     testRestyleRelayout();
+    testListAndMenuStylesheets();
     testButtonsAndClicks();
     testLineEdit();
     testSpinBox();

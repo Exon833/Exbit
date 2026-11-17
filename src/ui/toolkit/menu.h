@@ -85,7 +85,8 @@ private:
     friend class MenuPopup;
 };
 
-// the menu bar across the top of the main window
+// the menu bar across the top of the main window. Styles: MenuBar (its box), MenuBar::item (each title's box:
+// :hover, :open while its menu is open, :disabled)
 class MenuBar : public Widget {
 public:
     explicit MenuBar(Widget* parent = nullptr);
@@ -103,6 +104,9 @@ private:
     std::vector<std::unique_ptr<Menu>> menus_;
     int hover_ = -1, open_ = -1;
     Rect itemRect(int i) const;
+    std::vector<Rect> itemRects() const;                // every title's (each as wide as its style makes it)
+    int itemAt(Point p) const;
+    void itemStates(int i, std::vector<const char*>& out) const;
     void openMenu(int i);
 };
 
