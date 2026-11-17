@@ -115,6 +115,7 @@ void TrackRenderer::bounce(const TrackPtr& track, bool inPlace) {
         track->usesRack = false;
         track->rack = std::vector<SlotPtr>{};
         track->sampler = nullptr;
+        track->padKit = nullptr;
         std::vector<ClipPtr> audioTakes;  // (a MIDI track's MIDI takes can't be used now)
         for (auto& t : track->takes)
             if (t->kind == Kind::Audio) audioTakes.push_back(t);

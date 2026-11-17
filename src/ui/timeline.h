@@ -36,6 +36,11 @@
 // (links::notesChanged). A linked clip shows a chain mark at the right of its name strip; the tooltip
 // there says how many clips share its notes. Splitting a linked clip (S) makes its pieces unique, and so
 // does joining (Ctrl+J: a new clip); Ctrl-drag, Ctrl+D and paste make independent copies.
+// Right-click an audio clip → Slice to a Pad Kit… finds the hits in its sound (the slice window,
+// pad_kit_dialog.h, with a sensitivity slider; lines on the clip show where the slices start while it is
+// open: slicePreview) and, on Slice, makes a new MIDI track under the clip's with a Pad Kit holding a slice
+// per pad and a MIDI clip playing them where the clip had them (makeSlicedKit; audio/padkit.h SLICING). The
+// audio clip stays as it was (mute or delete it to hear only the kit).
 // Double-click a MIDI clip to edit its notes (editNotes → the MIDI editor); double-click empty space
 // on a MIDI track (or right-click → New MIDI clip) to make a new, empty MIDI clip there.
 // Clips are renamed with Ctrl+R, the right-click menu, or a double-click on their name strip.
@@ -111,6 +116,7 @@
 #include "ui/toolkit/widget.h"
 
 class MasterLaneView;
+namespace pad_kit_dialog { class SliceDialog; }
 
 namespace timeline {
 constexpr int GROUP_PAD = 6;           // px above and below the miniature clips in a group's header lane
@@ -264,7 +270,7 @@ public:
     static std::vector<Rect> strips(std::vector<Rect> region);
 
     // --- tracks ---
-    TrackPtr addTrack(Kind kind = Kind::Audio, GroupPtr group = nullptr);
+    TrackPtr addTrack(Kind kind = Kind::Audio, GroupPtr group = nullptr, TrackPtr after = nullptr);
     void tracksRegrouped();     // after groups changed or a track was frozen: forget hidden/locked selections
     GroupPtr groupTracks(const std::vector<TrackPtr>& tracks);
     void groupSelected();       // Ctrl+G
@@ -314,6 +320,18 @@ public:
     // the project's clips that aren't in `before` (pieces an explicit split made) leave their links
     void splitPiecesUnique(const std::vector<ClipPtr>& before);
     void crossfadeSelected();   // Crossfade…: two selected audio clips that meet overlap, one fading into the other
+    // --- slicing an audio clip into a Pad Kit (timeline_slices.cpp) ---
+    struct SlicePreview {
+        ClipPtr clip;
+        std::vector<int64_t> frames;  // where the slices would start: frames into the clip's window
+    };
+    std::optional<SlicePreview> slicePreview;  // drawn on the clip while the slice window is open
+    pad_kit_dialog::SliceDialog* sliceWindow = nullptr;  // the slice window, while it is open
+    // Slice to a Pad Kit…: the slice window for an audio clip (it returns at once; the track is made on Slice)
+    pad_kit_dialog::SliceDialog* sliceToPadKit(const ClipPtr& clip);
+    // a new MIDI track under the clip's: a Pad Kit with the clip's sound cut at `starts` (frames into its window)
+    // and a MIDI clip replaying the slices at the clip's place; null if the clip has no sound
+    TrackPtr makeSlicedKit(const ClipPtr& clip, const std::vector<int64_t>& starts);
     // clips looping or not: a MIDI clip's notes repeat (each pass as long as the clip is now); an audio
     // clip's window as it is now becomes its loop, repeated when it is made longer (model's looped())
     void setLoopNotes(const std::vector<ClipPtr>& clips, bool on);
@@ -419,6 +437,7 @@ private:
     ui::ScrollBar* hbar_ = nullptr;
     int hscrollId_ = 0;
     std::shared_ptr<void> guard_;  // (the viewport's resize filter checks the timeline still exists)
+    std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);  // (false once gone: the slice window's handlers)
     bool masterAlive() const;
     void paintLanes(Painter& p, const Rect& r, const std::vector<Lane>& lanes);
     void paintAutomation(Painter& p, const Rect& r, const Lane& lane, bool background = true);

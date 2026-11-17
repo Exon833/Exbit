@@ -45,12 +45,13 @@ AudioPtr render(const SamplerSettings& s, const std::vector<Note>& notes, int sr
 // frames after which a looping sample's note repeats (its loop at the note's pitch); < 0: none
 double loopPeriod(const SamplerSettings& s, int pitch, int sr);
 
-// A MIDI clip's audio: through its track's sampler (Track::playsSampler), or the built-in synth.
+// A MIDI clip's audio: through its track's Pad Kit (Track::playsPadKit: audio/padkit.h) or sampler
+// (Track::playsSampler), or the built-in synth.
 AudioPtr renderNotes(const Track& track, const std::vector<Note>& notes, int sr, double lengthS);
-// how a live note on the track is rendered: its sampler's, or (empty) the built-in synth
+// how a live note on the track is rendered: its Pad Kit's or sampler's, or (empty) the built-in synth
 live::NoteRender noteRenderer(const Track& track);
 
-// set clip_hooks::renderSampler (once, at start-up; Engine's constructor does it)
+// set clip_hooks::renderSampler (once, at start-up; Engine's constructor does it): the Pad Kit or sampler
 void install();
 
 }  // namespace sampler

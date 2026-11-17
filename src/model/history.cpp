@@ -14,7 +14,7 @@ namespace history {
 //   a looping audio clip: data, peaks, baseFrames (built again from its other fields)
 #define TRACK_FIELDS(X)                                                                                         \
     X(name) X(kind) X(muted) X(soloed) X(output) X(volumeDb) X(delayMs) X(pan) X(sends) X(instrument)          \
-    X(midiEffects) X(sampler) X(needsInstrument) X(effects) X(cables) X(modCables) X(color) X(tone) X(group) X(frozen)       \
+    X(midiEffects) X(sampler) X(padKit) X(needsInstrument) X(effects) X(cables) X(modCables) X(color) X(tone) X(group) X(frozen)       \
     X(automation) X(takes) X(usesRack) X(rack) X(rackCables)
 #define GROUP_FIELDS(X) X(name) X(muted) X(soloed) X(color) X(tone)
 #define CLIP_FIELDS(X)                                                                                          \
@@ -50,6 +50,7 @@ namespace {
 template <class T>
 bool same(const T& a, const T& b) { return a == b; }
 bool same(const SamplerPtr& a, const SamplerPtr& b) { return a == b || (a && b && *a == *b); }
+bool same(const PadKitPtr& a, const PadKitPtr& b) { return a == b || (a && b && *a == *b); }
 
 // written back: what the audio thread reads through a shared pointer is replaced atomically
 template <class T>
@@ -221,7 +222,8 @@ const char* trackChange(const TrackData& d, const Track& o) {
     if (!same(d.automation, o.automation)) return "Automation";
     if (!same(d.frozen, o.frozen)) return "Freeze";
     if (!same(d.instrument, o.instrument) || !same(d.rack, o.rack) || !same(d.rackCables, o.rackCables) ||
-        !same(d.usesRack, o.usesRack) || !same(d.sampler, o.sampler) || !same(d.needsInstrument, o.needsInstrument))
+        !same(d.usesRack, o.usesRack) || !same(d.sampler, o.sampler) || !same(d.padKit, o.padKit) ||
+        !same(d.needsInstrument, o.needsInstrument))
         return "Instrument";
     if (!same(d.midiEffects, o.midiEffects)) return "MIDI effects";
     if (!same(d.color, o.color) || !same(d.tone, o.tone)) return "Track colour";

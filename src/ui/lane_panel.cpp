@@ -306,7 +306,8 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, Col
         row->addWidget(widgets::instrumentButton(
             frame, track->instrument, [edit, track] { if (edit) edit(track); },
             [fill, track](ui::Menu& m) { if (fill) fill(m, track); }, track->usesRack ? (int)track->rack.size() : -1,
-            !track->instrument && !track->usesRack ? track->sampler : nullptr));
+            !track->instrument && !track->usesRack ? track->sampler : nullptr,
+            !track->instrument && !track->usesRack ? track->padKit : nullptr));
     }
     auto open = openPlugins;
     row->addWidget(widgets::fxButton(frame, *track->effects, [open, track] { if (open) open(track); }));

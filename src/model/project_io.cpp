@@ -278,6 +278,39 @@ Json describeSampler(const SamplerSettings& s, const AudioFileFn& audioFile) {
     });
 }
 
+// a Pad Kit: its pads that hold a sample or aren't as a new kit has them, each with its place ("pad", from 0),
+// key, choke group and the sampler's settings (describeSampler's keys)
+Json describePadKit(const PadKit& kit, const AudioFileFn& audioFile) {
+    Json pads = Json::array();
+    PadKit plain;
+    for (size_t i = 0; i < kit.pads.size(); i++) {
+        const Pad& pad = kit.pads[i];
+        if (pad.empty() && i < plain.pads.size() && pad == plain.pads[i]) continue;
+        Json entry = describeSampler(pad.sound, audioFile);
+        entry.set("pad", Json((int)i));
+        entry.set("note", Json(pad.note));
+        entry.set("choke", Json(pad.choke));
+        pads.push(std::move(entry));
+    }
+    return Json::object({{"pads", pads}});
+}
+
+// the sampler's settings (not its sample) from describeSampler's keys
+void readSound(const Json& j, SamplerSettings& s) {
+    s.root = j.integer("root", s.root);
+    s.transpose = j.num("transpose", s.transpose);
+    s.gainDb = j.num("gain_db", s.gainDb);
+    s.velocity = j.num("velocity", s.velocity);
+    s.attack = j.num("attack", s.attack);
+    s.decay = j.num("decay", s.decay);
+    s.sustain = j.num("sustain", s.sustain);
+    s.release = j.num("release", s.release);
+    s.oneShot = j.flag("one_shot", s.oneShot);
+    s.loop = j.flag("loop", s.loop);
+    s.start = j.num("start", s.start);
+    s.end = j.num("end", s.end);
+}
+
 Json describeTake(const Clip& take, int sr, const AudioFileFn& audioFile) {
     Json entry = Json::object({{"kind", Json(kindName(take.kind))},
                                {"name", Json(take.name)},
@@ -400,6 +433,7 @@ Json describeTrack(const Track& track, const std::vector<GroupPtr>& groups, int 
     // pre-fader sends: a key of their own (older versions read `sends` as they always did: after the fader)
     if (preFader.size()) entry.set("pre_fader_sends", preFader);
     if (!track.modCables.empty()) entry.set("modulation", describeModulation(track));  // (only then: older files unchanged)
+    if (track.padKit) entry.set("pad_kit", describePadKit(*track.padKit, audioFile));  // (likewise)
     return entry;
 }
 
@@ -818,6 +852,10 @@ std::vector<ClipPtr> audioHolders(const Project& project) {
     for (auto& t : project.tracks)
         if (t->sampler && t->sampler->sample && t->sampler->sample->source) out.push_back(t->sampler->sample);
     for (auto& t : project.tracks)
+        if (t->padKit)
+            for (auto& pad : t->padKit->pads)
+                if (!pad.empty()) out.push_back(pad.sound.sample);
+    for (auto& t : project.tracks)
         for (auto& take : t->takes)
             if (take->kind != Kind::Midi && take->source) out.push_back(take);
     return out;
@@ -1087,20 +1125,26 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
                 if (util::fileExists(file)) {  // (its sample missing: the built-in synth plays)
                     auto s = std::make_shared<SamplerSettings>();
                     s->sample = audioClip(file, sampler.str("name", util::baseName(file)));
-                    s->root = sampler.integer("root", s->root);
-                    s->transpose = sampler.num("transpose", s->transpose);
-                    s->gainDb = sampler.num("gain_db", s->gainDb);
-                    s->velocity = sampler.num("velocity", s->velocity);
-                    s->attack = sampler.num("attack", s->attack);
-                    s->decay = sampler.num("decay", s->decay);
-                    s->sustain = sampler.num("sustain", s->sustain);
-                    s->release = sampler.num("release", s->release);
-                    s->oneShot = sampler.flag("one_shot", s->oneShot);
-                    s->loop = sampler.flag("loop", s->loop);
-                    s->start = sampler.num("start", s->start);
-                    s->end = sampler.num("end", s->end);
+                    readSound(sampler, *s);
                     track.sampler = s;
                 }
+            }
+            const Json& kitEntry = entry["pad_kit"];
+            if (kitEntry.isObject()) {
+                auto kit = std::make_shared<PadKit>();
+                for (const Json& p : kitEntry["pads"].items()) {
+                    int i = p.isObject() ? p.integer("pad", -1) : -1;
+                    if (i < 0 || i >= (int)kit->pads.size()) continue;
+                    Pad& pad = kit->pads[(size_t)i];
+                    pad.note = std::min(127, std::max(0, p.integer("note", pad.note)));
+                    pad.choke = std::min(PadKit::CHOKE_GROUPS, std::max(0, p.integer("choke", 0)));
+                    readSound(p, pad.sound);
+                    std::string name = p.str("file", "");
+                    std::string file = name.empty() ? std::string() : fileIn(name);
+                    if (!file.empty() && util::fileExists(file))  // (its sample missing: an empty pad)
+                        pad.sound.sample = audioClip(file, p.str("name", util::baseName(file)));
+                }
+                track.padKit = kit;
             }
             track.midiEffects = readMidiEffects(entry["midi_effects"]);
             std::vector<ClipPtr> takes;

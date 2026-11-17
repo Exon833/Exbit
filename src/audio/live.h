@@ -11,6 +11,10 @@
 // sample to its end instead, and a one-shot sampler note plays to its end whether the key is let go or
 // not. A finished note's audio is handed back to the GUI thread to be freed (collect(), also done by
 // noteOn/noteOff).
+//
+// A Pad Kit (audio/padkit.h) renders each key its own way (NoteRender::perKey: one-shot or held per pad)
+// and its pads' choke groups: a note of a pad in a choke group cuts off (fading out over CHOKE_S) the
+// notes of its group already sounding, as the kit's clips are rendered.
 #pragma once
 #include <atomic>
 #include <cstdint>
@@ -28,6 +32,7 @@ constexpr double HOLD_S = 4.0;       // a built-in note held down is rendered th
 constexpr double LOOP_S = 1.0;       // (about: a whole number of its wave's periods, when known)
 constexpr double LOOP_FADE_S = 0.05; // the loop's end crossfades into what comes before its start: no click
 constexpr double WHOLE_S = 600.0;    // a non-looping sample held down plays to its end (at most this long)
+constexpr double CHOKE_S = 0.005;    // a note cut off by its choke group fades out over this (clips: the same)
 
 using NoteAudio = std::shared_ptr<const std::vector<float>>;  // interleaved, 1 (synth) or 2 (sampler) channels
 
@@ -39,6 +44,10 @@ struct NoteRender {
     bool oneShot = false;   // plays to its end, letting go of the key or not
     bool sustains = true;   // a held note loops (else: it plays to its end, at most WHOLE_S)
     std::function<double(int, int)> period;  // (pitch, sr) -> frames its sound repeats after (< 0: none); null: the synth's
+    int choke = 0;          // its choke group (a Pad Kit's pad): it cuts off the group's notes sounding; 0: none
+    // per key (a Pad Kit: each key its own pad): sets `out` to how that pitch is rendered (its own perKey
+    // left empty); empty: every key as this says
+    std::function<void(int pitch, NoteRender& out)> perKey;
 };
 
 // (audio, loop start or -1) of a held note: `audio` up to `hold` frames (its release left out: the voice
@@ -59,6 +68,8 @@ struct LiveVoice {
     int64_t pos = 0;
     int64_t releasedAt = -1;  // position where it was let go: it fades out from there (-1: held)
     int64_t loopStart = -1;   // a held note: from its end it goes on from here, until let go
+    int choke = 0;            // its choke group (NoteRender::choke); 0: none
+    int fade = 0;             // frames it fades out over once let go (cut off by its choke group); 0: the usual
     int64_t length() const { return data ? (int64_t)data->size() / std::max(1, channels) : 0; }
     // add the next n frames into `channels` planar channels; false once it has finished
     bool addTo(float* const signal[2], int signalChannels, int n, int fade);
@@ -97,6 +108,7 @@ private:
         int channels = 1;
         int64_t loopStart = -1;
         int64_t length = -1;  // frames; -1 = until noteOff
+        int choke = 0;        // NoteRender::choke
     };
     plugin_audio::MidiMsg release(int pitch, int64_t atFrame);
     void retire(NoteAudio&& audio);  // hand back to the GUI thread

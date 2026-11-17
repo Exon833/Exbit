@@ -68,6 +68,21 @@ void Timeline::paintArea(Painter& p, const Rect& r) {
                                     linked != linkCounts.end() ? linked->second : 0);
         }
     }
+    if (slicePreview && project.clips.contains(slicePreview->clip)) {  // (the slice window: where slices start)
+        const Clip& clip = *slicePreview->clip;
+        auto rect = clipRect(clip, tops);
+        if (rect) {
+            Color line = c("selected_note");
+            int top = (int)rect->y + config::CLIP_HANDLE_H, bottom = (int)rect->bottom();
+            for (int64_t f : slicePreview->frames) {
+                int x = (int)std::lround(xOf(clip.start + f));
+                if (x >= r.left() - 1 && x <= r.right() && x >= rect->x && x < rect->right()) {
+                    p.drawVLine(x, top, bottom, line);
+                    p.fillRect(Rect(x - 2, top, 5, 3), line);
+                }
+            }
+        }
+    }
     if (selection.range) {
         std::vector<std::pair<int, int>> spans;
         for (auto& t : selection.range->tracks) {

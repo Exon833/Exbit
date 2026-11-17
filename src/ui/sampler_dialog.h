@@ -44,6 +44,25 @@ ClipPtr chooseSample(ui::Window* parent, const std::string& startDir = "");
 // settings for a sample just chosen: its root from its file name (a key in it, like "C3", else C4)
 SamplerPtr newSettings(const ClipPtr& sample);
 
+// The sampler's settings as controls in a form (its window's, and a Pad Kit pad's: pad_kit_dialog.h): its
+// root key (unless left out), tuning, level, velocity, envelope, classic or one-shot, looping, start and end.
+// show() puts settings in them without it counting as a change; read() writes what they show into settings
+// (the sample and anything they don't show kept); changed is emitted on each change made in them.
+struct SoundControls {
+    ui::SpinBox *root = nullptr, *transpose = nullptr, *gain = nullptr, *velocity = nullptr, *attack = nullptr,
+                *decay = nullptr, *sustain = nullptr, *release = nullptr, *start = nullptr, *end = nullptr;
+    ui::ComboBox* mode = nullptr;
+    ui::CheckBox* loop = nullptr;
+    // the controls made as children of `owner`, each a row of `form`; transposeLabel: its row's name
+    void build(ui::Widget* owner, ui::FormLayout* form, bool withRoot, const std::string& transposeLabel = "Transpose");
+    void show(const SamplerSettings& s);
+    void read(SamplerSettings& s) const;
+    void connect(std::function<void()> changed);  // called on each change made in them
+    // a number box as the sampler's window has them (changed once a value is typed in, not on every key)
+    static ui::SpinBox* number(ui::Widget* owner, double low, double high, int decimals, const std::string& suffix,
+                               const std::string& tip = "");
+};
+
 // the sample's waveform, the parts before its start and after its end shaded (they don't play)
 class SamplerWaveform : public SampleWaveform {
 public:
@@ -68,14 +87,14 @@ public:
 
     ui::Label* sampleName;
     SamplerWaveform* waveform;
-    ui::SpinBox *root, *transpose, *gain, *velocity, *attack, *decay, *sustain, *release, *start, *end;
+    SoundControls controls;
+    ui::SpinBox *root, *transpose, *gain, *velocity, *attack, *decay, *sustain, *release, *start, *end;  // (controls')
     ui::ComboBox* mode;
     ui::CheckBox* loop;
 
 private:
     int renderTimer_ = -1;
     bool reloading_ = false;
-    ui::SpinBox* number(double low, double high, int decimals, const std::string& suffix, const std::string& tip = "");
 };
 
 // the track's sampler window (one per track), brought forward if it is open

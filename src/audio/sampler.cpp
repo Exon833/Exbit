@@ -6,6 +6,7 @@
 #include <mutex>
 #include <tuple>
 
+#include "audio/padkit.h"
 #include "audio/synth.h"
 
 namespace sampler {
@@ -275,6 +276,8 @@ double loopPeriod(const SamplerSettings& s, int pitch, int sr) {
 }
 
 AudioPtr renderNotes(const Track& track, const std::vector<Note>& notes, int sr, double lengthS) {
+    PadKitPtr kit = std::atomic_load(&track.padKit);
+    if (kit && track.playsPadKit()) return padkit::render(*kit, notes, sr, lengthS);
     SamplerPtr s = std::atomic_load(&track.sampler);
     if (s && track.playsSampler()) return render(*s, notes, sr, lengthS);
     return synth::render(notes, sr, lengthS);
@@ -282,6 +285,8 @@ AudioPtr renderNotes(const Track& track, const std::vector<Note>& notes, int sr,
 
 live::NoteRender noteRenderer(const Track& track) {
     live::NoteRender r;
+    PadKitPtr kit = std::atomic_load(&track.padKit);
+    if (kit && track.playsPadKit()) return padkit::noteRenderer(kit);  // (each key its pad)
     SamplerPtr s = std::atomic_load(&track.sampler);
     if (!s || !track.playsSampler()) return r;  // (the built-in synth)
     r.render = [s](int pitch, int velocity, double durationS, int sr) {
@@ -296,6 +301,8 @@ live::NoteRender noteRenderer(const Track& track) {
 
 void install() {
     clip_hooks::renderSampler = [](const Track& track, const std::vector<Note>& notes, int sr, double lengthS) {
+        PadKitPtr kit = std::atomic_load(&track.padKit);
+        if (kit && track.playsPadKit()) return padkit::render(*kit, notes, sr, lengthS);
         SamplerPtr s = std::atomic_load(&track.sampler);
         return s ? render(*s, notes, sr, lengthS) : synth::render(notes, sr, lengthS);
     };

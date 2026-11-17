@@ -28,7 +28,10 @@
 // file can also be named by its absolute path (recovery files do that for audio already saved somewhere).
 //
 // A MIDI track's built-in sampler keeps its sample in the audio folder too (as clips do), its settings
-// under the track's "sampler"; recorded takes are under the track's "takes" (audio in the folder).
+// under the track's "sampler"; recorded takes are under the track's "takes" (audio in the folder). A
+// Pad Kit (model.h PAD KIT) is under the track's "pad_kit": {"pads": [...]}, only the pads holding a sample
+// or changed (each: "pad" its place from 0, "note", "choke", and the sampler's keys with its "file" in the
+// audio folder); a track without one has no such key, so older projects are saved and opened as before.
 //
 // Linked MIDI clips (model.h) each keep their notes as any MIDI clip does, plus a "link" number shared by
 // the clips linked together (1, 2… in the order they first appear); on loading, the clips with the same

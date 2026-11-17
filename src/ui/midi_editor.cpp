@@ -1015,6 +1015,11 @@ std::shared_ptr<live::LiveNotes> MidiEditor::live() const { return engine.liveNo
 
 bool MidiEditor::builtin() const { return !clip->track || !plugin_audio::playsPlugins(*clip->track); }
 
+std::string MidiEditor::keyLabel(int pitch) const {
+    TrackPtr t = std::atomic_load(&clip->track);
+    return t ? t->keyLabel(pitch) : std::string();
+}
+
 void MidiEditor::soundBriefly(int pitch, int velocity, double seconds) {
     midi_input::playLive(engine, clip->track, pitch, velocity, seconds);
 }
@@ -1476,15 +1481,17 @@ void PianoRoll::paintKeys(Painter& p, int h) {
     ed.visibleRows(h, first, last);
     for (int i = first; i < last; ++i) {
         int pitch = rows[i], y = i * ed.rowH - ed.vbar->value();
-        if (isBlackKey(pitch))  // (folded, narrower: every key may be named, right of it)
-            p.fillRect(aliased(0, y, KEYS_W * (folded ? 0.4 : 0.62), ed.rowH), theme::c("keys_black"));
+        std::string label = ed.keyLabel(pitch);  // (a Pad Kit's pad: its name on every key that has one)
+        if (isBlackKey(pitch))  // (folded or named after a pad, narrower: its name right of it)
+            p.fillRect(aliased(0, y, KEYS_W * (!label.empty() ? 0.18 : folded ? 0.4 : 0.62), ed.rowH),
+                       theme::c("keys_black"));
         if (!isBlackKey(pitch) || folded)  // (folded: a line under every key, none are next to theirs)
             p.fillRect(Rect(0, y + ed.rowH - 1, KEYS_W, 1), theme::c("keys_line"));
         if (ed.held && *ed.held == pitch) p.fillRect(Rect(0, y, KEYS_W, ed.rowH), theme::c("key_sounding"));
-        bool named = pitch % 12 == 0 || folded || (steps && pitch % 12 == root);
+        bool named = pitch % 12 == 0 || folded || (steps && pitch % 12 == root) || !label.empty();
         if (named && ed.rowH >= 9)
-            p.drawText(RectF(0, (float)y, KEYS_W - 4, (float)ed.rowH), AlignRight | AlignVCenter, noteName(pitch), font,
-                       theme::c("keys_label"));
+            p.drawText(RectF(0, (float)y, KEYS_W - 4, (float)ed.rowH), AlignRight | AlignVCenter,
+                       label.empty() ? noteName(pitch) : label, font, theme::c("keys_label"), !label.empty());
     }
     p.fillRect(Rect(KEYS_W - 1, 0, 1, h), theme::c("ruler_bg"));
 }
@@ -2204,8 +2211,9 @@ void StepGrid::paint(Painter& p) {
         if (ed.held && *ed.held == pitch) p.fillRect(Rect(0, *y, KEYS_W, STEP_ROW_H), theme::c("key_sounding"));
         else if (isBlackKey(pitch)) p.fillRect(Rect(0, *y, 6, STEP_ROW_H), theme::c("keys_black"));
         p.fillRect(Rect(0, *y + STEP_ROW_H - 1, KEYS_W, 1), theme::c("keys_line"));
-        p.drawText(RectF(0, (float)*y, KEYS_W - 4, STEP_ROW_H), AlignRight | AlignVCenter, noteName(pitch), font,
-                   theme::c("keys_label"));
+        std::string label = ed.keyLabel(pitch);
+        p.drawText(RectF(0, (float)*y, KEYS_W - 4, STEP_ROW_H), AlignRight | AlignVCenter,
+                   label.empty() ? noteName(pitch) : label, font, theme::c("keys_label"), !label.empty());
     }
     p.fillRect(Rect(KEYS_W - 1, 0, 1, h), theme::c("ruler_bg"));
 }

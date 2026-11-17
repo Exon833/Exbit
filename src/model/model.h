@@ -29,7 +29,7 @@
 // PluginSlot of kind "controls" (never loaded, not in pluginSlots()), with param "Volume" or "Pan".
 //
 // Shared pointers the audio thread reads (PluginSlot::instance, Track::instrument, Track::frozen,
-// Track::sampler, Clip::track) are replaced with std::atomic_store and read with std::atomic_load.
+// Track::sampler, Track::padKit, Clip::track) are replaced with std::atomic_store and read with std::atomic_load.
 #pragma once
 #include <atomic>
 #include <cstdint>
@@ -97,6 +97,7 @@ inline Kind kindFromName(const std::string& s) {
 struct Track;
 struct Group;
 struct SamplerSettings;
+struct PadKit;
 struct PluginSlot;
 struct Clip;
 struct Automation;
@@ -107,6 +108,7 @@ using SlotPtr = std::shared_ptr<PluginSlot>;
 using ClipPtr = std::shared_ptr<Clip>;
 using AutomationPtr = std::shared_ptr<Automation>;
 using SamplerPtr = std::shared_ptr<const SamplerSettings>;
+using PadKitPtr = std::shared_ptr<const PadKit>;
 
 // --- patch cables ---
 // One end of a cable: IN, OUT, an effect (or instrument), an effect's sidechain input, or another track.
@@ -239,6 +241,33 @@ struct SamplerSettings {
     bool operator!=(const SamplerSettings& o) const { return !(*this == o); }
 };
 
+// --- a Pad Kit: a MIDI track's built-in drum instrument (audio/padkit.h) ---
+// PAD KIT. MAX_PADS pads, each a sample on a key of its own (FIRST_NOTE upward, chromatic, to start with),
+// played with the built-in sampler's settings (`sound`: its tuning, volume, velocity, envelope, one-shot or
+// held, the part played; its `root` is not used: a pad's key plays the sample at its own pitch, `transpose`
+// tunes it). A pad in a CHOKE GROUP (1…CHOKE_GROUPS; 0: none) cuts off every pad of its group still
+// sounding when it starts (an open hi-hat cut off by the closed one). Pads sharing a key play together.
+// Replaced as a whole on every change (never changed in place), as SamplerSettings is.
+struct Pad {
+    SamplerSettings sound;   // sound.sample null: an empty pad (silent)
+    int note = 36;           // the key that plays it
+    int choke = 0;           // its choke group: 0 none, 1…PadKit::CHOKE_GROUPS
+    bool empty() const;      // no sample (or no audio in it)
+    bool operator==(const Pad& o) const { return sound == o.sound && note == o.note && choke == o.choke; }
+    bool operator!=(const Pad& o) const { return !(*this == o); }
+};
+struct PadKit {
+    static constexpr int MAX_PADS = 32;     // two banks of 16, shown 4 × 4
+    static constexpr int BANK = 16;
+    static constexpr int FIRST_NOTE = 36;   // pad 1's key (C2 here: 60 = C4); the others chromatically upward
+    static constexpr int CHOKE_GROUPS = 8;
+    std::vector<Pad> pads;   // always MAX_PADS
+    PadKit();                // every pad empty, one-shot, on FIRST_NOTE + its index
+    bool operator==(const PadKit& o) const { return pads == o.pads; }
+    bool operator!=(const PadKit& o) const { return !(*this == o); }
+    int used() const;        // pads with a sample
+};
+
 // --- a send from a track to a return track: its sound after fader and pan, at `db` ---
 // PRE-FADER SENDS. With `preFader` the sound is taken after the track's effects but before its fader and
 // pan: the send stays the same however the fader is set (a headphone mix, a reverb that keeps going while
@@ -289,8 +318,9 @@ struct Track {
     int height = config::TRACK_H;
     SlotPtr instrument;       // MIDI tracks: a VST instrument; null = the built-in synth (or sampler)
     List<MidiEffect> midiEffects;  // MIDI tracks: MIDI effects changing its notes, in order
-    SamplerPtr sampler;       // MIDI tracks: the built-in sampler, played when there is no instrument plugin;
-                              // null = the built-in synth
+    SamplerPtr sampler;       // MIDI tracks: the built-in sampler, played when there is no instrument plugin
+                              // (nor Pad Kit); null = the built-in synth
+    PadKitPtr padKit;         // MIDI tracks: a Pad Kit (PAD KIT above), played when there is no instrument plugin
     bool needsInstrument = false;  // a new MIDI track: silent until an instrument is chosen
     List<SlotPtr> effects;    // in its patch space
     Cables cables{straight()};
@@ -317,8 +347,12 @@ struct Track {
     // does it play instrument plugins (its own, or its instrument patch panel's) rather than the built-in
     // synth or sampler? (plugins.py's plays_plugins)
     bool playsPlugins() const;
-    // does it play its built-in sampler (it has one, and no instrument plugin or patch panel)?
-    bool playsSampler() const { return sampler && !instrument && !usesRack; }
+    // does it play its built-in sampler (it has one, and no instrument plugin, patch panel or Pad Kit)?
+    bool playsSampler() const { return sampler && !padKit && !instrument && !usesRack; }
+    // does it play its Pad Kit (it has one, and no instrument plugin or patch panel)?
+    bool playsPadKit() const { return padKit && !instrument && !usesRack; }
+    // what a key plays, for the MIDI editor's keys: the name of its pad when it plays a Pad Kit; "" otherwise
+    std::string keyLabel(int pitch) const;
     Track(std::string n = "", Kind k = Kind::Audio);
 };
 
@@ -456,8 +490,8 @@ namespace clip_hooks {
 // audio/midi_effects.apply: a clip's notes after the track's MIDI effects (origin: the timeline's seconds at
 // note time 0), sorted by start then pitch. Unset: the notes as they are.
 extern std::function<std::vector<Note>(const Track& track, const std::vector<Note>& notes, double origin)> midiEffects;
-// audio/sampler.render_notes: a MIDI clip's audio through its track's sampler (track->playsSampler()).
-// Unset: the built-in synth.
+// audio/sampler.render_notes: a MIDI clip's audio through its track's sampler (track->playsSampler()) or
+// Pad Kit (track->playsPadKit()). Unset: the built-in synth.
 extern std::function<AudioPtr(const Track& track, const std::vector<Note>& notes, int sr, double lengthS)> renderSampler;
 }  // namespace clip_hooks
 
