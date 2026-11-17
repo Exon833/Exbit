@@ -1,6 +1,7 @@
 // The built-in effects that come with Tiny DAW (daw/audio/effects.py's listing and create(), with
 // the effects of the program's effects/ folder): EQ, Chorus, Compressor, Multi-band compressor,
-// Gate, Reverb, Limiter, Saturation, Bit-crusher, Delay, Utility.
+// Gate, Reverb, Limiter, Saturation, Bit-crusher, Delay, Utility, Filter Motion, Phaser / Flanger,
+// Tremolo / Pan.
 //
 // Each is known by an id (its script's name in the Python program: "eq", "multiband_compressor"…);
 // projects save it as the slot's path "builtin:<id>" (PluginSlot.path, PluginInfo.path) with kind
@@ -25,7 +26,7 @@ constexpr const char* PREFIX = "builtin:";
 struct Info {
     std::string id;        // "eq"
     std::string name;      // "EQ"
-    std::string category;  // "EQ", "Dynamics", "Reverb", "Delay", "Modulation", "Distortion", "Utility"
+    std::string category;  // "EQ", "Dynamics", "Reverb", "Delay", "Modulation", "Distortion", "Filter", "Utility"
     std::string path() const { return PREFIX + id; }  // "builtin:eq"
     std::string label() const { return name + "  (built-in)"; }
 };

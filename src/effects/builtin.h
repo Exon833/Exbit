@@ -17,6 +17,9 @@ std::unique_ptr<Effect> makeReverb();               // time.cpp
 std::unique_ptr<Effect> makeSaturation();           // distortion.cpp
 std::unique_ptr<Effect> makeBitcrusher();           // distortion.cpp
 std::unique_ptr<Effect> makeUtility();              // utility.cpp
+std::unique_ptr<Effect> makeFilterMotion();         // motion.cpp
+std::unique_ptr<Effect> makePhaserFlanger();        // motion.cpp
+std::unique_ptr<Effect> makeTremoloPan();           // motion.cpp
 
 // effects/delay.py's synced lengths (beats) and their names
 extern const double DELAY_BEATS[8];
