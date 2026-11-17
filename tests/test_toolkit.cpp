@@ -1285,6 +1285,103 @@ static void testStylesheets() {
     w.hideWindow();
 }
 
+// the basic controls (Label, CheckBox, GroupBox, Separator, SplitterHandle, StatusBar, TabWidget, ButtonBox), windows
+// and tooltips take their sizes and colours from the stylesheets: default.css's are today's, a sheet over it changes them
+static void testBasicControlStyles() {
+    theme::setSkin();
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(400, 300);
+    auto* lab = w.add<Label>("Hint");
+    lab->setProperty("hint", "true");
+    auto* link = w.add<Label>("A link");
+    link->setLink("https://example.org");
+    auto* cb = w.add<CheckBox>("Check");
+    cb->setChecked(true);
+    auto* gb = w.add<GroupBox>("Group");
+    gb->setGeometry(200, 10, 150, 80);
+    auto* sb = w.add<StatusBar>();
+    auto* tabs = w.add<TabWidget>();
+    tabs->addTab(std::make_unique<Widget>(), "One");
+    tabs->addTab(std::make_unique<Widget>(), "Two");
+    auto* sep = w.add<Separator>(Orientation::Vertical);
+    auto* split = w.add<SplitterHandle>(Orientation::Horizontal);
+    Canvas canvas;
+    ButtonBox bb(ButtonBox::Ok | ButtonBox::Cancel);
+    // what the stylesheets see
+    CHECK(w.type() == "Window" && canvas.type() == "Canvas" && lab->type() == "Label" && cb->type() == "CheckBox");
+    CHECK(gb->type() == "GroupBox" && sb->type() == "StatusBar" && tabs->type() == "TabWidget" && bb.type() == "ButtonBox");
+    CHECK(sep->type() == "Separator" && sep->hasState("vertical") && !sep->hasState("horizontal"));
+    CHECK(split->type() == "SplitterHandle" && split->hasState("horizontal"));
+    CHECK(lab->hasClass("hint") && link->hasState("link") && !lab->hasState("link") && cb->hasState("checked"));
+    CHECK(!tabs->hasState("selected"));  // (a tab's states only while that tab is styled)
+    // default.css: today's sizes and colours
+    int th = (int)std::ceil(Font::ui().ascent() + Font::ui().descent());
+    CHECK(lab->color() == theme::c("hint_text") && link->color() == theme::c("accent"));
+    Point cbBefore = cb->sizeHint();
+    CHECK(cbBefore.y == std::max(th, 14) + 4);
+    CHECK(gb->contentsRect().x == 6 && gb->contentsRect().y == 28 && gb->contentsRect().w == 138 && gb->contentsRect().h == 46);
+    CHECK(sep->sizeHint().x == 7 && sep->sizeHint().y == 13 && split->sizeHint().x == 5);
+    CHECK(tabs->barHeight() == th + 14 && sb->sizeHint().y == th + 9);
+    Point bbBefore = bb.sizeHint();
+    App::get().showToolTip(Point(100, 100), "Tip", lab);
+    int tipBefore = App::get().toolTipWindow()->width();
+    App::get().hideToolTip();
+
+    std::vector<css::Problem> problems;
+    css::SheetPtr extra = css::parse(
+        "Window { background-color: #123456; }\n"
+        "Label.hint { color: #102030; }\n"
+        "CheckBox { padding: 5px 0; }\n"
+        "CheckBox:checked::indicator { background-color: #00ff00; border-color: #00ff00; }\n"
+        "GroupBox { margin-top: 30px; padding: 10px; }\n"
+        "Separator:vertical { margin: 2px 1px; line-width: 3px; }\n"
+        "SplitterHandle:horizontal { width: 9px; }\n"
+        "TabWidget::tab { padding: 10px 20px 12px; }\n"
+        "TabWidget::tab-line:selected { background-color: #ff0000; height: 4px; }\n"
+        "StatusBar::separator { height: 3px; background-color: #0000ff; }\n"
+        "ToolTip { padding: 10px; }\n"
+        "ButtonBox { column-gap: 20px; }\n",
+        "basic.css", problems);
+    CHECK(problems.empty());
+    theme::setStyles({theme::builtinSheet(), extra});
+    CHECK(lab->color() == Color::fromHex("#102030") && link->color() == theme::c("accent"));
+    CHECK(cb->sizeHint().y == cbBefore.y + 6 && cb->sizeHint().x == cbBefore.x);
+    CHECK(gb->contentsRect().x == 10 && gb->contentsRect().y == 40 && gb->contentsRect().w == 130 && gb->contentsRect().h == 30);
+    CHECK(sep->sizeHint().x == 5 && sep->sizeHint().y == 5 && split->sizeHint().x == 9);
+    CHECK(tabs->barHeight() == th + 22 && sb->sizeHint().y == th + 11);
+    CHECK(bb.sizeHint().x == bbBefore.x + 14);
+    App::get().showToolTip(Point(100, 100), "Tip", lab);
+    CHECK(App::get().toolTipWindow()->width() == tipBefore + 12);
+    App::get().hideToolTip();
+    // drawn so
+    cb->setGeometry(10, 10, 100, cb->sizeHint().y);
+    tabs->setGeometry(10, 100, 180, 80);
+    sb->setGeometry(0, 270, 400, sb->sizeHint().y);
+    lab->setGeometry(10, 200, 60, 20);
+    link->setGeometry(80, 200, 60, 20);
+    sep->setGeometry(150, 200, 5, 20);
+    split->setGeometry(160, 200, 9, 20);
+    w.showWindow();
+    App::get().tick();
+    const Image& fb = w.framebuffer();
+    int indY = 10 + (cb->height() - 14) / 2;
+    CHECK(fb.colorAt(10, indY + 7) == Color::fromHex("#00ff00"));                    // the box's edge (checked)
+    CHECK(fb.colorAt(15, 100 + tabs->barHeight() - 2) == Color::fromHex("#ff0000"));  // the selected tab's line
+    CHECK(fb.colorAt(380, 150) == Color::fromHex("#123456"));                         // the window's background
+    CHECK(fb.colorAt(50, 271) == Color::fromHex("#0000ff"));                          // the status bar's line
+    CHECK(fb.colorAt(150 + 1, 210) == theme::c("line"));                              // the 3 px separator line
+    CHECK(fb.colorAt(160 + 4, 210) == theme::c("line"));                              // the handle's line
+    // back to the default
+    theme::setSkin();
+    CHECK(lab->color() == theme::c("hint_text") && cb->sizeHint().y == cbBefore.y && tabs->barHeight() == th + 14);
+    CHECK(gb->contentsRect().y == 28 && sep->sizeHint().x == 7 && bb.sizeHint().x == bbBefore.x);
+    w.update();
+    App::get().tick();
+    CHECK(fb.colorAt(380, 150) == theme::c("window"));
+    w.hideWindow();
+    App::get().advanceTimers(1.5);  // (a tooltip hidden just now would make the next one quick)
+}
+
 int main() {
     App::get().initHeadless();
     util::makeDirs("build/toolkit-samples");
@@ -1293,6 +1390,7 @@ int main() {
     testLayouts();
     testPaintingColours();
     testStylesheets();
+    testBasicControlStyles();
     testButtonsAndClicks();
     testLineEdit();
     testSpinBox();

@@ -143,6 +143,121 @@ Button::separator { background-color: var(--line); }
 /* ======================================== Basic controls ========================================
    Label, CheckBox, GroupBox, Separator, SplitterHandle, StatusBar, Window, tooltips, dialogs */
 
+/* Sizes of the layout: a wrapped label's widest line, the narrowest an eliding or wrapping label gets; the room
+   in message boxes, getText / getItem (input dialogs) and progress windows */
+:root {
+    --label-wrap-width: 360px;
+    --label-min-width: 16px;
+    --message-box-margin: 14px;        /* around its parts */
+    --message-box-spacing: 14px;       /* between the sign, the text and the buttons */
+    --message-box-text-spacing: 8px;   /* between the text and its details */
+    --input-dialog-margin: 12px;
+    --input-dialog-spacing: 8px;
+    --input-dialog-button-gap: 4px;    /* more above the buttons */
+    --input-dialog-field-width: 280px; /* the field's least width */
+    --progress-dialog-margin: 12px;
+    --progress-dialog-spacing: 10px;
+    --progress-dialog-min-width: 320px;
+}
+
+/* Windows (Dialog, ProgressDialog, menus… are windows too): the background under their widgets. */
+Window { background-color: var(--window); }
+
+/* Tooltips: a box around the text. */
+ToolTip {
+    background-color: var(--tooltip-base);
+    color: var(--tooltip-text);
+    border: 1px solid var(--line);
+    padding: 4px;
+}
+
+/* The picture that follows a drag: its background, and the picture's opacity. */
+DragImage { background-color: var(--base); }
+DragImage::image { opacity: 0.8; }
+
+/* Labels. .hint and .dimmed (8 pt) from the program's properties; :link is a clickable link (underlined);
+   #time and #lufs (the transport's numbers) in the numbers font. ::image is a label's picture. */
+Label { color: var(--window-text); }
+Label.dimmed { color: var(--dimmed-text); font-size: 8pt; }
+Label.hint { color: var(--hint-text); }
+Label:link { color: var(--accent); text-decoration: underline; }
+Label:disabled { color: var(--disabled-text); }
+Label:disabled::image { opacity: 0.45; }
+Label#time { font-family: var(--mono-font); font-size: 12pt; }
+Label#lufs { font-family: var(--mono-font); font-size: 8pt; }
+
+/* Check boxes. ::indicator is the box (margin-right: the gap to the text), its check mark in its `color`. */
+CheckBox { color: var(--window-text); padding: 2px 0; }
+CheckBox:disabled { color: var(--disabled-text); }
+CheckBox::indicator {
+    width: 14px;
+    height: 14px;
+    margin-right: 6px;
+    padding: 1px;
+    background-color: var(--base);
+    border: 1px solid var(--field-hover);
+    border-radius: 3px;
+    color: var(--accent-text);
+}
+CheckBox:hover::indicator { border-color: var(--accent); }
+CheckBox:checked::indicator { background-color: var(--accent); border-color: var(--accent); }
+CheckBox:disabled::indicator { background-color: var(--disabled); border-color: var(--disabled); }
+
+/* Group boxes: the box starts margin-top down, its controls inside its padding; ::title above it. */
+GroupBox {
+    background-color: var(--panel);
+    border-radius: 3px;
+    margin-top: 20px;
+    padding: 8px 6px 6px;
+}
+GroupBox::title { color: var(--window-text); height: 18px; margin: 1px 4px; }
+GroupBox:disabled::title { color: var(--disabled-text); }
+
+/* Separators (:vertical, as in tool bars, or :horizontal): a line of `color`, line-width thick, with margin
+   around it. */
+Separator { color: var(--line); line-width: 1px; }
+Separator:vertical { margin: 6px 3px; }
+
+/* Splitter handles: :horizontal ones move sideways (their width), :vertical ones up and down (their height);
+   a line along the middle. */
+SplitterHandle { color: var(--line); line-width: 1px; }
+SplitterHandle:horizontal { width: 5px; }
+SplitterHandle:vertical { height: 5px; }
+SplitterHandle:hover, SplitterHandle:pressed { color: var(--accent); }
+
+/* Status bars: ::separator is the line along the top, ::permanent the text at the right end. */
+StatusBar { color: var(--window-text); padding: 4px 6px; }
+StatusBar::separator { height: 1px; background-color: var(--line); }
+StatusBar::permanent { padding: 0 6px; }
+
+/* Tabs. ::tab is each tab (:selected, :hover: the one under the pointer, :disabled), ::tab-line a line along
+   its bottom (the selected tab's), ::base the line under all the tabs. */
+TabWidget::base { height: 1px; background-color: var(--line); }
+TabWidget::tab { padding: 6px 12px 8px; color: var(--hint-text); }
+TabWidget::tab:hover { background-color: var(--hover); }
+TabWidget::tab:hover, TabWidget::tab:selected { color: var(--window-text); }
+TabWidget::tab:disabled { color: var(--disabled-text); }
+TabWidget::tab-line { height: 2px; }
+TabWidget::tab-line:selected { background-color: var(--accent); }
+
+/* Dialogs. ButtonBox: the row of OK / Cancel… (column-gap between them, each at least min-width wide).
+   MessageIcon: a message box's sign (.information .question .warning .critical). ProgressBar: a progress
+   window's bar, ::chunk the part done (min-width: the busy block's). */
+ButtonBox { column-gap: 6px; }
+ButtonBox > Button, ProgressDialog > Button { min-width: 80px; }
+MessageIcon { background-color: var(--accent); color: var(--accent-text); }
+MessageIcon.warning { background-color: var(--solo); }
+MessageIcon.critical { background-color: var(--mute); }
+ProgressBar {
+    width: 200px;
+    height: 20px;
+    background-color: var(--base);
+    color: var(--text);
+    border: 1px solid var(--field-edge);
+    border-radius: 3px;
+}
+ProgressBar::chunk { min-width: 20px; background-color: var(--accent); color: var(--accent-text); border-radius: 2px; }
+
 /* (end of Basic controls) */
 
 

@@ -23,7 +23,9 @@ plat::WindowOptions Dialog::makeOptions(Window* parent, const std::string& title
 }
 
 Dialog::Dialog(Window* parent, const std::string& title, int w, int h)
-    : Window(makeOptions(parent, title, w, h)), parent_(parent) {}
+    : Window(makeOptions(parent, title, w, h)), parent_(parent) {
+    setStyleType("Dialog");
+}
 
 void Dialog::place() {
     if (placed_) return;
@@ -123,6 +125,12 @@ int roleOrder(int sb) {
     default: return 5;
     }
 }
+
+// the gap between a ButtonBox's buttons (default.css: ButtonBox's column-gap, 6 px)
+int buttonGap(const Widget* box) { return std::max(0, style::px(box->computedStyle(), "column-gap", 6)); }
+
+// a dialog's button: at least min-width wide (default.css: ButtonBox > Button, 80 px)
+void setButtonWidth(Button* b) { b->setMinimumWidth(std::max(0, style::px(b->computedStyle(), "min-width", 80))); }
 }  // namespace
 
 std::string ButtonBox::standardText(StandardButton b, int all) {
@@ -141,14 +149,15 @@ std::string ButtonBox::standardText(StandardButton b, int all) {
 }
 
 ButtonBox::ButtonBox(int buttons, Widget* parent) : Widget(parent) {
+    setStyleType("ButtonBox");
     vPolicy = SizePolicy::Fixed;
-    hbox(this, 0, 6);
+    hbox(this, 0, buttonGap(this));
     static const StandardButton all[] = {Ok, Save, Yes, Discard, No, Cancel, Close, Apply, Reset};
     bool haveDefault = false;
     for (StandardButton sb : all) {
         if (!(buttons & sb)) continue;
         Button* b = add<Button>(standardText(sb, buttons));
-        b->setMinimumWidth(80);
+        setButtonWidth(b);
         buttons_.push_back({sb, b});
         roles_.push_back(roleOrder(sb));
         int code = sb;
@@ -187,7 +196,7 @@ Button* ButtonBox::button(StandardButton sb) const {
 
 Button* ButtonBox::addButton(const std::string& text, int role) {
     Button* b = add<Button>(text);
-    b->setMinimumWidth(80);
+    setButtonWidth(b);
     buttons_.push_back({0, b});
     roles_.push_back(role == 1 ? 2 : role == 0 ? 6 : 5);
     b->clicked.connect([this, role] {
@@ -205,22 +214,33 @@ Button* ButtonBox::addButton(const std::string& text, int role) {
     return b;
 }
 
-Point ButtonBox::sizeHint() const { return layout() ? layout()->sizeHint() : Point(0, 0); }
+Point ButtonBox::sizeHint() const {
+    if (!layout()) return Point(0, 0);
+    // (the gap as the stylesheets have it now: layouts ask for this before placing the buttons)
+    if (auto* l = dynamic_cast<BoxLayout*>(layout())) l->spacing = buttonGap(this);
+    return layout()->sizeHint();
+}
 
 // ============================================================================================
 // message boxes
 // ============================================================================================
 
 namespace {
+// the round sign of a message box (style type MessageIcon, with .information / .warning / .critical / .question: the
+// circle's background-color, the sign in `color`)
 class MsgIcon : public Widget {
 public:
-    explicit MsgIcon(msg::Icon i) : icon(i) { setFixedSize(32, 32); }
+    explicit MsgIcon(msg::Icon i) : icon(i) {
+        setStyleType("MessageIcon");
+        addStyleClass(i == msg::Icon::Warning ? "warning" : i == msg::Icon::Critical ? "critical"
+                      : i == msg::Icon::Question ? "question" : "information");
+        setFixedSize(32, 32);  // (the drawing below is made for 32 px)
+    }
     msg::Icon icon;
     void paint(Painter& p) override {
-        Color bg = theme::c("accent");
-        if (icon == msg::Icon::Warning) bg = theme::c("solo");
-        else if (icon == msg::Icon::Critical) bg = theme::c("mute");
-        Color fg = theme::c("accent_text");
+        const css::Style& st = computedStyle();
+        Color bg = style::background(st);
+        Color fg = style::foreground(st);
         p.fillEllipse(RectF(1, 1, 30, 30), bg);
         switch (icon) {
         case msg::Icon::Information:
@@ -282,10 +302,12 @@ int box(Window* parent, Icon icon, const std::string& title, const std::string& 
         const std::string& details) {
     if (!buttons) buttons = Ok;
     Dialog d(parent, title, 400, 150);
+    d.addStyleClass("message-box");
     d.setMinimumWindowSize(0, 0);
-    auto* outer = vbox(&d, 14, 14);
+    // (default.css's sizes: 14 px around and between the parts, 8 px between the text and its details)
+    auto* outer = vbox(&d, theme::metric("message-box-margin", 14), theme::metric("message-box-spacing", 14));
     auto row = std::make_unique<HBox>();
-    row->spacing = 14;
+    row->spacing = theme::metric("message-box-spacing", 14);
     HBox* rowp = row.get();
     outer->addLayout(std::move(row));
     if (icon != Icon::None) {
@@ -293,7 +315,7 @@ int box(Window* parent, Icon icon, const std::string& title, const std::string& 
         rowp->addWidget(ic, 0, AlignTop);
     }
     auto col = std::make_unique<VBox>();
-    col->spacing = 8;
+    col->spacing = theme::metric("message-box-text-spacing", 8);
     VBox* colp = col.get();
     rowp->addLayout(std::move(col), 1);
     auto* lab = d.add<Label>(text);
@@ -337,15 +359,23 @@ int box(Window* parent, Icon icon, const std::string& title, const std::string& 
 // getText / getItem
 // ============================================================================================
 
+namespace {
+// getText / getItem's column (default.css's sizes: 12 px around, 8 px between)
+VBox* inputDialogLayout(Dialog& d) {
+    return vbox(&d, theme::metric("input-dialog-margin", 12), theme::metric("input-dialog-spacing", 8));
+}
+}  // namespace
+
 bool getText(Window* parent, const std::string& title, const std::string& label, std::string& text) {
     Dialog d(parent, title, 320, 120);
-    auto* v = vbox(&d, 12, 8);
+    d.addStyleClass("input-dialog");
+    auto* v = inputDialogLayout(d);
     auto* lab = d.add<Label>(label);
     v->addWidget(lab);
     auto* edit = d.add<LineEdit>(text);
-    edit->setMinimumWidth(280);
+    edit->setMinimumWidth(theme::metric("input-dialog-field-width", 280));
     v->addWidget(edit);
-    v->addSpacing(4);
+    v->addSpacing(theme::metric("input-dialog-button-gap", 4));
     auto* bb = d.add<ButtonBox>(ButtonBox::Ok | ButtonBox::Cancel);
     v->addWidget(bb);
     bb->accepted.connect([&] { d.accept(); });
@@ -361,15 +391,16 @@ bool getText(Window* parent, const std::string& title, const std::string& label,
 bool getItem(Window* parent, const std::string& title, const std::string& label, const std::vector<std::string>& items,
              int& index) {
     Dialog d(parent, title, 320, 120);
-    auto* v = vbox(&d, 12, 8);
+    d.addStyleClass("input-dialog");
+    auto* v = inputDialogLayout(d);
     auto* lab = d.add<Label>(label);
     v->addWidget(lab);
     auto* combo = d.add<ComboBox>();
     for (auto& it : items) combo->addItem(it);
     combo->setCurrentIndexSilently(std::max(0, std::min(index, (int)items.size() - 1)));
-    combo->setMinimumWidth(280);
+    combo->setMinimumWidth(theme::metric("input-dialog-field-width", 280));
     v->addWidget(combo);
-    v->addSpacing(4);
+    v->addSpacing(theme::metric("input-dialog-button-gap", 4));
     auto* bb = d.add<ButtonBox>(ButtonBox::Ok | ButtonBox::Cancel);
     v->addWidget(bb);
     bb->accepted.connect([&] { d.accept(); });
@@ -386,14 +417,21 @@ bool getItem(Window* parent, const std::string& title, const std::string& label,
 // ============================================================================================
 
 namespace {
+// (style type ProgressBar: a box (background-color, border, border-radius, padding) with the percentage in `color`;
+// ::chunk the part done (or the busy block: its min-width), a box, the percentage over it in its `color`; its
+// width and height: what it asks for)
 class ProgressBar : public Widget {
 public:
     std::function<void(Painter&)> draw;
     ProgressBar() {
-        setFixedHeight(20);
+        setStyleType("ProgressBar");
+        setFixedHeight(std::max(1, style::px(computedStyle(), "height", 20)));
         hPolicy = SizePolicy::Expanding;
     }
-    Point sizeHint() const override { return Point(200, 20); }
+    Point sizeHint() const override {
+        const css::Style& st = computedStyle();
+        return Point(style::px(st, "width", 200), style::px(st, "height", 20));
+    }
     void paint(Painter& p) override {
         if (draw) draw(p);
     }
@@ -402,7 +440,9 @@ public:
 
 ProgressDialog::ProgressDialog(Window* parent, const std::string& title, const std::string& label, bool cancellable)
     : Dialog(parent, title, 380, 130) {
-    auto* v = vbox(this, 12, 10);
+    setStyleType("ProgressDialog");
+    // (default.css's sizes: 12 px around, 10 px between; at least 320 px wide)
+    auto* v = vbox(this, theme::metric("progress-dialog-margin", 12), theme::metric("progress-dialog-spacing", 10));
     label_ = add<Label>(label);
     label_->setWordWrap(true);
     v->addWidget(label_);
@@ -416,11 +456,11 @@ ProgressDialog::ProgressDialog(Window* parent, const std::string& title, const s
         v->addLayout(std::move(row));
         r->addStretch(1);
         cancel_ = add<Button>("Cancel");
-        cancel_->setMinimumWidth(80);
+        setButtonWidth(cancel_);
         r->addWidget(cancel_);
         cancel_->clicked.connect([this] { cancel(); });
     }
-    setMinimumWindowSize(320, 0);
+    setMinimumWindowSize(theme::metric("progress-dialog-min-width", 320), 0);
     adjustSize();
     frameId_ = App::get().onFrame([this] {
         if (isWindowShown() && hi_ <= lo_) bar_->update();
@@ -473,32 +513,34 @@ bool ProgressDialog::keyPress(KeyEvent& e) {
 void ProgressDialog::paint(Painter& p) {}
 
 void ProgressDialog::paintBar(Painter& p) {
-    const theme::Shades& sh = theme::shades();
+    // (default.css: a field's edge around the base colour; the chunk in the accent colour, 1 px inside it)
+    const css::Style& st = bar_->computedStyle();
     Rect r = bar_->rect();
-    float rad = (float)theme::radius();
-    style::frame(p, r, theme::c("base"), sh.fieldEdge, rad);
-    Rect in = r.adjusted(1, 1, -1, -1);
-    Font f = theme::uiFont();
+    style::box(p, r, st);
+    Rect in = style::contents(r, st);
+    Font f = style::font(st, theme::uiFont());
+    Color textColor = style::foreground(st);
+    const css::Style& cs = bar_->computedStyle("chunk");
     if (hi_ <= lo_) {
         // busy: a block going to and fro
         double t = App::get().now();
-        int bw = std::max(20, in.w / 4);
+        int bw = std::max(style::px(cs, "min-width", 20), in.w / 4);
         double ph = std::fmod(t * 0.8, 2.0);
         double x = ph < 1 ? ph : 2 - ph;
         Rect chunk(in.x + (int)std::lround(x * (in.w - bw)), in.y, bw, in.h);
-        style::fill(p, chunk, theme::c("accent"), std::max(0.f, rad - 1));
+        style::box(p, chunk, cs);
         return;
     }
     double frac = std::max(0.0, std::min(1.0, (double)(value_ - lo_) / (hi_ - lo_)));
     int cw = (int)std::lround(frac * in.w);
     Rect chunk(in.x, in.y, cw, in.h);
-    if (cw > 0) style::fill(p, chunk, theme::c("accent"), std::max(0.f, rad - 1));
+    if (cw > 0) style::box(p, chunk, cs);
     std::string pct = std::to_string((int)std::lround(frac * 100)) + "%";
-    style::text(p, r, AlignCenter, pct, f, theme::c("text"));
+    style::text(p, r, AlignCenter, pct, f, textColor);
     if (cw > 0) {
         p.save();
         p.setClip(chunk);
-        style::text(p, r, AlignCenter, pct, f, theme::c("accent_text"));
+        style::text(p, r, AlignCenter, pct, style::font(cs, f), style::foreground(cs));
         p.restore();
     }
 }

@@ -10,6 +10,7 @@
 
 #include "ui/theme.h"
 #include "ui/toolkit/layout.h"
+#include "ui/toolkit/style.h"
 
 namespace ui {
 
@@ -549,13 +550,15 @@ void Widget::startDrag(const DragData& data, const Image* picture) {
         o.resizable = false;
         o.w = picture->width();
         o.h = picture->height();
+        // (style type DragImage: its box, and ::image's opacity)
         struct Pic : Window {
             Image img;
-            explicit Pic(const plat::WindowOptions& o) : Window(o) {}
+            explicit Pic(const plat::WindowOptions& o) : Window(o) { setStyleType("DragImage"); }
             void paint(Painter& p) override {
-                p.fillRect(rect(), theme::c("base"));
+                style::box(p, rect(), computedStyle());
+                float opacity = (float)computedStyle("image").number("opacity", 1);
                 p.save();
-                p.setOpacity(0.8f);
+                p.setOpacity(std::max(0.f, std::min(1.f, opacity)));
                 p.drawImage(Point(0, 0), img);
                 p.restore();
             }
@@ -707,13 +710,17 @@ Shortcut::~Shortcut() {
 // ============================================================================================
 
 namespace {
-// the tooltip window
+// the tooltip window (style type ToolTip: a box (background-color, border) with padding around the text (color,
+// font-*); default.css: a 1 px edge and 4 px of padding)
 class TipWindow : public Window {
 public:
-    explicit TipWindow(const plat::WindowOptions& o) : Window(o) {}
+    explicit TipWindow(const plat::WindowOptions& o) : Window(o) { setStyleType("ToolTip"); }
     std::string text;
-    static Point measure(const std::string& text) {
-        Font f = theme::uiFont();
+    // its size for that text
+    Point measure(const std::string& text) const {
+        const css::Style& st = computedStyle();
+        Font f = style::font(st, theme::uiFont());
+        style::Insets b = style::insets(st, "border-width"), pad = style::insets(st, "padding");
         float w = 0;
         int lines = 0;
         size_t start = 0;
@@ -726,19 +733,20 @@ public:
             start = nl + 1;
         }
         int h = (int)std::ceil(lines * f.lineSpacing() - (f.lineSpacing() - f.height()));
-        return Point((int)std::ceil(w) + 10, h + 10);
+        return Point((int)std::ceil(w) + b.w() + pad.w(), h + b.h() + pad.h());
     }
     void paint(Painter& p) override {
-        const theme::Shades& sh = theme::shades();
-        p.fillRect(rect(), sh.line);
-        p.fillRect(rect().adjusted(1, 1, -1, -1), theme::c("tooltip_base"));
-        Font f = theme::uiFont();
-        float y = 5;
+        const css::Style& st = computedStyle();
+        style::box(p, rect(), st);
+        Rect content = style::contents(rect(), st);
+        Font f = style::font(st, theme::uiFont());
+        Color tc = style::foreground(st);
+        float y = (float)content.y;
         size_t start = 0;
         while (true) {
             size_t nl = text.find('\n', start);
             std::string line = text.substr(start, nl == std::string::npos ? std::string::npos : nl - start);
-            p.drawText(PointF(5, y + f.ascent()), line, f, theme::c("tooltip_text"));
+            p.drawText(PointF((float)content.x, y + f.ascent()), line, f, tc);
             y += f.lineSpacing();
             if (nl == std::string::npos) break;
             start = nl + 1;
@@ -748,6 +756,7 @@ public:
 }  // namespace
 
 Window::Window(const plat::WindowOptions& opts) : Widget(nullptr), opts_(opts) {
+    setStyleType("Window");
     App& app = App::get();
     scale_ = app.scale();
     hgeom_ = Rect(opts.x < 0 ? 100 : opts.x, opts.y < 0 ? 100 : opts.y, std::max(1, opts.w), std::max(1, opts.h));
@@ -959,7 +968,7 @@ void Window::flush() {
         int fh = native_ ? std::max(1, physH_) : std::max(1, toDevice(height()));
         if (fb_.width() != fw || fb_.height() != fh) {
             fb_.resize(fw, fh);
-            fb_.fill(theme::c("window"));
+            fb_.fill(style::background(computedStyle()));
             dirty_ = rect();
         }
         if (dirty_.empty()) return;
@@ -968,7 +977,7 @@ void Window::flush() {
         if (d.empty()) return;
         Painter p(fb_, scale_);
         p.setClip(d);
-        p.fillRect(d, theme::c("window"));
+        paintBackground(p);
         paintTree(p, d);
         if (native_) native_->present(fb_, toDeviceRect(d).intersected(fb_.rect()));
         return;
@@ -983,9 +992,17 @@ void Window::flush() {
     if (d.empty()) return;
     Painter p(fb_);
     p.setClip(d);
-    p.fillRect(d, theme::c("window"));
+    paintBackground(p);
     paintTree(p, d);
     if (native_) native_->present(fb_, d);
+}
+
+void Window::paintBackground(Painter& p) {
+    // (the painter is clipped to what is repainted; a see-through background goes over black: nothing shows
+    // through a window)
+    const css::Style& st = computedStyle();
+    if (style::background(st).a < 255) p.fillRect(rect(), Color(0, 0, 0));
+    style::box(p, rect(), st);
 }
 
 void Window::invalidate(const Rect& r) {
@@ -1860,7 +1877,7 @@ void App::showToolTip(Point g, const std::string& text, Widget* owner) {
     auto* tw = static_cast<TipWindow*>(tip_.get());
     tw->text = text;
     tipText_ = text;
-    Point sz = TipWindow::measure(text);
+    Point sz = tw->measure(text);
     Rect scr = screenAt(g);
     int x = g.x + 2, y = g.y + 18;
     if (x + sz.x > scr.right()) x = std::max(scr.x, scr.right() - sz.x);

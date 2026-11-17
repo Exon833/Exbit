@@ -17,6 +17,9 @@ class Menu;
 class ComboPopup;
 
 // --- text ---
+// Styled as `Label` (default.css, Basic controls): its colour and font (color, font-*; .hint, .dimmed, #time, #lufs),
+// padding (inside `margin`), :link (a link: underlined while text-decoration is underline), ::image (an image's
+// opacity). setFont / setColor override the stylesheets'.
 class Label : public Widget {
 public:
     explicit Label(const std::string& text = "", Widget* parent = nullptr);
@@ -38,14 +41,15 @@ public:
     void setLink(const std::string& url) { link_ = url; setCursor(url.empty() ? Cursor::Arrow : Cursor::Hand); update(); }
     Signal<const std::string&> onLink;
     Signal<> doubleClicked;
-    Font font() const;
-    Color color() const;    // style: "hint" → hint_text, "dimmed" → dimmed_text (8 pt), else window_text
+    Font font() const;      // setFont's, else the stylesheets'
+    Color color() const;    // setColor's, else the stylesheets' (.hint: hint text, .dimmed: dimmed text, :link: accent)
     Point sizeHint() const override;
     Point minimumSizeHint() const override;
     void paint(Painter& p) override;
     bool mousePress(MouseEvent& e) override;
     bool mouseDoubleClick(MouseEvent& e) override;
-    int margin = 0;
+    void styleStates(std::vector<std::string>& out) const override;  // + :link
+    int margin = 0;         // px around it (added to the stylesheets' padding)
 private:
     std::string text_, link_;
     int align_ = AlignLeft | AlignVCenter;
@@ -131,6 +135,9 @@ Button* pushButton(Widget* parent, const std::string& text, std::function<void()
 Button* toolButton(Widget* parent, const std::string& text, std::function<void()> onClick = nullptr,
                    const std::string& tooltip = "");
 
+// Styled as `CheckBox`: its text (color, font-*), padding; ::indicator (the box: width, height, background-color,
+// border, border-radius, padding; its check mark in `color`, margin-right: the gap to the text); states :checked
+// :hover :disabled :focus.
 class CheckBox : public Widget {
 public:
     explicit CheckBox(const std::string& text = "", Widget* parent = nullptr);
@@ -149,6 +156,7 @@ public:
     bool keyPress(KeyEvent& e) override;
     void enter() override { update(); }
     void leave() override { update(); }
+    void styleStates(std::vector<std::string>& out) const override;  // + :checked
 private:
     std::string text_;
     bool checked_ = false, down_ = false;
@@ -582,7 +590,10 @@ private:
     void syncBar();
 };
 
-// QTabWidget: tabs on top, one page shown
+// QTabWidget: tabs on top, one page shown. Styled as `TabWidget`: ::tab (each tab: a box (background-color, border,
+// border-radius) with padding around its title (color, font-*)); ::tab-line (a line along the tab's bottom, `height`
+// tall: the selected tab's accent); both with :selected, :hover (the tab under the pointer) and :disabled; ::base
+// (the line under all the tabs: its `height` and background-color).
 class TabWidget : public Widget {
 public:
     explicit TabWidget(Widget* parent = nullptr);
@@ -608,15 +619,22 @@ public:
     const std::string& tabText(int i) const { return titles_[i]; }
     void setTabText(int i, const std::string& t) { titles_[i] = t; update(); }
     int barHeight() const;
+    // (while one tab is being styled: that tab's states, :selected and :hover, instead of the widget's)
+    void styleStates(std::vector<std::string>& out) const override;
 private:
     std::vector<Widget*> pages_;
     std::vector<std::string> titles_;
     int current_ = -1, hoverTab_ = -1;
+    mutable int styledTab_ = -1;  // the tab styleStates() describes: -1 none (the widget), -2 no tab in particular
     int tabAt(Point p) const;
     Rect tabRect(int i) const;
+    // a part of tab i ("tab", "tab-line") in that tab's states (-2: no tab in particular: for sizes)
+    const css::Style& tabStyle(int i, const std::string& part) const;
 };
 
-// QGroupBox: a panel-coloured box with a title above
+// QGroupBox: a panel-coloured box with a title above. Styled as `GroupBox`: the box (background-color, border,
+// border-radius) starts margin-top below its top; its layout goes inside the box's padding; ::title (color, font-*,
+// height, margin: where the title goes above the box).
 class GroupBox : public Widget {
 public:
     explicit GroupBox(const std::string& title = "", Widget* parent = nullptr);
@@ -629,19 +647,21 @@ public:
     std::string title_;
 };
 
-// a thin line (QFrame HLine/VLine, or the toolbar separator)
+// a thin line (QFrame HLine/VLine, or the toolbar separator). Styled as `Separator`, :vertical or :horizontal: the
+// line's `color` and `line-width`, the empty space around it (margin: a vertical one, the toolbar separator, 6 px
+// above and below and 3 px beside; a horizontal one none).
 class Separator : public Widget {
 public:
     explicit Separator(Orientation o = Orientation::Horizontal, Widget* parent = nullptr);
     void paint(Painter& p) override;
     Point sizeHint() const override;
+    void styleStates(std::vector<std::string>& out) const override;  // + :vertical / :horizontal
     Orientation orientation;
-    // empty space around the line: a vertical one (the toolbar separator) 6 px above and below,
-    // 3 px beside; a horizontal one none
-    int marginAlong, marginAcross;
 };
 
-// a draggable divider between two widgets placed by the owner (the Explorer's width; overview height)
+// a draggable divider between two widgets placed by the owner (the Explorer's width; overview height). Styled as
+// `SplitterHandle`, :horizontal (moves sideways: its `width`) or :vertical (its `height`): the line along its middle
+// (color, line-width), :hover and :pressed.
 class SplitterHandle : public Widget {
 public:
     explicit SplitterHandle(Orientation o, Widget* parent = nullptr);
@@ -655,13 +675,16 @@ public:
     void enter() override { update(); }
     void leave() override { update(); }
     Point sizeHint() const override;
+    void styleStates(std::vector<std::string>& out) const override;  // + :horizontal / :vertical
     // Horizontal: it moves sideways (a vertical line between left and right; cursor ↔)
     Orientation orientation;
 private:
     Point start_;
 };
 
-// a status line at the bottom of a window (QStatusBar.showMessage)
+// a status line at the bottom of a window (QStatusBar.showMessage). Styled as `StatusBar`: a box (background-color,
+// border) with padding around its text (color, font-*: centred over the height below ::separator); ::separator (the
+// line along its top: `height`, background-color); ::permanent (the text at the right end: padding, color, font-*).
 class StatusBar : public Widget {
 public:
     explicit StatusBar(Widget* parent = nullptr);

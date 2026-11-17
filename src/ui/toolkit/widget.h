@@ -329,9 +329,10 @@ private:
 };
 
 // --- a widget that calls a function to paint and handle the mouse (quick custom widgets) ---
+// (its style type: Canvas; what it draws is the program's, which may read computedStyle() for it)
 class Canvas : public Widget {
 public:
-    using Widget::Widget;
+    explicit Canvas(Widget* parent = nullptr) : Widget(parent) { setStyleType("Canvas"); }
     std::function<void(Painter&)> onPaint;
     std::function<bool(MouseEvent&)> onPress, onRelease, onMove, onDoubleClick, onContextMenu;
     std::function<bool(WheelEvent&)> onWheel;
@@ -373,6 +374,7 @@ public:
 };
 
 // --- a top-level window (main window, dialogs, the MIDI editor, FX windows, plugin windows, popups) ---
+// (its style type: Window; its background-color fills it under its widgets; tooltips are ToolTip windows)
 class Window : public Widget, public plat::WindowListener {
 public:
     struct Options : plat::WindowOptions {};
@@ -460,6 +462,7 @@ private:
     void setHover(Widget* w);
     void releaseGrab();
     void applyCursor();
+    void paintBackground(Painter& p);  // its style's background (and border), under its widgets
     bool blockedByModal() const;
     void externalDrag(const plat::Event& e);
     plat::Event toLogical(const plat::Event& e) const;
