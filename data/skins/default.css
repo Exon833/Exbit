@@ -355,7 +355,7 @@ ComboPopup::separator { background-color: var(--line); height: 7px; margin: 0 4p
 
 
 
-/* ======================================== Lists, scrolling, tabs and menus ========================================
+/* ======================================== Sliders, lists, scrolling and menus ========================================
    Slider, ScrollBar, ScrollArea, ListWidget, TreeWidget, MenuBar, Menu, the file dialog */
 
 :root {
