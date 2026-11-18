@@ -1,65 +1,71 @@
-/* 7: a skin of Tiny DAW with a 2009-era glass desktop look. Pale blue-white windows, glossy split-face
-   buttons that turn light blue under the mouse, soft blue glows, a sky-blue glass bar at the top, white
-   lanes with a soft grid. It is put on top of default.css: the variables first, then the rules it changes. */
+/* 7: a skin of Tiny DAW in the look of the 2009-era glass desktop, control by control: frames of tinted glass
+   (see-through and blurred while the desktop composites windows), grey dialogs, glossy two-tone buttons that
+   light blue under the mouse, white fields with a soft edge, menus with a gutter and rounded highlights, the
+   green progress bar, its own signs (7/…: drawn for this skin) and the Selawik face at 9 pt. It is put on top
+   of default.css: the variables first, then the rules it changes. */
+
+/* =========================================== Fonts =========================================== */
+
+@font-face { font-family: "Selawik"; src: url(fonts/selawk.ttf); }
+@font-face { font-family: "Selawik"; src: url(fonts/selawkb.ttf); font-weight: bold; }
 
 /* =========================================== Variables =========================================== */
 
 :root {
     --skin-name: "7";
-    /* a clean humanist sans, the first of these this computer has */
-    font-family: "Noto Sans", "Carlito", "Liberation Sans", "DejaVu Sans", sans-serif;
+    font-family: "Selawik", "Noto Sans", "DejaVu Sans", sans-serif;
     font-size: 9pt;
     --mono-font: "DejaVu Sans Mono", "Liberation Mono", monospace;
 
-    /* Window */
-    --window: #dde7f3;
-    --window-text: #1e2b3c;
+    /* Window: the grey dialog face, white fields, the system's blue selection */
+    --window: #f0f0f0;
+    --window-text: #000000;
     --base: #ffffff;
-    --alternate-base: #f5f8fc;
-    --text: #1b1f24;
-    --button: #e4e4e4;
-    --button-text: #1b1f24;
-    --highlight: #d5eafc;           /* the light-blue selection box (with dark text, as in file lists) */
-    --highlighted-text: #10161d;
-    --tooltip-base: #fdfdfe;
-    --tooltip-text: #3b3b3b;
-    --disabled-text: #8d96a1;
-    --hint-text: #5a6878;
-    --dimmed-text: #7b8796;
+    --alternate-base: #f7f9fc;
+    --text: #000000;
+    --button: #e6e6e6;
+    --button-text: #000000;
+    --highlight: #3399ff;
+    --highlighted-text: #ffffff;
+    --tooltip-base: #ffffff;
+    --tooltip-text: #575757;
+    --disabled-text: #6d6d6d;
+    --hint-text: #5a5a5a;
+    --dimmed-text: #7a7a7a;
     --accent: #3c7fb1;
     --accent-text: #ffffff;
-    --frame-edge: #8e9aab;
+    --frame-edge: #707070;
 
-    /* Timeline: white lanes, a soft grid, a glassy ruler */
+    /* Timeline: white lanes, a soft grid, a pale blue ruler */
     --lane: #ffffff;
-    --lane-alt: #f6f9fc;
-    --below-lanes: #e6edf6;
-    --master-lane: #e9f1fa;
-    --master-divider: #7fa6d1;
-    --group-lane: #e1e9f3;
+    --lane-alt: #f7f9fc;
+    --below-lanes: #eef2f8;
+    --master-lane: #eaf1fa;
+    --master-divider: #7f9db9;
+    --group-lane: #e3eaf4;
     --group-accent: #6f8aa8;
-    --ruler-bg: #e8f0f9;
-    --ruler-text: #23384f;
+    --ruler-bg: #f1f5fb;
+    --ruler-text: #1e395b;
     --grid-fine: #eef2f7;
     --grid: #dfe6ef;
-    --grid-bar: #bccbdc;
+    --grid-bar: #b9c9dc;
     --playhead: #e0302a;
-    --cursor: #2a7fd4;
+    --cursor: #3399ff;
     --selection-fill: #3399ff26;
-    --selection-edge: #3c7fb1c8;
-    --automation-lane: #eef3f9;
+    --selection-edge: #3399ffc8;
+    --automation-lane: #f2f6fb;
     --automation-line: #c87410;
     --loop: #f0a73cb4;
     --loop-off: #f0a73c46;
     --frozen-tint: #5aa0ff3c;
-    --overview-bg: #e9f0f8;
+    --overview-bg: #eef3f9;
     --overview-view: #3c7fb1d0;
     --overview-view-fill: #3c7fb11c;
-    --overview-edge: #b4c4d8;
+    --overview-edge: #a0afc3;
 
     /* Tracks and clips (a clip's and a track's own colours stay theirs) */
-    --row: #f8fafd;
-    --row-alt: #eff4fa;
+    --row: #fbfcfe;
+    --row-alt: #f2f6fb;
     --clip-audio: #4f8fd0;
     --clip-midi: #4fae73;
     --accent-audio: #3d82c8;
@@ -69,9 +75,9 @@
     --solo: #f2b81f;
     --record: #d6372c;
 
-    /* Meters: a light, sunken track and glossy bars */
-    --meter-bg: #e4e9ef;
-    --meter-ok: #2fb34a;
+    /* Meters: the green of the progress bar, sunken light tracks */
+    --meter-bg: #e6e6e6;
+    --meter-ok: #06b025;
     --meter-warn: #e8bd1c;
     --meter-hot: #e0352b;
 
@@ -90,90 +96,107 @@
     /* (the shades, --hover … --accent-hover, stay default.css's mixes of the colours above, as in every
        built-in skin: the rules below draw this skin's hover, pressed, field and list looks themselves) */
 
-    /* the faces this skin draws again and again */
+    /* sizes of the original */
+    --scrollbar-width: 17px;
+    --title-bar-height: 29px;
+    --window-resize-border: 8px;
+
+    /* the faces this skin draws again and again (measured: a light upper half, a step at the middle) */
     --face: linear-gradient(to bottom, #f2f2f2 0%, #ebebeb 50%, #dddddd 50%, #cfcfcf 100%);
     --face-hover: linear-gradient(to bottom, #eaf6fd 0%, #d9f0fc 50%, #bee6fd 50%, #a7d9f5 100%);
     --face-pressed: linear-gradient(to bottom, #e5f4fc 0%, #c4e5f6 50%, #98d1ef 50%, #68b3db 100%);
     --gloss: linear-gradient(to bottom, #ffffffa6 0%, #ffffff4d 50%, #ffffff00 50%, #0000001a 100%);
-    --select-box: linear-gradient(to bottom, #f2f8fe 0%, #d5e8fb 100%);
-    --select-box-strong: linear-gradient(to bottom, #e6f1fd 0%, #c2dcfb 100%);
-    --glass: linear-gradient(to bottom, #ffffffa6 0%, #ffffff66 49%, #ffffff0d 50%, #ffffff40 100%);
+    /* a hovered row: a pale blue box (menus, lists) */
+    --row-hover: linear-gradient(to bottom, #fafbfd 0%, #ebf3fd 100%);
+    --row-selected: linear-gradient(to bottom, #f2f8fe 0%, #d1e8ff 100%);
+    --row-selected-hover: linear-gradient(to bottom, #e8f3fe 0%, #c4e0fc 100%);
+    /* the command bars of the era's file windows: a light blue strip, a step at the middle */
+    --bar: linear-gradient(to bottom, #fafcfe 0%, #e8eff8 50%, #dce7f5 50%, #e3ecf7 100%);
 }
 
-/* Every window and dialog: a pale blue-white glass face, lighter at the top. Popups are windows too: theirs is
-   their own (below), never the gradient. */
-Window {
-    background-color: var(--window);
-    background-image: linear-gradient(to bottom, #e3ecf7 0%, #d6e2f1 100%);
-}
-ComboPopup, DragImage, SendsPanel { background-image: none; }
+Window { background-color: var(--window); }
 EffectWindow { background-color: transparent; }
 
 /* ============================================ Buttons ============================================ */
 
+/* push buttons: a #707070 edge, round 3 px, a white line inside, the grey face with its step at the middle;
+   under the mouse light blue (#3c7fb1 edge), held deeper blue (#2c628b), the inner shadow of a press */
 Button {
-    background-color: #e1e1e1;
+    background-color: #e6e6e6;
     background-image: var(--face);
     color: var(--button-text);
     border: 1px solid #707070;
     border-radius: 3px;
+    box-shadow: inset 0 0 0 1px #fcfcfcd9;
 }
-PushButton { padding: 4px 14px; }
+PushButton { padding: 3px 12px; }
 Button:hover {
-    background-color: #d0ecfc;
+    background-color: #cdeafb;
     background-image: var(--face-hover);
     border-color: #3c7fb1;
 }
 Button:pressed, Button:checked {
-    background-color: #b6dcf2;
+    background-color: #a8d8f2;
     background-image: var(--face-pressed);
     border-color: #2c628b;
-    box-shadow: inset 0 1px 3px #0f3a5c66;
+    box-shadow: inset 1px 1px 0 #00000033, inset -1px 1px 0 #00000011;
 }
-Button:checked:hover { background-image: var(--face-pressed); border-color: #3c7fb1; }
+Button:checked:hover { border-color: #3c7fb1; }
 
-/* lit (a switched-on accent button, a dialog's default button): the deep blue face with a blue glow */
+/* the default button (and lit ones): a light blue face with the soft cyan glow inside (the original pulses
+   between this and a fainter glow) */
 Button:lit {
-    background-color: #b6dcf2;
-    background-image: var(--face-pressed);
-    color: #0d2238;
-    border-color: #2c628b;
+    background-color: #cdeafb;
+    background-image: var(--face-hover);
+    color: #000000;
+    border-color: #3c7fb1;
+    box-shadow: inset 0 0 3px 1px #34deffdd;
 }
-Button:lit:hover { background-image: var(--face-hover); border-color: #3c7fb1; }
-PushButton:lit:hover { box-shadow: 0 0 4px #4aa6f080, inset 0 0 2px 1px #ffffffb0; }
+Button:lit:hover { border-color: #3c7fb1; box-shadow: inset 0 0 2px 1px #34deffdd; }
+Button:lit:pressed { background-image: var(--face-pressed); border-color: #2c628b; box-shadow: inset 1px 1px 0 #00000033; }
 
 Button:disabled, PushButton:disabled, ToolButton:disabled {
     background-color: #f4f4f4;
     background-image: none;
-    color: var(--disabled-text);
+    color: #838383;
     border-color: #adb2b5;
+    box-shadow: inset 0 0 0 1px #fcfcfc;
+}
+
+/* focus: the blue edge, a light blue line inside (the dotted rectangle of the original: not drawn) */
+PushButton:focus { border-color: #3c7fb1; box-shadow: inset 0 0 0 2px #98d1ef; }
+PushButton:focus:lit { box-shadow: inset 0 0 3px 1px #34deffdd; }
+PushButton:focus:disabled { border-color: #adb2b5; box-shadow: inset 0 0 0 1px #fcfcfc; }
+
+/* flat tool buttons (as on the era's command bars): nothing until the mouse is over them */
+ToolButton.autoRaise {
+    background-color: transparent;
+    background-image: none;
+    border-color: transparent;
     box-shadow: none;
 }
-
-/* focus: a soft blue glow around the button, and a light-blue line just inside its border */
-PushButton:focus { border-color: #3c7fb1; box-shadow: 0 0 4px 1px #4aa6f0a6, inset 0 0 2px 1px #6ec0f4; }
-PushButton:focus:lit { border-color: #2c628b; }
-PushButton:focus:disabled { border-color: #adb2b5; box-shadow: none; }
-
-/* flat tool buttons: nothing until the mouse is over them */
-ToolButton.autoRaise { background-color: transparent; background-image: none; border-color: transparent; }
-ToolButton.autoRaise:hover { background-color: #d0ecfc; background-image: var(--face-hover); border-color: #3c7fb1; }
-ToolButton.autoRaise:pressed, ToolButton.autoRaise:checked {
-    background-color: #b6dcf2;
-    background-image: var(--face-pressed);
-    border-color: #2c628b;
+ToolButton.autoRaise:hover {
+    background-color: #e5f3fb;
+    background-image: linear-gradient(to bottom, #f6fbfe 0%, #e7f4fc 50%, #d5ecfa 50%, #e1f2fc 100%);
+    border-color: #7da2ce;
+    box-shadow: inset 0 0 0 1px #ffffffb3;
 }
-ToolButton.autoRaise:disabled { background-color: transparent; border-color: transparent; }
+ToolButton.autoRaise:pressed, ToolButton.autoRaise:checked {
+    background-color: #c4e2f6;
+    background-image: linear-gradient(to bottom, #e2f0fa 0%, #cde6f7 50%, #b0d8f2 50%, #c6e4f6 100%);
+    border-color: #569de5;
+    box-shadow: inset 1px 1px 1px #0000001f;
+}
+ToolButton.autoRaise:disabled { background-color: transparent; border-color: transparent; box-shadow: none; }
 
-/* toggles with a role (mute, solo, record…): their own colour under the gloss (after the tool buttons' rules,
-   so a flat tool button switched on shows its colour too) */
+/* toggles with a role (mute, solo, record…): their own colour under the gloss */
 Button:toggled, ToolButton.autoRaise:toggled {
     background-color: var(--toggle-color, var(--accent));
     background-image: var(--gloss);
     color: #ffffff;
     text-shadow: 0 1px 1px #00000055;
     border-color: color-mix(in srgb, var(--toggle-color, var(--accent)) 60%, #000000 40%);
-    box-shadow: none;
+    box-shadow: inset 0 0 0 1px #ffffff40;
 }
 Button:toggled:hover, ToolButton.autoRaise:toggled:hover {
     background-color: color-mix(in srgb, var(--toggle-color, var(--accent)) 85%, #ffffff 15%);
@@ -181,595 +204,896 @@ Button:toggled:hover, ToolButton.autoRaise:toggled:hover {
     border-color: color-mix(in srgb, var(--toggle-color, var(--accent)) 60%, #000000 40%);
 }
 Button.toggle-solo:toggled { color: #2a1d00; text-shadow: 0 1px 0 #ffffff80; }
-Button:toggled:disabled { background-color: #f4f4f4; background-image: none; color: var(--disabled-text); border-color: #adb2b5; }
+Button:toggled:disabled { background-color: #f4f4f4; background-image: none; color: #838383; border-color: #adb2b5; }
 
-Button::arrow { background-color: transparent; }
+Button::arrow { background-color: transparent; -tiny-glyph: url(7/arrow-down.svg); -tiny-glyph-tint: color; }
 Button:arrow-hover::arrow { background-color: #98d1ef80; }
-Button::separator { background-color: #9aa5b2; }
+Button::separator { background-color: #8e8f8f; }
 
-IconButton::icon { color: #24364c; }
+IconButton::icon { color: #1e395b; }
 IconButton:checked::icon { color: #0d2238; }
-IconButton:disabled::icon { color: var(--disabled-text); }
+IconButton:disabled::icon { color: #838383; }
 IconButton:toggled::icon { color: #ffffff; }
+
+ButtonBox > Button, ProgressDialog > Button, Button.dialog-button { min-width: 75px; }
 
 /* ===================================== Labels, boxes and tabs ===================================== */
 
-Label:link { color: #0066cc; }
+Label:link { color: #0066cc; text-decoration: none; }
 Label.hint { color: var(--hint-text); }
+Label.heading { color: #003399; font-weight: normal; font-size: 12pt; }
 
+/* check boxes: a 13 px box, #8e8f8f edge, a grey well that shades into it from the top left; under the mouse
+   the well turns light blue (#3c7fb1 edge); the mark a bold tick in blue-grey */
 CheckBox::indicator {
-    background-color: #f4f4f4;
-    background-image: linear-gradient(to bottom, #dcdcdc 0%, #f8f8f8 100%);
-    border: 1px solid #8f8f8f;
-    border-radius: 2px;
-    color: #1d4a7a;
+    width: 13px;
+    height: 13px;
+    margin-right: 6px;
+    padding: 0;
+    background-color: #f6f6f6;
+    border: 1px solid #8e8f8f;
+    border-radius: 0;
+    box-shadow: inset 0 0 0 1px #f4f4f4, inset 1px 1px 0 1px #aeaeae, inset -1px -1px 0 1px #dddddd,
+                inset 3px 3px 6px #cccccc;
+    color: #4a5f97;
 }
 CheckBox:hover::indicator {
-    background-image: linear-gradient(to bottom, #b9dff6 0%, #e9f7fe 100%);
+    background-color: #e9f7fe;
     border-color: #3c7fb1;
+    box-shadow: inset 0 0 0 1px #def9fa, inset 1px 1px 0 1px #79c6f9, inset -1px -1px 0 1px #c6e9fc,
+                inset 3px 3px 6px #b1dffd;
 }
 CheckBox:checked::indicator {
+    background-color: #f6f6f6;
+    border-color: #8e8f8f;
+    -tiny-glyph: url(7/check.svg);
+}
+CheckBox:checked:hover::indicator { background-color: #e9f7fe; border-color: #3c7fb1; }
+CheckBox:pressed::indicator {
+    background-color: #d9f0fc;
+    border-color: #2c628b;
+    box-shadow: inset 0 0 0 1px #c2e4f6, inset 1px 1px 0 1px #5eb6f7, inset -1px -1px 0 1px #9dd5f3,
+                inset 3px 3px 6px #8ccbf3;
+}
+CheckBox:disabled { color: #6d6d6d; }
+CheckBox:disabled::indicator {
     background-color: #f4f4f4;
-    background-image: linear-gradient(to bottom, #dcdcdc 0%, #f8f8f8 100%);
-    border-color: #8f8f8f;
+    background-image: linear-gradient(to bottom right, #f0f0f0, #fbfbfb);
+    border-color: #b1b1b1;
+    box-shadow: none;
 }
-CheckBox:checked:hover::indicator {
-    background-image: linear-gradient(to bottom, #b9dff6 0%, #e9f7fe 100%);
-    border-color: #3c7fb1;
-}
-CheckBox:disabled::indicator { background-color: #f4f4f4; background-image: none; border-color: #c6c6c6; color: #a0a0a0; }
+CheckBox:disabled:checked::indicator { -tiny-glyph: url(7/check-disabled.svg); }
 
 ListWidget::indicator {
-    background-image: linear-gradient(to bottom, #dcdcdc 0%, #f8f8f8 100%);
-    border: 1px solid #8f8f8f;
-    border-radius: 2px;
-    color: #1d4a7a;
+    width: 13px;
+    height: 13px;
+    padding: 0;
+    background-color: #f6f6f6;
+    border: 1px solid #8e8f8f;
+    border-radius: 0;
+    box-shadow: inset 0 0 0 1px #f4f4f4, inset 1px 1px 0 1px #aeaeae, inset -1px -1px 0 1px #dddddd,
+                inset 3px 3px 6px #cccccc;
+    color: #4a5f97;
 }
-ListWidget::indicator:checked { background-color: #f4f4f4; border-color: #8f8f8f; }
+ListWidget::indicator:checked { background-color: #f6f6f6; border-color: #8e8f8f; -tiny-glyph: url(7/check.svg); }
 
-/* group boxes: a light, rounded panel with a thin edge */
+/* group boxes: a light grey-blue edge, round 3 px, a white line inside; the title on the edge */
 GroupBox {
-    background-color: #f3f7fc99;
-    border: 1px solid #c3cfdd;
-    border-radius: 4px;
-    box-shadow: inset 0 1px 0 #ffffffcc;
+    background-color: transparent;
+    border: 1px solid #d5dfe5;
+    border-radius: 3px;
+    box-shadow: inset 0 0 0 1px #ffffff;
+    margin-top: 7px;
+    padding: 10px 9px 9px;
 }
-GroupBox::title { color: #1e3a5f; margin-top: -19px; }
+GroupBox::title {
+    color: #000000;
+    margin: -7px 0 0 8px;
+    padding: 0 2px;
+    background-color: var(--window);
+}
+GroupBox:disabled::title { color: #6d6d6d; }
 
-/* tabs: light rounded tabs, the selected one white and raised */
-TabWidget::base { height: 1px; background-color: #8d9fb5; }
+/* tabs: grey two-tone tabs with a #898c95 edge, light blue under the mouse; the chosen one white, taller and
+   joined to the white page below */
+TabWidget::base { height: 1px; background-color: #898c95; }
 TabWidget::tab {
-    color: #2c3b4e;
-    background-color: #e4ebf4;
-    background-image: linear-gradient(to bottom, #f6f9fd 0%, #e3eaf3 50%, #d8e2ee 50%, #e0e8f2 100%);
-    border: 1px solid #a3b4c8;
+    color: #000000;
+    background-color: #e6e6e6;
+    background-image: var(--face);
+    border: 1px solid #898c95;
     border-bottom-width: 0;
-    border-radius: 3px 3px 0 0;
-    margin: 0 1px;
+    border-radius: 2px 2px 0 0;
+    box-shadow: inset 0 0 0 1px #fcfcfcb3;
+    padding: 2px 6px 3px;
+    margin: 2px 0 0 0;
 }
 TabWidget::tab:hover {
-    color: #10161d;
-    background-image: linear-gradient(to bottom, #f0f8fe 0%, #dcf0fc 50%, #c4e6fb 50%, #d6eefc 100%);
+    background-color: #cdeafb;
+    background-image: var(--face-hover);
     border-color: #3c7fb1;
 }
 TabWidget::tab:selected {
-    color: #10161d;
     background-color: #ffffff;
-    background-image: linear-gradient(to bottom, #ffffff 0%, #fbfcfe 100%);
-    border-color: #8d9fb5;
+    background-image: none;
+    border-color: #898c95;
+    box-shadow: none;
+    padding: 3px 6px 4px;
+    margin: 0 -2px 0 -2px;
 }
+TabWidget::tab:disabled { color: #838383; }
 TabWidget::tab-line { height: 0; }
 TabWidget::pane {
-    background-color: #fbfcfe;
-    background-image: linear-gradient(to bottom, #ffffff 0%, #f3f7fc 100%);
-    border: 1px solid #8d9fb5;
+    background-color: #ffffff;
+    border: 1px solid #898c95;
     border-top-width: 0;
-    border-radius: 0 0 3px 3px;
-    padding: 6px;
+    padding: 8px;
 }
 
-Separator { color: #b2c0d1; }
-/* upright dividers (the transport's): etched, a shaded line beside a white one */
-Separator:vertical { border-left: 1px solid #8ea8c6; border-right: 1px solid #ffffffb3; width: 2px; }
-SplitterHandle { color: #b9c7d8; }
+Separator { color: #d5dfe5; }
+/* upright dividers: etched, a shaded line beside a white one */
+Separator:vertical { border-left: 1px solid #a0afc3; border-right: 1px solid #ffffffb3; width: 2px; }
+SplitterHandle { color: #d5dfe5; }
 SplitterHandle:hover, SplitterHandle:pressed { color: #3c7fb1; }
 
-/* the status bar: a light glass strip */
+/* the status bar: the grey face with a light line along its top */
 StatusBar {
-    color: #1e2b3c;
-    background-color: #dbe6f3;
-    background-image: linear-gradient(to bottom, #eef4fb 0%, #dbe6f3 100%);
+    color: #000000;
+    background-color: #f0f0f0;
+    background-image: linear-gradient(to bottom, #f6f6f6 0%, #ececec 100%);
 }
-StatusBar::separator { background-color: #a9bbd1; }
+StatusBar::separator { background-color: #d7d7d7; }
 
+/* tooltips: rounded, white fading to a light grey, a #767676 edge; a soft shadow while see-through */
 ToolTip {
-    background-color: #fbfcfe;
+    background-color: #f6f6f8;
     background-image: linear-gradient(to bottom, #ffffff 0%, #e4e5f0 100%);
-    color: #3b3b3b;
+    color: #575757;
     border: 1px solid #767676;
     border-radius: 3px;
-    padding: 4px 6px;
+    padding: 3px 6px 4px;
 }
 
-/* message box signs: glossy round signs */
-MessageIcon { background-color: #2a73c6; color: #ffffff; }
-MessageIcon.warning { background-color: #f0b41c; color: #2a1d00; }
-MessageIcon.critical { background-color: #d8382d; }
+/* the message box signs: drawn for this skin (7/msg-…) */
+MessageIcon { width: 32px; height: 32px; background-color: #2f7fd6; color: #ffffff; -tiny-glyph: url(7/msg-information.svg); }
+MessageIcon.question { -tiny-glyph: url(7/msg-question.svg); }
+MessageIcon.warning { background-color: #f6cf2e; color: #2a2100; -tiny-glyph: url(7/msg-warning.svg); }
+MessageIcon.critical { background-color: #e03a2c; -tiny-glyph: url(7/msg-critical.svg); }
 
-/* progress: the green glossy bar */
+/* progress: the grey glass trough with dark ends and the glossy green bar */
 ProgressBar {
-    background-color: #e6e6e6;
-    background-image: linear-gradient(to bottom, #f3f3f3 0%, #e0e0e0 50%, #d6d6d6 50%, #e4e4e4 100%);
-    color: #1b1f24;
-    border: 1px solid #b2b2b2;
+    height: 15px;
+    background-color: #dddddd;
+    background-image: radial-gradient(circle at 0 50%, #0000001f 10px, transparent 30px),
+                      radial-gradient(circle at 100% 50%, #0000001f 10px, transparent 30px),
+                      linear-gradient(to bottom, #f3f3f3af 0, #fcfcfcaf 3px, #dbdbdbaf 6px, #cacacaaf 6px, #d5d5d5af 100%);
+    color: transparent;  /* (no percentage on the bar, as in the original) */
+    border: 1px solid #8e8f8f;
     border-radius: 3px;
+    box-shadow: inset 0 0 0 1px #f3f3f388;
 }
 ProgressBar::chunk {
-    background-color: #06b025;
-    background-image: linear-gradient(to bottom, #ccf5d2 0%, #6fd47f 45%, #22b33b 50%, #34c74e 100%);
-    color: #0a2a10;
-    border-radius: 2px;
+    background-color: #0bd82c;
+    background-image: linear-gradient(to bottom, #f3f3f3af 0, #fcfcfcaf 3px, #dbdbdbaf 6px, transparent 6px),
+                      radial-gradient(circle at 0 50%, #0000002f 10px, transparent 30px),
+                      radial-gradient(circle at 100% 50%, #0000002f 10px, transparent 30px),
+                      linear-gradient(to bottom, transparent 65%, #ffffff55 100%);
+    color: transparent;
+    border-radius: 0;
+    box-shadow: inset 0 0 0 1px #ffffff1f;
 }
 
 /* ========================================= Fields and lists ========================================= */
 
-LineEdit, SpinBox, ComboBox {
+/* text fields: white, each side its own shade of the soft edge (darker on top), blue under the mouse and
+   bluer with the focus */
+LineEdit, SpinBox {
     background-color: #ffffff;
-    border: 1px solid #abadb3;
-    border-top-color: #8f9398;
+    color: #000000;
+    border: 1px solid;
+    border-color: #abadb3 #dbdfe6 #e3e9ef #e2e3ea;
     border-radius: 2px;
 }
-LineEdit:frameless { background-color: transparent; border-width: 0; }
-LineEdit:hover, SpinBox:hover, ComboBox:hover { border-color: #7eb4ea; }
-LineEdit:focus, SpinBox:focus, ComboBox:focus, ComboBox:open { border-color: #3d7bad; box-shadow: 0 0 3px 1px #2f86dcb0; }
-LineEdit:frameless:focus { box-shadow: none; }  /* (the spin box or combo box around it glows) */
-LineEdit:disabled, SpinBox:disabled, ComboBox:disabled { background-color: #f4f4f4; border-color: #c9cbd0; }
+LineEdit { padding: 3px 4px 4px; }
+LineEdit:frameless { background-color: transparent; border-width: 0; padding: 3px 4px; }
+LineEdit:hover, SpinBox:hover { border-color: #5794bf #b7d5ea #c7e2f1 #c5daed; }
+LineEdit:focus, SpinBox:focus { border-color: #3d7bad #a4c9e3 #b7d9ed #b5cfe7; }
+LineEdit:disabled, SpinBox:disabled {
+    background-color: #f0f0f0;
+    color: #6d6d6d;
+    border-color: #afafaf;
+    box-shadow: inset 0 0 0 1px #ffffff;
+}
 LineEdit::selection { background-color: #3399ff; color: #ffffff; }
+LineEdit::placeholder { color: #6d6d6d; }
+LineEdit::cursor { background-color: #000000; }
+
+/* spin boxes: the two small buttons at the right, each a face of its own, blue under the mouse */
+SpinBox { padding: 3px 6px 4px 4px; }
+SpinBox::up-button, SpinBox::down-button {
+    width: 15px;
+    background-color: #ececec;
+    background-image: linear-gradient(to bottom, #f2f2f2 0%, #e9e9e9 50%, #dfdfdf 100%);
+    border: 1px solid #a6a6a6;
+    border-radius: 2px;
+    box-shadow: inset 0 0 0 1px #fcfcfcb3;
+    color: #000000;
+}
+SpinBox::up-button { -tiny-glyph: url(7/spin-up.svg); -tiny-glyph-tint: color; }
+SpinBox::down-button { -tiny-glyph: url(7/spin-down.svg); -tiny-glyph-tint: color; }
 SpinBox:up-hover::up-button, SpinBox:down-hover::down-button {
-    background-color: #e3f2fc;
-    background-image: linear-gradient(to bottom, #eaf6fd 0%, #bee6fd 100%);
+    background-color: #cdeafb;
+    background-image: linear-gradient(to bottom, #eaf6fd 0%, #bee6fd 50%, #a7d9f5 100%);
+    border-color: #3c7fb1;
+}
+SpinBox:up-pressed::up-button, SpinBox:down-pressed::down-button {
+    background-color: #a8d8f2;
+    background-image: linear-gradient(to bottom, #e5f4fc 0%, #98d1ef 50%, #68b3db 100%);
+    border-color: #2c628b;
+}
+SpinBox:at-maximum::up-button, SpinBox:at-minimum::down-button { color: #b1b1b1; }
+SpinBox:disabled::up-button, SpinBox:disabled::down-button {
+    background-color: #f4f4f4;
+    background-image: none;
+    border-color: #c4c4c4;
+    color: #b1b1b1;
 }
 
-/* a combo box's ▾ end */
-ComboBox::arrow { color: #3a4a5c; }
-ComboBox:hover::arrow { background-image: linear-gradient(to bottom, #eaf6fd 0%, #bee6fd 100%); }
-
-/* the drop-down's list: white with rounded light-blue rows */
-ComboPopup { background-color: #ffffff; border: 1px solid #8d9fb5; padding: 2px; }
-ComboPopup::item:selected, ComboPopup::item:hover {
-    background-color: #dcebfc;
-    background-image: var(--select-box);
-    color: var(--highlighted-text);
-    border: 1px solid #84acdd;
+/* drop-down lists: a button face with the black ▾ at the right (light blue under the mouse, deeper while open);
+   one you can type in: a white field with the ▾ on a small button at its end */
+ComboBox {
+    background-color: #e6e6e6;
+    background-image: var(--face);
+    color: #000000;
+    border: 1px solid #707070;
     border-radius: 3px;
+    box-shadow: inset 0 0 0 1px #fcfcfcd9;
+    padding: 3px 6px 3px 4px;
 }
+ComboBox:hover { background-color: #cdeafb; background-image: var(--face-hover); border-color: #3c7fb1; }
+ComboBox:open, ComboBox:pressed {
+    background-color: #a8d8f2;
+    background-image: var(--face-pressed);
+    border-color: #2c628b;
+    box-shadow: inset 1px 1px 0 #00000033, inset -1px 1px 0 #00000011;
+}
+ComboBox:focus { border-color: #3c7fb1; box-shadow: inset 0 0 0 2px #98d1ef; }
+ComboBox:disabled {
+    background-color: #f4f4f4;
+    background-image: none;
+    color: #838383;
+    border-color: #adb2b5;
+    box-shadow: inset 0 0 0 1px #fcfcfc;
+}
+ComboBox::arrow {
+    width: 17px;
+    padding-left: 0;
+    background-color: transparent;
+    color: #000000;
+    -tiny-glyph: url(7/arrow-down.svg);
+    -tiny-glyph-tint: color;
+}
+ComboBox:disabled::arrow { color: #afafaf; }
+ComboBox:editable {
+    background-color: #ffffff;
+    background-image: none;
+    border-color: #abadb3 #dbdfe6 #e3e9ef #e2e3ea;
+    border-radius: 2px;
+    box-shadow: none;
+}
+ComboBox:editable:hover { border-color: #5794bf #b7d5ea #c7e2f1 #c5daed; }
+ComboBox:editable:focus, ComboBox:editable:open { border-color: #3d7bad #a4c9e3 #b7d9ed #b5cfe7; box-shadow: none; }
+ComboBox:editable::arrow {
+    background-color: #e6e6e6;
+    background-image: var(--face);
+    border: 1px solid #8e8f8f;
+    border-radius: 0 2px 2px 0;
+    box-shadow: inset 0 0 0 1px #fcfcfcd9;
+}
+ComboBox:editable:hover::arrow { background-color: #cdeafb; background-image: var(--face-hover); border-color: #3c7fb1; }
 
-/* list rows: the soft blue selection box */
-ListWidget, TreeWidget, FileList { background-color: #ffffff; }
-ListWidget::item:selected, TreeWidget::item:selected, FileList::item:selected {
-    background-color: #d5e8fb;
-    background-image: var(--select-box-strong);
-    color: var(--highlighted-text);
-    border: 1px solid #84acdd;
-    border-radius: 3px;
-}
+/* the drop-down's list: white with a dark edge; the row under the mouse in the system's blue */
+ComboPopup { background-color: #ffffff; border: 1px solid #646464; border-radius: 0; padding: 1px; }
+ComboPopup::item { padding: 2px 4px; color: #000000; }
+ComboPopup::item:selected, ComboPopup::item:hover { background-color: #3399ff; color: #ffffff; }
+ComboPopup::item:disabled { color: #6d6d6d; }
+ComboPopup::separator { background-color: #d7d7d7; }
+
+/* lists: white with a #828790 edge; the row under the mouse a pale blue box, the chosen ones a light blue box
+   with a blue edge (as the era's file lists) */
+ListWidget, TreeWidget, FileList { background-color: #ffffff; border: 1px solid #828790; }
+ListWidget::item, TreeWidget::item, FileList::item { color: #000000; border: 1px solid transparent; border-radius: 3px; }
+ListWidget::item:alternate { background-color: #f7f9fc; }
 ListWidget::item:hover, TreeWidget::item:hover, FileList::item:hover {
-    background-color: #eef6fe;
-    background-image: linear-gradient(to bottom, #fafcfe 0%, #e8f2fd 100%);
-    border: 1px solid #b8d6fb;
-    border-radius: 3px;
+    background-color: #eef5fd;
+    background-image: var(--row-hover);
+    border-color: #b8d6fb;
+    box-shadow: inset 0 0 0 1px #ffffff99;
+}
+ListWidget::item:selected, TreeWidget::item:selected, FileList::item:selected {
+    background-color: #dcebfc;
+    background-image: var(--row-selected);
+    color: #000000;
+    border-color: #84acdd;
+    box-shadow: inset 0 0 0 1px #ffffff80;
 }
 ListWidget::item:selected:hover, TreeWidget::item:selected:hover, FileList::item:selected:hover {
-    background-image: linear-gradient(to bottom, #dcebfc 0%, #b2d2f7 100%);
+    background-image: var(--row-selected-hover);
     border-color: #7da2ce;
 }
-TreeWidget::branch:selected { color: #10161d; }
-FileList::icon { color: #c79a2e; }
-FileList::icon:selected { color: #a77b14; }
-FileList::detail:selected { color: #3b4b5d; }
+ListWidget::item:disabled, TreeWidget::item:disabled { color: #6d6d6d; }
+
+/* the tree's arrows: an open triangle while closed, a filled corner triangle while open (blue under the mouse) */
+TreeWidget::branch { width: 18px; padding: 0 4px; color: #595959; -tiny-glyph: url(7/tree-closed.svg); }
+TreeWidget::branch:open { -tiny-glyph: url(7/tree-open.svg); }
+TreeWidget::branch:hover { -tiny-glyph: url(7/tree-closed-hover.svg); }
+TreeWidget::branch:open:hover { -tiny-glyph: url(7/tree-open-hover.svg); }
+TreeWidget::branch:selected { color: #000000; }
+
+FileList::icon { color: #d9a93a; }
+FileList::icon:selected { color: #b8871a; }
+FileList::detail { color: #6d6d6d; }
+FileList::detail:selected { color: #3b3b3b; }
 FileList::header {
     background-color: #ffffff;
-    background-image: linear-gradient(to bottom, #ffffff 0%, #f1f4f8 100%);
+    background-image: linear-gradient(to bottom, #ffffff 0%, #ffffff 45%, #fafafa 45%, #f0f0f0 100%);
     color: #4c607a;
-    border-color: #d5dde7;
+    border-color: #d5d5d5;
 }
 
 /* =============================================== Menus =============================================== */
 
-/* the menu bar: a light glass strip */
+/* the menu bar: a white-to-blue strip with a step below the middle, a grey line under it */
 MenuBar {
-    background-color: #dbe6f3;
-    background-image: linear-gradient(to bottom, #f6f9fd 0%, #e6eef7 50%, #dae5f1 50%, #e2eaf4 100%);
-    border-bottom: 1px solid #b4c4d8;
+    background-color: #e5eaf5;
+    background-image: linear-gradient(to bottom, #fefeff 0%, #e5eaf5 37%, #d4dbed 37%, #e1e6f6 100%);
+    border-bottom: 1px solid #b6bccc;
 }
-MenuBar::item { color: #1b1f24; border: 1px solid transparent; border-radius: 3px; }
+MenuBar::item { padding: 2px 7px; color: #000000; border: 1px solid transparent; border-radius: 3px; }
 MenuBar::item:hover {
-    background-color: #dcebfc;
-    background-image: linear-gradient(to bottom, #f5faff 0%, #ddedfc 50%, #c9e2fb 50%, #d8eafc 100%);
-    border-color: #7da2ce;
+    background-color: #e8f0fb;
+    background-image: linear-gradient(to bottom, #fbfcfe 0%, #e7eef9 100%);
+    border-color: #aecff7;
+    box-shadow: inset 0 0 0 1px #ffffff99;
 }
 MenuBar::item:open {
-    background-color: #c9e2fb;
-    background-image: linear-gradient(to bottom, #e4f0fd 0%, #c4ddf8 100%);
-    border-color: #6e93c0;
-    box-shadow: inset 0 1px 2px #1c3c6440;
+    background-color: #dbe4f2;
+    background-image: linear-gradient(to bottom, #e6ebf4 0%, #d6dfee 100%);
+    border-color: #8ea3c2;
+    box-shadow: inset 1px 1px 1px #00000022;
 }
+MenuBar::item:disabled { color: #6d6d6d; }
 
-/* the menus: white with a light gutter down the left for the check marks */
+/* menus: a #979797 edge, a 2 px lighter frame, a grey gutter down the left with an etched line beside it;
+   the row under the mouse a rounded pale blue box with a #aecff7 edge; a soft shadow while see-through */
 Menu {
-    background-color: #fcfcfc;
-    background-image: linear-gradient(to right, #f1f1f1 0, #f1f1f1 27px, #e2e3e3 27px, #e2e3e3 28px,
-                                      #ffffff 28px, #ffffff 29px, #fcfcfc 29px);
+    background-color: #f5f5f5;
+    background-image: linear-gradient(to right, #f1f1f1 0, #f1f1f1 26px, #e2e3e3 26px, #e2e3e3 27px,
+                                      #ffffff 27px, #ffffff 28px, #f0f0f0 28px),
+                      linear-gradient(#f5f5f5, #f5f5f5);
+    background-origin: content-box, padding-box;
+    background-clip: content-box, padding-box;
     border: 1px solid #979797;
-    padding: 3px 2px;
+    padding: 2px;
 }
-Menu::item { padding: 4px 26px 4px 34px; color: #1b1f24; border: 1px solid transparent; border-radius: 3px; }
+Menu::item { padding: 3px 20px 2px 31px; color: #000000; border: 1px solid transparent; border-radius: 3px; }
 Menu::item:hover {
-    background-color: #e3eefc;
-    background-image: linear-gradient(to bottom, #f2f8fe 0%, #dcebfc 100%);
-    color: #10161d;
-    border-color: #a8c8eb;
+    background-color: #e8eff8;
+    background-image: linear-gradient(to bottom, #f2f4f6 0%, #e6edf6 100%);
+    color: #000000;
+    border-color: #aecff7;
+    box-shadow: inset 0 0 0 1px #ffffff80;
 }
-Menu::item:disabled, Menu::item:section { color: #8d96a1; }
-Menu::item:disabled:hover { background-image: linear-gradient(to bottom, #f5f5f5 0%, #ebebeb 100%); border-color: #d6d6d6; }
-Menu::separator { height: 1px; margin: 3px 2px 3px 31px; background-color: #e0e0e0; }
-Menu::check { width: 10px; margin-left: 10px; color: #1d4a7a; }
+Menu::item:disabled, Menu::item:section { color: #6d6d6d; }
+Menu::item:section { font-weight: bold; }
+Menu::item:disabled:hover {
+    background-image: linear-gradient(to bottom, #f6f6f6 0%, #eaeaea 100%);
+    border-color: #d8d8d8;
+}
+Menu::separator {
+    height: 2px;
+    margin: 3px 0 2px 28px;
+    background-color: #e0e0e0;
+    background-image: linear-gradient(to bottom, #e0e0e0 50%, #ffffff 50%);
+}
+Menu::check { width: 22px; margin-left: 0; color: #0c12a1; -tiny-glyph: url(7/menu-check.svg); }
+Menu::arrow {
+    width: 10px;
+    margin-left: 4px;
+    margin-right: 2px;
+    color: #000000;
+    -tiny-glyph: url(7/arrow-right.svg);
+    -tiny-glyph-tint: color;
+}
+Menu::arrow:disabled { color: #6d6d6d; }
+Menu::shortcut { margin-left: 24px; }
 
 /* ============================================ Scroll bars ============================================ */
 
-ScrollBar { background-color: #eaeef3; }
-ScrollBar:vertical { background-image: linear-gradient(to right, #e2e6eb 0%, #f2f4f7 100%); }
-ScrollBar:horizontal { background-image: linear-gradient(to bottom, #e2e6eb 0%, #f2f4f7 100%); }
+/* 17 px: a light trough shaded at its near edge; the thumb a grey face split down the middle with a grip,
+   blue under the mouse; arrow buttons that show their face only under the mouse */
+ScrollBar { background-color: #f0f0f0; }
+ScrollBar:vertical { background-image: linear-gradient(to right, #e5e5e5 0%, #f0f0f0 20%); }
+ScrollBar:horizontal { background-image: linear-gradient(to bottom, #e5e5e5 0%, #f0f0f0 20%); }
 ScrollBar::thumb {
-    background-color: #dcdfe3;
-    border: 1px solid #959ba3;
+    background-color: #e6e6e6;
+    border: 1px solid #8e8f8f;
     border-radius: 3px;
-    margin: 1px;
+    box-shadow: inset 0 0 0 1px #fffc;
+    min-width: 17px;
+    min-height: 17px;
 }
 ScrollBar:vertical::thumb {
-    background-image: linear-gradient(to right, #f6f6f6 0%, #ebebeb 50%, #d8d8d8 50%, #e2e2e2 100%);
+    margin: 0 1px;
+    background-image: url(7/grip-v.svg),
+                      linear-gradient(to right, #f2f2f2 0%, #f2f2f2 45%, #ebebeb 45%, #cfcfcf 100%);
+    background-position: center, 0 0;
+    background-repeat: no-repeat;
 }
 ScrollBar:horizontal::thumb {
-    background-image: linear-gradient(to bottom, #f6f6f6 0%, #ebebeb 50%, #d8d8d8 50%, #e2e2e2 100%);
+    margin: 1px 0;
+    background-image: url(7/grip-h.svg),
+                      linear-gradient(to bottom, #f2f2f2 0%, #f2f2f2 45%, #ebebeb 45%, #cfcfcf 100%);
+    background-position: center, 0 0;
+    background-repeat: no-repeat;
 }
-ScrollBar:vertical::thumb:hover, ScrollBar:vertical::thumb:pressed {
-    background-image: linear-gradient(to right, #eaf6fd 0%, #d9f0fc 50%, #bee6fd 50%, #a7d9f5 100%);
+ScrollBar:vertical::thumb:hover {
+    background-image: url(7/grip-v.svg), linear-gradient(to right, #eaf6fd 0%, #eaf6fd 45%, #bee6fd 45%, #a7d9f5 100%);
     border-color: #3c7fb1;
 }
-ScrollBar:horizontal::thumb:hover, ScrollBar:horizontal::thumb:pressed {
-    background-image: linear-gradient(to bottom, #eaf6fd 0%, #d9f0fc 50%, #bee6fd 50%, #a7d9f5 100%);
+ScrollBar:horizontal::thumb:hover {
+    background-image: url(7/grip-h.svg), linear-gradient(to bottom, #eaf6fd 0%, #eaf6fd 45%, #bee6fd 45%, #a7d9f5 100%);
     border-color: #3c7fb1;
+}
+ScrollBar:vertical::thumb:pressed {
+    background-image: url(7/grip-v.svg), linear-gradient(to right, #c4e5f6 0%, #c4e5f6 45%, #98d1ef 45%, #68b3db 100%);
+    border-color: #6d91ab;
+}
+ScrollBar:horizontal::thumb:pressed {
+    background-image: url(7/grip-h.svg), linear-gradient(to bottom, #c4e5f6 0%, #c4e5f6 45%, #98d1ef 45%, #68b3db 100%);
+    border-color: #6d91ab;
+}
+ScrollBar::sub-line, ScrollBar::add-line {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 3px;
+}
+ScrollBar:vertical::sub-line, ScrollBar:vertical::add-line { height: 17px; }
+ScrollBar:horizontal::sub-line, ScrollBar:horizontal::add-line { width: 17px; }
+ScrollBar:vertical::sub-line { -tiny-glyph: url(7/scroll-up.svg); }
+ScrollBar:vertical::add-line { -tiny-glyph: url(7/scroll-down.svg); }
+ScrollBar:horizontal::sub-line { -tiny-glyph: url(7/scroll-left.svg); }
+ScrollBar:horizontal::add-line { -tiny-glyph: url(7/scroll-right.svg); }
+ScrollBar:vertical::sub-line:hover, ScrollBar:vertical::add-line:hover {
+    background-color: #d5eefc;
+    background-image: linear-gradient(to right, #eaf6fd 0%, #eaf6fd 45%, #bee6fd 45%, #a7d9f5 100%);
+    border-color: #3c7fb1;
+    box-shadow: inset 0 0 0 1px #fffc;
+}
+ScrollBar:horizontal::sub-line:hover, ScrollBar:horizontal::add-line:hover {
+    background-color: #d5eefc;
+    background-image: linear-gradient(to bottom, #eaf6fd 0%, #eaf6fd 45%, #bee6fd 45%, #a7d9f5 100%);
+    border-color: #3c7fb1;
+    box-shadow: inset 0 0 0 1px #fffc;
+}
+ScrollBar:vertical::sub-line:pressed, ScrollBar:vertical::add-line:pressed {
+    background-color: #b1dcf3;
+    background-image: linear-gradient(to right, #c4e5f6 0%, #c4e5f6 45%, #98d1ef 45%, #68b3db 100%);
+    border-color: #6d91ab;
+    box-shadow: inset 0 0 0 1px #fffc;
+}
+ScrollBar:horizontal::sub-line:pressed, ScrollBar:horizontal::add-line:pressed {
+    background-color: #b1dcf3;
+    background-image: linear-gradient(to bottom, #c4e5f6 0%, #c4e5f6 45%, #98d1ef 45%, #68b3db 100%);
+    border-color: #6d91ab;
+    box-shadow: inset 0 0 0 1px #fffc;
 }
 
 /* ============================================== Sliders ============================================== */
 
-Slider::groove { background-color: #c9d1db; border-radius: 2px; }
-Slider::fill { background-color: #4a90cf; }
-Slider::fill:disabled { background-color: #b9c3cf; }
+/* the trough a sunken 4 px groove; the thumb a glossy pointer (7/slider…), blue under the mouse */
+Slider { height: 22px; min-height: 22px; }
+Slider:vertical { width: 22px; min-width: 22px; height: 84px; }
+Slider::groove {
+    width: 4px;
+    height: 4px;
+    background-color: #e7eaea;
+    border: 1px solid;
+    border-color: #a0a0a0 #e0e0e0 #ffffff #a0a0a0;
+    border-radius: 0;
+}
+Slider::fill, Slider::fill:disabled { background-color: transparent; }
 Slider::handle {
-    background-color: #e8e8e8;
-    background-image: linear-gradient(to bottom, #fbfbfb 0%, #ececec 50%, #d9d9d9 50%, #e6e6e6 100%);
-    border: 1px solid #6f7a87;
+    width: 11px;
+    height: 19px;
+    background-color: transparent;
+    background-image: url(7/slider.svg);
+    border-radius: 0;
 }
-Slider::handle:hover, Slider::handle:pressed {
-    background-color: #c4e5f6;
-    background-image: linear-gradient(to bottom, #f0f9fe 0%, #d9f0fc 50%, #b2e0fb 50%, #c9ebfd 100%);
-    border-color: #3c7fb1;
-}
-Slider::handle:disabled { background-image: none; background-color: #eeeeee; border-color: #b9bec4; }
+Slider::handle:hover { background-color: transparent; background-image: url(7/slider-hover.svg); }
+Slider::handle:pressed { background-color: transparent; background-image: url(7/slider-pressed.svg); }
+Slider::handle:disabled { background-color: transparent; background-image: url(7/slider-disabled.svg); }
+Slider:vertical::handle { width: 19px; height: 11px; background-image: url(7/slider-v.svg); }
+Slider:vertical::handle:hover { background-image: url(7/slider-v-hover.svg); }
+Slider:vertical::handle:pressed { background-image: url(7/slider-v-pressed.svg); }
+Slider:vertical::handle:disabled { background-image: url(7/slider-v-disabled.svg); }
 
 /* ============================================= Top bar =============================================== */
 
-/* the transport: a sky-blue glass bar, white over blue, a bright line along its top */
+/* the transport: the light blue command bar of the era's file windows */
 Transport {
-    background-color: #8bbbea;
-    background-image: var(--glass), linear-gradient(to bottom, #9fc8f0 0%, #77abe0 100%);
+    background-color: #e3ecf7;
+    background-image: var(--bar);
     border-width: 0 0 1px 0;
-    border-color: #6f93bf;
-    box-shadow: inset 0 1px 0 #ffffff, inset 0 -1px 0 #ffffff59;
+    border-color: #a0afc3;
+    box-shadow: inset 0 1px 0 #ffffff;
 }
-Transport Label { color: #0f1f33; text-shadow: 0 0 5px #ffffff, 0 0 2px #ffffff; }
+Transport Label { color: #1e395b; }
 
 /* the CPU monitor beside the ruler */
 CpuMonitor {
-    background-color: #e8f0f9;
-    background-image: linear-gradient(to bottom, #fdfeff 0%, #eef4fb 50%, #e0eaf6 50%, #e9f1fa 100%);
-    color: #23384f;
-    border-color: #b4c4d8;
+    background-color: #f1f5fb;
+    background-image: linear-gradient(to bottom, #ffffff 0%, #eef3fa 50%, #e3ebf6 50%, #eaf0f8 100%);
+    color: #1e395b;
+    border-color: #a0afc3;
 }
-CpuMonitor::track { background-color: #cdd7e3; border-radius: 1px; }
-CpuMonitor::bar:ok, CpuMonitor::bar:warn, CpuMonitor::bar:hot { background-image: var(--gloss); border-radius: 1px; }
+CpuMonitor::track { background-color: #e6e6e6; border: 1px solid #b2b2b2; border-radius: 2px; }
+CpuMonitor::bar:ok, CpuMonitor::bar:warn, CpuMonitor::bar:hot { background-image: var(--gloss); }
 
 /* ============================================== Timeline ============================================= */
 
-/* the timeline's frame: a thin edge around the ruler, the lanes and the master */
-ScrollArea#timeline { border: 1px solid #9fb2c9; }
+ScrollArea#timeline { border: 1px solid #828790; }
 
 Ruler {
-    background-color: #e8f0f9;
-    background-image: linear-gradient(to bottom, #fdfeff 0%, #eef4fb 50%, #e0eaf6 50%, #e9f1fa 100%);
-    border-bottom: 1px solid #b4c4d8;
+    background-color: #f1f5fb;
+    background-image: linear-gradient(to bottom, #ffffff 0%, #f3f7fc 50%, #e6eef8 50%, #edf3fa 100%);
+    border-bottom: 1px solid #a0afc3;
 }
 Ruler::marker { background-color: #3c7fb1; color: #ffffff; border-radius: 2px; }
 Ruler::tempo { color: #1d5f99; }
 
-Lane.group { border-top-color: #c3cfdd; }
-MasterLane { background-image: linear-gradient(to bottom, #f1f6fc 0%, #e3edf8 100%); }
+Lane.group { border-top-color: #c9d6e6; }
+MasterLane { background-image: linear-gradient(to bottom, #f4f8fd 0%, #e4edf8 100%); }
 
-Overview { background-image: linear-gradient(to bottom, #f4f8fc 0%, #e4ecf6 100%); }
-OverviewCaption { background-image: linear-gradient(to bottom, #f4f8fc 0%, #e4ecf6 100%); color: #4c607a; }
+Overview { background-image: linear-gradient(to bottom, #f6f9fd 0%, #e8eff8 100%); }
+OverviewCaption { background-image: linear-gradient(to bottom, #f6f9fd 0%, #e8eff8 100%); color: #1e395b; }
 
 Clip::fade { background-color: rgba(255, 255, 255, 0.35); }
 
-/* track rows: panels in their track's colour with a glass sheen (white over the colour, lighter at the top) and
-   a bright line along their top */
+/* track rows: panels in their track's colour with a white sheen and a bright line along their top */
 TrackRow {
-    border-top-color: #d6dfea;
-    background-image: linear-gradient(to bottom, #ffffff59 0%, #ffffff26 100%);
-    box-shadow: inset 0 1px 0 #ffffff80;
+    border-top-color: #d5dfe9;
+    background-image: linear-gradient(to bottom, #ffffff66 0%, #ffffff26 100%);
+    box-shadow: inset 0 1px 0 #ffffff99;
 }
 TrackRow.automation, TrackRow.take { background-image: none; box-shadow: none; }
-LaneFrame::edge { background-color: #b9c7d8; }
-LaneFrame::current { border-color: #3c7fb1; }
+LaneFrame::edge { background-color: #c3cfdd; }
+LaneFrame::current { border-color: #3399ff; }
 LaneFrame.master {
-    background-color: #e6eff9;
-    background-image: linear-gradient(to bottom, #f4f8fd 0%, #e2ecf8 100%);
+    background-color: #e8f0f9;
+    background-image: linear-gradient(to bottom, #f5f9fd 0%, #e2ecf8 100%);
     box-shadow: inset 0 1px 0 #ffffff;
 }
-.pin-cover { background-color: #dde7f3; }
+.pin-cover { background-color: #f0f0f0; }
 
-PanKnob { background-color: #e4e4e4; }
+/* a row's small sliders: a compact glossy thumb that fits the row */
+TrackRow Slider::handle, LaneFrame Slider::handle, SendsPanel Slider::handle {
+    width: 9px;
+    height: 13px;
+    background-color: #e9e9e9;
+    background-image: linear-gradient(to bottom, #fbfbfb 0%, #ececec 50%, #d9d9d9 50%, #e2e2e2 100%);
+    border: 1px solid #686868;
+    border-radius: 2px;
+}
+TrackRow Slider::handle:hover, LaneFrame Slider::handle:hover, SendsPanel Slider::handle:hover,
+TrackRow Slider::handle:pressed, LaneFrame Slider::handle:pressed, SendsPanel Slider::handle:pressed {
+    background-color: #cdeafb;
+    background-image: linear-gradient(to bottom, #eaf6fd 0%, #d9f0fc 50%, #bee6fd 50%, #a7d9f5 100%);
+    border-color: #3c7fb1;
+}
+TrackRow Slider, LaneFrame Slider, SendsPanel Slider { height: 14px; min-height: 14px; }
+
+PanKnob { background-color: #e6e6e6; }
 PanKnob::pointer { color: #1e2b3c; }
 PanKnob::arc { color: #3c7fb1; }
 
 SendsPanel {
-    background-color: #f3f7fc;
-    border: 1px solid #8d9fb5;
-    border-radius: 3px;
-    box-shadow: inset 0 1px 0 #ffffff;
+    background-color: #f0f0f0;
+    border: 1px solid #979797;
+    border-radius: 0;
 }
 
 /* =============================================== Meters ============================================== */
 
-/* a sunken light track with a thin edge; glossy bars (white over the top half of each colour, a hard stop,
-   then the colour a little deeper) */
+/* a sunken light track; glossy bars (white over the top half of each colour) */
 LevelMeter::track {
-    background-color: #e3e8ee;
-    background-image: linear-gradient(to bottom, #d3d9e1 0%, #eef1f5 100%);
-    border: 1px solid #a9b4c2;
+    background-color: #e6e6e6;
+    background-image: linear-gradient(to bottom, #d6d6d6 0%, #efefef 100%);
+    border: 1px solid #8e8f8f;
     border-radius: 2px;
 }
 LevelMeter::bar:ok, LevelMeter::bar:warn, LevelMeter::bar:hot,
 LevelMeter::peak:ok, LevelMeter::peak:warn, LevelMeter::peak:hot { background-image: var(--gloss); }
-LevelMeter::number { background-color: #eef2f7; color: #23384f; }
+LevelMeter::number { background-color: #f0f0f0; color: #1e395b; }
 
-Scope { background-color: #f9fbfe; border: 1px solid #a9b8cb; border-radius: 2px; }
+Scope { background-color: #ffffff; border: 1px solid #828790; border-radius: 0; }
 Scope::trace { color: #2f73c0; }
-Scope::grid { color: #e0e7f0; }
-Scope::divider { color: #c3cfdd; }
-Scope::caption { color: #5a6878; }
+Scope::grid { color: #e3e9f1; }
+Scope::divider { color: #c9d6e6; }
+Scope::caption { color: #5a5a5a; }
 
 MeterView::track {
-    background-color: #e3e8ee;
-    background-image: linear-gradient(to bottom, #d3d9e1 0%, #eef1f5 100%);
-    border: 1px solid #b2bcc8;
-    border-radius: 2px;
+    background-color: #dddddd;
+    background-image: linear-gradient(to bottom, #f3f3f3 0, #fcfcfc 3px, #dbdbdb 6px, #cacaca 6px, #d5d5d5 100%);
+    border: 1px solid #8e8f8f;
+    border-radius: 3px;
 }
 MeterView::bar {
-    background-color: #2fb34a;
-    background-image: linear-gradient(to bottom, #c7f2cf 0%, #6fd47f 45%, #22b33b 50%, #34c74e 100%);
-    border-radius: 1px;
+    background-color: #0bd82c;
+    background-image: linear-gradient(to bottom, #f3f3f3af 0, #fcfcfcaf 3px, #dbdbdbaf 6px, transparent 6px),
+                      linear-gradient(to bottom, transparent 65%, #ffffff55 100%);
+    border-radius: 0;
 }
 
 /* ============================================ MIDI editor ============================================ */
 
 PianoRoll::row:white { background-color: #ffffff; }
-PianoRoll::row:black { background-color: #eff3f8; }
-PianoRoll::octave { background-color: #b9c7d8; }
-PianoRoll::below { background-color: #e6edf6; }
-PianoRoll::keys-edge, Steps::keys-edge { background-color: #8e9aab; }
+PianoRoll::row:black { background-color: #f1f5fa; }
+PianoRoll::octave { background-color: #c3cfdd; }
+PianoRoll::below { background-color: #eef2f8; }
+PianoRoll::keys-edge, Steps::keys-edge { background-color: #828790; }
 PianoRoll::key:black, Steps::key:black {
     background-color: #2b2f36;
     background-image: linear-gradient(to right, #1d2026 0%, #3f4550 85%, #2b2f36 100%);
 }
-PianoRoll::selection-box { background-color: #3399ff26; border-color: #3c7fb1; }
+PianoRoll::selection-box { background-color: #3399ff26; border-color: #3399ff; }
 
-Steps { background-color: #e6edf6; }
-Steps::pad { background-color: #eaf0f7; }
+Steps { background-color: #eef2f8; }
+Steps::pad { background-color: #e9eff7; }
 
-VelocityLane { background-color: #f8fafd; border-top: 1px solid #b4c4d8; }
-VelocityLane::label { background-color: #e8f0f9; color: #23384f; }
+VelocityLane { background-color: #fbfcfe; border-top: 1px solid #a0afc3; }
+VelocityLane::label { background-color: #eef3fa; color: #1e395b; }
 
 EditorRuler {
-    background-color: #e8f0f9;
-    background-image: linear-gradient(to bottom, #fdfeff 0%, #eef4fb 50%, #e0eaf6 50%, #e9f1fa 100%);
-    color: #23384f;
+    background-color: #f1f5fb;
+    background-image: linear-gradient(to bottom, #ffffff 0%, #f3f7fc 50%, #e6eef8 50%, #edf3fa 100%);
+    color: #1e395b;
 }
-EditorRuler::corner { background-color: #e8f0f9; }
+EditorRuler::corner { background-color: #eef3fa; }
+MidiEditor::toolbar { background-color: transparent; }
 
 /* ======================================== Effects and the patch panel ======================================== */
 
-CurveView { background-color: #ffffff; border: 1px solid #a9b8cb; }
-CurveView::grid { color: #e1e8f1; }
+CurveView { background-color: #ffffff; border: 1px solid #828790; }
+CurveView::grid { color: #e3e9f1; }
 CurveView::grid-label { color: #5f7189; }
-CurveView::analyzer { color: #7d9bbf; }
+CurveView::analyzer { color: #8aa6c8; }
 CurveView::curve { color: #2a6fbe; }
-Tuner { background-color: #ffffff; }
-EnvelopeGraph { background-color: #f9fbfe; border: 1px solid #a9b8cb; }
-EnvelopeGraph::grid { color: #e0e7f0; }
+Tuner { background-color: #ffffff; border: 1px solid #828790; }
+EnvelopeGraph { background-color: #ffffff; border: 1px solid #828790; }
+EnvelopeGraph::grid { color: #e3e9f1; }
 EnvelopeGraph::label { color: #4c607a; }
 EnvelopeGraph::handle { background-color: #ffffff; }
-SampleWaveform { background-color: #f9fbfe; color: #4c607a; }
+SampleWaveform { background-color: #ffffff; color: #4c607a; }
 SampleWaveform::caption { color: #4c607a; }
 
-/* the patch panel: light glass units on silver rails */
-PatchPanel { background-color: #d3dfed; }
+/* the patch panel: light units on silver rails */
+PatchPanel { background-color: #dfe7f1; }
 PatchPanel::rail {
     background-color: #d8dde3;
     background-image: linear-gradient(to bottom, #f4f6f8 0%, #dfe3e8 50%, #cfd5dc 50%, #dde2e7 100%);
 }
 PatchPanel::rail-edge { background-color: #9aa5b2; }
 PatchPanel::screw { background-color: #c4cad1; color: #6e7884; }
-PatchPanel::sources { background-color: #e9f0f8; border-top-color: #b4c4d8; }
+PatchPanel::sources { background-color: #eef3f9; border-top-color: #a0afc3; }
 PatchPanel::unit {
-    background-color: #eef2f7;
-    background-image: linear-gradient(to bottom, #fbfcfe 0%, #eef2f7 50%, #e3e9f1 50%, #eaeff5 100%);
-    border: 1px solid #9eb0c5;
-    border-radius: 4px;
+    background-color: #f0f0f0;
+    background-image: linear-gradient(to bottom, #fbfbfb 0%, #f1f1f1 50%, #e6e6e6 50%, #ececec 100%);
+    border: 1px solid #8e8f8f;
+    border-radius: 3px;
 }
-PatchPanel::unit:hover {
-    background-image: linear-gradient(to bottom, #f4faff 0%, #e2f1fc 50%, #cfe8fa 50%, #dcedfb 100%);
-    border-color: #3c7fb1;
-}
-PatchPanel::unit:selected { outline-color: #3c7fb1; }
+PatchPanel::unit:hover { background-image: var(--face-hover); border-color: #3c7fb1; }
+PatchPanel::unit:selected { outline-color: #3399ff; }
 PatchPanel::picture { background-color: #ffffff; }
 PatchPanel::jack { background-color: #2b2f36; border-color: #aab4c0; }
 PatchPanel::reload {
-    background-color: #e1e1e1;
+    background-color: #e6e6e6;
     background-image: var(--face);
     border: 1px solid #707070;
     border-radius: 3px;
 }
-PatchPanel::reload:hover { background-image: var(--face-hover); color: #10161d; border-color: #3c7fb1; }
+PatchPanel::reload:hover { background-image: var(--face-hover); color: #000000; border-color: #3c7fb1; }
 PatchPanel::groove { background-color: #b9c3cf; }
 PatchPanel::knob {
     background-color: #e8e8e8;
     background-image: linear-gradient(to bottom, #fbfbfb 0%, #ececec 50%, #d9d9d9 50%, #e6e6e6 100%);
-    border: 1px solid #6f7a87;
+    border: 1px solid #686868;
 }
 PatchPanel::knob:hover { background-image: var(--face-hover); border-color: #3c7fb1; }
 PatchPanel::mod-label { background-color: #ffffff; }
 
 /* ============================================ The Explorer ============================================ */
 
-/* the Explorer's caption: a light glass bar, as the menu bar */
+/* the Explorer's caption: the command bar's light blue strip */
 ExplorerDock::title-bar {
-    background-color: #dbe6f3;
-    background-image: linear-gradient(to bottom, #f6f9fd 0%, #e6eef7 50%, #dae5f1 50%, #e2eaf4 100%);
-    border-bottom: 1px solid #b4c4d8;
+    background-color: #e3ecf7;
+    background-image: var(--bar);
+    border-bottom: 1px solid #a0afc3;
     box-shadow: inset 0 1px 0 #ffffff;
-    color: #1e3a5f;
+    color: #1e395b;
 }
 
 FileView { background-color: #ffffff; }
 FileView::row:selected {
-    background-color: #d5e8fb;
-    background-image: var(--select-box-strong);
-    color: var(--highlighted-text);
+    background-color: #d1e8ff;
+    background-image: var(--row-selected);
+    color: #000000;
 }
-FileView::row:hover { background-color: #eef6fe; }
-FileView::icon { color: #c79a2e; fill-opacity: 0.45; }
-FileView::icon:selected { color: #a77b14; }
-FileView::header { background-color: #f1f4f8; color: #4c607a; border-color: #d5dde7; }
+FileView::row:hover { background-color: #eef5fd; }
+FileView::icon { color: #d9a93a; fill-opacity: 0.45; }
+FileView::icon:selected { color: #b8871a; }
+FileView::header { background-color: #f6f6f6; color: #4c607a; border-color: #d5d5d5; }
 
 /* =========================================== Window frames ===========================================
-   Options → Window frames → Tiny DAW's own: a light glass caption (pale blue, a white sheen on its upper half,
-   a faint diagonal streak), the title dark with a soft white glow on the left; the buttons a joined row hanging
-   from the top right, glossy split faces, minimize and maximize narrow, close wide, lit blue (close: red)
-   under the mouse; a soft blue-grey edge with a light inner line, the top corners rounded. Inactive: paler,
-   greyer glass and flat buttons. */
-:root { --title-bar-height: 30px; }
-/* the edge: a blue-grey outer half and a light glassy one in; the caption reaches the top (outside the rounded
-   corners: black, painted afresh each time by a shadow: a window can't be see-through) */
-Window:framed, Window:framed:active {
-    border-width: 0 4px 4px 4px;
-    border-style: groove ridge ridge groove;
-    border-color: #a8c0de;
-    border-radius: 6px 6px 0 0;
-    box-shadow: 0 0 0 4px #000000;
-}
-Window:framed:inactive { border-color: #c4d0de; }
-Window:framed:maximized { border-width: 0; border-radius: 0; box-shadow: none; }
-/* (see-through, :transparent: no black outside the corners, the desktop shows there, anti-aliased) */
-Window:framed:transparent, Window:framed:active:transparent { box-shadow: none; }
-/* (see-through: menus, drop-down lists and tooltips cast a soft shadow) */
-Menu:transparent, ComboPopup:transparent, ToolTip:transparent { box-shadow: 1px 3px 8px rgba(0, 0, 0, 0.35); }
-/* the caption: glass over a pale blue (the buttons hang from its top: the padding below them; the title's
-   own padding puts it back in the middle) */
-TitleBar {
-    background-color: #bad1ec;  /* (the glass's blue: where the gradients can't be drawn) */
+   Options → Window frames → Tiny DAW's own: the frame of tinted glass. Measured from the original: an 8 px
+   frame (a dark outer edge, a white line, the glass, a light line, then the dark edge of the inside), the
+   corners round 6 px; a 29 px caption under a 1 px edge, the title black with a white glow; the caption
+   buttons one joined group hanging from the top right (29, 27 and 49 px wide, 19 high), white glossy faces
+   with dark-edged white signs, the close button red; under the mouse blue (close: bright red) with a glow.
+   Without a compositing manager the glass is an opaque blue; with one (:transparent) it is see-through, the
+   desktop blurred behind it; the inside stays opaque. Inactive: lighter glass, plain buttons. */
+Window:framed, Window:framed:active, Window:framed:inactive {
+    border-style: solid;
+    border-color: transparent;
+    border-width: 1px 8px 8px 8px;
+    border-radius: 6px;
+    box-shadow: 0 0 0 6px #000000;  /* (opaque: black outside the round corners) */
+    background-color: #6c9fd0;
     background-image:
-        linear-gradient(55deg, transparent 0%, rgba(0, 0, 0, 0.05) 20%, rgba(0, 0, 0, 0.05) 50%, transparent 53%),
-        linear-gradient(to right, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0) 50%, rgba(255, 255, 255, 0.25)),
-        linear-gradient(to bottom, #e2edf9 0%, #d0e1f4 42%, #bad1ec 50%, #afc9e8 80%, #b8cfea 100%);
-    border-top: 1px solid #6d7988;
-    border-radius: 6px 6px 0 0;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
-    padding: 0 6px 10px 6px;
+        /* the inside: opaque, below the caption */
+        linear-gradient(to bottom, transparent var(--title-bar-height), var(--window) var(--title-bar-height)),
+        /* the light line and the dark edge around the inside (left, right, foot), each side in two halves that
+           meet (one from each end) */
+        url(7/frame-in-left.png), url(7/frame-in-left.png), url(7/frame-in-right.png), url(7/frame-in-right.png),
+        url(7/frame-in-bottom.png), url(7/frame-in-bottom.png),
+        /* the outer edge and the white line inside it: round the corners, then along the sides */
+        url(7/frame-corner-tl.svg), url(7/frame-corner-tr.svg), url(7/frame-corner-bl.svg), url(7/frame-corner-br.svg),
+        linear-gradient(to right, #000000b3 0, #000000b3 1px, #ffffffaa 1px, #ffffffaa 2px, transparent 2px),
+        linear-gradient(to left, #000000b3 0, #000000b3 1px, #ffffffaa 1px, #ffffffaa 2px, transparent 2px),
+        linear-gradient(to bottom, #000000b3 0, #000000b3 1px, #ffffffaa 1px, #ffffffaa 2px, transparent 2px),
+        linear-gradient(to top, #000000b3 0, #000000b3 1px, #ffffffaa 1px, #ffffffaa 2px, transparent 2px),
+        /* the glass: lighter at the sides, a pale sheen */
+        linear-gradient(to right, #ffffff4d 0%, #0000001a 50%, #ffffff33 100%);
+    /* (the first layer: in the inside's box; every other: the whole frame's) */
+    background-origin: padding-box, border-box, border-box, border-box, border-box, border-box, border-box,
+                       border-box, border-box, border-box, border-box, border-box, border-box, border-box, border-box,
+                       border-box;
+    background-clip: padding-box, border-box, border-box, border-box, border-box, border-box, border-box, border-box,
+                     border-box, border-box, border-box, border-box, border-box, border-box, border-box, border-box;
+    background-repeat: no-repeat;
+    background-position: 0 0,
+                         left 6px top 28px, left 6px bottom 6px,
+                         right 6px top 28px, right 6px bottom 6px,
+                         left 6px bottom 6px, right 6px bottom 6px,
+                         left top, right top, left bottom, right bottom,
+                         0 0, 0 0, 0 0, 0 0, 0 0;
+    background-size: auto, 2px 50%, 2px 50%, 2px 50%, 2px 50%, 50% 2px, 50% 2px,
+                     auto, auto, auto, auto, auto, auto, auto, auto, auto;
 }
-TitleBar:inactive {
-    background-color: #dce4ee;
-    background-image:
-        linear-gradient(to right, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0) 50%, rgba(255, 255, 255, 0.15)),
-        linear-gradient(to bottom, #f1f5f9 0%, #e7edf4 45%, #dbe3ed 50%, #d6dfea 80%, #dce4ee 100%);
-    border-top-color: #8e9aab;
+Window:framed:inactive { background-color: #a8c6e4; }
+/* maximized: no frame round it, only the caption's glass and the inside */
+Window:framed:maximized {
+    border-width: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background-image: linear-gradient(to bottom, transparent var(--title-bar-height), var(--window) var(--title-bar-height)),
+                      linear-gradient(to right, #ffffff4d 0%, #0000001a 50%, #ffffff33 100%);
+    background-origin: padding-box;
+    background-clip: border-box;
 }
-TitleBar:maximized { border-radius: 0; border-top-width: 0; padding-bottom: 11px; }
+/* see-through: the tinted glass over the blurred desktop; nothing outside the corners */
+Window:framed:transparent, Window:framed:active:transparent, Window:framed:inactive:transparent {
+    box-shadow: none;
+    background-color: rgba(116, 184, 252, 0.42);
+    backdrop-filter: blur(8px);
+}
+Window:framed:inactive:transparent { background-color: rgba(116, 184, 252, 0.26); }
+
+/* the caption: the glass (opaque without a compositor), the white line along the top, the light line and the
+   dark edge of the inside along the bottom; the buttons hang from the top (the padding below them), the
+   title's own padding puts it back in the middle */
+TitleBar, TitleBar:active, TitleBar:inactive {
+    background-color: #6c9fd0;
+    background-image: linear-gradient(to right, #ffffff4d 0%, #0000001a 50%, #ffffff33 100%),
+                      linear-gradient(115deg, transparent 20%, #ffffff1f 21%, #ffffff1f 27%, transparent 28%,
+                                      transparent 33%, #ffffff17 34%, #ffffff17 36%, transparent 37%);
+    border: 0 solid #00000066;
+    border-bottom-width: 1px;
+    border-radius: 0;
+    box-shadow: inset 0 1px 0 #ffffffaa, inset 0 -1px 0 #ffffff99;
+    padding: 0 0 10px 0;
+}
+TitleBar:inactive { background-color: #a8c6e4; }
+Window:transparent TitleBar { background-color: transparent; }
+TitleBar:maximized { padding-bottom: 10px; }
 TitleBar::icon { width: 16px; height: 16px; margin: 0 5px 0 0; }
 TitleBar::title {
     color: #000000;
-    font-family: "Segoe UI", "Noto Sans", "Carlito", "DejaVu Sans", sans-serif;
+    font-family: "Selawik", "Noto Sans", sans-serif;
     font-size: 9pt;
     text-align: left;
     padding-top: 10px;
-    text-shadow: 0 0 6px #ffffff, 0 0 6px #ffffff, 0 0 3px #ffffff;
+    text-shadow: 0 0 8px #ffffff, 0 0 8px #ffffff, 0 0 6px #ffffff, 0 0 4px #ffffff;
 }
-TitleBar:inactive::title { color: #3c4a5c; }
-TitleBar:maximized::title { padding-top: 11px; }
-/* the buttons: one joined row, a glossy split face each, a dark edge around the row, the glyphs dark */
+TitleBar:inactive::title { color: #000000; }
+
+/* the buttons: one group, joined; each a glossy white face over the glass with a white line inside and a dark
+   edge between them; the signs are pictures (7/caption-…) */
 TitleBar::minimize, TitleBar::maximize, TitleBar::close {
-    width: 27px;
     height: 19px;
     margin: 0;
-    color: #233246;
-    icon-size: 9px;
-    stroke-width: 2px;
+    color: #000000;
     border-style: solid;
-    border-color: rgba(30, 45, 65, 0.6);
+    border-color: #000000b3;
     border-width: 0 0 1px 1px;
     border-radius: 0;
-    background-color: rgba(255, 255, 255, 0.15);
-    background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0.35) 45%,
-        rgba(0, 0, 0, 0.08) 50%, rgba(0, 0, 0, 0.06) 75%, rgba(255, 255, 255, 0.5) 100%);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+    background-color: transparent;
+    background-image: linear-gradient(to bottom, #ffffff80 0%, #ffffff4d 45%, #0000001a 50%, #0000001a 75%, #ffffff80 100%);
+    box-shadow: inset 0 0 0 1px #ffffffaa;
 }
-TitleBar::minimize { border-radius: 0 0 0 5px; }
-TitleBar::maximize { stroke-width: 1px; icon-size: 10px; }
-TitleBar::close { width: 46px; icon-size: 8px; border-width: 0 1px 1px 1px; border-radius: 0 0 5px 0; }
-/* under the mouse: lit blue from below; held: deeper */
+TitleBar::minimize { width: 28px; border-radius: 0 0 0 5px; -tiny-glyph: url(7/caption-min.svg); -tiny-glyph-offset: 0 4px; }
+TitleBar::maximize { width: 26px; -tiny-glyph: url(7/caption-max.svg); }
+TitleBar::maximize:maximized { -tiny-glyph: url(7/caption-restore.svg); }
+TitleBar::close {
+    width: 49px;
+    border-width: 0 1px 1px 1px;
+    border-radius: 0 0 5px 0;
+    -tiny-glyph: url(7/caption-close.svg);
+    background-color: #d54f36;
+    background-image: linear-gradient(to bottom, #ffffff80 0%, #ffffff4d 45%, #0000001a 50%, #0000001a 75%, #ffffff80 100%),
+                      radial-gradient(circle at -60% 50%, #00000077 5%, #00000077 10%, transparent 50%),
+                      radial-gradient(circle at 160% 50%, #00000077 5%, #00000077 10%, transparent 50%),
+                      linear-gradient(to bottom, #e0a197e5 0%, #cf796a 25%, #cf796a 50%, #d54f36 50%);
+}
+/* under the mouse: lit from below, a glow around; held: deeper */
 TitleBar::minimize:hover, TitleBar::maximize:hover {
-    color: #10243c;
-    background-color: #7fbde6;
-    background-image: radial-gradient(circle at 50% 100%, rgba(42, 206, 218, 0.9) 0%, rgba(42, 206, 218, 0) 60%),
-        linear-gradient(to bottom, #e3f2fc 0%, #c4e2f6 50%, #7fbde6 50%, #9fd2f0 100%);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7);
+    background-color: #1a6ca1;
+    background-image: radial-gradient(circle at 50% 100%, #2aceda 0%, transparent 65%),
+                      linear-gradient(to bottom, #b6d9ee 50%, #1a6ca1 50%);
+    box-shadow: 0 0 7px 3px #5dc4f0, inset 0 0 0 1px #ffffffaa;
 }
 TitleBar::minimize:pressed, TitleBar::maximize:pressed {
-    color: #ffffff;
-    background-color: #2a6a9a;
-    background-image: radial-gradient(circle at 50% 100%, rgba(11, 253, 250, 0.7) 0%, rgba(11, 253, 250, 0) 60%),
-        linear-gradient(to bottom, #86a7bc 0%, #6f92aa 50%, #0f3a62 50%, #1d5785 100%);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+    background-color: #092747;
+    background-image: radial-gradient(circle at 50% 100%, #0bfdfa 0%, transparent 65%),
+                      linear-gradient(to bottom, #86a7bc 50%, #092747 50%);
+    box-shadow: 0 0 7px 3px #5dc4f0, inset 0 0 0 1px #ffffffaa;
 }
 TitleBar::close:hover {
-    color: #ffffff;
     background-color: #d42809;
-    background-image: radial-gradient(circle at 50% 120%, rgba(255, 170, 60, 0.9) 0%, rgba(255, 140, 0, 0) 55%),
-        linear-gradient(to bottom, #f19a88 0%, #ee6d56 50%, #d42809 50%, #e04a26 100%);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+    background-image: linear-gradient(to bottom, #ffffff80 0%, #ffffff4d 45%, #0000001a 50%, #0000001a 75%, #ffffff80 100%),
+                      radial-gradient(circle at 50% 170%, #f4e676 10%, #f4e676 20%, transparent 60%),
+                      radial-gradient(circle at -60% 50%, #000000aa 5%, #000000aa 10%, transparent 50%),
+                      radial-gradient(circle at 160% 50%, #000000aa 5%, #000000aa 10%, transparent 50%),
+                      linear-gradient(to bottom, #fb9d8b 0%, #ee6d56 25%, #ee6d56 50%, #d42809 50%);
+    box-shadow: 0 0 7px 3px #e68e75, inset 0 0 0 1px #ffffffaa;
 }
 TitleBar::close:pressed {
-    color: #ffffff;
-    background-color: #780c01;
-    background-image: radial-gradient(circle at 50% 120%, rgba(255, 220, 0, 0.6) 0%, rgba(255, 220, 0, 0) 55%),
-        linear-gradient(to bottom, #c4887a 0%, #b67562 50%, #780c01 50%, #8e1a08 100%);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+    background-color: #7d0d01;
+    background-image: linear-gradient(to bottom, #ffffff80 0%, #ffffff4d 45%, #0000001a 50%, #0000001a 75%, #ffffff80 100%),
+                      radial-gradient(circle at 50% 170%, #dcc03f 10%, #dcc03f 20%, transparent 60%),
+                      radial-gradient(circle at -60% 50%, #000000 5%, #000000 10%, transparent 50%),
+                      radial-gradient(circle at 160% 50%, #000000 5%, #000000 10%, transparent 50%),
+                      linear-gradient(to bottom, #d1a894 0%, #b67562 25%, #b67562 50%, #7d0d01 50%);
+    box-shadow: 0 0 7px 3px #e68e75, inset 0 0 0 1px #ffffffaa;
 }
-/* inactive: flat, the glyphs grey */
+/* inactive: the group fainter, no red; the signs as they are */
 TitleBar:inactive::minimize, TitleBar:inactive::maximize, TitleBar:inactive::close {
-    color: #5a6878;
-    border-color: rgba(60, 75, 95, 0.35);
-    background-color: rgba(255, 255, 255, 0.2);
+    border-color: #0000004d;
+    background-color: #ffffff33;
     background-image: none;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+    box-shadow: inset 0 0 0 1px #ffffff55;
 }
+
+/* see-through: menus, drop-down lists and tooltips cast a soft shadow down and to the right */
+Menu:transparent, ComboPopup:transparent { box-shadow: 2px 2px 3px #00000073; }
+ToolTip:transparent { box-shadow: 2px 2px 3px -1px #00000066; }

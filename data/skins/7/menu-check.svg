@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22">
+<!-- a menu entry checked: the mark in a box -->
+<rect x="0.5" y="0.5" width="21" height="21" rx="3" fill="#e9f2fc" stroke="#b3d3f9"/>
+<rect x="1.5" y="1.5" width="19" height="19" rx="2" fill="none" stroke="#ffffff" stroke-opacity="0.8"/>
+<path d="M7 11.2 L9.8 14 L15 7.6" fill="none" stroke="#0c12a1" stroke-width="2" stroke-linecap="square"/>
+</svg>
