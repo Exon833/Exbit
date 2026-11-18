@@ -329,12 +329,14 @@ uint8_t unitOf(const std::string& unit) {
 struct Quantity {
     double v = 0;
     bool length = false;  // else a number
+    double pct = 0;       // (Calc::percentKept) the percentages of a length, a fraction: calc(100% - 8px) is 1, v -8
 };
 
 struct Calc {
     const Tokens& t;
     const LenCtx& ctx;
     bool percentIsNumber;  // number(): 50% is 0.5
+    bool percentKept = false;  // a length's percentages kept apart (Quantity::pct), worked out where it is used
 
     void ws(size_t& i, size_t e) const {
         while (i < e && t[i].type == Tok::Whitespace) i++;
@@ -347,6 +349,7 @@ struct Calc {
             q = {k.num, false};
         } else if (k.type == Tok::Percentage) {
             if (percentIsNumber) q = {k.num / 100, false};
+            else if (percentKept) q = {0, true, k.num / 100};
             else if (ctx.percent) q = {k.num * ctx.percentOf / 100, true};
             else return false;
         } else if (k.type == Tok::Dimension) {
@@ -379,10 +382,11 @@ struct Calc {
             if (!term(j, e, r, depth)) return false;
             if (op == '*') {
                 if (q.length && r.length) return false;
-                q = {q.v * r.v, q.length || r.length};
+                q = {q.v * r.v, q.length || r.length, q.pct * r.v + q.v * r.pct};  // (a number's pct is 0)
             } else {
                 if (r.length || r.v == 0) return false;
                 q.v /= r.v;
+                q.pct /= r.v;
             }
             i = j;
         }
@@ -400,6 +404,7 @@ struct Calc {
             if (!product(j, e, r, depth)) return false;
             if (r.length != q.length) return false;
             q.v = op == '+' ? q.v + r.v : q.v - r.v;
+            q.pct = op == '+' ? q.pct + r.pct : q.pct - r.pct;
             i = j;
         }
     }
@@ -411,7 +416,7 @@ struct Calc {
         if (k.type == Tok::LParen) return false;  // (a bare parenthesis isn't a value; calc() is)
         size_t i = b;
         if (!term(i, e, q, 0) || i != e) return false;
-        return std::isfinite(q.v);
+        return std::isfinite(q.v) && std::isfinite(q.pct);
     }
 };
 
@@ -514,6 +519,19 @@ bool evalLength(const Tokens& t, size_t b, size_t e, const LenCtx& ctx, double& 
     Quantity q;
     if (!Calc{t, ctx, false}.whole(b, e, q) || !q.length) return false;
     px = q.v;
+    return true;
+}
+
+bool evalLengthPercent(const Tokens& t, size_t b, size_t e, const LenCtx& ctx, double& px, double& frac) {
+    t.trim(b, e);
+    px = frac = 0;
+    if (e == b + 1 && t[b].type == Tok::Number && t[b].num == 0) return true;
+    Quantity q;
+    Calc c{t, ctx, false};
+    c.percentKept = true;
+    if (!c.whole(b, e, q) || !q.length) return false;
+    px = q.v;
+    frac = q.pct;
     return true;
 }
 
@@ -680,7 +698,7 @@ std::string expand(const std::string& name, const Tokens& t, size_t b, size_t e,
     if (name == "background") {
         // each layer: its image (a gradient or a url(); "none" without one), its repeat, its position with an
         // optional `/ size`, its boxes (origin, then clip; one: both), in any order; the colour from the last
-        // layer. Other words (attachment…) are not read.
+        // layer. The attachment (scroll, fixed, local) is not read; any other word makes it a bad value (reported).
         auto layers = splitTop(t, b, e, Tok::Comma);
         std::string color = "transparent";
         std::string lists[6];  // image, repeat, position, size, origin, clip
@@ -747,6 +765,15 @@ std::string expand(const std::string& name, const Tokens& t, size_t b, size_t e,
                     return "a bad value for 'background': '/' (a size) must follow a position";
                 } else if (li + 1 == layers.size() && isKind(t, cb, ce, Kind::Color)) {
                     color = t.text(cb, ce);
+                } else if (ce == cb + 1 && t[cb].type == Tok::Ident && ieq(t[cb].text, "none")) {
+                    if (!image.empty()) return bad();
+                    image = "none";  // (a layer without an image)
+                } else if (ce == cb + 1 && t[cb].type == Tok::Ident &&
+                           (ieq(t[cb].text, "scroll") || ieq(t[cb].text, "fixed") || ieq(t[cb].text, "local"))) {
+                    // (background-attachment: nothing scrolls under a box here; not read)
+                } else {
+                    return "a bad value for 'background': '" + t.text(cb, ce) + "' is not an image, a repeat, a " +
+                           "position, a box" + (li + 1 == layers.size() ? " or a colour" : " (the colour goes in the last layer)");
                 }
             }
             auto add = [&](std::string& list, const std::string& v, const char* def) {

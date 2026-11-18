@@ -12,6 +12,7 @@
 #include <string>
 #include <cctype>
 #include <cstring>
+#include <filesystem>
 #include <set>
 
 #include "audio/engine.h"
@@ -314,6 +315,188 @@ static void testSkinFiles() {
     CHECK(hooked == 1);
     skin::removeOnApply(hook);
     util::removeFile(mine);
+    skin::apply(skin::find("Dark"));
+}
+
+// A skin copied (Edit this skin…, Import skin…, Export this skin…) with the files its stylesheet uses (url() images,
+// @font-face fonts, @imports at any depth): each copy of each of the program's own skins put on without a problem,
+// its files in its own folder beside it; a different file there never overwritten; copies of copies not nested
+static void testSkinCopies() {
+    namespace fs = std::filesystem;
+    const std::string mineDir = TMP + "/copies", outDir = TMP + "/exported";
+    std::error_code ec;
+    fs::remove_all(mineDir, ec);
+    fs::remove_all(outDir, ec);
+    skin::setBuiltinDir("data/skins");
+    skin::setUserDir(mineDir);
+    auto colours = [] {
+        std::vector<std::string> v;
+        for (auto& info : theme::colors()) v.push_back(theme::c(info.name).hex());
+        v.push_back(theme::fonts().ui + " " + theme::fonts().mono + " " + std::to_string(theme::fonts().uiPx));
+        return v;
+    };
+    // every file the skin's stylesheet uses: is it in `folder` (and there)?
+    auto filesIn = [](const std::string& css, const std::string& folder, size_t& count) {
+        std::vector<css::Problem> problems;
+        css::ParseOptions o;
+        o.baseDir = util::dirName(css);
+        o.readFile = [](const std::string& f, std::string& t) { return util::readFile(f, t); };
+        std::string text;
+        util::readFile(css, text);
+        css::SheetPtr sheet = css::parse(text, util::baseName(css), problems, o);
+        std::vector<std::string> all = css::imageFiles(sheet);
+        for (auto& f : css::fontFaces(sheet)) all.push_back(f.file);
+        for (auto& f : css::importedFiles(sheet)) all.push_back(f);
+        count = all.size();
+        bool ok = true;
+        for (auto& f : all) {
+            bool in = util::startsWith(f, folder + "/") && util::fileExists(f);
+            if (!in) printf("  %s: %s is not in %s\n", css.c_str(), f.c_str(), folder.c_str());
+            ok = ok && in;
+        }
+        return ok;
+    };
+    auto read = [](const std::string& path) {
+        skin::Skin s;
+        std::vector<std::string> problems;
+        std::string err;
+        CHECK(skin::read(path, s, problems, err));
+        return s;
+    };
+    auto applied = [](const skin::Skin& s) {
+        std::vector<std::string> problems = skin::apply(s);
+        for (auto& p : problems) printf("  %s: %s\n", s.name.c_str(), p.c_str());
+        return problems.empty();
+    };
+    int withFiles = 0;
+    for (const skin::Skin& original : skin::library()) {
+        if (!original.builtin) continue;
+        CHECK(applied(original));
+        std::vector<std::string> want = colours();
+        size_t used = 0, n = 0;
+        filesIn(original.path, util::dirName(original.path), used);
+        withFiles += used > 0;
+        // Edit this skin…: a copy of yours, its files in "<name> copy/"
+        std::string err, name = original.name + " copy";
+        std::string path = skin::makeCopy(original, name, err);
+        CHECK(path == mineDir + "/" + skin::fileName(name) && err.empty());
+        skin::Skin copy = read(path);
+        CHECK(copy.name == name && !copy.builtin);
+        CHECK(applied(copy));
+        CHECK(colours() == want);
+        std::string folder = mineDir + "/" + skin::safeName(name);
+        CHECK(filesIn(path, folder, n) && n == used);
+        CHECK(util::isDir(folder) == (used > 0));
+        // Import skin…: the stylesheet of the program's own, into your folder under its name
+        skin::Skin imported;
+        std::vector<std::string> problems;
+        CHECK(skin::importFrom(original.path, imported, problems, err) && problems.empty());
+        CHECK(imported.path == mineDir + "/" + skin::fileName(original.name) && !imported.builtin);
+        CHECK(applied(imported));
+        CHECK(colours() == want);
+        CHECK(filesIn(imported.path, mineDir + "/" + skin::safeName(original.name), n) && n == used);
+        // (again: asked before it is replaced; no: nothing done)
+        int asked = 0;
+        CHECK(!skin::importFrom(original.path, imported, problems, err, [&](const std::string& s) {
+            asked++;
+            return s != original.name;
+        }));
+        CHECK(asked == 1 && err.empty());
+        // Export this skin…: the stylesheet where asked, its files in the folder beside it
+        std::string out = outDir + "/" + skin::fileName(original.name);
+        CHECK(skin::exportTo(original, out, err));
+        CHECK(filesIn(out, outDir + "/" + skin::safeName(original.name), n) && n == used);
+        CHECK(applied(read(out)));
+        CHECK(colours() == want);
+        // the export of your copy, imported (from where it was exported) under the copy's name: as good
+        std::string out2 = outDir + "/sent/" + skin::fileName(name);
+        CHECK(skin::exportTo(copy, out2, err));
+        CHECK(filesIn(out2, outDir + "/sent/" + skin::safeName(name), n) && n == used);
+        CHECK(skin::importFrom(out2, imported, problems, err, [](const std::string&) { return true; }));
+        CHECK(problems.empty() && imported.path == path);
+        CHECK(filesIn(path, folder, n) && n == used);  // (the same files: the same folder)
+        CHECK(applied(imported));
+        CHECK(colours() == want);
+    }
+    CHECK(withFiles == 3);  // (90s, XP, 7)
+
+    // a different file in the copy's folder is never overwritten: the copy's files go to "<name> (2)/"
+    {
+        skin::Skin xp = skin::find("XP");
+        std::string err, folder = mineDir + "/XP copy", mine = folder + "/xp/check.svg", text;
+        CHECK(util::fileExists(mine));
+        CHECK(util::writeFile(mine, "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"9\" height=\"9\"/>"));
+        std::string path = skin::makeCopy(xp, "XP copy", err);
+        CHECK(path == mineDir + "/XP copy.css");
+        CHECK(util::readFile(mine, text) && text.find("width=\"9\"") != std::string::npos);  // (yours, as it was)
+        size_t n = 0;
+        CHECK(filesIn(path, mineDir + "/XP copy (2)", n) && n > 30);
+        CHECK(applied(read(path)));
+        // a copy of your copy: its files in its own folder, not one more folder down
+        path = skin::makeCopy(read(path), "XP again", err);
+        CHECK(filesIn(path, mineDir + "/XP again", n) && n > 30);
+        CHECK(util::fileExists(mineDir + "/XP again/xp/check.svg") && util::fileExists(mineDir + "/XP again/fonts/tahoma.ttf"));
+        // (a font's licence goes with it: the text files beside it)
+        CHECK(util::fileExists(mineDir + "/XP again/fonts/Tahoma-LGPL-2.1.txt") && util::fileExists(mineDir + "/XP again/fonts/README.md"));
+        CHECK(!util::fileExists(mineDir + "/XP again/fonts/selawk.ttf"));  // (not the fonts it doesn't use)
+        CHECK(applied(read(path)));
+    }
+
+    // a stylesheet of yours that @imports (url() and "string"), uses files above its folder and by their whole
+    // path, names url()s in custom properties and @font-face, and quotes oddly: all copied, all found
+    {
+        std::string src = TMP + "/odd-skin", font;
+        fs::remove_all(src, ec);
+        util::makeDirs(src + "/sheet/parts");
+        util::makeDirs(src + "/shared");
+        CHECK(savePng(src + "/shared/a.png", Image(2, 2, Color(255, 0, 0))));
+        CHECK(savePng(src + "/sheet/parts/b \"q\".png", Image(2, 2, Color(0, 255, 0))));
+        CHECK(savePng(src + "/c.png", Image(2, 2, Color(0, 0, 255))));
+        CHECK(util::readFile("data/skins/fonts/tahoma.ttf", font));
+        CHECK(util::writeFile(src + "/shared/face.ttf", font));
+        CHECK(util::writeFile(src + "/sheet/parts/more.css",
+                              "@import url(\"../../shared/last.css\");\n"
+                              "Button { background-image: url('b \\\"q\\\".png'), url(../../shared/a.png); }\n"));
+        CHECK(util::writeFile(src + "/shared/last.css", "Slider { background: url(a.png) no-repeat; }\n"));
+        CHECK(util::writeFile(src + "/sheet/Odd.css",
+                              "@import \"parts/more.css\";\n"
+                              "@font-face { font-family: \"Odd Face\"; src: url(../shared/face.ttf) format(\"truetype\"); }\n"
+                              "/* url(not/a/file.png) in a comment */\n"
+                              ":root { --skin-name: \"Odd\"; --pic: url(" + util::absolutePath(src) + "/c.png); font-family: \"Odd Face\"; }\n"
+                              "CheckBox { background-image: var(--pic); }\n"));
+        skin::Skin odd = read(src + "/sheet/Odd.css");
+        CHECK(applied(odd));
+        std::string err;
+        std::string path = skin::makeCopy(odd, "Odd copy", err);
+        size_t n = 0;
+        CHECK(filesIn(path, mineDir + "/Odd copy", n) && n == 6);  // (3 images, a font, 2 imports)
+        skin::Skin copy = read(path);
+        CHECK(applied(copy));
+        CHECK(theme::fonts().ui == "Odd Face");
+        std::string text;
+        CHECK(util::readFile(path, text) && text.find("url(not/a/file.png) in a comment") != std::string::npos);
+        // (moving the original away: the copy has all it needs)
+        fs::rename(src, src + "-moved", ec);
+        CHECK(!ec && applied(copy));
+        CHECK(theme::styles().compute(css::SimpleNode("CheckBox")).backgrounds().size() == 1);
+        fs::rename(src + "-moved", src, ec);
+    }
+
+    // rewriteUrls: only the files named change; the rest of the text as it was
+    {
+        std::string text = "@import 'a.css'; /* url(x) */ X { b: url( x ); c: url(\"y\") \"url(z)\"; --d: URL(x) }";
+        std::string got = css::rewriteUrls(text, [](const std::string& u) { return u == "x" ? std::string("n \"1\"") : u == "a.css" ? "b.css" : ""; });
+        CHECK(got == "@import \"b.css\"; /* url(x) */ X { b: url(\"n \\\"1\\\"\"); c: url(\"y\") \"url(z)\"; --d: url(\"n \\\"1\\\"\") }");
+        if (got != "@import \"b.css\"; /* url(x) */ X { b: url(\"n \\\"1\\\"\"); c: url(\"y\") \"url(z)\"; --d: url(\"n \\\"1\\\"\") }")
+            printf("  rewriteUrls: %s\n", got.c_str());
+        CHECK(css::rewriteUrls(text, nullptr) == text);
+        CHECK(css::resolveUrl("/a/b", "../c.png") == "/a/c.png" && css::resolveUrl("/a", "http://x/y.png").empty());
+    }
+
+    fs::remove_all(mineDir, ec);
+    fs::remove_all(outDir, ec);
+    fs::remove_all(TMP + "/odd-skin", ec);
+    skin::setUserDir(TMP + "/skins");
     skin::apply(skin::find("Dark"));
 }
 
@@ -1641,6 +1824,7 @@ int main() {
     settings::setPath(TMP + "/settings.json");
     testSkinFiles();
     testSkinImages();
+    testSkinCopies();
     testSkinsReference();
     testColorWheel();
     testRecentColours();

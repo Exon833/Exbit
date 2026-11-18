@@ -55,7 +55,8 @@
 // border-top… (width style colour, any order; what is left out takes its initial value: medium, none,
 // currentColor), background (per layer, in any order: an image (a gradient or a url()), a repeat, a position
 // with an optional `/ size`, one or two boxes (origin, then clip), and on the last layer the colour: into
-// background-image, -repeat, -position, -size, -origin, -clip and -color; other words in it are not read).
+// background-image, -repeat, -position, -size, -origin, -clip and -color; scroll / fixed / local are not read, any
+// other word makes it a bad value).
 //
 // PAINTING VALUES (css_paint.cpp; drawn by ui/toolkit's style::box). background-image: none, or a comma list of
 // url() images and linear-gradient() / radial-gradient() and their repeating- forms (the first on top): angles
@@ -66,7 +67,10 @@
 // background-repeat (repeat-x | repeat-y | [repeat | no-repeat | space | round]{1,2}), background-position (1 to
 // 4 values: keywords, lengths, percentages; `right 4px bottom 2px`), background-size (auto | cover | contain |
 // [length | % | auto]{1,2}), background-origin and background-clip (border-box | padding-box | content-box), each
-// a comma list repeated to the layers' number as in CSS). box-shadow: none, or a list of [inset] x y [blur
+// a comma list repeated to the layers' number as in CSS). Wherever a percentage may be there (colour stops,
+// the radial size and position, background-position and -size), so may calc() of percentages and lengths,
+// calc(100% - 8px): kept as a fraction plus px (ColorStop::plus, …Plus) and worked out against the box where it
+// is drawn. box-shadow: none, or a list of [inset] x y [blur
 // [spread]] [colour] (the colour: currentColor when left out); text-shadow the same without inset and spread.
 // Style::shadows(). border-style and border-top-style…: none hidden solid dashed dotted double groove ridge inset
 // outset; a side whose style is none or hidden has a width of 0 (Style::length, edges). opacity: a number or a
@@ -204,6 +208,14 @@ struct FontFace {
     bool bold = false, italic = false;
 };
 std::vector<FontFace> fontFaces(const SheetPtr& sheet);
+// the file a url() (or an @import's "file") of a stylesheet in the folder `dir` names, as the parser resolves it
+// ("" for a remote URL: http:, data:…)
+std::string resolveUrl(const std::string& dir, const std::string& url);
+// a stylesheet's text with the files it names changed: each url() (of declarations, custom properties,
+// @font-face's src and @import) and each @import "file" is given to `to` as written (escapes undone), and becomes
+// url("what it returns") / "what it returns" ("" or the same: left exactly as it is). Comments, strings and
+// everything else stay as they are. (Copying a skin with its files: ui/skin.cpp.)
+std::string rewriteUrls(const std::string& text, const std::function<std::string(const std::string& url)>& to);
 
 // --- computed styles ---
 struct Edges {  // padding, margin, border widths (px), or radii (top-left, top-right, bottom-right, bottom-left)
@@ -233,6 +245,7 @@ public:
         Rgba color;
         double position = -1;  // where on the gradient line: a fraction (0…1), or px if `px`; -1: not given
         bool px = false;
+        double plus = 0;       // (a fraction) px added to it: calc(100% - 1px) is 1 and -1
     };
     struct Gradient {
         enum Kind { Linear, Radial } kind = Linear;
@@ -244,8 +257,10 @@ public:
         enum Size { FarthestCorner, ClosestSide, ClosestCorner, FarthestSide, Explicit } size = FarthestCorner;
         double radiusX = 0, radiusY = 0;  // (Explicit) px, or fractions of the box's width / height if …Percent
         bool radiusXPercent = false, radiusYPercent = false;
+        double radiusXPlus = 0, radiusYPlus = 0;  // (…Percent) px added: calc(50% - 2px)
         double centerX = 0.5, centerY = 0.5;  // radial: fractions of the box, or px from its left / top if …Px
         bool centerXPx = false, centerYPx = false;
+        double centerXPlus = 0, centerYPlus = 0;  // (fractions) px added: calc(100% - 4px)
         std::vector<ColorStop> stops;
     };
     std::vector<Gradient> gradients(const std::string& property = "background-image") const;
@@ -262,6 +277,8 @@ public:
         enum Sizing : uint8_t { Given, Cover, Contain } sizing = Given;
         double width = -1, height = -1;               // (Given) px, or a fraction if …Percent; -1: auto
         bool widthPercent = false, heightPercent = false;
+        double widthPlus = 0, heightPlus = 0;         // (…Percent) px added: calc(100% - 8px) is 1 and -8 (what
+                                                      // that comes to is taken as 0 if it is below 0)
         enum Box : uint8_t { BorderBox, PaddingBox, ContentBox };
         Box origin = PaddingBox, clip = BorderBox;
     };
@@ -326,6 +343,12 @@ public:
     int generation() const { return generation_; }
     // problems found while computing (var() cycles, values of the wrong type), each reported once
     std::vector<Problem> takeProblems() const;
+    // A value with var() can only be checked where it is used: computing a node reports it (takeProblems), but
+    // only for the nodes computed. This checks every such declaration (of the rules whose @media applies) at
+    // once, with :root's custom properties, as computing would report it: those whose var()s name only
+    // properties declared in rules of :root alone (one declared anywhere else may differ on the node). Its
+    // problems come with takeProblems(), each once (computing a node later doesn't report them again).
+    void checkVarUses() const;
     // what the sheets' selectors (those whose @media applies) look at besides the node, its parts, states,
     // classes and ancestors: a cache of computed styles must tell nodes apart by these too. UsesPosition: its
     // place among its siblings (:first-child, :nth-child()…: its childIndex() and siblingCount()); UsesSiblings:

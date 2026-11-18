@@ -3116,6 +3116,89 @@ static void testCssSvgStretch() {
           g.pixel(0, 10) == g.pixel(29, 10) && g.colorAt(30, 10) == canvas);
 }
 
+// calc() of a percentage and a length, worked out against the box where it is drawn (and its px scaled with the
+// interface): background-size, background-position, gradient colour stops, a radial gradient's centre and size;
+// written out and through var()
+static void testCssCalcMixed() {
+    const std::string dir = "build/css-calc";
+    util::makeDirs(dir);
+    const Color canvas(0xd4, 0xd0, 0xc8), red(255, 0, 0), white(255, 255, 255), blue(0, 0, 255);
+    CHECK(savePng(dir + "/red.png", Image(2, 2, red)));
+    css::ParseOptions o;
+    o.baseDir = dir;
+    o.checkImage = [](const std::string& path, std::string& why) { return style::imageFileOk(path, why); };
+    std::vector<css::Problem> problems;
+    css::SheetPtr sheet = css::parse(
+        ":root { --w: calc(100% - 8px); --at: calc(100% - 3px) calc(100% - 2px); --edge: calc(100% - 1px);"
+        " --size: calc(100% - 8px) calc(50% + 1px); }\n"
+        "Box { background-color: #ffffff; }\n"
+        ".size { background: url(red.png) no-repeat 0 0 / calc(100% - 8px) calc(50% + 1px) #ffffff }\n"
+        ".size-var { background-image: url(red.png); background-repeat: no-repeat; background-size: var(--size) }\n"
+        ".width-var { background: url(red.png) no-repeat 0 0 / var(--w) 100% #ffffff }\n"
+        ".pos { background: url(red.png) no-repeat calc(100% - 3px) calc(100% - 2px) / 2px 2px #ffffff }\n"
+        ".pos-var { background: url(red.png) no-repeat var(--at) / 2px 2px #ffffff }\n"
+        ".pos-edge { background: url(red.png) no-repeat right calc(10% + 1px) top 0 / 2px 2px #ffffff }\n"
+        ".stops { background: linear-gradient(to right, #ff0000 calc(100% - 1px), #0000ff calc(100% - 1px)) }\n"
+        ".stops-var { background-image: linear-gradient(to right, #ff0000 var(--edge), #0000ff var(--edge)) }\n"
+        ".radial { background: radial-gradient(ellipse calc(50% - 6px) calc(50% + 0px) at calc(100% - 4px) 50%,"
+        " #ff0000 99%, #ffffff 99%) }\n",
+        "calc.css", problems, o);
+    CHECK(problems.empty());
+    for (const css::Problem& p : problems) printf("  %s\n", p.text().c_str());
+    css::Engine engine;
+    engine.setSheets({sheet});
+    engine.checkVarUses();
+    CHECK(engine.takeProblems().empty());
+    auto styleOf = [&](const char* cls) {
+        css::SimpleNode n("Box");
+        n.classes.push_back(cls);
+        return engine.compute(n);
+    };
+    // where a colour is in the box drawn at (0, 0), 20 x 10 logical px, at `scale`: its device px
+    auto draw = [&](const char* cls, float scale) {
+        Image img(40, 30, canvas);
+        Painter p(img, scale);
+        css::Style s = styleOf(cls);
+        style::box(p, Rect(0, 0, 20, 10), s);
+        return img;
+    };
+    auto isRect = [](const Image& img, const Rect& r, Color in, Color out, int W, int H) {
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+                if (img.colorAt(x, y) != (r.contains(Point(x, y)) ? in : out)) return false;
+        return true;
+    };
+    CHECK(engine.takeProblems().empty());
+    for (float scale : {1.f, 1.5f}) {
+        int W = (int)(20 * scale), H = (int)(10 * scale);
+        int px8 = (int)(8 * scale), px2 = (int)std::lround(2 * scale);
+        // calc(100% - 8px) x calc(50% + 1px): 12 x 6 at 100 %
+        Rect size(0, 0, W - px8, (int)std::lround(H * 0.5 + scale));
+        CHECK(isRect(draw("size", scale), size, red, white, W, H));
+        CHECK(isRect(draw("size-var", scale), size, red, white, W, H));
+        CHECK(isRect(draw("width-var", scale), Rect(0, 0, W - px8, H), red, white, W, H));
+        // at calc(100% - 3px) calc(100% - 2px): of (the box - the image), less 3 and 2 px
+        Rect at((int)std::lround(W - px2 - 3 * scale), (int)std::lround(H - px2 - 2 * scale), px2, px2);
+        CHECK(isRect(draw("pos", scale), at, red, white, W, H));
+        CHECK(isRect(draw("pos-var", scale), at, red, white, W, H));
+        // right calc(10% + 1px): 90 % of (the box - the image), less 1 px
+        Rect edge((int)std::lround((W - px2) * 0.9 - scale), 0, px2, px2);
+        CHECK(isRect(draw("pos-edge", scale), edge, red, white, W, H));
+        // a hard stop 1 px before the right edge: red up to there, the last px blue
+        for (const char* cls : {"stops", "stops-var"}) {
+            Image img = draw(cls, scale);
+            int last = W - (int)std::lround(scale);
+            CHECK(img.colorAt(0, 1) == red && img.colorAt(last - 1, 1) == red && img.colorAt(W - 1, 1) == blue &&
+                  img.colorAt(W, 1) == canvas);
+        }
+    }
+    // the ellipse: centred 4 px from the right edge, 4 px across (50% - 6px of 20) and 5 px down from the middle
+    Image r = draw("radial", 1);
+    CHECK(r.colorAt(16, 5) == red && r.colorAt(13, 5) == red && r.colorAt(11, 5) == white && r.colorAt(16, 1) == red &&
+          r.colorAt(5, 5) == white);
+    CHECK(engine.takeProblems().empty());
+}
+
 static void testTransparency() {
     App& app = App::get();
     std::vector<css::Problem> problems;
@@ -3316,6 +3399,7 @@ int main() {
     testCssPainting();
     testCssImages();
     testCssSvgStretch();
+    testCssCalcMixed();
     testTransparency();
     TEST_MAIN_END();
 }

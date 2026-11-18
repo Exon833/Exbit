@@ -308,6 +308,76 @@ Style Engine::compute(const Node& node, const Style* parentStyle, const std::str
     }
 }
 
+void Engine::checkVarUses() const {
+    // the custom properties declared anywhere but in rules of :root alone: a var() of one of those may mean
+    // something else on the nodes it is used on (not checked here)
+    auto rootOnly = [](const Rule& rule) {
+        for (const Selector& sel : rule.selectors) {
+            if (sel.compounds.size() != 1 || !sel.part.empty()) return false;
+            const Compound& c = sel.compounds[0];
+            if (!c.root || !c.type.empty() || !c.ids.empty() || !c.classes.empty() || !c.states.empty() ||
+                !c.pseudos.empty())
+                return false;
+        }
+        return !rule.selectors.empty();
+    };
+    std::set<std::string> elsewhere;
+    for (const SheetPtr& sheet : sheets_) {
+        if (!sheet) continue;
+        for (const Rule& rule : sheet->rules) {
+            if (rootOnly(rule)) continue;
+            for (const Decl& d : rule.decls)
+                if (d.custom) elsewhere.insert(d.name);
+        }
+    }
+    const std::map<std::string, std::string>& vars = root().vars_;
+    VarLookup lookup = [&](const std::string& n) -> const std::string* {
+        auto it = vars.find(n);
+        return it != vars.end() ? &it->second : nullptr;
+    };
+    auto report = [&](const Decl& d, const std::string& message) {
+        Problem p;
+        p.source = d.source ? *d.source : std::string();
+        p.line = d.line;
+        p.column = d.column;
+        p.message = message;
+        if (reported_.insert(p.text()).second) problems_.push_back(std::move(p));
+    };
+    size_t base = 0;
+    for (const SheetPtr& sheet : sheets_) {
+        if (!sheet) continue;
+        for (const Rule& rule : sheet->rules) {
+            if (rule.media >= 0 && !active_[base + (size_t)rule.media]) continue;
+            for (const Decl& d : rule.decls) {
+                if (!d.hasVar || d.custom) continue;
+                Tokens names;
+                tokenize(d.value, names);
+                bool known = true;
+                for (size_t i = 0; i < names.size() && known; i++)
+                    if (names[i].type == Tok::Ident && elsewhere.count(names[i].text)) known = false;
+                if (!known) continue;
+                // (as computeWith does it, with the same messages: each reported once)
+                std::string val, why;
+                if (!substitute(d.value, lookup, val, why)) {
+                    report(d, why + " ('" + d.name + "' is left unset)");
+                    continue;
+                }
+                if (isCssWide(val)) continue;
+                Tokens t;
+                tokenize(val, t);
+                if (!d.shorthand.empty()) {
+                    std::vector<std::pair<std::string, std::string>> out;
+                    why = expand(d.shorthand, t, 0, t.size(), out);
+                } else {
+                    why = checkValue(d.name, t, 0, t.size());
+                }
+                if (!why.empty()) report(d, why + " (after var(); '" + d.name + "' is left unset)");
+            }
+        }
+        base += sheet->media.size();
+    }
+}
+
 std::vector<Problem> Engine::takeProblems() const {
     std::vector<Problem> r;
     r.swap(problems_);
