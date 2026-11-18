@@ -844,3 +844,108 @@ PadView::name { color: #000000; }
 Swatch::chip { border-color: #7f9db9; }
 ClipPreview { background-color: #ffffff; }
 EditorWindow::stopped { background-color: var(--window); }
+
+/* =============================================================================================
+   Window frames (Options → Window frames → Tiny DAW's own): a tall glossy royal-blue caption with
+   rounded top corners and a light highlight along its top, the title in white bold with a hard
+   dark shadow; rounded blue buttons with white glyphs and a white edge, close in red-orange; a
+   blue edge around the window, bright on the top and left, darker on the right and bottom.
+   Inactive: the same, paler and greyer. Hover brightens, pressed darkens.
+   ============================================================================================= */
+:root { --title-bar-height: 30px; }
+/* the edge: the caption reaches the top; the sides and bottom 4 px, a dark outer half and a bright one
+   in (outside the rounded corners: black, painted afresh each time by a shadow: a window can't be
+   see-through) */
+Window:framed, Window:framed:active {
+    border-width: 0 4px 4px 4px;
+    border-style: groove ridge ridge groove;
+    border-color: #0a4ee6 #0029a8 #0029a8 #0a4ee6;
+    border-radius: 8px 7px 0 0;
+    box-shadow: 0 0 0 4px #000000;
+}
+Window:framed:inactive { border-color: #7f9be3 #5d76c4 #5d76c4 #7f9be3; }
+Window:framed:maximized { border-width: 0; border-radius: 0; box-shadow: none; }
+/* the caption: a light line along the top, deep blue, brighter towards the bottom, then a dark lip */
+TitleBar {
+    background-color: #0050ee;  /* (the caption's main blue: where the gradient can't be drawn) */
+    background-image: linear-gradient(to bottom,
+        #0997ff 0%, #0053ee 8%, #0050ee 40%, #0066ff 88%, #0066ff 93%, #005bff 95%, #003dd7 96%,
+        #003dd7 100%);
+    border-top: 1px solid #0831d9;
+    border-radius: 4px 3px 0 0;
+    padding: 0 5px 0 5px;
+}
+TitleBar:inactive {
+    background-color: #6a8ad8;
+    background-image: linear-gradient(to bottom,
+        #a2bdf5 0%, #7896e0 8%, #6f8ed9 40%, #809ee6 88%, #809ee6 93%, #7a98e2 95%, #6682cc 96%,
+        #6682cc 100%);
+    border-top-color: #7f9be3;
+}
+TitleBar:maximized { border-radius: 0; border-top-width: 0; }
+TitleBar::icon { width: 16px; height: 16px; margin: 0 4px 0 0; }
+TitleBar::title {
+    color: #ffffff;
+    font-family: "Trebuchet MS", "DejaVu Sans", "Liberation Sans", sans-serif;
+    font-size: 13px;
+    font-weight: bold;
+    text-align: left;
+    margin-left: 3px;
+    text-shadow: 1px 1px #0f1089;
+}
+TitleBar:inactive::title { color: #ffffff; text-shadow: none; }
+/* the buttons: 21 px rounded squares with a white edge, lighter at the top; white glyphs */
+TitleBar::minimize, TitleBar::maximize, TitleBar::close {
+    width: 21px;
+    height: 21px;
+    margin: 0 0 0 2px;
+    color: #ffffff;
+    icon-size: 8px;
+    stroke-width: 2px;
+    border: 1px solid #ffffff;
+    border-radius: 3px;
+    background-color: #306af4;
+    background-image: linear-gradient(to bottom, #739af8 0%, #608cf7 15%, #4d7ef6 30%, #3e73f5 45%,
+        #306af4 60%, #2b62ea 85%, #3a72f2 100%);
+    box-shadow: inset 0 0 1px 1px #8fb0fa;
+}
+TitleBar::minimize { icon-size: 7px; }
+TitleBar::minimize:hover, TitleBar::maximize:hover {
+    background-color: #4a82fb;
+    background-image: linear-gradient(to bottom, #9bbcff 0%, #82a8fd 15%, #6894fb 30%, #5888fa 45%,
+        #4a7ff9 60%, #4277f2 85%, #528af9 100%);
+    box-shadow: inset 0 0 1px 1px #b4cbff;
+    color: #ffffff;
+}
+TitleBar::minimize:pressed, TitleBar::maximize:pressed {
+    background-color: #1c4fd2;
+    background-image: linear-gradient(to bottom, #1440b8 0%, #1a4bc8 40%, #2257d8 80%, #2a62e6 100%);
+    box-shadow: inset 1px 1px 2px #0a2c8c;
+}
+TitleBar::close {
+    background-color: #e04d28;
+    background-image: linear-gradient(to bottom, #eb8b73 0%, #e77155 15%, #e46142 30%, #e25633 45%,
+        #e04d28 60%, #d8370e 85%, #d6461c 100%);
+    box-shadow: inset 0 0 1px 1px #f3bbad;
+}
+TitleBar::close:hover {
+    background-color: #f0613a;
+    background-image: linear-gradient(to bottom, #f7ab96 0%, #f48c6e 15%, #f27a59 30%, #f06c48 45%,
+        #ee6239 60%, #e64e22 85%, #e65a2c 100%);
+    box-shadow: inset 0 0 1px 1px #fbd2c6;
+    color: #ffffff;
+}
+TitleBar::close:pressed {
+    background-color: #b8381a;
+    background-image: linear-gradient(to bottom, #aa2300 0%, #b12a06 40%, #c23a14 80%, #cc4420 100%);
+    box-shadow: inset 1px 1px 2px #7a1800;
+    color: #ffffff;
+}
+/* inactive: the buttons faded into the pale caption */
+TitleBar:inactive::minimize, TitleBar:inactive::maximize, TitleBar:inactive::close {
+    color: #ffffff;
+    border-color: #e4ebfb;
+    background-color: #7f9de4;
+    background-image: linear-gradient(to bottom, #b4c8f4 0%, #98b2ee 30%, #829fe6 60%, #7b98e0 85%, #87a3e8 100%);
+    box-shadow: none;
+}
