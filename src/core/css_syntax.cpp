@@ -830,7 +830,8 @@ struct SheetParser {
 }  // namespace
 }  // namespace detail
 
-SheetPtr parse(const std::string& text, const std::string& sourceName, std::vector<Problem>& problems) {
+SheetPtr parse(const std::string& text, const std::string& sourceName, std::vector<Problem>& problems,
+               const ParseOptions& /*options*/) {
     auto sheet = std::make_shared<Stylesheet>();
     sheet->name = sourceName;
     try {
