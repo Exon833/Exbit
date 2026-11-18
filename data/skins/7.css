@@ -256,6 +256,8 @@ CheckBox:pressed::indicator {
                 inset 3px 3px 6px #8ccbf3;
 }
 CheckBox:disabled { color: #6d6d6d; }
+CheckBox::label { padding: 0 1px; }
+CheckBox::label:focus { outline: 1px dotted #000000; }
 CheckBox:disabled::indicator {
     background-color: #f4f4f4;
     background-image: linear-gradient(to bottom right, #f0f0f0, #fbfbfb);
@@ -308,6 +310,7 @@ TabWidget::tab {
     padding: 2px 6px 3px;
     margin: 2px 0 0 0;
 }
+TabWidget::tab:first { margin-left: 2px; }
 TabWidget::tab:hover {
     background-color: #cdeafb;
     background-image: var(--face-hover);
@@ -318,8 +321,8 @@ TabWidget::tab:selected {
     background-image: none;
     border-color: #898c95;
     box-shadow: none;
-    padding: 3px 6px 4px;
-    margin: 0 -2px 0 -2px;
+    padding: 3px 8px 4px;
+    margin: 0 -2px -1px -2px;
 }
 TabWidget::tab:disabled { color: #838383; }
 TabWidget::tab-line { height: 0; }
@@ -359,6 +362,14 @@ MessageIcon { width: 32px; height: 32px; background-color: #2f7fd6; color: #ffff
 MessageIcon.question { -tiny-glyph: url(7/msg-question.svg); }
 MessageIcon.warning { background-color: #f6cf2e; color: #2a2100; -tiny-glyph: url(7/msg-warning.svg); }
 MessageIcon.critical { background-color: #e03a2c; -tiny-glyph: url(7/msg-critical.svg); }
+
+/* message boxes: the message on white, the buttons on a grey strip below a light line */
+Dialog.message-box { --window: #ffffff; background-color: #ffffff; }
+Dialog.message-box::buttons {
+    background-color: #f0f0f0;
+    border-top: 1px solid #dfdfdf;
+    padding: 10px 10px 10px;
+}
 
 /* progress: the grey glass trough with dark ends and the glossy green bar */
 ProgressBar {
@@ -419,8 +430,8 @@ SpinBox::up-button, SpinBox::down-button {
     box-shadow: inset 0 0 0 1px #fcfcfcb3;
     color: #000000;
 }
-SpinBox::up-button { -tiny-glyph: url(7/spin-up.svg); -tiny-glyph-tint: color; }
-SpinBox::down-button { -tiny-glyph: url(7/spin-down.svg); -tiny-glyph-tint: color; }
+SpinBox::up-button { margin: 1px 1px 0 0; -tiny-glyph: url(7/spin-up.svg); -tiny-glyph-tint: color; }
+SpinBox::down-button { margin: 0 1px 1px 0; -tiny-glyph: url(7/spin-down.svg); -tiny-glyph-tint: color; }
 SpinBox:up-hover::up-button, SpinBox:down-hover::down-button {
     background-color: #cdeafb;
     background-image: linear-gradient(to bottom, #eaf6fd 0%, #bee6fd 50%, #a7d9f5 100%);
@@ -484,10 +495,11 @@ ComboBox:editable {
 ComboBox:editable:hover { border-color: #5794bf #b7d5ea #c7e2f1 #c5daed; }
 ComboBox:editable:focus, ComboBox:editable:open { border-color: #3d7bad #a4c9e3 #b7d9ed #b5cfe7; box-shadow: none; }
 ComboBox:editable::arrow {
+    margin: 1px 1px 1px 0;
     background-color: #e6e6e6;
     background-image: var(--face);
-    border: 1px solid #8e8f8f;
-    border-radius: 0 2px 2px 0;
+    border: 1px solid #b4b4b4;
+    border-radius: 2px;
     box-shadow: inset 0 0 0 1px #fcfcfcd9;
 }
 ComboBox:editable:hover::arrow { background-color: #cdeafb; background-image: var(--face-hover); border-color: #3c7fb1; }
@@ -952,10 +964,8 @@ Window:framed, Window:framed:active, Window:framed:inactive {
     background-image:
         /* the inside: opaque, below the caption */
         linear-gradient(to bottom, transparent var(--title-bar-height), var(--window) var(--title-bar-height)),
-        /* the light line and the dark edge around the inside (left, right, foot), each side in two halves that
-           meet (one from each end) */
-        url(7/frame-in-left.png), url(7/frame-in-left.png), url(7/frame-in-right.png), url(7/frame-in-right.png),
-        url(7/frame-in-bottom.png), url(7/frame-in-bottom.png),
+        /* the light line and the dark edge around the inside: left, right, foot (stretched along each side) */
+        url(7/frame-in-left.svg), url(7/frame-in-right.svg), url(7/frame-in-bottom.svg),
         /* the outer edge and the white line inside it: round the corners, then along the sides */
         url(7/frame-corner-tl.svg), url(7/frame-corner-tr.svg), url(7/frame-corner-bl.svg), url(7/frame-corner-br.svg),
         linear-gradient(to right, #000000b3 0, #000000b3 1px, #ffffffaa 1px, #ffffffaa 2px, transparent 2px),
@@ -966,18 +976,19 @@ Window:framed, Window:framed:active, Window:framed:inactive {
         linear-gradient(to right, #ffffff4d 0%, #0000001a 50%, #ffffff33 100%);
     /* (the first layer: in the inside's box; every other: the whole frame's) */
     background-origin: padding-box, border-box, border-box, border-box, border-box, border-box, border-box,
-                       border-box, border-box, border-box, border-box, border-box, border-box, border-box, border-box,
-                       border-box;
+                       border-box, border-box, border-box, border-box, border-box, border-box;
     background-clip: padding-box, border-box, border-box, border-box, border-box, border-box, border-box, border-box,
-                     border-box, border-box, border-box, border-box, border-box, border-box, border-box, border-box;
+                     border-box, border-box, border-box, border-box, border-box;
     background-repeat: no-repeat;
+    /* (the inside's lines from the caption's foot, 1 px above the inside, down to 6 px above the frame's foot) */
     background-position: 0 0,
-                         left 6px top 28px, left 6px bottom 6px,
-                         right 6px top 28px, right 6px bottom 6px,
-                         left 6px bottom 6px, right 6px bottom 6px,
+                         left 6px top calc(var(--title-bar-height) - 1px), right 6px top calc(var(--title-bar-height) - 1px),
+                         left 6px bottom 6px,
                          left top, right top, left bottom, right bottom,
                          0 0, 0 0, 0 0, 0 0, 0 0;
-    background-size: auto, 2px 50%, 2px 50%, 2px 50%, 2px 50%, 50% 2px, 50% 2px,
+    background-size: auto,
+                     2px calc(100% - var(--title-bar-height) - 5px), 2px calc(100% - var(--title-bar-height) - 5px),
+                     calc(100% - 12px) 2px,
                      auto, auto, auto, auto, auto, auto, auto, auto, auto;
 }
 Window:framed:inactive { background-color: #a8c6e4; }
@@ -1000,38 +1011,36 @@ Window:framed:transparent, Window:framed:active:transparent, Window:framed:inact
 Window:framed:inactive:transparent { background-color: rgba(116, 184, 252, 0.26); }
 
 /* the caption: the glass (opaque without a compositor), the white line along the top, the light line and the
-   dark edge of the inside along the bottom; the buttons hang from the top (the padding below them), the
-   title's own padding puts it back in the middle */
+   dark edge of the inside along the bottom; the title in the middle, the buttons hanging from the top */
 TitleBar, TitleBar:active, TitleBar:inactive {
     background-color: #6c9fd0;
     background-image: linear-gradient(to right, #ffffff4d 0%, #0000001a 50%, #ffffff33 100%),
                       linear-gradient(115deg, transparent 20%, #ffffff1f 21%, #ffffff1f 27%, transparent 28%,
                                       transparent 33%, #ffffff17 34%, #ffffff17 36%, transparent 37%);
-    border: 0 solid #00000066;
+    border: 0 solid #2c475c;
     border-bottom-width: 1px;
     border-radius: 0;
-    box-shadow: inset 0 1px 0 #ffffffaa, inset 0 -1px 0 #ffffff99;
-    padding: 0 0 10px 0;
+    box-shadow: inset 0 1px 0 #ffffffaa, inset 0 -1px 0 #d7e3ed;
+    padding: 0;
 }
 TitleBar:inactive { background-color: #a8c6e4; }
 Window:transparent TitleBar { background-color: transparent; }
-TitleBar:maximized { padding-bottom: 10px; }
 TitleBar::icon { width: 16px; height: 16px; margin: 0 5px 0 0; }
 TitleBar::title {
     color: #000000;
     font-family: "Selawik", "Noto Sans", sans-serif;
     font-size: 9pt;
     text-align: left;
-    padding-top: 10px;
     text-shadow: 0 0 8px #ffffff, 0 0 8px #ffffff, 0 0 6px #ffffff, 0 0 4px #ffffff;
 }
 TitleBar:inactive::title { color: #000000; }
 
-/* the buttons: one group, joined; each a glossy white face over the glass with a white line inside and a dark
-   edge between them; the signs are pictures (7/caption-…) */
+/* the buttons: one group, joined, hanging from the top (10 px below them); each a glossy white face over the
+   glass with a white line inside and a dark edge between them; the group's ends rounded below (:first, :last:
+   whichever buttons the window has); the signs are pictures (7/caption-…) */
 TitleBar::minimize, TitleBar::maximize, TitleBar::close {
     height: 19px;
-    margin: 0;
+    margin: 0 0 10px 0;
     color: #000000;
     border-style: solid;
     border-color: #000000b3;
@@ -1041,19 +1050,22 @@ TitleBar::minimize, TitleBar::maximize, TitleBar::close {
     background-image: linear-gradient(to bottom, #ffffff80 0%, #ffffff4d 45%, #0000001a 50%, #0000001a 75%, #ffffff80 100%);
     box-shadow: inset 0 0 0 1px #ffffffaa;
 }
-TitleBar::minimize { width: 28px; border-radius: 0 0 0 5px; -tiny-glyph: url(7/caption-min.svg); -tiny-glyph-offset: 0 4px; }
+TitleBar::minimize { width: 28px; -tiny-glyph: url(7/caption-min.svg); -tiny-glyph-offset: 0 4px; }
 TitleBar::maximize { width: 26px; -tiny-glyph: url(7/caption-max.svg); }
 TitleBar::maximize:maximized { -tiny-glyph: url(7/caption-restore.svg); }
 TitleBar::close {
     width: 49px;
-    border-width: 0 1px 1px 1px;
-    border-radius: 0 0 5px 0;
     -tiny-glyph: url(7/caption-close.svg);
     background-color: #d54f36;
     background-image: linear-gradient(to bottom, #ffffff80 0%, #ffffff4d 45%, #0000001a 50%, #0000001a 75%, #ffffff80 100%),
                       radial-gradient(circle at -60% 50%, #00000077 5%, #00000077 10%, transparent 50%),
                       radial-gradient(circle at 160% 50%, #00000077 5%, #00000077 10%, transparent 50%),
                       linear-gradient(to bottom, #e0a197e5 0%, #cf796a 25%, #cf796a 50%, #d54f36 50%);
+}
+TitleBar::minimize:first, TitleBar::maximize:first, TitleBar::close:first { border-bottom-left-radius: 5px; }
+TitleBar::minimize:last, TitleBar::maximize:last, TitleBar::close:last {
+    border-right-width: 1px;
+    border-bottom-right-radius: 5px;
 }
 /* under the mouse: lit from below, a glow around; held: deeper */
 TitleBar::minimize:hover, TitleBar::maximize:hover {
