@@ -1,0 +1,754 @@
+/* XP: a skin of Tiny DAW with an early-2000s desktop look: a warm beige window face, glossy rounded
+   buttons with a dark blue edge that glow orange under the mouse, white fields with blue-grey edges, a bright
+   blue glossy bar across the top, green for what is switched on and light blue scroll bars.
+   It is put on top of default.css: the variables below recolour everything that uses them, and the rules
+   after them change the shapes (gradients, inner glows, rounded corners). Track and clip colours stay the
+   project's own. */
+
+/* =============================================================================================
+   The palette
+   ============================================================================================= */
+
+:root {
+    --skin-name: "XP";
+
+    /* A small clean sans; the first of these this computer has is used. */
+    font-family: "Tahoma", "Liberation Sans", "DejaVu Sans", "Nimbus Sans", "Carlito", sans-serif;
+    font-size: 8pt;
+    --mono-font: "Lucida Console", "DejaVu Sans Mono", "Liberation Mono", monospace;
+
+    /* Window */
+    --window: #ece9d8;
+    --window-text: #000000;
+    --base: #ffffff;
+    --alternate-base: #f3f6fc;
+    --text: #000000;
+    --button: #f3f2ec;
+    --button-text: #000000;
+    --highlight: #316ac5;
+    --highlighted-text: #ffffff;
+    --tooltip-base: #ffffe1;
+    --tooltip-text: #000000;
+    --disabled-text: #aca899;
+    --hint-text: #5b5a51;
+    --dimmed-text: #85837a;
+    --accent: #316ac5;
+    --accent-text: #ffffff;
+    --frame-edge: #919b9c;
+
+    /* Timeline */
+    --lane: #ffffff;
+    --lane-alt: #f6f8fc;
+    --below-lanes: #f1efe6;
+    --master-lane: #e7eefa;
+    --master-divider: #7f9db9;
+    --group-lane: #e2e8f4;
+    --group-accent: #6f86b0;
+    --ruler-bg: #ebe8da;
+    --ruler-text: #3c3b33;
+    --grid-fine: #eef1f6;
+    --grid: #dde3ee;
+    --grid-bar: #b4c2da;
+    --playhead: #e0301e;
+    --cursor: #316ac5;
+    --selection-fill: #316ac52a;
+    --selection-edge: #316ac5c8;
+    --automation-lane: #f3f5fa;
+    --automation-line: #df7a12;
+    --loop: #e68b2cb4;
+    --loop-off: #e68b2c46;
+    --frozen-tint: #8fb6f04a;
+    --overview-bg: #f6f5ef;
+    --overview-view: #316ac5c8;
+    --overview-view-fill: #316ac51c;
+    --overview-edge: #aca899;
+
+    /* Tracks and clips (the clips' own colours are the project's) */
+    --row: #fbfaf6;
+    --row-alt: #f4f2ea;
+    --clip-audio: #4f86d9;
+    --clip-midi: #4ba548;
+    --accent-audio: #316ac5;
+    --accent-midi: #3c9a3c;
+    --accent-return: #e68b2c;
+    --mute: #d9412c;
+    --solo: #f2c230;
+    --record: #d9412c;
+
+    /* Meters */
+    --meter-bg: #f4f6fa;
+    --meter-ok: #36b336;
+    --meter-warn: #f0c419;
+    --meter-hot: #e0301e;
+
+    /* MIDI editor */
+    --keys-white: #ffffff;
+    --keys-black: #2a2a2a;
+    --keys-line: #c9c7bc;
+    --keys-label: #55544c;
+    --key-sounding: #316ac58c;
+    --roll-shade: #3c3b3318;
+    --selected-note: #0b2a6e;
+
+    /* Explorer */
+    --sample-wave: #316ac5;
+
+    /* (the shades, --hover, --line…, stay default.css's mixes of the colours above; the rules below
+       draw the controls they would colour in this skin's own way) */
+
+    /* Wider scroll bars, for their rounded thumbs */
+    --scrollbar-width: 14px;
+
+    /* The skin's own colours, used by the rules below */
+    --xp-edge: #003c74;           /* a button's dark blue edge */
+    --xp-glow-gold: #ffd68b;      /* the hover glow: its light inner line */
+    --xp-glow-orange: #e59700;    /* … and its warm lower edge */
+    --xp-ring-light: #cee7ff;     /* the default button's inner ring: its top */
+    --xp-ring-dark: #6982ee;      /* … and its bottom */
+    --xp-green: #3c9a3c;          /* switched on (the era's start button green) */
+    --xp-green-edge: #1f5f1f;
+    --xp-blue-title: #0046d5;     /* group box titles */
+    --xp-tab-edge: #919b9c;
+    --xp-tab-orange: #e68b2c;
+    --xp-tab-gold: #ffc73c;
+}
+
+/* =============================================================================================
+   Buttons: glossy white-to-beige faces, a dark blue edge, an orange glow under the mouse
+   ============================================================================================= */
+
+Button {
+    background-color: var(--button);
+    background-image: linear-gradient(to bottom, #ffffff 0%, #f7f6f1 40%, #eeece2 85%, #d8d3c5 100%);
+    color: var(--button-text);
+    border: 1px solid var(--xp-edge);
+    border-radius: 3px;
+}
+Button:hover {
+    background-color: var(--button);
+    box-shadow: inset 0 1px 0 #fff4d6, inset 0 -2px 0 var(--xp-glow-orange), inset 0 0 0 2px var(--xp-glow-gold);
+}
+Button:pressed, Button:checked {
+    background-color: var(--pressed);
+    background-image: linear-gradient(to bottom, #d9d7cc 0%, #e3e1d7 30%, #ebe9e0 85%, #f2f1eb 100%);
+    box-shadow: inset 0 1px 2px #00000030;
+}
+Button:checked:hover {
+    box-shadow: inset 0 1px 2px #00000030, inset 0 -2px 0 var(--xp-glow-orange), inset 0 0 0 1px var(--xp-glow-gold);
+}
+
+/* a focused push button: a blue ring inside the edge (a lit one keeps its green face, below) */
+PushButton:focus {
+    border-color: var(--xp-edge);
+    box-shadow: inset 0 1px 0 var(--xp-ring-light), inset 0 -2px 0 var(--xp-ring-dark), inset 0 0 0 2px #a9c3f5;
+}
+PushButton:focus:hover {
+    box-shadow: inset 0 1px 0 #fff4d6, inset 0 -2px 0 var(--xp-glow-orange), inset 0 0 0 2px var(--xp-glow-gold);
+}
+
+/* lit (switched on, accent buttons): the green of the era's start button, glossy */
+Button:lit {
+    background-color: var(--xp-green);
+    background-image: linear-gradient(to bottom, #8fd88a 0%, #52b54d 45%, #379b33 50%, #2f8f2c 85%, #43a83f 100%);
+    border-color: var(--xp-green-edge);
+    color: #ffffff;
+    text-shadow: 1px 1px 1px #00000066;
+    box-shadow: none;
+}
+Button:lit:hover {
+    background-color: #4cb048;
+    background-image: linear-gradient(to bottom, #a6e6a1 0%, #62c45c 45%, #44ab3f 50%, #3a9f36 85%, #52b84d 100%);
+    box-shadow: none;
+}
+
+/* a dialog's default button (lit too, for the program): the ordinary face with the blue ring inside */
+Button:default, Button:default:lit {
+    background-color: var(--button);
+    background-image: linear-gradient(to bottom, #ffffff 0%, #f7f6f1 40%, #eeece2 85%, #d8d3c5 100%);
+    border-color: var(--xp-edge);
+    color: var(--button-text);
+    text-shadow: none;
+    box-shadow: inset 0 1px 0 var(--xp-ring-light), inset 0 -2px 0 var(--xp-ring-dark), inset 0 0 0 2px #a9c3f5;
+}
+Button:default:hover, Button:default:lit:hover {
+    background-color: var(--button);
+    background-image: linear-gradient(to bottom, #ffffff 0%, #f7f6f1 40%, #eeece2 85%, #d8d3c5 100%);
+    box-shadow: inset 0 1px 0 #fff4d6, inset 0 -2px 0 var(--xp-glow-orange), inset 0 0 0 2px var(--xp-glow-gold);
+}
+Button:default:pressed, Button:default:lit:pressed {
+    background-color: var(--pressed);
+    background-image: linear-gradient(to bottom, #d9d7cc 0%, #e3e1d7 30%, #ebe9e0 85%, #f2f1eb 100%);
+    box-shadow: inset 0 1px 2px #00000030;
+}
+
+/* toggles with a role (mute, solo, record…): a glossy face in the role's own colour */
+Button:toggled {
+    background-color: var(--toggle-color, var(--accent));
+    background-image: linear-gradient(to bottom,
+        color-mix(in srgb, var(--toggle-color, var(--accent)) 45%, #ffffff 55%) 0%,
+        var(--toggle-color, var(--accent)) 48%,
+        color-mix(in srgb, var(--toggle-color, var(--accent)) 85%, #000000 15%) 52%,
+        var(--toggle-color, var(--accent)) 100%);
+    border-color: color-mix(in srgb, var(--toggle-color, var(--accent)) 55%, #000000 45%);
+    color: #ffffff;
+    text-shadow: 1px 1px 1px #00000055;
+    box-shadow: none;
+}
+Button:toggled:hover {
+    background-color: var(--toggle-color, var(--accent));
+    box-shadow: inset 0 0 0 1px #ffffff66;
+}
+.toggle-solo:toggled { color: #3a2a00; text-shadow: 0 1px 0 #ffffff66; }
+
+Button:disabled, PushButton:disabled, ToolButton:disabled {
+    background-color: var(--disabled);
+    background-image: none;
+    border-color: #c9c7ba;
+    color: var(--disabled-text);
+    box-shadow: none;
+    text-shadow: none;
+}
+
+/* tool bar buttons: flat until the mouse is over them */
+ToolButton.autoRaise {
+    background-color: transparent;
+    background-image: none;
+    border-color: transparent;
+    box-shadow: none;
+}
+ToolButton.autoRaise:hover {
+    background-color: var(--button);
+    background-image: linear-gradient(to bottom, #ffffff 0%, #f7f6f1 50%, #e9e6da 100%);
+    border-color: #c3bfae;
+    box-shadow: inset 0 -1px 0 var(--xp-glow-gold);
+}
+ToolButton.autoRaise:pressed, ToolButton.autoRaise:checked {
+    background-color: #e3e0d3;
+    background-image: linear-gradient(to bottom, #dcd9cb 0%, #e6e3d7 100%);
+    border-color: #a7a391;
+    box-shadow: inset 1px 1px 2px #00000026;
+}
+ToolButton.autoRaise:lit {
+    background-color: var(--xp-green);
+    background-image: linear-gradient(to bottom, #8fd88a 0%, #52b54d 45%, #379b33 50%, #2f8f2c 85%, #43a83f 100%);
+    border-color: var(--xp-green-edge);
+    color: #ffffff;
+}
+ToolButton.autoRaise:disabled { background-color: transparent; border-color: transparent; }
+
+Button::arrow { background-color: transparent; }
+Button:arrow-hover::arrow { background-color: #fbe3a8; }
+Button::separator { background-color: #c3bfae; }
+
+/* =============================================================================================
+   Labels, check boxes, group boxes, tabs, tooltips, the status bar
+   ============================================================================================= */
+
+Label:link { color: #0033cc; }
+
+ToolTip {
+    background-color: var(--tooltip-base);
+    color: var(--tooltip-text);
+    border: 1px solid #000000;
+    border-radius: 0;
+    padding: 3px 5px;
+}
+
+/* check boxes: a white box with a blue-grey edge, the check mark in green */
+CheckBox::indicator {
+    width: 13px;
+    height: 13px;
+    padding: 2px;
+    background-color: #ffffff;
+    background-image: linear-gradient(135deg, #dcdbd3 0%, #ffffff 80%);
+    border: 1px solid #1c5180;
+    border-radius: 0;
+    color: #21a121;
+}
+CheckBox:hover::indicator {
+    border-color: #1c5180;
+    box-shadow: inset 0 0 0 2px #fdc864;
+}
+CheckBox:checked::indicator {
+    background-color: #ffffff;
+    border-color: #1c5180;
+}
+CheckBox:disabled::indicator {
+    background-color: #ffffff;
+    background-image: none;
+    border-color: #cac8bb;
+    color: var(--disabled-text);
+}
+ListWidget::indicator {
+    background-color: #ffffff;
+    background-image: linear-gradient(135deg, #dcdbd3 0%, #ffffff 80%);
+    border: 1px solid #1c5180;
+    border-radius: 0;
+    color: #21a121;
+}
+ListWidget::indicator:checked { background-color: #ffffff; border-color: #1c5180; }
+
+/* group boxes: a light rounded frame, the title in blue */
+GroupBox {
+    background-color: var(--window);   /* (the face it sits on: the frame is all that shows) */
+    border: 1px solid #d0d0bf;
+    border-radius: 4px;
+}
+GroupBox::title { color: var(--xp-blue-title); }
+
+/* tabs: light faces with a grey edge; the chosen one white, with an orange line along its top */
+TabWidget::base { height: 1px; background-color: var(--xp-tab-edge); }
+TabWidget::tab {
+    background-color: #f4f3ee;
+    background-image: linear-gradient(to bottom, #ffffff 0%, #f6f5f0 60%, #ebe9e0 100%);
+    border: 1px solid var(--xp-tab-edge);
+    border-bottom-width: 0;
+    border-radius: 3px 3px 0 0;
+    color: #000000;
+    padding: 4px 10px 5px;
+}
+TabWidget::tab:hover {
+    background-color: #fcfcfe;
+    border-top: 2px solid #ffc73c;
+    box-shadow: none;
+}
+TabWidget::tab:selected {
+    background-color: #fcfcfe;
+    background-image: none;
+    border-top: 2px solid var(--xp-tab-orange);
+    box-shadow: inset 0 1px 0 var(--xp-tab-gold);
+    color: #000000;
+}
+TabWidget::tab:disabled { color: var(--disabled-text); }
+TabWidget::tab-line { height: 0; }
+TabWidget::tab-line:selected { background-color: transparent; }
+
+/* the status bar: the window's beige, a soft line above */
+StatusBar { color: #000000; }
+StatusBar::separator { background-color: #d8d2bd; }
+
+Separator { color: #c4c0ac; }
+SplitterHandle { color: #c4c0ac; }
+SplitterHandle:hover, SplitterHandle:pressed { color: var(--highlight); }
+
+/* message boxes' signs */
+MessageIcon { background-color: #316ac5; color: #ffffff; }
+MessageIcon.question { background-color: #316ac5; }
+MessageIcon.warning { background-color: #f2c230; color: #000000; }
+MessageIcon.critical { background-color: #d9412c; color: #ffffff; }
+
+/* progress: a white track with green blocks */
+ProgressBar {
+    background-color: #ffffff;
+    border: 1px solid #686868;
+    border-radius: 3px;
+    color: #000000;
+}
+ProgressBar::chunk {
+    background-color: #2fb52f;
+    background-image: repeating-linear-gradient(to right, transparent 0px, transparent 8px, #ffffff 8px, #ffffff 10px),
+                      linear-gradient(to bottom, #d7f7d7 0%, #5fd45f 35%, #2fb52f 60%, #48c448 100%);
+    border-radius: 0;
+    color: #000000;
+}
+
+/* =============================================================================================
+   Fields: white with a blue-grey edge; small blue buttons for the arrows
+   ============================================================================================= */
+
+LineEdit, SpinBox, ComboBox {
+    background-color: #ffffff;
+    border: 1px solid #7f9db9;
+    border-radius: 0;
+}
+LineEdit:frameless { background-color: transparent; border-width: 0; }
+LineEdit:hover, SpinBox:hover, ComboBox:hover { border-color: #5a7fa8; }
+LineEdit:focus, SpinBox:focus, ComboBox:focus, ComboBox:open { border-color: #316ac5; }
+LineEdit:disabled, SpinBox:disabled, ComboBox:disabled { background-color: #f5f4ea; border-color: #c9c7ba; }
+
+ComboBox::arrow {
+    background-color: #c1d3fb;
+    background-image: linear-gradient(to bottom, #dce7fe 0%, #c3d4fb 50%, #b4c8f8 51%, #a6bdf3 100%);
+    border: 1px solid #b8ccf7;
+    border-radius: 2px;
+    color: #4d6185;
+    width: 17px;
+    padding-left: 4px;
+    stroke-width: 2px;
+}
+ComboBox:hover::arrow, ComboBox:open::arrow {
+    background-image: linear-gradient(to bottom, #f0f5ff 0%, #d7e3fd 50%, #c8d8fb 51%, #b9cdf7 100%);
+}
+ComboBox:disabled::arrow { background-image: none; background-color: #e9e8e0; border-color: #e9e8e0; color: var(--disabled-text); }
+
+SpinBox::up-button, SpinBox::down-button {
+    background-color: #c1d3fb;
+    background-image: linear-gradient(to bottom, #dce7fe 0%, #c3d4fb 50%, #b4c8f8 51%, #a6bdf3 100%);
+    border: 1px solid #b8ccf7;
+    border-radius: 2px;
+    color: #4d6185;
+    width: 15px;
+    stroke-width: 1.6px;
+}
+SpinBox:up-hover::up-button, SpinBox:down-hover::down-button {
+    background-color: #d7e3fd;
+    background-image: linear-gradient(to bottom, #f0f5ff 0%, #d7e3fd 50%, #c8d8fb 51%, #b9cdf7 100%);
+}
+SpinBox:up-pressed::up-button, SpinBox:down-pressed::down-button {
+    background-image: linear-gradient(to bottom, #8fa9e6 0%, #a9c0f3 100%);
+}
+SpinBox:at-maximum::up-button, SpinBox:at-minimum::down-button,
+SpinBox:disabled::up-button, SpinBox:disabled::down-button {
+    background-image: none;
+    background-color: #eeede6;
+    border-color: #eeede6;
+    color: #c9c7ba;
+}
+
+ComboPopup { background-color: #ffffff; border: 1px solid #000000; padding: 1px; }
+ComboPopup::item:selected { background-color: #316ac5; color: #ffffff; }
+ComboPopup::separator { background-color: #aca899; }
+
+/* =============================================================================================
+   Sliders and scroll bars: an upright handle that glows like a button; light blue rounded thumbs
+   ============================================================================================= */
+
+Slider::groove { background-color: #dcdad0; border-radius: 2px; }
+Slider::fill { background-color: #4f86d9; }
+Slider::handle {
+    width: 9px;
+    height: 15px;
+    background-color: #f3f2ec;
+    background-image: linear-gradient(to bottom, #ffffff 0%, #f1efe6 60%, #d9d5c6 100%);
+    border: 1px solid #5f7aa3;
+    border-radius: 2px;
+}
+Slider:vertical::handle { width: 15px; height: 9px; }
+Slider::handle:hover, Slider::handle:pressed {
+    background-color: #fff3d4;
+    border-color: #5f7aa3;
+    box-shadow: inset 0 -2px 0 var(--xp-glow-orange), inset 0 0 0 1px var(--xp-glow-gold);
+}
+Slider::handle:disabled { background-image: none; background-color: #f0efe6; border-color: #c9c7ba; box-shadow: none; }
+
+ScrollBar {
+    background-color: #f7f6f1;
+    background-image: linear-gradient(to right, #eeede5 0%, #fbfbf8 50%, #f2f1ea 100%);
+}
+ScrollBar:horizontal {
+    background-image: linear-gradient(to bottom, #eeede5 0%, #fbfbf8 50%, #f2f1ea 100%);
+}
+ScrollBar::thumb {
+    background-color: #c4d4f7;
+    background-image: linear-gradient(to right, #d3e0fb 0%, #c6d6f9 45%, #b7cbf6 100%);
+    border: 1px solid #98b1e6;
+    border-radius: 3px;
+    box-shadow: inset 0 0 0 1px #ecf2ff;
+    margin: 1px;
+}
+ScrollBar:horizontal::thumb {
+    background-image: linear-gradient(to bottom, #d3e0fb 0%, #c6d6f9 45%, #b7cbf6 100%);
+}
+ScrollBar::thumb:hover {
+    background-color: #d6e2fb;
+    background-image: linear-gradient(to right, #e4ecfd 0%, #d7e3fc 45%, #c8d8fa 100%);
+}
+ScrollBar:horizontal::thumb:hover {
+    background-image: linear-gradient(to bottom, #e4ecfd 0%, #d7e3fc 45%, #c8d8fa 100%);
+}
+ScrollBar::thumb:pressed {
+    background-color: #a9c0f4;
+    background-image: linear-gradient(to right, #b4c8f6 0%, #a9c0f4 100%);
+}
+ScrollBar:horizontal::thumb:pressed {
+    background-image: linear-gradient(to bottom, #b4c8f6 0%, #a9c0f4 100%);
+}
+
+/* =============================================================================================
+   Lists, trees, menus
+   ============================================================================================= */
+
+/* lists: white with the fields' blue-grey edge; the row under the mouse a pale blue, the chosen one blue */
+ListWidget, TreeWidget, FileList, FileView { background-color: #ffffff; border: 1px solid #7f9db9; }
+ListWidget::item:hover, TreeWidget::item:hover, FileList::item:hover, FileView::row:hover { background-color: #eaf0fb; }
+ListWidget::item:selected, TreeWidget::item:selected, FileList::item:selected, FileView::row:selected {
+    background-color: #316ac5;
+    color: #ffffff;
+}
+
+/* the menu bar: the window's beige; a title blue while its menu is open */
+MenuBar { background-color: var(--window); }
+MenuBar::item { color: #000000; padding: 3px 7px; }
+MenuBar::item:hover { background-color: #316ac5; color: #ffffff; }
+MenuBar::item:open { background-color: #316ac5; color: #ffffff; }
+
+/* menus: white with a grey edge, the entry under the mouse blue */
+Menu { background-color: #ffffff; border: 1px solid #aca899; padding: 2px 0; }
+Menu::item { padding: 4px 22px; }
+Menu::item:hover { background-color: #316ac5; color: #ffffff; }
+Menu::separator { background-color: #aca899; margin: 3px 2px; }
+Menu::check:hover { color: #ffffff; }
+
+FileList::header {  /* (drawn across the list's whole top, its edge included: the same edge on its sides) */
+    background-color: #ebeadb;
+    background-image: linear-gradient(to bottom, #ffffff 0%, #f6f5ef 70%, #ebeadb 100%);
+    color: #000000;
+    border-style: solid;
+    border-width: 1px 1px 2px 1px;
+    border-color: #7f9db9 #7f9db9 #d6d2c2 #7f9db9;
+}
+FileView::header {
+    background-color: #ebeadb;
+    background-image: linear-gradient(to bottom, #ffffff 0%, #f6f5ef 70%, #ebeadb 100%);
+    color: #000000;
+    border-color: #d6d2c2;
+}
+
+/* =============================================================================================
+   The bright blue glossy bar across the top (the transport)
+   ============================================================================================= */
+
+Transport {
+    background-color: #1a63e6;
+    background-image: linear-gradient(to bottom,
+        #6aaaff 0%, #3c88f8 5%, #2470ee 12%, #1660e5 30%, #0e58e0 55%, #0b52d8 80%, #0a49c9 92%, #06379f 100%);
+    border-width: 0 0 1px 0;
+    border-style: solid;
+    border-color: #022a7a;
+}
+Transport Label {
+    color: #ffffff;
+    font-weight: bold;
+    text-shadow: 1px 1px 1px #001a5c;
+}
+/* the time: in a lighter blue panel at the right, as the clock of that era's task bar */
+Transport Label#time {
+    background-color: #0f8ef0;
+    background-image: linear-gradient(to bottom, #2ea6ff 0%, #1592f1 10%, #0e86ea 50%, #0b7bdf 90%, #0a63c4 100%);
+    border: 1px solid #0a47b0;
+    border-radius: 3px;
+    box-shadow: inset 1px 1px 0 #6cc4ff;
+    color: #ffffff;
+    font-weight: normal;
+    text-shadow: 1px 1px 1px #003070;
+}
+Transport ToolButton.autoRaise {
+    color: #ffffff;
+    font-weight: bold;
+    text-shadow: 1px 1px 1px #001a5c;
+}
+Transport ToolButton.autoRaise:hover {
+    background-color: #3d86f2;
+    background-image: linear-gradient(to bottom, #7db6ff 0%, #4a90f5 45%, #3279ec 55%, #3d86f2 100%);
+    border-color: #0a3aa8;
+    box-shadow: inset 0 1px 0 #a9d0ff;
+}
+Transport ToolButton.autoRaise:pressed, Transport ToolButton.autoRaise:checked {
+    background-color: #1b4fb8;
+    background-image: linear-gradient(to bottom, #1546ab 0%, #1e56c4 50%, #2462d2 100%);
+    border-color: #082e86;
+    box-shadow: inset 1px 1px 2px #00104a;
+}
+Transport ToolButton.autoRaise:lit, Transport ToolButton.autoRaise:checked:lit {
+    background-color: var(--xp-green);
+    background-image: linear-gradient(to bottom, #8fd88a 0%, #52b54d 45%, #379b33 50%, #2f8f2c 85%, #43a83f 100%);
+    border-color: #1b501b;
+    color: #ffffff;
+    box-shadow: inset 0 1px 0 #c1f0bd;
+}
+Transport ToolButton.autoRaise:lit:hover {
+    background-image: linear-gradient(to bottom, #a6e6a1 0%, #62c45c 45%, #44ab3f 50%, #3a9f36 85%, #52b84d 100%);
+}
+/* (a switched-on toggle with a role, the record button: its own colour, as anywhere) */
+Transport ToolButton.autoRaise:toggled, ToolButton.autoRaise:toggled {
+    background-color: var(--toggle-color, var(--accent));
+    background-image: linear-gradient(to bottom,
+        color-mix(in srgb, var(--toggle-color, var(--accent)) 45%, #ffffff 55%) 0%,
+        var(--toggle-color, var(--accent)) 48%,
+        color-mix(in srgb, var(--toggle-color, var(--accent)) 85%, #000000 15%) 52%,
+        var(--toggle-color, var(--accent)) 100%);
+    border-color: color-mix(in srgb, var(--toggle-color, var(--accent)) 55%, #000000 45%);
+    box-shadow: none;
+}
+Transport ToolButton.autoRaise:disabled { color: #9ab8ee; text-shadow: none; }
+Transport IconButton::icon { color: #ffffff; }
+Transport IconButton:disabled::icon { color: #8aaae6; }
+Transport Separator { color: #5b95f0; }
+Transport SpinBox { border-color: #0a3aa8; }
+
+/* =============================================================================================
+   The timeline: white lanes, a soft blue-grey grid, a beige ruler
+   ============================================================================================= */
+
+Ruler {
+    background-color: var(--ruler-bg);
+    background-image: linear-gradient(to bottom, #fdfcf7 0%, #f1efe4 55%, #e3dfcf 100%);
+    border-bottom: 1px solid #aca899;
+}
+Ruler::marker { background-color: #316ac5; color: #ffffff; border-radius: 0 3px 3px 0; }
+Ruler::marker-line { background-color: #316ac5; }
+Ruler::tempo { color: #0046d5; }
+
+CpuMonitor {
+    background-color: var(--ruler-bg);
+    background-image: linear-gradient(to bottom, #fdfcf7 0%, #f1efe4 55%, #e3dfcf 100%);
+    border-color: #aca899;
+}
+CpuMonitor::track { background-color: #d6d3c4; }
+
+Lane.group { border-top-color: #b4c2da; }
+/* an automation lane's range values, written in a darker orange than the curve to read on the pale lane */
+Lane.automation::label, Lane.automation::value { color: #a8590a; }
+MasterLane { background-image: linear-gradient(to bottom, #eef3fc 0%, #e2eaf8 100%); }
+
+/* clips: their own colours; a thin dark outline and a softly rounded corner */
+Clip::body { border-radius: 3px; }
+Clip::header { border-radius: 3px 3px 0 0; }
+
+Overview { background-color: var(--overview-bg); }
+OverviewCaption { background-color: var(--overview-bg); color: #3c3b33; }
+
+/* =============================================================================================
+   The track rows: light panels with rounded controls
+   ============================================================================================= */
+
+TrackRow {
+    background-color: var(--row);
+    border-top-color: #e2dfd2;
+}
+TrackRow:alternate { background-color: var(--row-alt); }
+TrackRow.group { background-color: var(--group-lane); }
+LaneFrame::current { border-color: #316ac5; border-width: 2px 2px 2px 0; }
+LaneFrame.master { background-color: var(--master-lane); }
+LaneFrame.master::title { color: #0046d5; }
+.pin-cover { background-color: var(--window); }
+
+
+PanKnob { background-color: #f3f2ec; }
+PanKnob::pointer { color: #1c3f7a; }
+PanKnob::arc { color: #316ac5; }
+
+SendsPanel { background-color: #ffffff; border: 1px solid #aca899; }
+
+/* =============================================================================================
+   Meters: glossy green, yellow and red on a white track
+   ============================================================================================= */
+
+LevelMeter::track { background-color: #ffffff; border: 1px solid #b7bdc8; }
+LevelMeter::number { background-color: #ffffff; color: #3c3b33; }
+LevelMeter::number:clipped { background-color: var(--meter-hot); color: #ffffff; }
+
+Scope { background-color: #ffffff; border: 1px solid #7f9db9; }
+Scope::grid { color: #e1e6ef; }
+Scope::trace { color: #316ac5; }
+Scope::divider { color: #b4c2da; }
+
+/* =============================================================================================
+   The MIDI editor: clean white keys, a light roll
+   ============================================================================================= */
+
+PianoRoll::row:white { background-color: #ffffff; }
+PianoRoll::row:black { background-color: #eef2f9; }
+PianoRoll::row:tonic { background-color: #316ac514; }
+PianoRoll::octave { background-color: #b4c2da; }
+PianoRoll::below { background-color: #f1efe6; }
+PianoRoll::keys, Steps::keys { background-color: #ffffff; }
+PianoRoll::key:black, Steps::key:black {
+    background-color: #2a2a2a;
+    background-image: linear-gradient(to right, #111111 0%, #3c3c3c 70%, #555555 90%, #2a2a2a 100%);
+    border-radius: 0 2px 2px 0;
+}
+PianoRoll::keys-edge, Steps::keys-edge { background-color: #aca899; }
+EditorRuler {
+    background-color: var(--ruler-bg);
+    background-image: linear-gradient(to bottom, #fdfcf7 0%, #f1efe4 55%, #e3dfcf 100%);
+}
+EditorRuler::corner { background-color: #ebe8da; }
+VelocityLane { background-color: #fbfbfd; border-top: 1px solid #aca899; }
+VelocityLane::label { background-color: #ebe8da; color: #3c3b33; }
+
+Steps { background-color: #ebe8da; }
+Steps::row { background-color: #ffffff; }
+Steps::pad { background-color: #eef2f9; border-radius: 3px; }
+Steps::pad:odd { --darken: 106; }  /* (the pads of odd beats: a little darker) */
+
+/* =============================================================================================
+   Effect windows, the patch panel and other windows
+   ============================================================================================= */
+
+CurveView { background-color: #ffffff; border: 1px solid #7f9db9; }
+CurveView::grid { color: #a7b5cc; }  /* (its labels too) */
+CurveView::analyzer { color: #8fa6c8; }
+CurveView::curve { color: #316ac5; }
+MeterView::track { background-color: #ffffff; border: 1px solid #b7bdc8; }
+MeterView::bar { background-color: var(--meter-ok); }
+Tuner { background-color: #ffffff; border: 1px solid #7f9db9; }
+Tuner::scale { background-color: #b4c2da; }
+
+PatchPanel {
+    background-color: #f3f1e7;
+    --cable-1: #d9412c;
+    --cable-2: #f0a81c;
+    --cable-3: #316ac5;
+    --cable-4: #3c9a3c;
+    --cable-5: #8a5cc4;
+    --cable-6: #db6aa0;
+}
+PatchPanel::rail {
+    background-color: #d5deef;
+    background-image: linear-gradient(to bottom, #eef3fc 0%, #d6e0f3 45%, #c6d4ee 55%, #d3ddf1 100%);
+}
+PatchPanel::rail-edge { background-color: #7f9db9; }
+PatchPanel::screw { background-color: #f6f6f2; color: #7c8796; }
+PatchPanel::sources { background-color: #fbfaf6; border-top: 1px solid #c4c0ac; }
+PatchPanel::sources-title, PatchPanel::end-title { color: #0046d5; }
+PatchPanel::jack { background-color: #2a2a2a; border: 3px solid #c5cfe0; }
+PatchPanel::jack-ring { color: #316ac596; }
+PatchPanel::jack-ring:hover { color: #316ac5; }
+PatchPanel::unit {
+    background-color: #f6f5ef;
+    background-image: linear-gradient(to bottom, #ffffff 0%, #f7f6f1 40%, #eeece2 100%);
+    border: 1px solid #7f9db9;
+    border-radius: 4px;
+}
+PatchPanel::unit:hover { background-image: linear-gradient(to bottom, #ffffff 0%, #fbf7ea 50%, #f3ecd6 100%); }
+PatchPanel::unit:selected { outline-color: #316ac5; outline-width: 2px; }
+PatchPanel::picture { background-color: #ffffff; }
+PatchPanel::faceplate { color: #b4c2da; }
+PatchPanel::faceplate-text { color: #5d6f8f; }
+PatchPanel::wave { color: #316ac5; }
+PatchPanel::name { color: #000000; }
+PatchPanel::reload {
+    background-color: #f3f2ec;
+    border-top: 1px solid var(--xp-edge);
+    border-radius: 3px;
+    color: #000000;
+}
+PatchPanel::reload:hover { background-color: #fdeec4; color: #000000; }
+PatchPanel::led { border-top: 1px solid #5c6670; }
+PatchPanel::groove { background-color: #c5cfe0; }
+PatchPanel::level { background-color: #4f86d9; }
+PatchPanel::knob {
+    background-color: #f7f6f1;
+    border-top: 1px solid #5f7aa3;
+    border-radius: 2px;
+}
+PatchPanel::knob:hover { background-color: #fde3a0; }
+PatchPanel::mod-link { color: #e68b2c; }
+
+EnvelopeGraph { background-color: #ffffff; border: 1px solid #7f9db9; }
+EnvelopeGraph.bar { color: #e68b2c; }
+EnvelopeGraph.beat { color: #316ac5; }
+EnvelopeGraph::grid { color: #e1e6ef; }
+EnvelopeGraph::label { color: #5b5a51; }
+EnvelopeGraph::handle { background-color: #ffffff; }
+EnvelopeGraph::handle:dragging { border-top-color: #000000; }
+
+SampleWaveform { background-color: #ffffff; color: #3c3b33; border: 1px solid #7f9db9; }
+SampleWaveform::caption { color: #3c3b33; }
+SampleWaveform::midline { background-color: #dde3ee; }
+
+PadView::name { color: #000000; }
+Swatch::chip { border-color: #7f9db9; }
+ClipPreview { background-color: #ffffff; }
+EditorWindow::stopped { background-color: var(--window); }
