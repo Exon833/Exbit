@@ -436,7 +436,7 @@ std::vector<int> TransportBar::measure(int width) {
 void TransportBar::fit() {
     if (fitting_ || steps_.empty()) return;
     fitting_ = true;
-    int width = std::max(0, this->width() - 2 * 2);  // (inside the toolbar's padding)
+    int width = std::max(0, this->width() - frame().w());  // (inside the toolbar's border and padding)
     std::vector<int> needs = measure(width);
     int found = (int)needs.size() - 1;
     for (int i = 0; i < (int)needs.size(); ++i)

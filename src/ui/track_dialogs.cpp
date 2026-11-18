@@ -7,6 +7,7 @@
 
 #include "ui/toolkit/controls.h"
 #include "ui/toolkit/dialogs.h"
+#include "ui/theme.h"
 #include "ui/toolkit/layout.h"
 
 namespace track_dialogs {
@@ -31,18 +32,20 @@ bool askNumber(ui::Window* parent, const std::string& title, const std::string& 
         return true;
     }
     ui::Dialog d(parent, title, 320, 120);
-    auto* v = ui::vbox(&d, 12, 8);
+    // (the room of the toolkit's questions for a number: default.css's --input-dialog-…)
+    auto* v = ui::vbox(&d, theme::metric("input-dialog-margin", 12), theme::metric("input-dialog-spacing", 8));
+    int fieldWidth = theme::metric("input-dialog-field-width", 280);
     auto* lab = d.add<ui::Label>(label);
     lab->setWordWrap(true);
-    lab->setMinimumWidth(280);
+    lab->setMinimumWidth(fieldWidth);
     v->addWidget(lab);
     auto* box = d.add<ui::SpinBox>();
     box->setRange(lo, hi);
     box->setDecimals(decimals);
     box->setValueSilently(value);
-    box->setMinimumWidth(280);
+    box->setMinimumWidth(fieldWidth);
     v->addWidget(box);
-    v->addSpacing(4);
+    v->addSpacing(theme::metric("input-dialog-button-gap", 4));
     auto* bb = d.add<ui::ButtonBox>(ui::ButtonBox::Ok | ui::ButtonBox::Cancel);
     v->addWidget(bb);
     bb->accepted.connect([&] { d.accept(); });

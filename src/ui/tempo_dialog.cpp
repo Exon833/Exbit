@@ -8,7 +8,8 @@ std::function<bool(TempoDialog&)> TempoDialog::testRun;
 
 TempoDialog::TempoDialog(ui::Window* parent, int bar_, double bpm_, int beatsPerBar_, bool hasChange)
     : ui::Dialog(parent, "Tempo from bar " + std::to_string(bar_), 360, 200), bar(bar_), bpm(bpm_), beatsPerBar(beatsPerBar_) {
-    ui::FormLayout* form = ui::form(this, 11, 6);
+    setStyleType("TempoDialog");
+    ui::FormLayout* form = ui::styleRoom(ui::form(this, 11, 6), computedStyle());
     auto* intro = add<ui::Label>("From the start of bar " + std::to_string(bar) + " on" +
                                  (bar > 1 ? "" : " (the whole song, unless it changes later)") + ":");
     intro->setWordWrap(true);

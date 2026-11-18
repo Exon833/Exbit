@@ -165,12 +165,14 @@ PluginsDialog::PluginsDialog(ui::Window* parent, PluginHost& host_, const std::s
     deleteOnClose = true;
     where = owner ? owner->name : "Master";
 
-    auto* lay = ui::vbox(this, 10, 6);
+    setStyleType("PluginsDialog");
+    auto* lay = ui::styleRoom(ui::vbox(this, 10, 6), computedStyle());
     {  // "<b>Effects</b> — …"
         auto row = std::make_unique<ui::HBox>();
         row->spacing = 4;
+        ui::styleRoom(row.get(), computedStyle("header"));
         auto* bold = add<ui::Label>(INSTRUMENTS ? "Instruments" : "Effects");
-        bold->setFont(theme::uiFont().withBold(true));
+        bold->addStyleClass("heading");  // (default.css: Label.heading, bold)
         auto* rest = add<ui::Label>(HEADER);
         rest->setElide(true);
         row->addWidget(bold);
@@ -200,6 +202,7 @@ PluginsDialog::PluginsDialog(ui::Window* parent, PluginHost& host_, const std::s
     {
         auto buttons = std::make_unique<ui::HBox>();
         buttons->spacing = 6;
+        ui::styleRoom(buttons.get(), computedStyle("buttons"));
         auto* addB = add<ui::Button>("Add…");
         addB->clicked.connect([this] { addEffect(); });
         auto* removeB = add<ui::Button>("Remove");
@@ -246,7 +249,8 @@ void PluginsDialog::resized() {
     if (!hint) return;
     // the hint wrapped at the window's width (a label alone would wrap at 360 px)
     Font f = hint->font();
-    float width = (float)std::max(100, this->width() - 20);
+    const ui::Layout* lay = layout();
+    float width = (float)std::max(100, this->width() - (lay ? lay->margins[0] + lay->margins[2] : 20));
     int lines = 0;
     for (const std::string& paragraph : util::split(HINT, '\n')) {
         std::string line;

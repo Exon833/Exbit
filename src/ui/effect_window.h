@@ -112,7 +112,9 @@ private:
         const css::Style* self = nullptr;
         const css::Style* note[3] = {};  // heard, in tune, silent
         Color scale, tick, tickCentre, needle, needleInTune, cents, hz, endLabel;
-        float needleR = 2;
+        float needleR = 2;  // (before Options → Rounded corners)
+        float needleW = 4, needleH = 30, needleTop = -14;  // (its top: from the scale's)
+        float tickW = 1, tickH = 12, tickCentreH = 24;     // (centred on the scale, 1 px below its middle)
         int scaleH = 2, scaleLeft = 24, scaleRight = 24, scaleTop = 66;
         Font noteFont[3], centsFont, hzFont, endFont;
     };

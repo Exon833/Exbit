@@ -9,6 +9,7 @@
 #include "model/edits.h"
 #include "ui/record_offset_dialog.h"
 #include "ui/toolkit/layout.h"
+#include "ui/toolkit/style.h"
 
 using namespace ui;
 
@@ -117,8 +118,9 @@ void placeClip(Project& project, const ClipPtr& clip, int64_t frame, const Track
 
 RecordSettingsDialog::RecordSettingsDialog(Window* parent, const Preferences& prefs, int inputs)
     : Dialog(parent, "Recording", 380, 200) {
-    FormLayout* f = form(this, 11, 6);
-    setMinimumSize(380, 0);
+    setStyleType("RecordSettingsDialog");
+    FormLayout* f = styleRoom(form(this, 11, 6), computedStyle());
+    setMinimumSize(std::max(0, style::px(computedStyle(), "min-width", 380)), 0);
     input = add<ComboBox>();
     for (auto& c : recording::inputChoices(inputs)) input->addItem(c.first, c.second);
     input->setCurrentIndexSilently(std::max(0, input->findData(prefs.recordInput)));

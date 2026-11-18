@@ -10,7 +10,8 @@
 
 PluginFoldersDialog::PluginFoldersDialog(ui::Window* parent, const std::vector<std::string>& folders_)
     : ui::Dialog(parent, "VST2 plugin folders", 560, 360) {
-    auto* lay = ui::vbox(this, 10, 6);
+    setStyleType("PluginFoldersDialog");
+    auto* lay = ui::styleRoom(ui::vbox(this, 10, 6), computedStyle());
     lay->addWidget(Widget::add<ui::Label>("Folders with VST2 plugins (their subfolders are searched too):"));
     list = Widget::add<ui::ListWidget>();
     for (auto& f : folders_) list->addItem(f);
@@ -19,6 +20,7 @@ PluginFoldersDialog::PluginFoldersDialog(ui::Window* parent, const std::vector<s
     lay->addWidget(list, 1);
     auto row = std::make_unique<ui::HBox>();
     row->spacing = 6;
+    ui::styleRoom(row.get(), computedStyle("row"));
     auto* addB = Widget::add<ui::Button>("Add folder…");
     addB->clicked.connect([this] { addFolder(); });
     removeButton = Widget::add<ui::Button>("Remove");

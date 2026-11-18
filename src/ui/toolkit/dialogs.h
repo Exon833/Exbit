@@ -56,6 +56,10 @@ private:
     void arrange();
 };
 
+// a dialog's own OK / Cancel / Close… button outside a ButtonBox: class .dialog-button, at least its min-width wide
+// (default.css: as a ButtonBox's buttons, 80 px)
+void dialogButton(Button* b);
+
 namespace msg {
 enum Button { Ok = 1, Cancel = 2, Yes = 4, No = 8, Save = 16, Discard = 32, Close = 64 };
 enum class Icon { None, Information, Warning, Critical, Question };

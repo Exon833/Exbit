@@ -15,6 +15,7 @@
 #include "paths.h"
 #include "ui/toolkit/dialogs.h"
 #include "ui/toolkit/layout.h"
+#include "ui/toolkit/style.h"
 
 namespace autosave {
 
@@ -214,17 +215,18 @@ namespace {
 int askRecovery(ui::Window* parent, const std::string& text, const std::string& more) {
     ui::Dialog d(parent, "Recover your work?", 440, 160);
     d.setMinimumWindowSize(0, 0);
-    auto* col = ui::vbox(&d, 14, 10);
+    d.addStyleClass("recovery");  // (default.css: Dialog.recovery, its room; ::text, ::buttons)
+    auto* col = ui::styleRoom(ui::vbox(&d, 14, 10), d.computedStyle());
     auto* lab = d.add<ui::Label>(text);
     lab->setWordWrap(true);
     lab->setAlignment(AlignLeft | AlignTop);
-    lab->setMinimumWidth(420);
+    lab->setMinimumWidth(std::max(0, ui::style::px(d.computedStyle("text"), "min-width", 420)));
     col->addWidget(lab);
     auto* info = d.add<ui::Label>(more);
     info->setWordWrap(true);
     info->setAlignment(AlignLeft | AlignTop);
     col->addWidget(info);
-    col->addSpacing(6);
+    col->addSpacing(std::max(0, ui::style::px(d.computedStyle("buttons"), "margin-top", 6)));
     col->addStretch(1);
     auto* box = d.add<ui::ButtonBox>(0);
     int chosen = 2;

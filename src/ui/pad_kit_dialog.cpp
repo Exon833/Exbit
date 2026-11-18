@@ -177,13 +177,16 @@ void PadView::drop(ui::DragEvent& e) {
 PadKitDialog::PadKitDialog(ui::Window* window, TrackPtr track_)
     : ui::Dialog(window, "Pad Kit \xe2\x80\x94 " + track_->name, 900, 600), track(std::move(track_)) {
     deleteOnClose = true;
+    setStyleType("PadKitDialog");
     // (each layout is placed in its parent before it is filled: a form's labels need their owner)
-    ui::VBox* col = ui::vbox(this, 9, 8);
+    ui::VBox* col = ui::styleRoom(ui::vbox(this, 9, 8), computedStyle());
     auto* columns = nest<ui::HBox>(col, 1);
     columns->setSpacing(14);
+    ui::styleRoom(columns, computedStyle("columns"));
     // the pads (left)
     auto* left = nest<ui::VBox>(columns, 3);
     left->setSpacing(6);
+    ui::styleRoom(left, computedStyle("pads"));
     auto* banks = nest<ui::HBox>(left);
     bankA = ui::pushButton(this, "Pads 1\xe2\x80\x93" "16", [this] { showBank(0); });
     bankB = ui::pushButton(this, "Pads 17\xe2\x80\x93" "32", [this] { showBank(1); });
@@ -210,9 +213,10 @@ PadKitDialog::PadKitDialog(ui::Window* window, TrackPtr track_)
     // the selected pad's settings (right)
     auto* right = nest<ui::VBox>(columns, 2);
     right->setSpacing(6);
+    ui::styleRoom(right, computedStyle("settings"));
     auto* title = nest<ui::HBox>(right);
     padTitle = add<ui::Label>();
-    padTitle->setFont(theme::uiFont().withBold(true));
+    padTitle->addStyleClass("heading");  // (default.css: Label.heading, bold)
     padTitle->setElide(true);
     title->addWidget(padTitle, 1);
     loadButton = ui::pushButton(this, "Load sample\xe2\x80\xa6", [this] { loadSample(selected); });
@@ -458,7 +462,8 @@ void closeGone(const Project& project) {
 SliceDialog::SliceDialog(ui::Window* parent, ClipPtr clip_, int sr_)
     : ui::Dialog(parent, "Slice to a Pad Kit", 420, 170), clip(std::move(clip_)), sr(sr_) {
     deleteOnClose = true;
-    ui::VBox* col = ui::vbox(this, 12, 8);
+    setStyleType("SliceDialog");
+    ui::VBox* col = ui::styleRoom(ui::vbox(this, 12, 8), computedStyle());
     ui::Label* what = add<ui::Label>("Cuts " + clip->name + " at its hits: a new MIDI track with a Pad Kit, a slice "
                                      "on each pad, and a clip playing them where they were. The lines on the clip "
                                      "show where the slices start.");
@@ -472,7 +477,7 @@ SliceDialog::SliceDialog(ui::Window* parent, ClipPtr clip_, int sr_)
     sensitivity->setToolTip("Higher finds quieter hits too");
     row->addWidget(sensitivity, 1);
     count = add<ui::Label>();
-    count->setMinimumWidth(90);
+    count->setMinimumWidth(std::max(0, ui::style::px(computedStyle("count"), "min-width", 90)));
     row->addWidget(count);
     col->addLayout(std::move(row));
     col->addStretch(1);

@@ -17,6 +17,11 @@ using namespace patch_panel;
 namespace {
 constexpr int DRAG_START = 4;  // px the mouse moves before a unit is dragged (QApplication.startDragDistance on Windows)
 RectF circle(PointF c, float r) { return RectF(c.x - r, c.y - r, 2 * r, 2 * r); }
+// a fill of a fractional rect with rounded corners (square when rad is 0: Options → Rounded corners off)
+void roundedFill(Painter& p, const RectF& r, float rad, Color c) {
+    if (rad > 0.01f) p.fillRoundedRect(r, rad, c);
+    else p.fillRect(r, c);
+}
 double pyRound(double v) { return std::nearbyint(v); }  // (Python's round: halves to even)
 bool contains(const std::vector<PanelCable>& cables, const PanelCable& c) {
     return std::find(cables.begin(), cables.end(), c) != cables.end();
@@ -199,7 +204,7 @@ Rect PatchPanel::ledRect(int index) const {
 std::optional<Rect> PatchPanel::reloadRect(int index) const {
     if (!units_[index].reload) return std::nullopt;
     Rect r = unitRect(index);
-    constexpr int W = 96, H = 28;
+    const int W = look().reloadW, H = look().reloadH;  // (PatchPanel::reload's width / height)
     return Rect(r.x + PIC_X + (PIC_W - W) / 2, r.y + PIC_Y + (PIC_H - H) / 2, W, H);
 }
 
@@ -453,7 +458,9 @@ const PatchPanel::Look& PatchPanel::look() const {
     l.reloadHotText = panel_style::fg(reloadHot);
     l.reloadEdge = border(reload);
     l.reloadEdgeW = width(reload, "border-top-width", 1);
-    l.reloadRadius = width(reload, "border-top-left-radius", 4);  // (its own: whether corners are rounded or not)
+    l.reloadRadius = std::max(0.f, width(reload, "border-top-left-radius", 4));  // (square without Rounded corners)
+    l.reloadW = std::max(1, panel_style::px(reload, "width", 96));
+    l.reloadH = std::max(1, panel_style::px(reload, "height", 28));
     l.reloadFont = font(reload, true, 0);
     const css::Style& name = parts_.get("name");
     l.name = panel_style::fg(name);
@@ -473,7 +480,8 @@ const PatchPanel::Look& PatchPanel::look() const {
     l.statusFont = font(status, false, -1);
     const css::Style& groove = parts_.get("groove");
     l.groove = panel_style::bg(groove);
-    l.grooveRadius = width(groove, "border-top-left-radius", 2);
+    l.grooveRadius = std::max(0.f, width(groove, "border-top-left-radius", 2));
+    l.grooveH = std::max(0.f, width(groove, "height", 4));
     l.level = panel_style::bg(parts_.get("level"));
     l.levelBypassed = panel_style::bg(parts_.get("level", "bypassed"));
     const css::Style& zero = parts_.get("zero-mark");
@@ -484,7 +492,9 @@ const PatchPanel::Look& PatchPanel::look() const {
     l.knobHot = panel_style::bg(parts_.get("knob", "hover"));
     l.knobEdge = border(knob);
     l.knobEdgeW = width(knob, "border-top-width", 1);
-    l.knobRadius = width(knob, "border-top-left-radius", 3);
+    l.knobRadius = std::max(0.f, width(knob, "border-top-left-radius", 3));
+    l.knobW = std::max(0.f, width(knob, "width", 2 * KNOB_HALF_W));
+    l.knobH = std::max(0.f, width(knob, "height", 16));
     const css::Style& value = parts_.get("value");
     l.value = panel_style::fg(value);
     l.valueHot = panel_style::fg(parts_.get("value", "hover"));
@@ -648,10 +658,14 @@ void PatchPanel::paintUnit(Painter& p, int index) {
     if (auto button = reloadRect(index)) {  // (stopped: started afresh with a click)
         bool hot = hover.kind == Hover::Reload && hover.index == index;
         ui::style::box(p, pic, *look.reloadShadeBox);
+        // (style::box once it takes a RectF: its edge is stroked, half a line inside)
         RectF b(*button);
         float half = look.reloadEdgeW / 2;
-        p.fillRoundedRect(b, look.reloadRadius, hot ? look.reloadHot : look.reload);
-        p.strokeRoundedRect(b.adjusted(half, half, -half, -half), look.reloadRadius, look.reloadEdge, look.reloadEdgeW);
+        float rad = theme::rounded ? look.reloadRadius : 0.f;
+        roundedFill(p, b, rad, hot ? look.reloadHot : look.reload);
+        RectF edge = b.adjusted(half, half, -half, -half);
+        if (rad > 0.01f) p.strokeRoundedRect(edge, rad, look.reloadEdge, look.reloadEdgeW);
+        else p.strokeRect(edge, look.reloadEdge, look.reloadEdgeW);
         p.drawText(b, AlignCenter, "Reload", look.reloadFont, hot ? look.reloadHotText : look.reloadText);
     }
     // the name
@@ -692,19 +706,23 @@ void PatchPanel::paintVolume(Painter& p, int index) {
     Rect v = *volumeRect(index);
     auto [x0, x1] = groove(index);
     float y = v.y + (v.h - 1) / 2.f + 0.5f, knob = (float)volumeX(index, *unit.fader());
-    p.fillRoundedRect(RectF((float)x0, y - 2, (float)(x1 - x0), 4), look.grooveRadius, look.groove);
+    // (the groove and the knob sit on fractional rects: style::box once it takes a RectF)
+    float grooveRad = theme::rounded ? look.grooveRadius : 0.f, gh = look.grooveH;
+    roundedFill(p, RectF((float)x0, y - gh / 2, (float)(x1 - x0), gh), grooveRad, look.groove);
     if (knob - x0 > 0)
-        p.fillRoundedRect(RectF((float)x0, y - 2, (float)(knob - x0), 4), look.grooveRadius,
-                          unit.bypass ? look.levelBypassed : look.level);
+        roundedFill(p, RectF((float)x0, y - gh / 2, (float)(knob - x0), gh), grooveRad,
+                    unit.bypass ? look.levelBypassed : look.level);
     if (unit.volumeDb) {
         float zero = (float)volumeX(index, 0.0);
         p.drawLine(PointF(zero + 0.5f, y - 7), PointF(zero + 0.5f, y - 4), look.zeroMark, look.zeroMarkW);
         p.drawLine(PointF(zero + 0.5f, y + 4), PointF(zero + 0.5f, y + 7), look.zeroMark, look.zeroMarkW);
     }
     bool hot = (hover.kind == Hover::Volume && hover.index == index) || (volumeDrag && *volumeDrag == index);
-    RectF k(knob - KNOB_HALF_W, y - 8, 2 * KNOB_HALF_W, 16);
-    p.fillRoundedRect(k, look.knobRadius, hot ? look.knobHot : look.knob);
-    p.strokeRoundedRect(k, look.knobRadius, look.knobEdge, look.knobEdgeW);
+    RectF k(knob - look.knobW / 2, y - look.knobH / 2, look.knobW, look.knobH);
+    float knobRad = theme::rounded ? look.knobRadius : 0.f;
+    roundedFill(p, k, knobRad, hot ? look.knobHot : look.knob);
+    if (knobRad > 0.01f) p.strokeRoundedRect(k, knobRad, look.knobEdge, look.knobEdgeW);
+    else p.strokeRect(k, look.knobEdge, look.knobEdgeW);
     std::string text = unit.volumeDb ? dbText(*unit.volumeDb)
                                      : "Mix " + std::to_string((int)pyRound(*unit.mix * 100)) + " %";
     float left = (float)(x1 + KNOB_HALF_W + 3);

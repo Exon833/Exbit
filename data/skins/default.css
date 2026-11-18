@@ -146,6 +146,8 @@ Button::separator { background-color: var(--line); }
 /* Sizes of the layout: a wrapped label's widest line, the narrowest an eliding or wrapping label gets; the room
    in message boxes, getText / getItem (input dialogs) and progress windows */
 :root {
+    --layout-spacing: 4px;             /* between the controls of a row or column made without a gap of its own */
+    --grid-spacing: 6px;               /* between the cells of a grid made without one (the Pad Kit's pads…) */
     --label-wrap-width: 360px;         /* a wrapping label's width when nothing gives it one */
     --label-min-width: 16px;           /* the least width of a label that elides its text */
     --message-box-margin: 14px;        /* around its parts */
@@ -175,9 +177,12 @@ ToolTip {
 DragImage { background-color: var(--base); }
 DragImage::image { opacity: 0.8; }
 
-/* Labels. .hint and .dimmed (8 pt) from the program's properties; :link is a clickable link (underlined);
-   #time and #lufs (the transport's numbers) in the numbers font. ::image is a label's picture. */
+/* Labels. .hint and .dimmed (8 pt) from the program's properties; .heading a dialog's title over what follows (the
+   sample's name in the sampler, the pad's in the Pad Kit, "Effects" over the patch panel, a MIDI effect's name);
+   :link is a clickable link (underlined); #time and #lufs (the transport's numbers) in the numbers font. ::image
+   is a label's picture. */
 Label { color: var(--window-text); }
+Label.heading { font-weight: bold; }
 Label.dimmed { color: var(--dimmed-text); font-size: 8pt; }
 Label.hint { color: var(--hint-text); }
 Label:link { color: var(--accent); text-decoration: underline; }
@@ -240,12 +245,13 @@ TabWidget::tab:disabled { color: var(--disabled-text); }
 TabWidget::tab-line { height: 2px; }
 TabWidget::tab-line:selected { background-color: var(--accent); }
 
-/* Dialogs. ButtonBox: the row of OK / Cancel… (column-gap between them, each at least min-width wide).
-   MessageIcon: a message box's sign (.information .question .warning .critical). ProgressBar: a progress
-   window's bar, ::chunk the part done (min-width: the busy block's). */
+/* Dialogs. ButtonBox: the row of OK / Cancel… (column-gap between them, each at least min-width wide);
+   .dialog-button: such a button of a dialog's own, outside a ButtonBox. MessageIcon: a message box's sign
+   (.information .question .warning .critical; width / height: its size, the drawing scaled to it). ProgressBar: a
+   progress window's bar, ::chunk the part done (min-width: the busy block's). */
 ButtonBox { column-gap: 6px; }
-ButtonBox > Button, ProgressDialog > Button { min-width: 80px; }
-MessageIcon { background-color: var(--accent); color: var(--accent-text); }
+ButtonBox > Button, ProgressDialog > Button, Button.dialog-button { min-width: 80px; }
+MessageIcon { width: 32px; height: 32px; background-color: var(--accent); color: var(--accent-text); }
 MessageIcon.warning { background-color: var(--solo); }
 MessageIcon.critical { background-color: var(--mute); }
 ProgressBar {
@@ -460,6 +466,16 @@ FileList::icon:selected { color: var(--highlighted-text); }
 FileList::detail { padding: 0 6px; --spare: 4px; color: var(--hint-text); }
 FileList::detail:selected { color: var(--highlighted-text); }
 FileList::placeholder { height: 60px; color: var(--hint-text); }
+/* The file dialog: width / height its size when it opens, min-width / min-height the least it can be made; padding
+   around its rows, row-gap between them. ::path-row (the Up and Home buttons and the path: column-gap),
+   ::nav-button (Up and Home: width, height), ::middle (the places and the list: column-gap), ::places (the places'
+   width), ::form (the name and type: row-gap). */
+FileDialog { width: 760px; height: 480px; min-width: 480px; min-height: 320px; padding: 10px; row-gap: 8px; }
+FileDialog::path-row { column-gap: 4px; }
+FileDialog::nav-button { width: 26px; height: 24px; }
+FileDialog::middle { column-gap: 8px; }
+FileDialog::places { width: 150px; }
+FileDialog::form { row-gap: 6px; }
 
 /* (end of Sliders, lists, scrolling and menus) */
 
@@ -585,6 +601,13 @@ Overview::view {
 }
 Overview::cursor { color: var(--cursor); stroke-width: 1px; }
 Overview::playhead { color: var(--playhead); stroke-width: 1px; }
+/* "Project overview" beside it (a Label): its box and text. */
+OverviewCaption {
+    background-color: var(--overview-bg);
+    color: var(--ruler-text);
+    border: 0 solid var(--overview-edge);
+    border-bottom-width: 1px;
+}
 
 /* The track rows in the panel beside the lanes (TrackPanel): a track's (:alternate every other), an automation
    lane's (:armed: a quarter of ::tint is mixed in), a take's, a group's header. border-left-color: the stripe
@@ -611,6 +634,11 @@ TrackRow.group {
     column-gap: 3px;
 }
 TrackRow::group-bar { background-color: var(--group-accent); width: 5px; }
+/* A track's controls under its name (the outputs, meter, volume, Auto and LUFS: column-gap / row-gap between
+   them); ::volume its slider and dB, ::auto its Auto and sends buttons (column-gap). */
+TrackRow::controls { column-gap: 6px; row-gap: 2px; }
+TrackRow::volume { column-gap: 4px; }
+TrackRow::auto { column-gap: 2px; }
 
 /* (end of Timeline) */
 
@@ -638,6 +666,12 @@ TrackRow::group-bar { background-color: var(--group-accent); width: 5px; }
     --sends-button-width: 20px;    /* → (the sends) */
     --sends-button-height: 16px;   /* (its height) */
     --output-selector-width: 58px; /* a row's outputs (1/2 ▾) */
+    --output-selector-height: 18px; /* (its height) */
+    --auto-button-width: 58px;     /* a track's Auto (its automation lanes) */
+    --auto-button-short-width: 36px;  /* … beside the sends button (→) */
+    --auto-button-height: 16px;    /* (its height) */
+    --write-button-width: 40px;    /* an automation lane's Write */
+    --group-meter-indent: 26px;    /* a group row's meter, from the row's left (past the fold button) */
     --volume-slider-height: 14px;  /* a row's volume */
     --db-reading-width: 44px;      /* its dB beside it */
     --pan-knob-size: 22px;         /* a row's pan knob */
@@ -783,8 +817,10 @@ EditorRuler::label { padding-left: 4px; top: 15px; }  /* top: the labels' baseli
 EditorRuler::corner { background-color: var(--ruler-bg); }  /* over the keys' column */
 
 /* The patch panel (an effects window's patch space, an instrument patch panel): units between rails, jacks and
-   cables. Its geometry (where units, jacks and lights go) is its own; colours, lines and fonts are here. The
-   cables take --cable-1 … --cable-6 in turn. */
+   cables. Its geometry (where units, jacks and lights go) is its own; colours, lines, fonts and corners are here,
+   and the sizes of ::reload (a stopped plugin's Reload button: width, height), a fader's ::groove (height) and
+   ::knob (width, height). Corners are square with Options → Rounded corners off. The cables take --cable-1 …
+   --cable-6 in turn. */
 PatchPanel {
     background-color: color-mix(in srgb, var(--base) 50%, var(--window) 50%);
     --cable-1: #e0533d;
@@ -833,6 +869,8 @@ PatchPanel::reload {
     border-top: 1px solid var(--frame-edge);
     border-radius: 4px;
     font-weight: bold;
+    width: 96px;
+    height: 28px;
 }
 PatchPanel::reload:hover { background-color: var(--accent); color: var(--accent-text); }
 PatchPanel::name { color: var(--button-text); font-weight: bold; }
@@ -845,7 +883,7 @@ PatchPanel::led:bypassed { background-color: color-mix(in srgb, var(--button) 55
 PatchPanel::led:problem { background-color: var(--record); }
 PatchPanel::status { color: var(--hint-text); font-size: calc(1em - 1pt); }
 PatchPanel::status:hover { color: var(--button-text); }
-PatchPanel::groove { background-color: var(--frame-edge); border-radius: 2px; }
+PatchPanel::groove { background-color: var(--frame-edge); border-radius: 2px; height: 4px; }
 PatchPanel::level { background-color: color-mix(in srgb, var(--accent) 75%, var(--button) 25%); }
 PatchPanel::level:bypassed { background-color: var(--disabled-text); }
 PatchPanel::zero-mark { color: var(--hint-text); stroke-width: 1px; }
@@ -853,6 +891,8 @@ PatchPanel::knob {
     background-color: color-mix(in srgb, var(--button) 45%, var(--window-text) 55%);
     border-top: 1px solid var(--frame-edge);
     border-radius: 3px;
+    width: 10px;
+    height: 16px;
 }
 PatchPanel::knob:hover { background-color: var(--accent); }
 PatchPanel::value { color: var(--hint-text); font-size: calc(1em - 1pt); }
@@ -876,7 +916,10 @@ SampleWaveform::position { background-color: var(--playhead); width: 1px; }
 /* The Explorer: its rows (padding, row-gap), the folder row and the preview row (column-gap); FileView is its list
    (the folder's tree, the search results with their ::header). */
 Explorer { padding: 6px; row-gap: 5px; }
+/* The Explorer's dock: ::title-bar is the room around its title and ✕ (padding; column-gap between them). */
+ExplorerDock::title-bar { padding: 0 2px 0 6px; column-gap: 0; }
 Explorer::folder-row { column-gap: 3px; }
+Explorer::folder { min-width: 60px; }  /* the folder list's least width (long names give way to the buttons) */
 Explorer::preview-row { column-gap: 6px; }
 FileView { background-color: var(--base); color: var(--text); }
 FileView::row:hover { background-color: var(--item-hover); }
@@ -886,7 +929,14 @@ FileView::icon:selected { color: var(--highlighted-text); }
 FileView::header { background-color: var(--window); color: var(--hint-text); border-color: var(--line); border-width: 0 0 1px 0; }
 
 /* The colour dialog: the wheel's marker, the previews (a clip, a track's row: their colours are the chosen
-   colour's) and the recent colours' squares. */
+   colour's) and the recent colours' squares. ColorPickerDialog: its grid (padding around, row-gap / column-gap
+   between its cells), ::row a cell holding several controls (column-gap), ::recent the recent colours' row,
+   ::brightness the brightness slider's and ::hex the hex field's width. */
+ColorPickerDialog { padding: 11px; row-gap: 6px; column-gap: 6px; }
+ColorPickerDialog::row { column-gap: 6px; }
+ColorPickerDialog::recent { column-gap: 4px; }
+ColorPickerDialog::brightness { width: 200px; }
+ColorPickerDialog::hex { width: 80px; }
 ColorWheel::marker { width: 12px; stroke-width: 2px; }
 ClipPreview { background-color: var(--window); padding: 2px; width: 170px; height: 64px; }
 ClipPreview::clip { min-height: 16px; border-top-width: 1.5px; }
@@ -916,12 +966,32 @@ PadView::stripe { width: 3px; }
 PadView::frame { border-top: 1px solid var(--frame-edge); }
 PadView::frame:selected, PadView::frame:dropping { border-top: 2px solid var(--selected-note); }
 
+/* The Pad Kit window (PadKitDialog: padding around, row-gap between its rows): ::columns the pads and the pad's
+   settings side by side (column-gap), ::pads and ::settings those two columns (row-gap). Slice to a Pad Kit
+   (SliceDialog: padding, row-gap), ::count the number of slices (min-width). */
+PadKitDialog { padding: 9px; row-gap: 8px; }
+PadKitDialog::columns { column-gap: 14px; }
+PadKitDialog::pads, PadKitDialog::settings { row-gap: 6px; }
+SliceDialog { padding: 12px; row-gap: 8px; }
+SliceDialog::count { min-width: 90px; }
+
+/* The sampler's window (SamplerDialog: padding around, row-gap between its rows). */
+SamplerDialog { padding: 9px; row-gap: 6px; }
+
 /* The sampler's waveform (a SampleWaveform): what is before its start and after its end, and their lines. */
 SamplerWaveform::outside { background-color: var(--roll-shade); }
 SamplerWaveform::marker { background-color: var(--selected-note); width: 1px; }
 
-/* The metronome window's envelope graphs: .bar (the click at the start of a bar) and .beat (the other beats). */
-EnvelopeGraph { background-color: var(--meter-bg); color: var(--accent); }
+/* The metronome window (MetronomeDialog: padding around, row-gap between its rows; ::editors the row of the two
+   clicks and ::buttons the row of its buttons, column-gap). ClickEditor: a click's group box (::column its graph,
+   numbers and Test, row-gap; ::form the numbers, row-gap). Its envelope graphs (min-width / min-height): .bar
+   (the click at the start of a bar) and .beat (the other beats). */
+MetronomeDialog { padding: 11px; row-gap: 6px; }
+MetronomeDialog::editors { column-gap: 6px; }
+MetronomeDialog::buttons { column-gap: 4px; }
+ClickEditor::column { row-gap: 6px; }
+ClickEditor::form { row-gap: 6px; }
+EnvelopeGraph { min-width: 240px; min-height: 120px; background-color: var(--meter-bg); color: var(--accent); }
 EnvelopeGraph.bar { color: var(--solo); }
 EnvelopeGraph.beat { color: var(--accent-audio); }
 EnvelopeGraph::grid { color: var(--grid); stroke-width: 1px; }
@@ -957,6 +1027,8 @@ SendsPanel {
     padding: 8px;
     row-gap: 4px;
     column-gap: 6px;
+    min-width: 220px;  /* the popup's least size */
+    min-height: 40px;
 }
 SendsPanel::title { font-weight: bold; }
 
@@ -984,19 +1056,46 @@ Tuner::note { color: var(--window-text); font-size: 40px; font-weight: bold; }
 Tuner::note:in-tune { color: var(--meter-ok); }
 Tuner::note:silent { color: var(--dimmed-text); }
 Tuner::scale { background-color: var(--meter-bg); height: 2px; margin-left: 24px; margin-right: 24px; top: 66px; }
-Tuner::tick { color: var(--dimmed-text); }
-Tuner::tick:centre { color: var(--window-text); }
-Tuner::needle { background-color: var(--accent); border-radius: 2px; }
+Tuner::tick { color: var(--dimmed-text); width: 1px; height: 12px; }  /* (centred on the scale) */
+Tuner::tick:centre { color: var(--window-text); height: 24px; }
+Tuner::needle { background-color: var(--accent); border-radius: 2px; width: 4px; height: 30px; top: -14px; }  /* top: from the scale's */
 Tuner::needle:in-tune { background-color: var(--meter-ok); }
 Tuner::cents { color: var(--window-text); }
 Tuner::hz, Tuner::end-label { color: var(--dimmed-text); }
 
 /* A plugin's own window: ::plugin behind the plugin's drawing, ::stopped when the plugin stopped. */
 EditorWindow::plugin { background-color: #000000; }
-EditorWindow::stopped { background-color: var(--window); padding: 16px; row-gap: 10px; }
+EditorWindow::stopped { background-color: var(--window); padding: 16px; row-gap: 10px; min-width: 360px; min-height: 140px; }
 
 /* Edit → History: ::undone colours the changes Redo would bring back. */
 HistoryWindow { padding: 11px; row-gap: 6px; min-width: 240px; min-height: 200px; }
 HistoryWindow::undone { color: var(--disabled-text); }
+
+/* The program's other dialogs: padding around their rows, row-gap between them (a form's: also after its labels;
+   a row's: column-gap), min-width the least a window is made. ::row is a row of controls inside one (::header,
+   ::buttons where a dialog has both). Dialog.group-tracks is Group tracks…, Dialog.recovery "Recover your work?"
+   (::text its text's least width, ::buttons the room above its buttons: margin-top). */
+AudioPropertiesDialog, RecordOffsetDialog, RenderDialog, RecordSettingsDialog, TempoDialog, StretchDialog {
+    padding: 11px;
+    row-gap: 6px;
+}
+AudioPropertiesDialog { min-width: 480px; }
+RecordOffsetDialog { min-width: 460px; }
+RenderDialog { min-width: 420px; }
+RecordSettingsDialog { min-width: 380px; }
+StretchDialog::row { column-gap: 6px; }
+ParameterDialog, PluginChooser, PluginFoldersDialog, WinePrefixesDialog { padding: 10px; row-gap: 6px; }
+PluginChooser::row, PluginFoldersDialog::row, WinePrefixesDialog::row { column-gap: 6px; }
+PluginsDialog { padding: 10px; row-gap: 6px; }
+PluginsDialog::header { column-gap: 4px; }
+PluginsDialog::buttons { column-gap: 6px; }
+MidiEffectsDialog { padding: 9px; column-gap: 9px; }
+MidiEffectsDialog::settings { row-gap: 6px; }
+MidiEffectsDialog::value { min-width: 90px; }
+LinksDialog { padding: 12px; row-gap: 8px; }
+Dialog.group-tracks { padding: 9px; row-gap: 6px; }
+Dialog.recovery { padding: 14px; row-gap: 10px; }
+Dialog.recovery::text { min-width: 420px; }
+Dialog.recovery::buttons { margin-top: 6px; }
 
 /* (end of Panels, meters and editors) */

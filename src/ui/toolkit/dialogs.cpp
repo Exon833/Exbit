@@ -133,6 +133,11 @@ int buttonGap(const Widget* box) { return std::max(0, style::px(box->computedSty
 void setButtonWidth(Button* b) { b->setMinimumWidth(std::max(0, style::px(b->computedStyle(), "min-width", 80))); }
 }  // namespace
 
+void dialogButton(Button* b) {
+    b->addStyleClass("dialog-button");
+    setButtonWidth(b);
+}
+
 std::string ButtonBox::standardText(StandardButton b, int all) {
     switch (b) {
     case Ok: return "OK";
@@ -227,43 +232,57 @@ Point ButtonBox::sizeHint() const {
 
 namespace {
 // the round sign of a message box (style type MessageIcon, with .information / .warning / .critical / .question: the
-// circle's background-color, the sign in `color`)
+// circle's background-color, the sign in `color`; width / height: its size, the drawing (made for 32 px) scaled to it)
 class MsgIcon : public Widget {
 public:
     explicit MsgIcon(msg::Icon i) : icon(i) {
         setStyleType("MessageIcon");
         addStyleClass(i == msg::Icon::Warning ? "warning" : i == msg::Icon::Critical ? "critical"
                       : i == msg::Icon::Question ? "question" : "information");
-        setFixedSize(32, 32);  // (the drawing below is made for 32 px)
+        fitStyle();
     }
     msg::Icon icon;
+    // its size from its style (again on a skin change: MainWindow::restyle and App::repaintAll call resized())
+    void fitStyle() {
+        const css::Style& st = computedStyle();
+        Point size(std::max(1, style::px(st, "width", 32)), std::max(1, style::px(st, "height", 32)));
+        if (minimumSize() != size || maximumSize() != size) setFixedSize(size.x, size.y);
+    }
+    void resized() override { fitStyle(); }
     void paint(Painter& p) override {
         const css::Style& st = computedStyle();
         Color bg = style::background(st);
         Color fg = style::foreground(st);
-        p.fillEllipse(RectF(1, 1, 30, 30), bg);
+        // (the drawing is made for 32 px: scaled to its size, centred in it when it isn't square)
+        float side = (float)std::min(width(), height()), s = side / 32.f;
+        float ox = (width() - side) / 2.f, oy = (height() - side) / 2.f;
+        auto at = [&](float x, float y) { return PointF(ox + x * s, oy + y * s); };
+        auto box = [&](float x, float y, float w, float h) { return RectF(ox + x * s, oy + y * s, w * s, h * s); };
+        p.fillEllipse(box(1, 1, 30, 30), bg);
         switch (icon) {
         case msg::Icon::Information:
-            p.fillEllipse(RectF(14, 7, 4, 4), fg);
-            p.fillRoundedRect(RectF(14.25f, 13, 3.5f, 12), 1.5f, fg);
+            p.fillEllipse(box(14, 7, 4, 4), fg);
+            p.fillRoundedRect(box(14.25f, 13, 3.5f, 12), 1.5f * s, fg);
             break;
         case msg::Icon::Warning:
-            p.fillRoundedRect(RectF(14.25f, 6.5f, 3.5f, 13), 1.5f, fg);
-            p.fillEllipse(RectF(14, 21.5f, 4, 4), fg);
+            p.fillRoundedRect(box(14.25f, 6.5f, 3.5f, 13), 1.5f * s, fg);
+            p.fillEllipse(box(14, 21.5f, 4, 4), fg);
             break;
         case msg::Icon::Question: {
             Path path;
-            path.moveTo(11.5f, 12.5f);
-            path.cubicTo(11.5f, 9.2f, 13.6f, 7.5f, 16, 7.5f);
-            path.cubicTo(18.6f, 7.5f, 20.5f, 9.3f, 20.5f, 11.6f);
-            path.cubicTo(20.5f, 14.6f, 16, 15.2f, 16, 18.5f);
-            p.strokePath(path, fg, 3.2f, LineCap::Round, LineJoin::Round);
-            p.fillEllipse(RectF(14, 21.5f, 4, 4), fg);
+            auto curve = [&](PointF c1, PointF c2, PointF e) { path.cubicTo(c1.x, c1.y, c2.x, c2.y, e.x, e.y); };
+            PointF start = at(11.5f, 12.5f);
+            path.moveTo(start.x, start.y);
+            curve(at(11.5f, 9.2f), at(13.6f, 7.5f), at(16, 7.5f));
+            curve(at(18.6f, 7.5f), at(20.5f, 9.3f), at(20.5f, 11.6f));
+            curve(at(20.5f, 14.6f), at(16, 15.2f), at(16, 18.5f));
+            p.strokePath(path, fg, 3.2f * s, LineCap::Round, LineJoin::Round);
+            p.fillEllipse(box(14, 21.5f, 4, 4), fg);
             break;
         }
         case msg::Icon::Critical:
-            p.drawLine(PointF(11, 11), PointF(21, 21), fg, 3.2f, LineCap::Round);
-            p.drawLine(PointF(21, 11), PointF(11, 21), fg, 3.2f, LineCap::Round);
+            p.drawLine(at(11, 11), at(21, 21), fg, 3.2f * s, LineCap::Round);
+            p.drawLine(at(21, 11), at(11, 21), fg, 3.2f * s, LineCap::Round);
             break;
         default:
             break;

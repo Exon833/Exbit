@@ -304,7 +304,8 @@ private:
         float faceplateW = 1.6f, waveW = 3;
         Font faceplateFont;
         Color reload, reloadHot, reloadEdge, reloadText, reloadHotText;
-        float reloadRadius = 4, reloadEdgeW = 1;
+        float reloadRadius = 4, reloadEdgeW = 1;  // (the radius before Options → Rounded corners)
+        int reloadW = 96, reloadH = 28;           // (also where it is clicked)
         Font reloadFont;
         Color name, nameBypassed, sidechain;
         Font nameFont, sidechainFont;
@@ -313,7 +314,9 @@ private:
         Color status, statusHot;
         Font statusFont;
         Color groove, level, levelBypassed, zeroMark, knob, knobHot, knobEdge, value, valueHot;
-        float grooveRadius = 2, zeroMarkW = 1, knobRadius = 3, knobEdgeW = 1;
+        float grooveRadius = 2, zeroMarkW = 1, knobRadius = 3, knobEdgeW = 1;  // (radii before Rounded corners)
+        // the groove's thickness, the knob's size (as drawn: where the fader's values go is KNOB_HALF_W's)
+        float grooveH = 4, knobW = 2 * patch_panel::KNOB_HALF_W, knobH = 16;
         Font valueFont;
         Color modLink;
         float modLinkW = 2;

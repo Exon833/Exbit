@@ -948,6 +948,86 @@ static void testFileDialog() {
     main.hideWindow();
 }
 
+// the deepest-first walk of a widget's children: the first that `match` takes
+static Widget* findWidget(Widget* in, const std::function<bool(Widget*)>& match) {
+    for (auto& c : in->children()) {
+        if (match(c.get())) return c.get();
+        if (Widget* deeper = findWidget(c.get(), match)) return deeper;
+    }
+    return nullptr;
+}
+
+// The file dialog's and a message box's sign's look are the stylesheets': a sheet over default.css changes the
+// dialog's size, least size, room, places list and Up / Home buttons, and the sign's size (its drawing scaled);
+// theme::setSkin() gives back default.css's
+static void testFileDialogAndMessageIconStyles() {
+    std::string dir = "build/toolkit-samples/files-styled";
+    util::makeDirs(dir);
+    std::string abs = util::absolutePath(dir);
+    Window main(plat::WindowOptions{});
+    main.resizeWindow(500, 400);
+    main.showWindow();
+    struct Seen {
+        int w = 0, h = 0, minW = 0, minH = 0, margin = -1, spacing = -1, placesW = 0;
+        Point nav, icon;
+        Color iconEdge;
+    };
+    auto look = [&] {
+        Seen seen;
+        App::get().singleShot(30, [&] {
+            Window* top = App::get().modalWindow();
+            if (!top) return;
+            seen.w = top->width(), seen.h = top->height();
+            seen.minW = top->minimumSize().x, seen.minH = top->minimumSize().y;
+            if (auto* l = dynamic_cast<BoxLayout*>(top->layout())) seen.margin = l->margins[0], seen.spacing = l->spacing;
+            if (Widget* places = findWidget(top, [](Widget* w) { return dynamic_cast<ListWidget*>(w) != nullptr; }))
+                seen.placesW = places->minimumSize().x;
+            if (Widget* up = findWidget(top, [](Widget* w) { return w->toolTip() == "Up one folder (Backspace)"; }))
+                seen.nav = up->minimumSize();
+            key(*top, plat::Key_Escape);
+        });
+        CHECK(files::openFile(&main, "Styled files", abs, "All files (*)").empty());
+        App::get().singleShot(30, [&] {
+            Window* top = App::get().modalWindow();
+            if (!top) return;
+            if (Widget* sign = findWidget(top, [](Widget* w) { return w->isType("MessageIcon"); })) {
+                seen.icon = Point(sign->width(), sign->height());
+                App::get().tick();
+                // (the circle's left edge, a little inside: its background whatever its size)
+                Point at = sign->mapToWindow(Point(sign->width() / 8, sign->height() / 2));
+                seen.iconEdge = top->framebuffer().colorAt(at.x, at.y);
+            }
+            key(*top, plat::Key_Escape);
+        });
+        msg::question(&main, "Styled", "A question?", msg::Yes | msg::No);
+        return seen;
+    };
+    Seen before = look();
+    CHECK(before.w == 760 && before.h == 480 && before.minW == 480 && before.minH == 320);
+    CHECK(before.margin == 10 && before.spacing == 8 && before.placesW == 150 && before.nav == Point(26, 24));
+    CHECK(before.icon == Point(32, 32) && before.iconEdge == theme::c("accent"));
+    std::vector<css::Problem> problems;
+    theme::setStyles({theme::builtinSheet(),
+                      css::parse("FileDialog { width: 640px; height: 420px; min-width: 400px; min-height: 300px;"
+                                 " padding: 16px; row-gap: 12px; }\n"
+                                 "FileDialog::places { width: 200px; }\n"
+                                 "FileDialog::nav-button { width: 30px; height: 28px; }\n"
+                                 "MessageIcon { width: 48px; height: 48px; }\n"
+                                 "MessageIcon.question { background-color: #20c040; }\n",
+                                 "files.css", problems)});
+    CHECK(problems.empty());
+    Seen styled = look();
+    CHECK(styled.w == 640 && styled.h == 420 && styled.minW == 400 && styled.minH == 300);
+    CHECK(styled.margin == 16 && styled.spacing == 12 && styled.placesW == 200 && styled.nav == Point(30, 28));
+    CHECK(styled.icon == Point(48, 48) && styled.iconEdge == Color::fromHex("#20c040"));
+    theme::setSkin();
+    Seen after = look();
+    CHECK(after.w == before.w && after.h == before.h && after.minW == before.minW && after.minH == before.minH);
+    CHECK(after.margin == before.margin && after.spacing == before.spacing && after.placesW == before.placesW);
+    CHECK(after.nav == before.nav && after.icon == before.icon && after.iconEdge == before.iconEdge);
+    main.hideWindow();
+}
+
 static void testFocusAndToolTips() {
     Window w(plat::WindowOptions{});
     w.resizeWindow(300, 100);
@@ -1705,6 +1785,7 @@ int main() {
     testScrollAndLists();
     testDialogs();
     testFileDialog();
+    testFileDialogAndMessageIconStyles();
     gallery();
     TEST_MAIN_END();
 }

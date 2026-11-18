@@ -9,6 +9,7 @@
 #include "core/util.h"
 #include "ui/recording.h"
 #include "ui/toolkit/layout.h"
+#include "ui/toolkit/style.h"
 
 using namespace ui;
 
@@ -55,8 +56,9 @@ RecordOffsetDialog::RecordOffsetDialog(Window* parent, const Preferences& prefs,
       takeOffsetMs_(lastOffsetMs),
       timing_(timing),
       sr_(sr) {
-    FormLayout* f = form(this, 11, 6);
-    setMinimumSize(460, 0);
+    setStyleType("RecordOffsetDialog");
+    FormLayout* f = styleRoom(form(this, 11, 6), computedStyle());
+    setMinimumSize(std::max(0, style::px(computedStyle(), "min-width", 460)), 0);
     Label* about = add<Label>("For " + (device_.empty() ? std::string("the default device") : device_) + " (" +
                               driverType_ + "). If your takes land a little late (or early) against the beat, this "
                               "moves every new audio take earlier (or, negative, later) by that much.");

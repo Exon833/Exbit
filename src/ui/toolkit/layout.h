@@ -11,6 +11,7 @@ namespace ui {
 
 class Layout {
 public:
+    Layout();  // its spacing: the stylesheets' --layout-spacing (4 px)
     virtual ~Layout() = default;
     virtual void apply(Widget* owner, const Rect& area) = 0;  // place the items inside area
     virtual Point sizeHint() const = 0;
@@ -80,6 +81,7 @@ public:
 
 class GridLayout : public Layout {
 public:
+    GridLayout();  // its spacings: the stylesheets' --grid-spacing (6 px)
     void addWidget(Widget* w, int row, int col, int rowSpan = 1, int colSpan = 1, int align = 0);
     void setColumnStretch(int col, int stretch);
     void setRowStretch(int row, int stretch);
@@ -100,5 +102,15 @@ HBox* hbox(Widget* w, int margin = 0, int spacing = 4);
 VBox* vbox(Widget* w, int margin = 0, int spacing = 4);
 FormLayout* form(Widget* w, int margin = 0, int spacing = 6);
 GridLayout* grid(Widget* w, int margin = 0, int spacing = 6);
+
+// A layout's room as a style gives it (a dialog's own, or a part of it: default.css): its margins are the style's
+// padding, its spacing the row-gap (a column; a form: between its rows and after its labels) or the column-gap (a
+// row), a grid's both. What the style doesn't set stays as the layout had it. Returns l.
+void styleRoomOf(Layout* l, const css::Style& s);
+template <class L>
+L* styleRoom(L* l, const css::Style& s) {
+    styleRoomOf(l, s);
+    return l;
+}
 
 }  // namespace ui
