@@ -1,9 +1,15 @@
-/* XP: a skin of Tiny DAW with an early-2000s desktop look: a warm beige window face, glossy rounded
-   buttons with a dark blue edge that glow orange under the mouse, white fields with blue-grey edges, a bright
-   blue glossy bar across the top, green for what is switched on and light blue scroll bars.
-   It is put on top of default.css: the variables below recolour everything that uses them, and the rules
-   after them change the shapes (gradients, inner glows, rounded corners). Track and clip colours stay the
-   project's own. */
+/* XP: a skin of Tiny DAW in the default blue look of the early-2000s desktop, control by control: the beige
+   window face, glossy white buttons with a dark blue edge and an orange ring under the mouse, white fields
+   with a blue-grey edge, light blue scroll bars and drop-down buttons, white tabs with an orange top line,
+   white menus with a blue highlight and a soft shadow, and the glossy royal-blue title bar.
+   Every size and colour was measured from pictures of the original; the small signs (the check mark, the
+   arrows, the caption buttons' signs, the slider's thumb) are this skin's own drawings, in xp/, to the
+   measured shapes. It is put on top of default.css: the variables first, then the rules it changes. Track
+   and clip colours stay the project's own. */
+
+/* Tahoma (the Wine project's metric-compatible face, fonts/: its licence is there) at the original's 8 pt */
+@font-face { font-family: "Tahoma"; src: url(fonts/tahoma.ttf); }
+@font-face { font-family: "Tahoma"; src: url(fonts/tahomabd.ttf); font-weight: bold; }
 
 /* =============================================================================================
    The palette
@@ -12,9 +18,8 @@
 :root {
     --skin-name: "XP";
 
-    /* A small clean sans; the first of these this computer has is used. */
-    font-family: "Tahoma", "Liberation Sans", "DejaVu Sans", "Nimbus Sans", "Carlito", sans-serif;
-    font-size: 8pt;
+    font-family: "Tahoma", sans-serif;
+    font-size: 11px;   /* (8 pt at 96 dpi, as the original rounded it: 11 px) */
     --mono-font: "Lucida Console", "DejaVu Sans Mono", "Liberation Mono", monospace;
 
     /* Window */
@@ -23,18 +28,18 @@
     --base: #ffffff;
     --alternate-base: #f3f6fc;
     --text: #000000;
-    --button: #f3f2ec;
+    --button: #f5f4f0;
     --button-text: #000000;
     --highlight: #316ac5;
     --highlighted-text: #ffffff;
     --tooltip-base: #ffffe1;
     --tooltip-text: #000000;
-    --disabled-text: #aca899;
+    --disabled-text: #a1a192;
     --hint-text: #5b5a51;
     --dimmed-text: #85837a;
     --accent: #316ac5;
     --accent-text: #ffffff;
-    --frame-edge: #919b9c;
+    --frame-edge: #0831d9;
 
     /* Timeline */
     --lane: #ffffff;
@@ -96,57 +101,68 @@
     /* (the shades, --hover, --line…, stay default.css's mixes of the colours above; the rules below
        draw the controls they would colour in this skin's own way) */
 
-    /* Wider scroll bars, for their rounded thumbs */
-    --scrollbar-width: 14px;
+    /* the original's scroll bars: 17 px */
+    --scrollbar-width: 17px;
+    /* a track's volume: room for the slider's whole 21 px thumb */
+    --volume-slider-height: 21px;
 
     /* The skin's own colours, used by the rules below */
     --xp-edge: #003c74;           /* a button's dark blue edge */
-    --xp-glow-gold: #ffd68b;      /* the hover glow: its light inner line */
-    --xp-glow-orange: #e59700;    /* … and its warm lower edge */
-    --xp-ring-light: #cee7ff;     /* the default button's inner ring: its top */
-    --xp-ring-dark: #6982ee;      /* … and its bottom */
+    --xp-field-edge: #7f9db9;     /* the edge of fields and lists */
+    --xp-check-edge: #1c5180;     /* a check box's edge */
+    --xp-disabled-edge: #c9c7ba;  /* the edge of a disabled control */
+    --xp-disabled-face: #f5f4ea;  /* its face */
     --xp-green: #3c9a3c;          /* switched on (the era's start button green) */
     --xp-green-edge: #1f5f1f;
     --xp-blue-title: #0046d5;     /* group box titles */
-    --xp-tab-edge: #919b9c;
+    --xp-tab-edge: #919b9c;       /* the chosen tab and the pane */
+    --xp-tab-edge-light: #91a7b4; /* the other tabs */
     --xp-tab-orange: #e68b2c;
     --xp-tab-gold: #ffc73c;
+    --xp-menu-edge: #aca899;
+
+    /* a push button's faces */
+    --xp-face: linear-gradient(to bottom, #ffffff 0%, #ecebe6 86%, #d6d0c5 100%);
+    --xp-face-pressed: linear-gradient(to bottom, #cdcac3 0%, #e3e3db 8%, #e5e5de 94%, #f2f2f1 100%);
+    /* the orange ring under the mouse: a light top, the sides, a deep orange bottom (two pixels each) */
+    --xp-ring-hover: inset 0 1px 0 #fff0cf, inset 0 2px 0 #fdd889, inset 2px 0 0 #fbc761, inset -2px 0 0 #fbc761,
+                     inset 0 -1px 0 #e5a01a, inset 0 -2px 0 #f8b33a;
+    /* the blue ring of the focused (and default) button */
+    --xp-ring-focus: inset 0 1px 0 #cee7ff, inset 0 2px 0 #bcd4f6, inset 1px 0 0 #b6cef3, inset 2px 0 0 #a6c2ef,
+                     inset -1px 0 0 #b6cef3, inset -2px 0 0 #a6c2ef, inset 0 -1px 0 #6982ee, inset 0 -2px 0 #89ade4;
+
+    /* the light blue face of the scroll bar's, the drop-down's and the spin box's buttons */
+    --xp-blue-face: linear-gradient(135deg, #dce8fe 0%, #cbdafc 35%, #bfd2fb 60%, #b1caf8 100%);
+    --xp-blue-face-hover: linear-gradient(135deg, #fdfeff 0%, #e6eefe 35%, #d6e3fe 60%, #c4d6fc 100%);
+    --xp-blue-face-pressed: linear-gradient(135deg, #6e8ee6 0%, #8aa5ec 35%, #a3b9f3 60%, #b3c7f6 100%);
 }
 
+/* (the original drew its 8 pt text without smoothing, each pixel of a letter on or off, from hinted letters;
+   drawn so here, without hinting, thin strokes such as an apostrophe fall between pixels and vanish: the text
+   is smoothed) */
+
 /* =============================================================================================
-   Buttons: glossy white-to-beige faces, a dark blue edge, an orange glow under the mouse
+   Buttons: a white-to-beige face, a dark blue edge with rounded corners; an orange ring under the
+   mouse, a blue one when focused or the default; sunken and darker when pressed
    ============================================================================================= */
 
 Button {
     background-color: var(--button);
-    background-image: linear-gradient(to bottom, #ffffff 0%, #f7f6f1 40%, #eeece2 85%, #d8d3c5 100%);
+    background-image: var(--xp-face);
     color: var(--button-text);
     border: 1px solid var(--xp-edge);
     border-radius: 3px;
 }
-Button:hover {
-    background-color: var(--button);
-    box-shadow: inset 0 1px 0 #fff4d6, inset 0 -2px 0 var(--xp-glow-orange), inset 0 0 0 2px var(--xp-glow-gold);
-}
+PushButton { padding: 4px 10px; }
+Button:hover { background-color: var(--button); box-shadow: var(--xp-ring-hover); }
 Button:pressed, Button:checked {
-    background-color: var(--pressed);
-    background-image: linear-gradient(to bottom, #d9d7cc 0%, #e3e1d7 30%, #ebe9e0 85%, #f2f1eb 100%);
-    box-shadow: inset 0 1px 2px #00000030;
+    background-color: #e5e5de;
+    background-image: var(--xp-face-pressed);
+    box-shadow: none;
 }
-Button:checked:hover {
-    box-shadow: inset 0 1px 2px #00000030, inset 0 -2px 0 var(--xp-glow-orange), inset 0 0 0 1px var(--xp-glow-gold);
-}
+Button:checked:hover { box-shadow: var(--xp-ring-hover); }
 
-/* a focused push button: a blue ring inside the edge (a lit one keeps its green face, below) */
-PushButton:focus {
-    border-color: var(--xp-edge);
-    box-shadow: inset 0 1px 0 var(--xp-ring-light), inset 0 -2px 0 var(--xp-ring-dark), inset 0 0 0 2px #a9c3f5;
-}
-PushButton:focus:hover {
-    box-shadow: inset 0 1px 0 #fff4d6, inset 0 -2px 0 var(--xp-glow-orange), inset 0 0 0 2px var(--xp-glow-gold);
-}
-
-/* lit (switched on, accent buttons): the green of the era's start button, glossy */
+/* lit (switched on, accent buttons; the original had none): the green of the era's start button, glossy */
 Button:lit {
     background-color: var(--xp-green);
     background-image: linear-gradient(to bottom, #8fd88a 0%, #52b54d 45%, #379b33 50%, #2f8f2c 85%, #43a83f 100%);
@@ -161,24 +177,20 @@ Button:lit:hover {
     box-shadow: none;
 }
 
-/* a dialog's default button (lit too, for the program): the ordinary face with the blue ring inside */
-Button:default, Button:default:lit {
+/* focused, or a dialog's default button: the blue ring inside the edge */
+PushButton:focus, Button:default, Button:default:lit {
     background-color: var(--button);
-    background-image: linear-gradient(to bottom, #ffffff 0%, #f7f6f1 40%, #eeece2 85%, #d8d3c5 100%);
+    background-image: var(--xp-face);
     border-color: var(--xp-edge);
     color: var(--button-text);
     text-shadow: none;
-    box-shadow: inset 0 1px 0 var(--xp-ring-light), inset 0 -2px 0 var(--xp-ring-dark), inset 0 0 0 2px #a9c3f5;
+    box-shadow: var(--xp-ring-focus);
 }
-Button:default:hover, Button:default:lit:hover {
-    background-color: var(--button);
-    background-image: linear-gradient(to bottom, #ffffff 0%, #f7f6f1 40%, #eeece2 85%, #d8d3c5 100%);
-    box-shadow: inset 0 1px 0 #fff4d6, inset 0 -2px 0 var(--xp-glow-orange), inset 0 0 0 2px var(--xp-glow-gold);
-}
-Button:default:pressed, Button:default:lit:pressed {
-    background-color: var(--pressed);
-    background-image: linear-gradient(to bottom, #d9d7cc 0%, #e3e1d7 30%, #ebe9e0 85%, #f2f1eb 100%);
-    box-shadow: inset 0 1px 2px #00000030;
+PushButton:focus:hover, Button:default:hover, Button:default:lit:hover { box-shadow: var(--xp-ring-hover); }
+Button:default:pressed, Button:default:lit:pressed, PushButton:focus:pressed {
+    background-color: #e5e5de;
+    background-image: var(--xp-face-pressed);
+    box-shadow: none;
 }
 
 /* toggles with a role (mute, solo, record…): a glossy face in the role's own colour */
@@ -200,16 +212,17 @@ Button:toggled:hover {
 }
 .toggle-solo:toggled { color: #3a2a00; text-shadow: 0 1px 0 #ffffff66; }
 
-Button:disabled, PushButton:disabled, ToolButton:disabled {
-    background-color: var(--disabled);
+/* disabled: a flat pale face, a grey edge */
+Button:disabled, PushButton:disabled, ToolButton:disabled, Button:default:disabled {
+    background-color: var(--xp-disabled-face);
     background-image: none;
-    border-color: #c9c7ba;
+    border-color: var(--xp-disabled-edge);
     color: var(--disabled-text);
     box-shadow: none;
     text-shadow: none;
 }
 
-/* tool bar buttons: flat until the mouse is over them */
+/* tool bar buttons: flat until the mouse is over them, then a light raised face (as the era's tool bars) */
 ToolButton.autoRaise {
     background-color: transparent;
     background-image: none;
@@ -217,16 +230,16 @@ ToolButton.autoRaise {
     box-shadow: none;
 }
 ToolButton.autoRaise:hover {
-    background-color: var(--button);
-    background-image: linear-gradient(to bottom, #ffffff 0%, #f7f6f1 50%, #e9e6da 100%);
-    border-color: #c3bfae;
-    box-shadow: inset 0 -1px 0 var(--xp-glow-gold);
+    background-color: #fdfdfb;
+    background-image: linear-gradient(to bottom, #ffffff 0%, #fdfdfb 40%, #f2f1ea 100%);
+    border-color: #cecec3;
+    box-shadow: inset 0 -1px 0 #e3e1d7;
 }
 ToolButton.autoRaise:pressed, ToolButton.autoRaise:checked {
-    background-color: #e3e0d3;
-    background-image: linear-gradient(to bottom, #dcd9cb 0%, #e6e3d7 100%);
-    border-color: #a7a391;
-    box-shadow: inset 1px 1px 2px #00000026;
+    background-color: #e3e1d7;
+    background-image: linear-gradient(to bottom, #dcdad0 0%, #e8e6dd 100%);
+    border-color: #9d9d92;
+    box-shadow: inset 1px 1px 1px #00000022;
 }
 ToolButton.autoRaise:lit {
     background-color: var(--xp-green);
@@ -236,111 +249,142 @@ ToolButton.autoRaise:lit {
 }
 ToolButton.autoRaise:disabled { background-color: transparent; border-color: transparent; }
 
-Button::arrow { background-color: transparent; }
+/* a button's drop-down arrow: the drop-down list's sign */
+Button::arrow { background-color: transparent; -tiny-glyph: url(xp/button-arrow.svg); -tiny-glyph-tint: color; }
 Button:arrow-hover::arrow { background-color: #fbe3a8; }
 Button::separator { background-color: #c3bfae; }
 
 /* =============================================================================================
-   Labels, check boxes, group boxes, tabs, tooltips, the status bar
+   Labels, check boxes, group boxes, tabs, tooltips, the status bar, progress
    ============================================================================================= */
 
 Label:link { color: #0033cc; }
+Label:disabled { color: var(--disabled-text); }
 
+/* tooltips: pale yellow, a thin black edge, a soft shadow (where windows can be see-through) */
 ToolTip {
     background-color: var(--tooltip-base);
     color: var(--tooltip-text);
     border: 1px solid #000000;
     border-radius: 0;
-    padding: 3px 5px;
+    padding: 2px 4px 3px;
 }
 
-/* check boxes: a white box with a blue-grey edge, the check mark in green */
+/* check boxes: a 13 px box with a dark blue edge and a light diagonal face; the green check mark; an orange
+   ring under the mouse; darker while pressed */
+CheckBox { padding: 1px 0; }
 CheckBox::indicator {
     width: 13px;
     height: 13px;
-    padding: 2px;
-    background-color: #ffffff;
-    background-image: linear-gradient(135deg, #dcdbd3 0%, #ffffff 80%);
-    border: 1px solid #1c5180;
+    margin-right: 5px;
+    padding: 1px;
+    background-color: #f0f0ec;
+    background-image: linear-gradient(135deg, #dcdcd7 0%, #ffffff 80%);
+    border: 1px solid var(--xp-check-edge);
     border-radius: 0;
     color: #21a121;
+    -tiny-glyph: url(xp/check.svg);
+    -tiny-glyph-tint: color;
 }
 CheckBox:hover::indicator {
-    border-color: #1c5180;
-    box-shadow: inset 0 0 0 2px #fdc864;
+    border-color: var(--xp-check-edge);
+    box-shadow: inset 2px 2px 0 #fedf9c, inset -2px -2px 0 #f8b636;
 }
-CheckBox:checked::indicator {
-    background-color: #ffffff;
-    border-color: #1c5180;
+CheckBox:pressed::indicator {
+    background-color: #c9c8bd;
+    background-image: linear-gradient(135deg, #b0b0a7 0%, #e3e1d2 100%);
+    box-shadow: none;
 }
+CheckBox:checked::indicator { border-color: var(--xp-check-edge); }
 CheckBox:disabled::indicator {
     background-color: #ffffff;
     background-image: none;
     border-color: #cac8bb;
-    color: var(--disabled-text);
+    box-shadow: none;
+    color: #cac8bb;
 }
 ListWidget::indicator {
-    background-color: #ffffff;
-    background-image: linear-gradient(135deg, #dcdbd3 0%, #ffffff 80%);
-    border: 1px solid #1c5180;
+    width: 13px;
+    height: 13px;
+    padding: 1px;
+    background-color: #f0f0ec;
+    background-image: linear-gradient(135deg, #dcdcd7 0%, #ffffff 80%);
+    border: 1px solid var(--xp-check-edge);
     border-radius: 0;
     color: #21a121;
+    -tiny-glyph: url(xp/check.svg);
+    -tiny-glyph-tint: color;
 }
-ListWidget::indicator:checked { background-color: #ffffff; border-color: #1c5180; }
+ListWidget::indicator:checked { border-color: var(--xp-check-edge); }
 
 /* group boxes: a light rounded frame with the title in blue across its top line */
 GroupBox {
     background-color: transparent;
     border: 1px solid #d0d0bf;
-    border-radius: 4px;
-    margin-top: 8px;
-    padding: 4px 6px 6px;
+    border-radius: 3px;
+    margin-top: 7px;
+    padding: 6px 8px 8px;
 }
 GroupBox::title {
     color: var(--xp-blue-title);
     background-color: var(--window);   /* (over the frame's line, in the face it sits on) */
-    margin-top: -8px;
-    margin-left: 7px;
-    padding: 0 3px;
+    margin-top: -7px;
+    margin-left: 6px;
+    padding: 0 2px;
 }
-TabWidget GroupBox::title { background-color: #fcfcfe; }
+GroupBox:disabled::title { color: var(--disabled-text); }
+TabWidget GroupBox::title { background-color: #fafafa; }
 
-/* tabs: light faces with a grey edge; the chosen one white, with an orange line along its top */
+/* tabs: light tabs with a blue-grey edge and rounded tops, sitting two pixels lower than the chosen one;
+   the chosen one white, with an orange line and a gold one along its top and no line under it; the tab
+   under the mouse gets the orange top too. The pane: white fading to beige, a grey edge and a soft shadow */
 TabWidget::base { height: 1px; background-color: var(--xp-tab-edge); }
 TabWidget::pane {
-    background-color: #fcfcfe;
+    background-color: #f8f8f6;
+    background-image: linear-gradient(to bottom, #fcfcfe 0%, #f4f3ee 100%);
     border: 1px solid var(--xp-tab-edge);
-    border-radius: 0 0 3px 3px;
-    padding: 6px;
+    border-top-width: 0;
+    box-shadow: 1px 1px 0 #d0cebf, 2px 2px 0 #e3e0d0;
+    margin: 0 2px 2px 0;
+    padding: 8px;
 }
 TabWidget::tab {
-    background-color: #f4f3ee;
-    background-image: linear-gradient(to bottom, #ffffff 0%, #f6f5f0 60%, #ebe9e0 100%);
-    border: 1px solid var(--xp-tab-edge);
-    border-bottom-width: 0;
-    border-radius: 3px 3px 0 0;
+    /* (the top two pixels: the window's face, the tab's lines drawn inside them) */
+    background-color: #f4f4f0;
+    background-image: linear-gradient(to bottom, #ffffff 0%, #fafaf9 26%, #f0f0ea 95%, #ecebe5 100%);
+    background-clip: padding-box;
+    border: 0 solid transparent;
+    border-top-width: 2px;
+    border-bottom: 1px solid var(--xp-tab-edge);
+    border-radius: 5px 5px 0 0;
+    box-shadow: inset 0 1px 0 var(--xp-tab-edge-light), inset 1px 0 0 var(--xp-tab-edge-light),
+                inset -1px 0 0 var(--xp-tab-edge-light);
     color: #000000;
-    padding: 4px 10px 5px;
+    padding: 2px 6px 3px;
 }
 TabWidget::tab:hover {
-    background-color: #fcfcfe;
-    border-top: 2px solid #ffc73c;
-    box-shadow: none;
+    box-shadow: inset 0 1px 0 var(--xp-tab-orange), inset 0 3px 0 var(--xp-tab-gold),
+                inset 1px 0 0 var(--xp-tab-edge-light), inset -1px 0 0 var(--xp-tab-edge-light);
 }
 TabWidget::tab:selected {
     background-color: #fcfcfe;
     background-image: none;
-    border-top: 2px solid var(--xp-tab-orange);
-    box-shadow: inset 0 1px 0 var(--xp-tab-gold);
+    border-top: 1px solid var(--xp-tab-orange);
+    border-left: 1px solid var(--xp-tab-edge);
+    border-right: 1px solid var(--xp-tab-edge);
+    border-bottom: 1px solid #fcfcfe;
+    border-radius: 3px 3px 0 0;
+    box-shadow: inset 0 2px 0 var(--xp-tab-gold);
     color: #000000;
+    padding: 2px 5px 4px;
 }
 TabWidget::tab:disabled { color: var(--disabled-text); }
 TabWidget::tab-line { height: 0; }
 TabWidget::tab-line:selected { background-color: transparent; }
 
-/* the status bar: the window's beige, a soft line above */
+/* the status bar: the window's face, a soft line above */
 StatusBar { color: #000000; }
-StatusBar::separator { background-color: #d8d2bd; }
+StatusBar::separator { background-color: #d5d2c3; }
 
 /* separators: etched, a shadow line and a light one */
 Separator:vertical { border-left: 1px solid #aca899; border-right: 1px solid #ffffff; width: 2px; }
@@ -354,65 +398,86 @@ MessageIcon.question { background-color: #316ac5; }
 MessageIcon.warning { background-color: #f2c230; color: #000000; }
 MessageIcon.critical { background-color: #d9412c; color: #ffffff; }
 
-/* progress: a white track with green blocks */
+/* progress: a white track with a grey edge and rounded ends; green blocks of 8 px with white gaps */
 ProgressBar {
+    height: 14px;
     background-color: #ffffff;
     border: 1px solid #686868;
     border-radius: 3px;
+    box-shadow: inset 0 0 1px #686868;
+    padding: 1px 2px 1px 1px;
     color: #000000;
 }
 ProgressBar::chunk {
-    background-color: #2fb52f;
+    background-color: #2ed330;
     background-image: repeating-linear-gradient(to right, transparent 0px, transparent 8px, #ffffff 8px, #ffffff 10px),
-                      linear-gradient(to bottom, #d7f7d7 0%, #5fd45f 35%, #2fb52f 60%, #48c448 100%);
+                      linear-gradient(to bottom, #acedad 0%, #7be47d 14%, #4cda50 28%, #2ed330 42%, #42d845 57%,
+                                      #76e275 71%, #8fe791 85%, #ffffff 100%);
     border-radius: 0;
     color: #000000;
 }
 
 /* =============================================================================================
-   Fields: white with a blue-grey edge; small blue buttons for the arrows
+   Fields: white with a blue-grey edge; the drop-down and spin buttons light blue, with blue-grey arrows
    ============================================================================================= */
 
 LineEdit, SpinBox, ComboBox {
     background-color: #ffffff;
-    border: 1px solid #7f9db9;
+    border: 1px solid var(--xp-field-edge);
     border-radius: 0;
 }
+LineEdit { padding: 3px 3px; }
 LineEdit:frameless { background-color: transparent; border-width: 0; }
-LineEdit:hover, SpinBox:hover, ComboBox:hover { border-color: #5a7fa8; }
-LineEdit:focus, SpinBox:focus, ComboBox:focus, ComboBox:open { border-color: #316ac5; }
-LineEdit:disabled, SpinBox:disabled, ComboBox:disabled { background-color: #f5f4ea; border-color: #c9c7ba; }
+LineEdit:hover, SpinBox:hover, ComboBox:hover { border-color: var(--xp-field-edge); }
+LineEdit:focus, SpinBox:focus, ComboBox:focus, ComboBox:open { border-color: var(--xp-field-edge); }
+LineEdit:disabled, SpinBox:disabled, ComboBox:disabled {
+    background-color: #ebebe4;
+    border-color: var(--xp-disabled-edge);
+    color: var(--disabled-text);
+}
+LineEdit:frameless:disabled { background-color: transparent; }
+LineEdit::selection { background-color: #316ac5; color: #ffffff; }
 
+/* the drop-down button: a light blue face with a white edge, rounded, inside the field's edge */
+ComboBox { padding: 3px 3px 3px 3px; }
 ComboBox::arrow {
     background-color: #c1d3fb;
-    background-image: linear-gradient(to bottom, #dce7fe 0%, #c3d4fb 50%, #b4c8f8 51%, #a6bdf3 100%);
-    border: 1px solid #b8ccf7;
+    background-image: var(--xp-blue-face);
+    border: 1px solid #ffffff;
+    border-bottom-color: #b9cdf6;
+    border-right-color: #c3d4f8;
     border-radius: 2px;
     color: #4d6185;
     width: 17px;
-    padding-left: 4px;
-    stroke-width: 2px;
+    padding-left: 0;
+    -tiny-glyph: url(xp/arrow-down.svg);
+    -tiny-glyph-tint: color;
 }
-ComboBox:hover::arrow, ComboBox:open::arrow {
-    background-image: linear-gradient(to bottom, #f0f5ff 0%, #d7e3fd 50%, #c8d8fb 51%, #b9cdf7 100%);
+ComboBox:hover::arrow { background-image: var(--xp-blue-face-hover); }
+ComboBox:pressed::arrow, ComboBox:open::arrow { background-image: var(--xp-blue-face-pressed); border-color: #7a96df; }
+ComboBox:disabled::arrow {
+    background-image: none;
+    background-color: #e9e8e0;
+    border-color: #e9e8e0;
+    color: #c9c7ba;
 }
-ComboBox:disabled::arrow { background-image: none; background-color: #e9e8e0; border-color: #e9e8e0; color: var(--disabled-text); }
 
+SpinBox { padding: 3px 3px; }
 SpinBox::up-button, SpinBox::down-button {
     background-color: #c1d3fb;
-    background-image: linear-gradient(to bottom, #dce7fe 0%, #c3d4fb 50%, #b4c8f8 51%, #a6bdf3 100%);
-    border: 1px solid #b8ccf7;
+    background-image: var(--xp-blue-face);
+    border: 1px solid #ffffff;
+    border-bottom-color: #b9cdf6;
     border-radius: 2px;
     color: #4d6185;
-    width: 15px;
-    stroke-width: 1.6px;
+    width: 16px;
 }
-SpinBox:up-hover::up-button, SpinBox:down-hover::down-button {
-    background-color: #d7e3fd;
-    background-image: linear-gradient(to bottom, #f0f5ff 0%, #d7e3fd 50%, #c8d8fb 51%, #b9cdf7 100%);
-}
+SpinBox::up-button { -tiny-glyph: url(xp/spin-up.svg); -tiny-glyph-tint: color; }
+SpinBox::down-button { -tiny-glyph: url(xp/spin-down.svg); -tiny-glyph-tint: color; }
+SpinBox:up-hover::up-button, SpinBox:down-hover::down-button { background-image: var(--xp-blue-face-hover); }
 SpinBox:up-pressed::up-button, SpinBox:down-pressed::down-button {
-    background-image: linear-gradient(to bottom, #8fa9e6 0%, #a9c0f3 100%);
+    background-image: var(--xp-blue-face-pressed);
+    border-color: #7a96df;
 }
 SpinBox:at-maximum::up-button, SpinBox:at-minimum::down-button,
 SpinBox:disabled::up-button, SpinBox:disabled::down-button {
@@ -422,109 +487,157 @@ SpinBox:disabled::up-button, SpinBox:disabled::down-button {
     color: #c9c7ba;
 }
 
-ComboPopup { background-color: #ffffff; border: 1px solid #000000; padding: 1px; }
+/* the drop-down list: white, a thin black edge, the highlighted row blue; a soft shadow where it can */
+ComboPopup { background-color: #ffffff; border: 1px solid #000000; padding: 0; }
+ComboPopup::item { padding: 1px 3px; }
 ComboPopup::item:selected { background-color: #316ac5; color: #ffffff; }
 ComboPopup::separator { background-color: #aca899; }
 
 /* =============================================================================================
-   Sliders and scroll bars: an upright handle that glows like a button; light blue rounded thumbs
+   Sliders: a thin sunken groove and the pointed thumb with its green band (orange under the mouse);
+   scroll bars: a light track, light blue rounded buttons and thumb, the thumb's grip
    ============================================================================================= */
 
-Slider::groove { background-color: #dcdad0; border-radius: 2px; }
-Slider::fill { background-color: #4f86d9; }
-Slider::handle {
-    width: 9px;
-    height: 15px;
-    background-color: #f3f2ec;
-    background-image: linear-gradient(to bottom, #ffffff 0%, #f1efe6 60%, #d9d5c6 100%);
-    border: 1px solid #5f7aa3;
+Slider { height: 22px; min-height: 22px; }
+Slider:vertical { width: 22px; min-width: 22px; }
+Slider::groove {
+    height: 4px;
+    width: 4px;
+    background-color: #f1efe5;
+    border-style: solid;
+    border-width: 1px;
+    border-color: #9d9c99 #ffffff #ffffff #9d9c99;
     border-radius: 2px;
 }
-Slider:vertical::handle { width: 15px; height: 9px; }
-Slider::handle:hover, Slider::handle:pressed {
-    background-color: #fff3d4;
-    border-color: #5f7aa3;
-    box-shadow: inset 0 -2px 0 var(--xp-glow-orange), inset 0 0 0 1px var(--xp-glow-gold);
+Slider::fill { background-color: transparent; }
+Slider::fill:disabled { background-color: transparent; }
+Slider::handle {
+    width: 11px;
+    height: 21px;
+    background-color: transparent;
+    background-image: url(xp/thumb.svg);
+    border-radius: 0;
+    box-shadow: none;
 }
-Slider::handle:disabled { background-image: none; background-color: #f0efe6; border-color: #c9c7ba; box-shadow: none; }
+Slider::handle:hover, Slider::handle:pressed, Slider::handle:disabled { background-color: transparent; }
+Slider::handle:hover { background-image: url(xp/thumb-hover.svg); }
+Slider::handle:pressed { background-image: url(xp/thumb-pressed.svg); }
+Slider::handle:disabled { background-image: url(xp/thumb-disabled.svg); }
+Slider:vertical::handle { width: 21px; height: 11px; background-image: url(xp/thumb-v.svg); }
+Slider:vertical::handle:hover { background-image: url(xp/thumb-v-hover.svg); }
+Slider:vertical::handle:pressed { background-image: url(xp/thumb-v-pressed.svg); }
+Slider:vertical::handle:disabled { background-image: url(xp/thumb-v-disabled.svg); }
 
+/* the track: lighter towards its far side, a pale line along each edge */
 ScrollBar {
     background-color: #f7f6f1;
-    background-image: linear-gradient(to right, #eeede5 0%, #fbfbf8 50%, #f2f1ea 100%);
+    background-image: linear-gradient(to right, #eeede5 0px, #eeede5 1px, #f3f1ec 1px, #f6f5f0 5px, #f9f9f7 8px,
+                                      #fbfbf9 10px, #fefefb 13px, #fefefb 16px, #eeede5 16px);
 }
 ScrollBar:horizontal {
-    background-image: linear-gradient(to bottom, #eeede5 0%, #fbfbf8 50%, #f2f1ea 100%);
+    background-image: linear-gradient(to bottom, #eeede5 0px, #eeede5 1px, #f3f1ec 1px, #f6f5f0 5px, #f9f9f7 8px,
+                                      #fbfbf9 10px, #fefefb 13px, #fefefb 16px, #eeede5 16px);
 }
+/* the thumb: light blue, a white edge, a darker blue edge outside it below and on the right; the grip */
 ScrollBar::thumb {
-    background-color: #c4d4f7;
-    background-image: linear-gradient(to right, #d3e0fb 0%, #c6d6f9 45%, #b7cbf6 100%);
-    border: 1px solid #98b1e6;
+    background-color: #c8d6fb;
+    background-image: url(xp/grip-v.svg), linear-gradient(to right, #c9d7fc 0%, #c3d3fb 50%, #b9cdf9 100%);
+    background-repeat: no-repeat;
+    background-position: center;
+    border: 1px solid #ffffff;
     border-radius: 3px;
-    box-shadow: inset 0 0 0 1px #ecf2ff;
-    margin: 1px;
+    box-shadow: inset -2px 0 0 #bad1fc, inset 1px 1px 0 #b7caf5, 0 1px 0 #7c9fd3;
+    margin: 0 1px 1px 1px;
+    min-height: 8px;
+    min-width: 8px;
 }
 ScrollBar:horizontal::thumb {
-    background-image: linear-gradient(to bottom, #d3e0fb 0%, #c6d6f9 45%, #b7cbf6 100%);
+    background-image: url(xp/grip-h.svg), linear-gradient(to bottom, #c9d7fc 0%, #c3d3fb 50%, #b9cdf9 100%);
+    box-shadow: inset 0 -2px 0 #bad1fc, inset 1px 1px 0 #b7caf5, 1px 0 0 #7c9fd3;
+    margin: 1px 1px 1px 0;
 }
 ScrollBar::thumb:hover {
-    background-color: #d6e2fb;
-    background-image: linear-gradient(to right, #e4ecfd 0%, #d7e3fc 45%, #c8d8fa 100%);
+    background-color: #dae6fe;
+    background-image: url(xp/grip-v.svg), linear-gradient(to right, #dce8fe 0%, #d6e3fe 50%, #cbdcfd 100%);
 }
 ScrollBar:horizontal::thumb:hover {
-    background-image: linear-gradient(to bottom, #e4ecfd 0%, #d7e3fc 45%, #c8d8fa 100%);
+    background-image: url(xp/grip-h.svg), linear-gradient(to bottom, #dce8fe 0%, #d6e3fe 50%, #cbdcfd 100%);
 }
 ScrollBar::thumb:pressed {
-    background-color: #a9c0f4;
-    background-image: linear-gradient(to right, #b4c8f6 0%, #a9c0f4 100%);
+    background-color: #a8bff5;
+    background-image: url(xp/grip-v.svg), linear-gradient(to right, #aac2f6 0%, #a4bdf5 50%, #9ab5f2 100%);
 }
 ScrollBar:horizontal::thumb:pressed {
-    background-image: linear-gradient(to bottom, #b4c8f6 0%, #a9c0f4 100%);
+    background-image: url(xp/grip-h.svg), linear-gradient(to bottom, #aac2f6 0%, #a4bdf5 50%, #9ab5f2 100%);
 }
-/* the arrow buttons at the ends: small light blue buttons like the thumb */
+/* the arrow buttons at the ends: 17 px, light blue with a white edge and a darker one outside it */
 ScrollBar::sub-line, ScrollBar::add-line {
     background-color: #c4d4f7;
-    background-image: linear-gradient(to bottom, #e1eafd 0%, #c9d8fa 50%, #b7cbf6 100%);
-    border: 1px solid #98b1e6;
+    background-image: var(--xp-blue-face);
+    background-clip: padding-box;
+    border-style: solid;
+    border-width: 0 1px 1px 1px;
+    border-color: transparent #a6bad8 #7da0d4 #eeede5;
     border-radius: 3px;
-    box-shadow: inset 0 0 0 1px #ecf2ff;
+    box-shadow: inset 0 0 0 1px #ffffff;
     color: #4d6185;
-    icon-size: 7px;
-    stroke-width: 1.8px;
 }
-ScrollBar:vertical::sub-line, ScrollBar:vertical::add-line { height: 14px; }
-ScrollBar:horizontal::sub-line, ScrollBar:horizontal::add-line { width: 14px; }
-ScrollBar::sub-line:hover, ScrollBar::add-line:hover {
-    background-image: linear-gradient(to bottom, #f0f5ff 0%, #dbe6fd 50%, #c8d8fa 100%);
+ScrollBar:horizontal::sub-line, ScrollBar:horizontal::add-line {
+    border-width: 1px 1px 1px 0;
+    border-color: #eeede5 #a6bad8 #7da0d4 transparent;
+    border-radius: 3px;
 }
-ScrollBar::sub-line:pressed, ScrollBar::add-line:pressed {
-    background-image: linear-gradient(to bottom, #a9c0f4 0%, #b4c8f6 100%);
-}
+ScrollBar:vertical::sub-line, ScrollBar:vertical::add-line { height: 17px; }
+ScrollBar:horizontal::sub-line, ScrollBar:horizontal::add-line { width: 17px; }
+ScrollBar:vertical::sub-line { -tiny-glyph: url(xp/arrow-up.svg); -tiny-glyph-tint: color; }
+ScrollBar:vertical::add-line { -tiny-glyph: url(xp/arrow-down.svg); -tiny-glyph-tint: color; }
+ScrollBar:horizontal::sub-line { -tiny-glyph: url(xp/arrow-left.svg); -tiny-glyph-tint: color; }
+ScrollBar:horizontal::add-line { -tiny-glyph: url(xp/arrow-right.svg); -tiny-glyph-tint: color; }
+ScrollBar::sub-line:hover, ScrollBar::add-line:hover { background-image: var(--xp-blue-face-hover); }
+ScrollBar::sub-line:pressed, ScrollBar::add-line:pressed { background-image: var(--xp-blue-face-pressed); }
+ScrollBar:disabled::sub-line, ScrollBar:disabled::add-line { color: #c9c7ba; }
 
 /* =============================================================================================
    Lists, trees, menus
    ============================================================================================= */
 
-/* lists: white with the fields' blue-grey edge; the row under the mouse a pale blue, the chosen one blue */
-ListWidget, TreeWidget, FileList, FileView { background-color: #ffffff; border: 1px solid #7f9db9; }
-ListWidget::item:hover, TreeWidget::item:hover, FileList::item:hover, FileView::row:hover { background-color: #eaf0fb; }
+/* lists and trees: white with the fields' blue-grey edge, the chosen row blue (no highlight under the mouse) */
+ListWidget, TreeWidget, FileList, FileView { background-color: #ffffff; border: 1px solid var(--xp-field-edge); }
+ListWidget::item, TreeWidget::item { height: 17px; }
+ListWidget::item:hover, TreeWidget::item:hover, FileList::item:hover, FileView::row:hover { background-color: transparent; }
 ListWidget::item:selected, TreeWidget::item:selected, FileList::item:selected, FileView::row:selected {
     background-color: #316ac5;
     color: #ffffff;
 }
+/* the tree's expanders: small boxes with a plus or a minus */
+TreeWidget::branch { -tiny-glyph: url(xp/tree-plus.svg); }
+TreeWidget::branch:open { -tiny-glyph: url(xp/tree-minus.svg); }
+FileView::branch { -tiny-glyph: url(xp/tree-plus.svg); }
+FileView::branch:open { -tiny-glyph: url(xp/tree-minus.svg); }
 
-/* the menu bar: the window's beige; a title blue while its menu is open */
+/* the menu bar: the window's face; the title under the mouse or open in the highlight blue */
 MenuBar { background-color: var(--window); }
-MenuBar::item { color: #000000; padding: 3px 7px; }
-MenuBar::item:hover { background-color: #316ac5; color: #ffffff; }
-MenuBar::item:open { background-color: #316ac5; color: #ffffff; }
+MenuBar::item { color: #000000; padding: 3px 6px 4px; }
+MenuBar::item:hover, MenuBar::item:open { background-color: #316ac5; color: #ffffff; }
 
-/* menus: white with a grey edge, the entry under the mouse blue */
-Menu { background-color: #ffffff; border: 1px solid #aca899; padding: 2px 0; }
-Menu::item { padding: 4px 22px; }
+/* menus: white with a grey edge, the item under the mouse blue; black check marks and submenu arrows */
+Menu { background-color: #ffffff; border: 1px solid var(--xp-menu-edge); padding: 2px; }
+Menu::item { padding: 2px 20px 1px 18px; }   /* (17 px rows) */
 Menu::item:hover { background-color: #316ac5; color: #ffffff; }
-Menu::separator { background-color: #aca899; margin: 3px 2px; }
+Menu::item:disabled { color: #aca899; }
+Menu::item:section { color: #6d6b62; }
+Menu::separator { background-color: var(--xp-menu-edge); margin: 3px 1px 4px; }
+Menu::check { width: 13px; margin-left: 3px; color: #000000; -tiny-glyph: url(xp/menu-check.svg); -tiny-glyph-tint: color; }
 Menu::check:hover { color: #ffffff; }
+Menu::arrow { width: 8px; margin-right: 6px; -tiny-glyph: url(xp/menu-arrow.svg); -tiny-glyph-tint: color; }
+Menu::arrow:hover { color: #ffffff; }
+Menu::shortcut { margin-left: 24px; }
 
+/* the file window's signs: a manila folder, a white page */
+FileList::icon { width: 16px; margin-right: 4px; -tiny-glyph: url(xp/file.svg); }
+FileList::icon:folder { -tiny-glyph: url(xp/folder.svg); }
+
+/* the file window's list header: the light raised header of the era's lists */
 FileList::header {  /* (inside the list's edge: a line under it) */
     background-color: #ebeadb;
     background-image: linear-gradient(to bottom, #ffffff 0%, #f6f5ef 70%, #ebeadb 100%);
@@ -845,111 +958,137 @@ Swatch::chip { border-color: #7f9db9; }
 ClipPreview { background-color: #ffffff; }
 EditorWindow::stopped { background-color: var(--window); }
 
+
 /* =============================================================================================
-   Window frames (Options → Window frames → Tiny DAW's own): a tall glossy royal-blue caption with
-   rounded top corners and a light highlight along its top, the title in white bold with a hard
-   dark shadow; rounded blue buttons with white glyphs and a white edge, close in red-orange; a
-   blue edge around the window, bright on the top and left, darker on the right and bottom.
-   Inactive: the same, paler and greyer. Hover brightens, pressed darkens.
+   Window frames (Options → Window frames → Tiny DAW's own): the 29 px glossy royal-blue title bar with
+   its top corners rounded (8 px), the title in white bold with a dark shadow; 21 px rounded caption
+   buttons with a white edge, blue (close: red-orange) with a light spot at their top left; a three-line
+   blue edge around the window. Inactive: the same, paler. Hover brightens the buttons, pressed darkens.
    ============================================================================================= */
-:root { --title-bar-height: 30px; }
-/* the edge: the caption reaches the top; the sides and bottom 4 px, a dark outer half and a bright one
-   in (outside the rounded corners: black, painted afresh each time by a shadow: a window can't be
-   see-through) */
+:root { --title-bar-height: 29px; }
+/* the edge: three lines on the sides and the bottom (each its own blue, drawn by the window's background
+   from xp/: a border has one colour a side); beside the title bar the bar's own darker edge. Outside the
+   rounded corners: black, painted afresh each time by a shadow (a window that can't be see-through). */
 Window:framed, Window:framed:active {
-    border-width: 0 4px 4px 4px;
-    border-style: groove ridge ridge groove;
-    border-color: #0a4ee6 #0029a8 #0029a8 #0a4ee6;
-    border-radius: 8px 7px 0 0;
+    border-width: 0 3px 3px 3px;
+    border-style: solid;
+    border-color: transparent;
+    border-radius: 8px 8px 0 0;
+    background-color: var(--window);
+    background-image: url(xp/bar-l.svg), url(xp/bar-r.svg), url(xp/frame-l.svg), url(xp/frame-r.svg),
+                      url(xp/frame-b.svg);
+    background-repeat: no-repeat, no-repeat, repeat-y, repeat-y, repeat-x;
+    background-position: left top, right top, left top, right top, left bottom;
+    background-origin: border-box;
     box-shadow: 0 0 0 4px #000000;
 }
-Window:framed:inactive { border-color: #7f9be3 #5d76c4 #5d76c4 #7f9be3; }
-Window:framed:maximized { border-width: 0; border-radius: 0; box-shadow: none; }
+Window:framed:inactive {
+    background-image: url(xp/bar-l-inactive.svg), url(xp/bar-r-inactive.svg), url(xp/frame-l-inactive.svg),
+                      url(xp/frame-r-inactive.svg), url(xp/frame-b-inactive.svg);
+}
+Window:framed:maximized { border-width: 0; border-radius: 0; box-shadow: none; background-image: none; }
 /* (see-through, :transparent: no black outside the corners, the desktop shows there, anti-aliased) */
 Window:framed:transparent, Window:framed:active:transparent { box-shadow: none; }
-/* (see-through: menus, drop-down lists and tooltips cast a soft shadow, as XP's did) */
-Menu:transparent, ComboPopup:transparent, ToolTip:transparent { box-shadow: 2px 3px 6px rgba(0, 0, 0, 0.4); }
-/* the caption: a light line along the top, deep blue, brighter towards the bottom, then a dark lip */
+/* (see-through: menus, drop-down lists and tooltips cast the original's soft shadow, down and to the right) */
+Menu:transparent, ComboPopup:transparent, ToolTip:transparent { box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.45); }
+
+/* the bar: a dark top line, a light band under it, deep blue, brighter towards the bottom, a dark lip */
 TitleBar {
-    background-color: #0050ee;  /* (the caption's main blue: where the gradient can't be drawn) */
+    background-color: #0055e5;  /* (the caption's main blue: where the gradient can't be drawn) */
     background-image: linear-gradient(to bottom,
-        #0997ff 0%, #0053ee 8%, #0050ee 40%, #0066ff 88%, #0066ff 93%, #005bff 95%, #003dd7 96%,
-        #003dd7 100%);
-    border-top: 1px solid #0831d9;
-    border-radius: 4px 3px 0 0;
-    padding: 0 5px 0 5px;
+        #3f97ff 0px, #2b90ff 1px, #0372ff 2px, #0365f1 3px, #005ce9 4px, #0058e6 5px, #0054e3 6px, #0054e3 8px,
+        #0055e5 9px, #0055e5 12px, #0055ea 13px, #0055ea 14px, #0058ee 15px, #005bf2 16px, #005af5 17px,
+        #0060f9 18px, #0164f9 19px, #026afe 20px, #026afe 23px, #0065fd 24px, #0060fc 25px, #004de3 26px,
+        #0043cf 27px, #0043cf 28px);
+    border-top: 1px solid #0058ee;
+    border-radius: 4px 4px 0 0;
+    padding: 1px 2px 0 3px;   /* (the buttons 5 px from the top, as the original) */
 }
 TitleBar:inactive {
-    background-color: #6a8ad8;
+    /* (the original's pale inactive bar, a little deeper: its own pale title had too little contrast) */
+    background-color: #6c88d8;
     background-image: linear-gradient(to bottom,
-        #a2bdf5 0%, #7896e0 8%, #6f8ed9 40%, #809ee6 88%, #809ee6 93%, #7a98e2 95%, #6682cc 96%,
-        #6682cc 100%);
-    border-top-color: #7f9be3;
+        #819ddf 0px, #83a1e0 1px, #7697dd 3px, #6d90da 5px, #6b88d7 7px, #6c8bda 15px, #7298e0 22px,
+        #7195df 25px, #6c88da 26px, #6c86d8 27px, #6c86d8 28px);
+    border-top-color: #6d8ad9;
 }
-TitleBar:maximized { border-radius: 0; border-top-width: 0; }
-TitleBar::icon { width: 16px; height: 16px; margin: 0 4px 0 0; }
+TitleBar:maximized { border-radius: 0; }
+TitleBar::icon { width: 16px; height: 16px; margin: 0 3px 0 2px; }
 TitleBar::title {
     color: #ffffff;
-    font-family: "Trebuchet MS", "DejaVu Sans", "Liberation Sans", sans-serif;
-    font-size: 13px;
+    /* (a bold humanist face of the original's width: Carlito, a little larger than the original's 10 pt for
+       its smaller letters; else the original's own face, if this computer has it; else the bundled Tahoma) */
+    font-family: "Carlito", "Trebuchet MS", "Tahoma", sans-serif;
+    font-size: 14.5px;
     font-weight: bold;
     text-align: left;
-    margin-left: 3px;
-    text-shadow: 1px 1px #0f1089;
+    margin-left: 0;
+    padding-bottom: 2px;   /* (its letters a pixel higher than the middle, as the original's) */
+    text-shadow: 1px 1px #0a1883;
 }
 TitleBar:inactive::title { color: #ffffff; text-shadow: none; }
-/* the buttons: 21 px rounded squares with a white edge, lighter at the top; white glyphs */
+
+/* the buttons: 21 px rounded squares with a white edge; a light spot at the top left fading to a deeper,
+   more saturated blue at the bottom right, darker lines inside the edge on the right and at the bottom */
+TitleBar::minimize, TitleBar::maximize, TitleBar::close,
+TitleBar::minimize:hover, TitleBar::maximize:hover, TitleBar::close:hover,
+TitleBar::minimize:pressed, TitleBar::maximize:pressed, TitleBar::close:pressed { color: #ffffff; }
 TitleBar::minimize, TitleBar::maximize, TitleBar::close {
     width: 21px;
     height: 21px;
     margin: 0 0 0 2px;
     color: #ffffff;
-    icon-size: 8px;
-    stroke-width: 2px;
     border: 1px solid #ffffff;
     border-radius: 3px;
-    background-color: #306af4;
-    background-image: linear-gradient(to bottom, #739af8 0%, #608cf7 15%, #4d7ef6 30%, #3e73f5 45%,
-        #306af4 60%, #2b62ea 85%, #3a72f2 100%);
-    box-shadow: inset 0 0 1px 1px #8fb0fa;
+    background-color: #3c74f5;
+    background-image: radial-gradient(circle at 2px 2px, #9ab7fa 0px, #8cadf9 3px, #6f97f8 7px, #5384f6 11px,
+                                      #3a77f5 15px, #1f6ff7 19px, #0f66f6 26px);
+    box-shadow: inset -1px -1px 0 #1546b9, inset -2px -2px 0 #2160e2;
+    -tiny-glyph-tint: color;
 }
-TitleBar::minimize { icon-size: 7px; }
+TitleBar::minimize { -tiny-glyph: url(xp/min.svg); }
+TitleBar::maximize { -tiny-glyph: url(xp/max.svg); }
+TitleBar::maximize:maximized { -tiny-glyph: url(xp/restore.svg); }
+TitleBar::close { -tiny-glyph: url(xp/close.svg); }
 TitleBar::minimize:hover, TitleBar::maximize:hover {
-    background-color: #4a82fb;
-    background-image: linear-gradient(to bottom, #9bbcff 0%, #82a8fd 15%, #6894fb 30%, #5888fa 45%,
-        #4a7ff9 60%, #4277f2 85%, #528af9 100%);
-    box-shadow: inset 0 0 1px 1px #b4cbff;
-    color: #ffffff;
+    background-color: #5a93ff;
+    background-image: radial-gradient(circle at 2px 2px, #a4c2ff 0px, #9abbff 3px, #7aa8ff 7px, #5f96ff 11px,
+                                      #4296ff 15px, #2d9bfd 19px, #1c96fd 26px);
+    box-shadow: inset -1px -1px 0 #1b52c2, inset -2px -2px 0 #2e6cea;
 }
 TitleBar::minimize:pressed, TitleBar::maximize:pressed {
-    background-color: #1c4fd2;
-    background-image: linear-gradient(to bottom, #1440b8 0%, #1a4bc8 40%, #2257d8 80%, #2a62e6 100%);
-    box-shadow: inset 1px 1px 2px #0a2c8c;
+    background-color: #004bae;
+    background-image: radial-gradient(circle at 100% 100%, #005ec3 0px, #0057bc 8px, #004db2 14px, #00429d 20px,
+                                      #003170 26px, #002452 30px);
+    box-shadow: inset 1px 1px 0 #002452;
 }
 TitleBar::close {
-    background-color: #e04d28;
-    background-image: linear-gradient(to bottom, #eb8b73 0%, #e77155 15%, #e46142 30%, #e25633 45%,
-        #e04d28 60%, #d8370e 85%, #d6461c 100%);
-    box-shadow: inset 0 0 1px 1px #f3bbad;
+    background-color: #e66b4e;
+    background-image: radial-gradient(circle at 2px 2px, #f1ac9a 0px, #efa18d 3px, #ea8a70 7px, #e77558 11px,
+                                      #e6603e 15px, #e8521f 19px, #e8440b 26px);
+    box-shadow: inset -1px -1px 0 #a62b0d, inset -2px -2px 0 #cc3e1b;
 }
 TitleBar::close:hover {
-    background-color: #f0613a;
-    background-image: linear-gradient(to bottom, #f7ab96 0%, #f48c6e 15%, #f27a59 30%, #f06c48 45%,
-        #ee6239 60%, #e64e22 85%, #e65a2c 100%);
-    box-shadow: inset 0 0 1px 1px #fbd2c6;
-    color: #ffffff;
+    background-color: #ff8576;
+    background-image: radial-gradient(circle at 2px 2px, #ffb8b0 0px, #ffb0a6 3px, #ff998e 7px, #ff8677 11px,
+                                      #fd7e64 15px, #fe8460 19px, #fe7651 26px);
+    box-shadow: inset -1px -1px 0 #c93c2b, inset -2px -2px 0 #cb4233;
 }
 TitleBar::close:pressed {
-    background-color: #b8381a;
-    background-image: linear-gradient(to bottom, #aa2300 0%, #b12a06 40%, #c23a14 80%, #cc4420 100%);
-    box-shadow: inset 1px 1px 2px #7a1800;
+    background-color: #bb3b1b;
+    background-image: radial-gradient(circle at 100% 100%, #cd4a22 0px, #c4421e 8px, #b8391a 14px, #9a2f16 20px,
+                                      #792711 26px, #591c0d 30px);
+    box-shadow: inset 1px 1px 0 #591c0d;
+}
+/* inactive: the buttons faded into the pale bar, their edge half see-through */
+TitleBar:inactive::minimize, TitleBar:inactive::maximize, TitleBar:inactive::close {
+    border-color: #a9bdf0;
+    background-color: #6587e9;
+    background-image: linear-gradient(135deg, #849ceb 0%, #6d8de9 40%, #5a7fe8 75%, #4f78e8 100%);
+    box-shadow: none;
     color: #ffffff;
 }
-/* inactive: the buttons faded into the pale caption */
-TitleBar:inactive::minimize, TitleBar:inactive::maximize, TitleBar:inactive::close {
-    color: #ffffff;
-    border-color: #e4ebfb;
-    background-color: #7f9de4;
-    background-image: linear-gradient(to bottom, #b4c8f4 0%, #98b2ee 30%, #829fe6 60%, #7b98e0 85%, #87a3e8 100%);
-    box-shadow: none;
+TitleBar:inactive::close {
+    background-color: #b07f98;
+    background-image: linear-gradient(135deg, #b8899f 0%, #b07e98 40%, #ad728c 75%, #ad6a80 100%);
 }
