@@ -2945,6 +2945,24 @@ static void testCssImages() {
         CHECK(isOnly(w.framebuffer(), Rect(0, 0, 200, 40), {Color(0, 0, 0), Color(255, 255, 255)}));
         w.hideWindow();
         theme::setSkin();
+        // the interface font's size in px is kept exactly (the 90s skin's 11.5px: not 8.63pt, 11.5067px)
+        for (auto& size : std::vector<std::pair<const char*, double>>{{"11.5px", 11.5}, {"11px", 11}, {"10pt", 40.0 / 3},
+                                                                      {"9pt", 12}, {"13.3px", 13.3}}) {
+            problems.clear();
+            css::SheetPtr sized = css::parse(std::string(":root { font-size: ") + size.first + " }", "size.css", problems);
+            theme::setStyles({theme::builtinSheet(), sized});
+            // (px as given: exactly; pt: as the engine works them out, to its last bits)
+            bool givenPx = std::string(size.first).find("px") != std::string::npos;
+            CHECK(givenPx ? theme::fonts().uiPx == size.second : std::fabs(theme::fonts().uiPx - size.second) < 1e-12);
+            CHECK(Font::ui().pixelSize() == (float)size.second && Font::mono().pixelSize() == (float)size.second);
+            CHECK(std::fabs(theme::fonts().uiSize - size.second * 0.75) < 1e-9);
+            if (std::fabs(theme::fonts().uiPx - size.second) > 1e-12 || Font::ui().pixelSize() != (float)size.second)
+                printf("  font-size %s: %.6f px (theme), %.6f px (Font::ui)\n", size.first, theme::fonts().uiPx,
+                       Font::ui().pixelSize());
+        }
+        CHECK(theme::fonts().uiSize == 9.975);  // (13.3px)
+        theme::setSkin();
+        CHECK(Font::ui().pixelSize() == 12.f);
     }
 
     // timings: a 200 x 120 box tiled with the checkerboard; a scroll arrow's image

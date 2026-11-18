@@ -33,8 +33,9 @@ public:
     Font withPixelSize(float px) const { return Font(family_, px, bold_).withAliased(aliased_); }
     Font withPointSize(float pt) const { return fromPoints(family_, pt, bold_).withAliased(aliased_); }
     Font withBold(bool b) const { return Font(family_, size_, b).withAliased(aliased_); }
-    // drawn without anti-aliasing (CSS font-smooth: never): each glyph's pixels fully on or off (its coverage
-    // thresholded at half), each glyph on a whole pixel. Advances and metrics are the same.
+    // drawn without anti-aliasing (CSS font-smooth: never): each glyph's pixels fully on or off (on where the
+    // outline covers half of a pixel or more, plus dropout control: a stroke thinner than a pixel keeps a pixel in
+    // each row and column it crosses), each glyph on a whole pixel. Advances and metrics are the same.
     bool aliased() const { return aliased_; }
     Font withAliased(bool a) const {
         Font f = *this;
@@ -55,9 +56,10 @@ public:
     bool hasGlyph(uint32_t codepoint) const;
 
     // the interface font set by the skin (theme), and the numbers font
-    static Font ui();          // the skin's "ui" font at its "ui_size" (0: 9 pt)
+    static Font ui();          // the skin's "ui" font at its size (default: 12 px, 9 pt)
     static Font mono();        // the skin's "mono" font at the ui size
-    static void setDefaults(const std::string& uiFamily, float uiPoints, const std::string& monoFamily);
+    // the ui font and its size in px (kept exactly as given: 11.5 px stays 11.5 px), and the numbers font
+    static void setDefaults(const std::string& uiFamily, float uiPixels, const std::string& monoFamily);
     static std::vector<std::string> families();  // installed family names, sorted (skin editor)
     // a family from a font file (a skin's @font-face): `family` finds it from now on, before the system's fonts
     // of that name, as a face of the weight and style given (whatever the file says). False if the file has no

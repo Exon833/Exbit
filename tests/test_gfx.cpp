@@ -486,6 +486,111 @@ static void testFonts() {
     CHECK(alphaSum(img, Rect((int)(10 + w) + 2, 0, 50, 30)) == 0);
 }
 
+// Text without anti-aliasing (font-smooth: never) keeps its thin strokes (dropout control): the minus sign,
+// the apostrophe, the I's stem and serifs, the S's curves, at 8 and 9 pt and at the 90s skin's 11.5 px, in the
+// bundled Tahoma and in Liberation Sans (when installed)
+static void testUnsmoothed() {
+    CHECK(Font::addFamily("Tiny Test Tahoma", "data/skins/fonts/tahoma.ttf"));
+    std::vector<std::string> families = {"Tiny Test Tahoma"};
+    std::string liberation = "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf";
+    if (util::fileExists(liberation) && Font::addFamily("Tiny Test Liberation", liberation))
+        families.push_back("Tiny Test Liberation");
+    else
+        printf("(Liberation Sans isn't installed: unsmoothed text tested with Tahoma alone)\n");
+    auto glyphOf = [](const Font& f, const std::string& ch) -> Font::Glyph {
+        std::vector<Font::Run> runs;
+        f.layout(ch, 0, runs);
+        return runs.size() == 1 && runs[0].glyph ? *runs[0].glyph : Font::Glyph();
+    };
+    auto on = [](const Font::Glyph& g, int x, int y) { return g.mask[(size_t)y * g.w + x] == 255; };
+    auto count = [&](const Font::Glyph& g) {
+        int n = 0;
+        for (int y = 0; y < g.h; y++)
+            for (int x = 0; x < g.w; x++) n += on(g, x, y);
+        return n;
+    };
+    // the rows (or columns) that have a pixel on, from the first such to the last: none missing between
+    auto noGaps = [&](const Font::Glyph& g, bool rows) {
+        int first = -1, last = -1, lines = rows ? g.h : g.w, len = rows ? g.w : g.h;
+        std::vector<bool> has((size_t)lines, false);
+        for (int j = 0; j < lines; j++) {
+            for (int i = 0; i < len && !has[(size_t)j]; i++) has[(size_t)j] = rows ? on(g, i, j) : on(g, j, i);
+            if (has[(size_t)j]) {
+                if (first < 0) first = j;
+                last = j;
+            }
+        }
+        for (int j = first; j >= 0 && j <= last; j++)
+            if (!has[(size_t)j]) return false;
+        return first >= 0;
+    };
+    Image sample(420, 40 * (int)families.size() * 3, Color(255, 255, 255));
+    Painter sp(sample);
+    int line = 0;
+    for (const std::string& family : families)
+        for (float px : {8 * 4.f / 3, 9 * 4.f / 3, 11.5f}) {
+            Font f = Font(family, px).withAliased(true), smooth(family, px);
+            CHECK(f.aliased() && !smooth.aliased());
+            // every pixel fully on or off
+            for (const char* ch : {"-", "'", "I", "S", "5", "6", "D", "a", "e"}) {
+                Font::Glyph g = glyphOf(f, ch);
+                bool twoTone = !g.mask.empty();
+                for (uint8_t v : g.mask) twoTone = twoTone && (v == 0 || v == 255);
+                CHECK(twoTone);
+            }
+            Font::Glyph minus = glyphOf(f, "-"), apostrophe = glyphOf(f, "'"), stem = glyphOf(f, "I"), s = glyphOf(f, "S");
+            // the minus sign: a bar at least 2 px long, on one row; the apostrophe: there
+            int minusRows = 0;
+            for (int y = 0; y < minus.h; y++) {
+                int n = 0;
+                for (int x = 0; x < minus.w; x++) n += on(minus, x, y);
+                minusRows += n > 0;
+                if (n) CHECK(n >= 2);
+            }
+            CHECK(minusRows >= 1 && count(minus) >= 2);
+            CHECK(count(apostrophe) >= 1 && noGaps(apostrophe, true));
+            // I: a pixel in each of its rows (its stem unbroken), each column of it too
+            CHECK(noGaps(stem, true) && noGaps(stem, false));
+            int stemTop = -1, stemBottom = -1;
+            for (int y = 0; y < stem.h; y++)
+                for (int x = 0; x < stem.w; x++)
+                    if (on(stem, x, y)) {
+                        if (stemTop < 0) stemTop = y;
+                        stemBottom = y;
+                    }
+            CHECK(stemTop >= 0 && stemBottom - stemTop + 1 >= (int)(px * 0.55f));  // (the cap height)
+            // S: no row or column of it left out between its first and its last
+            CHECK(noGaps(s, true) && noGaps(s, false));
+            for (const char* ch : {"-", "'", "I", "S"})
+                if (count(glyphOf(f, ch)) == 0) printf("  %s %.2f px: '%s' vanished\n", family.c_str(), px, ch);
+            // drawn: "-6.0 dB" begins with the minus sign's pixels; "Don't Save" has the apostrophe's
+            Image img(120, 24, Color(255, 255, 255));
+            Painter p(img);
+            float minusEnd = Font(family, px).width("-");
+            p.drawText(PointF(2, 16), "-6.0 dB", f, Color(0, 0, 0));
+            int black = 0;
+            for (int y = 0; y < img.height(); y++)
+                for (int x = 0; x < 2 + (int)minusEnd; x++) black += img.colorAt(x, y) == Color(0, 0, 0);
+            CHECK(black >= 2);
+            sp.drawText(PointF(4, 14 + 40 * line), "-6.0 dB  Don't Save  I S 5", f, Color(0, 0, 0));
+            sp.drawText(PointF(214, 14 + 40 * line), "-6.0 dB  Don't Save  I S 5", smooth, Color(0, 0, 0));
+            sp.drawText(PointF(4, 32 + 40 * line), "abcdefghijklm ABCDEFGHIJKLM 0123456789", f, Color(0, 0, 0));
+            line++;
+        }
+    savePng(sampleDir() + "unsmoothed.png", sample);
+    // the anti-aliased text is not changed by any of this: greys there
+    Image img(80, 24, Color(255, 255, 255));
+    Painter p(img);
+    p.drawText(PointF(2, 16), "-6.0 dB", Font("Tiny Test Tahoma", 11.5f), Color(0, 0, 0));
+    bool grey = false;
+    for (int y = 0; y < img.height(); y++)
+        for (int x = 0; x < img.width(); x++) {
+            Color c = img.colorAt(x, y);
+            grey = grey || (c != Color(0, 0, 0) && c != Color(255, 255, 255));
+        }
+    CHECK(grey);
+}
+
 static void testSvg() {
     const char* names[] = {"play", "pause", "record", "return_to_start", "follow"};
     std::string dir = sampleDir();
@@ -843,6 +948,7 @@ int main() {
     testPng();
     testPainter();
     testFonts();
+    testUnsmoothed();
     testSvg();
     testSvgAspect();
     testSvgGradients();

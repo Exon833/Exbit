@@ -146,6 +146,11 @@ A defined part of CSS, read by Tiny DAW's own parser (`src/core/css.h`):
 - **`opacity`** (a number or %): a widget and everything in it, drawn see-through as one.
 - **`font-smooth: never`** (or `-webkit-font-smoothing: none`): the text is drawn without anti-aliasing, each
   pixel of a letter fully on or off (crisp, like the bitmap fonts of old desktops), each letter on a whole pixel.
+  A pixel is on where the letter covers at least half of it, and thin strokes are kept by dropout control, as
+  TrueType's own monochrome rasterizers do: wherever a row or column of pixels crosses a stroke thinner than a
+  pixel that none of its pixels shows, the pixel nearest the stroke's middle is turned on (the tip of a round
+  stroke already drawn in the next row or column is left out, so curves don't grow bumps). So a minus sign, an
+  apostrophe, the stem and serifs of an I and the thin curves of an S stay whole at 8 or 9 pt.
   Inherited: on `Window` (or `:root`) it is every text of the program that takes its font from the stylesheets
   (labels, buttons, menus, lists, title bars, the timeline's texts…); `font-smooth: auto` turns it back on below.
   Also `always` (the default) and a length (as `auto`).
@@ -231,7 +236,7 @@ made from `default.css` by `tools/skins_reference.py`.
 | Name | Default | What it is |
 |---|---|---|
 | `font-family` | `system-ui` | the interface font (system-ui: the system's own) |
-| `font-size` | `9pt` | its size (also what em is, and the numbers font's) |
+| `font-size` | `9pt` | its size (also what em is, and the numbers font's); kept exactly as given (`11.5px` is 11.5 px) |
 | `--mono-font` | `"Consolas"` | numbers: times, LUFS (Consolas falls back to a monospaced font) |
 
 ### Window
