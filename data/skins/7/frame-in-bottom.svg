@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1" height="2" viewBox="0 0 1 2" preserveAspectRatio="none">
+<!-- the foot of the inside: its dark edge, then a light line -->
+<rect x="0" y="0" width="1" height="1" fill="#2c475c"/>
+<rect x="0" y="1" width="1" height="1" fill="#d7e3ed"/>
+</svg>
