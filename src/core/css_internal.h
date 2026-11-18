@@ -81,6 +81,10 @@ struct LenCtx {
 // mm, Q, pc (96 px to the inch); false if [b, e) is something else
 bool evalLength(const Tokens& t, size_t b, size_t e, const LenCtx& ctx, double& px);
 bool lengthText(std::string_view text, const LenCtx& ctx, double& px);
+// a length-percentage worked out where it is used: `frac` of what 100% is there, plus `px`. 50% is 0.5 and 0,
+// 8px is 0 and 8, calc(100% - 8px) is 1 and -8 (calc() of lengths and percentages added, or multiplied and
+// divided by numbers: always of that form); false if [b, e) is something else
+bool evalLengthPercent(const Tokens& t, size_t b, size_t e, const LenCtx& ctx, double& px, double& frac);
 // a number: 1.5, 50% (= 0.5), calc() of numbers
 bool evalNumber(const Tokens& t, size_t b, size_t e, double& v);
 // a colour: [b, e) is exactly one; `current` is currentColor's (null: currentColor isn't one)

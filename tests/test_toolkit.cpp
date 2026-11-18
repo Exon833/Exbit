@@ -2945,6 +2945,24 @@ static void testCssImages() {
         CHECK(isOnly(w.framebuffer(), Rect(0, 0, 200, 40), {Color(0, 0, 0), Color(255, 255, 255)}));
         w.hideWindow();
         theme::setSkin();
+        // the interface font's size in px is kept exactly (the 90s skin's 11.5px: not 8.63pt, 11.5067px)
+        for (auto& size : std::vector<std::pair<const char*, double>>{{"11.5px", 11.5}, {"11px", 11}, {"10pt", 40.0 / 3},
+                                                                      {"9pt", 12}, {"13.3px", 13.3}}) {
+            problems.clear();
+            css::SheetPtr sized = css::parse(std::string(":root { font-size: ") + size.first + " }", "size.css", problems);
+            theme::setStyles({theme::builtinSheet(), sized});
+            // (px as given: exactly; pt: as the engine works them out, to its last bits)
+            bool givenPx = std::string(size.first).find("px") != std::string::npos;
+            CHECK(givenPx ? theme::fonts().uiPx == size.second : std::fabs(theme::fonts().uiPx - size.second) < 1e-12);
+            CHECK(Font::ui().pixelSize() == (float)size.second && Font::mono().pixelSize() == (float)size.second);
+            CHECK(std::fabs(theme::fonts().uiSize - size.second * 0.75) < 1e-9);
+            if (std::fabs(theme::fonts().uiPx - size.second) > 1e-12 || Font::ui().pixelSize() != (float)size.second)
+                printf("  font-size %s: %.6f px (theme), %.6f px (Font::ui)\n", size.first, theme::fonts().uiPx,
+                       Font::ui().pixelSize());
+        }
+        CHECK(theme::fonts().uiSize == 9.975);  // (13.3px)
+        theme::setSkin();
+        CHECK(Font::ui().pixelSize() == 12.f);
     }
 
     // timings: a 200 x 120 box tiled with the checkerboard; a scroll arrow's image
@@ -3037,6 +3055,149 @@ bool premultiplied(const Image& img) {
     return true;
 }
 }  // namespace
+
+// an SVG background with preserveAspectRatio="none" stretched to background-size: 2px 100% (each tile 2 px across,
+// the box's height down); without it, the drawing keeps its proportions (centred in the tile); an SVG gradient in it
+static void testCssSvgStretch() {
+    const std::string dir = "build/css-svg-stretch";
+    util::makeDirs(dir);
+    const Color canvas(0xd4, 0xd0, 0xc8);
+    // 2 x 10 view units: black on top, white below
+    const std::string body = "viewBox='0 0 2 10'><rect width='2' height='5' fill='#000000'/>"
+                             "<rect y='5' width='2' height='5' fill='#ffffff'/></svg>";
+    CHECK(util::writeFile(dir + "/stretch.svg", "<svg xmlns='http://www.w3.org/2000/svg' preserveAspectRatio='none' " + body));
+    CHECK(util::writeFile(dir + "/keep.svg", "<svg xmlns='http://www.w3.org/2000/svg' " + body));
+    CHECK(util::writeFile(dir + "/grad.svg",
+                          "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1' preserveAspectRatio='none'>"
+                          "<linearGradient id='g' x2='0' y2='1'><stop offset='0' stop-color='#ff0000'/>"
+                          "<stop offset='1' stop-color='#0000ff'/></linearGradient>"
+                          "<rect width='1' height='1' fill='url(#g)'/></svg>"));
+    css::ParseOptions o;
+    o.baseDir = dir;
+    o.checkImage = [](const std::string& path, std::string& why) { return style::imageFileOk(path, why); };
+    std::vector<css::Problem> problems;
+    css::SheetPtr sheet = css::parse(".stretch { background: url(stretch.svg) repeat-x; background-size: 2px 100% }\n"
+                                     ".keep { background: url(keep.svg) repeat-x; background-size: 2px 100% }\n"
+                                     ".grad { background: url(grad.svg) no-repeat; background-size: 100% 100% }\n",
+                                     "stretch.css", problems, o);
+    CHECK(problems.empty());
+    css::Engine engine;
+    engine.setSheets({sheet});
+    auto styleOf = [&](const char* cls) {
+        css::SimpleNode n("Box");
+        n.classes.push_back(cls);
+        return engine.compute(n);
+    };
+    for (float scale : {1.f, 1.5f}) {
+        int W = (int)(10 * scale), H = (int)(40 * scale);
+        Image img(80, 80, canvas);
+        Painter p(img, scale);
+        css::Style s = styleOf("stretch");
+        style::box(p, Rect(0, 0, 10, 40), s);
+        bool ok = true;
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+                ok = ok && img.colorAt(x, y) == (y < H / 2 ? Color(0, 0, 0) : Color(255, 255, 255));
+        CHECK(ok);
+        // kept proportions: 2 x 10 in a 2 x 40 tile, in its middle; the canvas above and below
+        Image kept(80, 80, canvas);
+        Painter q(kept, scale);
+        css::Style k = styleOf("keep");
+        style::box(q, Rect(0, 0, 10, 40), k);
+        CHECK(kept.colorAt(1, 0) == canvas && kept.colorAt(1, H - 1) == canvas &&
+              kept.colorAt(1, H / 2 - 2) == Color(0, 0, 0) && kept.colorAt(1, H / 2 + 2) == Color(255, 255, 255));
+    }
+    // a gradient stretched to a 30 x 20 box: red at the top, blue at the bottom, the same across
+    Image g(40, 30, canvas);
+    Painter p(g);
+    css::Style gs = styleOf("grad");
+    style::box(p, Rect(0, 0, 30, 20), gs);
+    CHECK(g.colorAt(0, 0).r > 240 && g.colorAt(0, 0).b < 15 && g.colorAt(29, 19).b > 240 && g.colorAt(29, 19).r < 15 &&
+          g.pixel(0, 10) == g.pixel(29, 10) && g.colorAt(30, 10) == canvas);
+}
+
+// calc() of a percentage and a length, worked out against the box where it is drawn (and its px scaled with the
+// interface): background-size, background-position, gradient colour stops, a radial gradient's centre and size;
+// written out and through var()
+static void testCssCalcMixed() {
+    const std::string dir = "build/css-calc";
+    util::makeDirs(dir);
+    const Color canvas(0xd4, 0xd0, 0xc8), red(255, 0, 0), white(255, 255, 255), blue(0, 0, 255);
+    CHECK(savePng(dir + "/red.png", Image(2, 2, red)));
+    css::ParseOptions o;
+    o.baseDir = dir;
+    o.checkImage = [](const std::string& path, std::string& why) { return style::imageFileOk(path, why); };
+    std::vector<css::Problem> problems;
+    css::SheetPtr sheet = css::parse(
+        ":root { --w: calc(100% - 8px); --at: calc(100% - 3px) calc(100% - 2px); --edge: calc(100% - 1px);"
+        " --size: calc(100% - 8px) calc(50% + 1px); }\n"
+        "Box { background-color: #ffffff; }\n"
+        ".size { background: url(red.png) no-repeat 0 0 / calc(100% - 8px) calc(50% + 1px) #ffffff }\n"
+        ".size-var { background-image: url(red.png); background-repeat: no-repeat; background-size: var(--size) }\n"
+        ".width-var { background: url(red.png) no-repeat 0 0 / var(--w) 100% #ffffff }\n"
+        ".pos { background: url(red.png) no-repeat calc(100% - 3px) calc(100% - 2px) / 2px 2px #ffffff }\n"
+        ".pos-var { background: url(red.png) no-repeat var(--at) / 2px 2px #ffffff }\n"
+        ".pos-edge { background: url(red.png) no-repeat right calc(10% + 1px) top 0 / 2px 2px #ffffff }\n"
+        ".stops { background: linear-gradient(to right, #ff0000 calc(100% - 1px), #0000ff calc(100% - 1px)) }\n"
+        ".stops-var { background-image: linear-gradient(to right, #ff0000 var(--edge), #0000ff var(--edge)) }\n"
+        ".radial { background: radial-gradient(ellipse calc(50% - 6px) calc(50% + 0px) at calc(100% - 4px) 50%,"
+        " #ff0000 99%, #ffffff 99%) }\n",
+        "calc.css", problems, o);
+    CHECK(problems.empty());
+    for (const css::Problem& p : problems) printf("  %s\n", p.text().c_str());
+    css::Engine engine;
+    engine.setSheets({sheet});
+    engine.checkVarUses();
+    CHECK(engine.takeProblems().empty());
+    auto styleOf = [&](const char* cls) {
+        css::SimpleNode n("Box");
+        n.classes.push_back(cls);
+        return engine.compute(n);
+    };
+    // where a colour is in the box drawn at (0, 0), 20 x 10 logical px, at `scale`: its device px
+    auto draw = [&](const char* cls, float scale) {
+        Image img(40, 30, canvas);
+        Painter p(img, scale);
+        css::Style s = styleOf(cls);
+        style::box(p, Rect(0, 0, 20, 10), s);
+        return img;
+    };
+    auto isRect = [](const Image& img, const Rect& r, Color in, Color out, int W, int H) {
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+                if (img.colorAt(x, y) != (r.contains(Point(x, y)) ? in : out)) return false;
+        return true;
+    };
+    CHECK(engine.takeProblems().empty());
+    for (float scale : {1.f, 1.5f}) {
+        int W = (int)(20 * scale), H = (int)(10 * scale);
+        int px8 = (int)(8 * scale), px2 = (int)std::lround(2 * scale);
+        // calc(100% - 8px) x calc(50% + 1px): 12 x 6 at 100 %
+        Rect size(0, 0, W - px8, (int)std::lround(H * 0.5 + scale));
+        CHECK(isRect(draw("size", scale), size, red, white, W, H));
+        CHECK(isRect(draw("size-var", scale), size, red, white, W, H));
+        CHECK(isRect(draw("width-var", scale), Rect(0, 0, W - px8, H), red, white, W, H));
+        // at calc(100% - 3px) calc(100% - 2px): of (the box - the image), less 3 and 2 px
+        Rect at((int)std::lround(W - px2 - 3 * scale), (int)std::lround(H - px2 - 2 * scale), px2, px2);
+        CHECK(isRect(draw("pos", scale), at, red, white, W, H));
+        CHECK(isRect(draw("pos-var", scale), at, red, white, W, H));
+        // right calc(10% + 1px): 90 % of (the box - the image), less 1 px
+        Rect edge((int)std::lround((W - px2) * 0.9 - scale), 0, px2, px2);
+        CHECK(isRect(draw("pos-edge", scale), edge, red, white, W, H));
+        // a hard stop 1 px before the right edge: red up to there, the last px blue
+        for (const char* cls : {"stops", "stops-var"}) {
+            Image img = draw(cls, scale);
+            int last = W - (int)std::lround(scale);
+            CHECK(img.colorAt(0, 1) == red && img.colorAt(last - 1, 1) == red && img.colorAt(W - 1, 1) == blue &&
+                  img.colorAt(W, 1) == canvas);
+        }
+    }
+    // the ellipse: centred 4 px from the right edge, 4 px across (50% - 6px of 20) and 5 px down from the middle
+    Image r = draw("radial", 1);
+    CHECK(r.colorAt(16, 5) == red && r.colorAt(13, 5) == red && r.colorAt(11, 5) == white && r.colorAt(16, 1) == red &&
+          r.colorAt(5, 5) == white);
+    CHECK(engine.takeProblems().empty());
+}
 
 static void testTransparency() {
     App& app = App::get();
@@ -3619,6 +3780,8 @@ int main() {
     gallery();
     testCssPainting();
     testCssImages();
+    testCssSvgStretch();
+    testCssCalcMixed();
     testTransparency();
     testSpinButtonBoxes();
     testComboArrowMargin();

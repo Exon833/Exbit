@@ -30,7 +30,8 @@ const std::vector<ColorInfo>& colors();  // COLORS, in order
 // fonts (from :root's font-family, font-size and --mono-font): "" / 0 = the system's own
 struct Fonts {
     std::string ui;        // interface font family
-    double uiSize = 0;     // its size in points
+    double uiSize = 0;     // its size in points (uiPx * 0.75)
+    double uiPx = 0;       // its size in px, exactly as the stylesheet gives it (11.5px: 11.5)
     std::string mono = "Consolas";  // times and LUFS numbers ("Consolas" falls back to a monospaced font)
 };
 // every variable theme reads as a colour: the colours' (--lane…) and the shades' (--hover…)

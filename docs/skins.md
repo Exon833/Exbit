@@ -26,7 +26,7 @@ is its `--skin-name` (else its file's name).
   `~/.local/share/TinyDAW/skins` (Options → Skin → Open the skins folder).
 - **Options → Skin → Edit this skin…** opens the skin's stylesheet in your text editor (the one your desktop
   opens `.css` files with). One of the program's own skins is copied into your folder first, under a name you
-  choose: you edit your copy.
+  choose: you edit your copy. The copy takes the files the skin uses with it (see **Copies** below).
 - **Live:** Tiny DAW checks the skin's file and `default.css` twice a second (and every file they `@import`, and
   every image their `url()`s name), and puts the skin on again as soon as one is saved. The status bar says
   "Skin … reloaded" (and how many problems it has).
@@ -34,8 +34,19 @@ is its `--skin-name` (else its file's name).
   the default there; nothing in a stylesheet can stop it from starting. Options → Skin → **Skin problems** lists
   what was left out, with the file, line and column: `Mine.css:12:5: unknown colour 'blu' (left out)`.
   A colour variable that isn't a colour is reported where it is set:
-  `Mine.css:4:5: --lane: 'blu' is not a colour (the default is used)`.
-- **Import skin…** copies a `.css` skin into your folder and uses it; **Export this skin…** saves a copy anywhere.
+  `Mine.css:4:5: --lane: 'blu' is not a colour (the default is used)`. A value that uses `var()` can only be
+  checked with the variable's value: those whose variables are set in `:root` alone are checked as soon as the
+  skin is put on (`… (after var(); 'background-size' is left unset)`), the others where they are used.
+- **Import skin…** copies a `.css` skin into your folder and uses it (asking before it replaces one of the same
+  name); **Export this skin…** saves a copy anywhere.
+- **Copies** (Edit this skin…, Import skin…, Export this skin…) take every file the stylesheet uses with it: its
+  `url()` images, its `@font-face` fonts (and the licence and read-me files beside them) and the stylesheets it
+  `@import`s, theirs too. They go into a folder of their own beside the copy, named after it (`My XP.css` and
+  `My XP/`), placed as they were from one another, and the copy's `url()`s are changed to name them there
+  (`url("My XP/xp/check.svg")`). So each copy is whole on its own: it works wherever it is moved, and changing
+  its files changes no other skin. A file already in that folder that is the same is left as it is; one that
+  differs is never overwritten: the files then go into `My XP (2)/` (or the first `(n)` where nothing
+  differs). An export is `the name you gave.css` with its folder beside it: send both.
 - **Skins of earlier versions** (JSON) in your skins folder become stylesheets the first time the skins are
   listed. The JSON files are moved into the folder's `old JSON skins`; whatever couldn't be kept is noted in a
   comment at the end of the new stylesheet.
@@ -61,7 +72,11 @@ A defined part of CSS, read by Tiny DAW's own parser (`src/core/css.h`):
   `color-mix(in srgb, A p%, B q%)`. Mixing two opaque colours is exactly the program's own mix, to the byte.
 - **Lengths:** `px`, `pt`, `em` (of the node's font size), `rem` (of `:root`'s font size), `ch` (the width of
   "0" in the node's font), `vw`, `vh`, `vmin`, `vmax` (of the main window's size), `%` (of what the property
-  refers to), `in`, `cm`, `mm`, `Q`, `pc` (at 96 dpi), and `calc()` of them (`+ - * /`). `var(--name,
+  refers to), `in`, `cm`, `mm`, `Q`, `pc` (at 96 dpi), and `calc()` of them (`+ - * /`). Where a percentage
+  is of the box a background is drawn in (`background-size`, `background-position`, a gradient's colour stops,
+  a radial gradient's size and `at` position), `calc()` may mix percentages and lengths, `calc(100% - 8px)`,
+  also through `var()`: it is worked out against the box each time it is drawn (a size below 0 is 0).
+  Multiplying or dividing by a length (`calc(100% * 2px)`) is not a value (reported). `var(--name,
   fallback)`, nested.
 - **`@import`** `url("x.css")`, `url(x.css)` or `"x.css"` (with an optional media list), before the rules:
   the file is read from the importing stylesheet's folder, and its rules come where the `@import` is. Imports
@@ -79,7 +94,8 @@ A defined part of CSS, read by Tiny DAW's own parser (`src/core/css.h`):
 - **Shorthands:** `padding`, `margin`, `border-width`, `border-color`, `border-radius` (1–4 values); `border`,
   `border-top`… (width, style and colour in any order); `background` (per layer, in any order: an image (a
   gradient or a `url()`), a repeat, a position with an optional `/ size`, one or two boxes (the origin, then the
-  clip), and on the last layer the colour: `background: url(90s/desk.png) center / cover no-repeat #008080`).
+  clip), and on the last layer the colour: `background: url(90s/desk.png) center / cover no-repeat #008080`;
+  the attachment `scroll` / `fixed` / `local` is not read, and any other word makes it a bad value, reported).
 - **Fonts:** `font-family` is a list, tried in order: the first family this computer has (or a skin's
   `@font-face`) is used, so `"Tahoma", "Liberation Sans", sans-serif` falls back as in a browser. `system-ui`,
   `sans-serif` and `serif` are the interface's own font, `monospace` the numbers font. If none of the list is
@@ -101,13 +117,26 @@ A defined part of CSS, read by Tiny DAW's own parser (`src/core/css.h`):
   `linear-gradient()`, `radial-gradient()`, `repeating-linear-gradient()`, `repeating-radial-gradient()`.
   Directions: an angle (`deg`, `rad`, `turn`, `grad`) or `to` a side or corner. Radial: `circle` or `ellipse`,
   a size (`closest-side`, `closest-corner`, `farthest-side`, `farthest-corner`, or lengths / percentages), `at`
-  a position. Colour stops with none, one or two positions (`%` or lengths). Colours are mixed premultiplied
+  a position. Colour stops with none, one or two positions (`%`, lengths, or `calc()` of both: `red
+  calc(100% - 1px), blue calc(100% - 1px)` is a 1 px blue line at the end). Colours are mixed premultiplied
   (a fade to `transparent` doesn't go grey). Not understood: conic gradients, transition hints.
 - **Images:** `url(file.png)`, `url("file.svg")` layers in `background-image` or `background`, mixed with
   gradients (the first on top). The file is found from the folder of the stylesheet that names it (also through
   a variable: `--check: url(90s/check.svg)` in a skin in `data/skins` names `data/skins/90s/check.svg`
   wherever `var(--check)` is used). PNG (any kind) and SVG (what the program's own icons use: paths, shapes,
-  groups, transforms, fills and strokes). An SVG is drawn at the screen's pixels, so it is sharp at any
+  groups, transforms, fills and strokes, `opacity`). An SVG's `viewBox` is fitted to the size it is drawn at
+  as its `preserveAspectRatio` says: `none` stretches it each way on its own (an SVG background with
+  `preserveAspectRatio="none"` and `background-size: 2px 100%` is 2 px across and as tall as the box), the
+  alignments `xMinYMin` … `xMaxYMax` with `meet` (all of it, the default `xMidYMid meet`) or `slice` (all of the
+  area, cut); nested `<svg>` elements too. Fills and strokes can be gradients, `fill="url(#id) [fallback]"`
+  naming a `<linearGradient>` (`x1 y1 x2 y2`) or `<radialGradient>` (`cx cy r`, a focal point `fx fy`, `fr`)
+  anywhere in the file: `<stop>`s with `offset` (number or %), `stop-color` and `stop-opacity` (attributes or
+  in `style`), `gradientUnits` (`objectBoundingBox`, the default: of the shape's box; `userSpaceOnUse`:
+  lengths, % of the viewBox), `gradientTransform`, `spreadMethod` (`pad`, `reflect`, `repeat`), and
+  `href` / `xlink:href` to another gradient in the file (its stops, and the attributes this one doesn't give).
+  A gradient with one stop is its colour, with none nothing; a `url()` to anything else (a pattern, another
+  file) takes the fallback colour, else nothing. Not drawn: text, `<use>`, patterns, clip paths, masks,
+  filters. An SVG is drawn at the screen's pixels, so it is sharp at any
   interface size; a PNG is drawn at its size times the interface size, pixel for pixel with
   `image-rendering: pixelated` (or `crisp-edges`: the nearest pixel, for dithered 90s pictures), smoothly
   scaled otherwise (`auto`). Each layer takes its value of these lists (repeated to the layers' number, as in
@@ -115,9 +144,11 @@ A defined part of CSS, read by Tiny DAW's own parser (`src/core/css.h`):
   - `background-repeat`: `repeat`, `no-repeat`, `space` (whole images, the room left spread between them),
     `round` (whole images, stretched to fill), one or two (x then y), or `repeat-x`, `repeat-y`.
   - `background-position`: one to four values: keywords (`left`, `center`, `right`, `top`, `bottom`), lengths,
-    percentages (`30% 2px`), edges with offsets (`right 4px bottom 2px`). Images are placed on whole pixels.
+    percentages (`30% 2px`), `calc()` of both (`calc(100% - 8px) 0`: 8 px left of the right edge), edges with
+    offsets (`right 4px bottom 2px`, `right calc(10% + 2px) top`). Images are placed on whole pixels.
   - `background-size`: `auto` (its own size; an SVG without `width` and `height`: the box's), `cover`,
-    `contain`, or one or two lengths / percentages / `auto` (one `auto`: its proportions kept).
+    `contain`, or one or two lengths / percentages / `calc()` of both / `auto` (one `auto`: its proportions
+    kept): `2px calc(100% - 8px)`.
   - `background-origin` (what position and size are of: `padding-box`, the default, `border-box`,
     `content-box`) and `background-clip` (where it is drawn: `border-box`, the default, `padding-box`,
     `content-box`; rounded corners cut it too). Gradients take the origin and clip as well (not the size,
@@ -139,6 +170,11 @@ A defined part of CSS, read by Tiny DAW's own parser (`src/core/css.h`):
 - **`opacity`** (a number or %): a widget and everything in it, drawn see-through as one.
 - **`font-smooth: never`** (or `-webkit-font-smoothing: none`): the text is drawn without anti-aliasing, each
   pixel of a letter fully on or off (crisp, like the bitmap fonts of old desktops), each letter on a whole pixel.
+  A pixel is on where the letter covers at least half of it, and thin strokes are kept by dropout control, as
+  TrueType's own monochrome rasterizers do: wherever a row or column of pixels crosses a stroke thinner than a
+  pixel that none of its pixels shows, the pixel nearest the stroke's middle is turned on (the tip of a round
+  stroke already drawn in the next row or column is left out, so curves don't grow bumps). So a minus sign, an
+  apostrophe, the stem and serifs of an I and the thin curves of an S stay whole at 8 or 9 pt.
   Inherited: on `Window` (or `:root`) it is every text of the program that takes its font from the stylesheets
   (labels, buttons, menus, lists, title bars, the timeline's texts…); `font-smooth: auto` turns it back on below.
   Also `always` (the default) and a length (as `auto`).
@@ -224,7 +260,7 @@ made from `default.css` by `tools/skins_reference.py`.
 | Name | Default | What it is |
 |---|---|---|
 | `font-family` | `system-ui` | the interface font (system-ui: the system's own) |
-| `font-size` | `9pt` | its size (also what em is, and the numbers font's) |
+| `font-size` | `9pt` | its size (also what em is, and the numbers font's); kept exactly as given (`11.5px` is 11.5 px) |
 | `--mono-font` | `"Consolas"` | numbers: times, LUFS (Consolas falls back to a monospaced font) |
 
 ### Window

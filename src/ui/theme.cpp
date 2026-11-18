@@ -150,8 +150,13 @@ void refresh() {
     std::string family = pickFamily(root.list("font-family"));
     f.ui = family == "monospace" ? Font::mono().family() : family;
     if (root.has("font-size")) {
-        double pt = root.fontSizePx(12) * 0.75;  // (px are 1/96 in, pt 1/72)
-        if (pt > 0 && pt <= 40) f.uiSize = std::round(pt * 100) / 100;
+        double px = root.emPx_, pt = px * 0.75;  // (px are 1/96 in, pt 1/72; emPx_: the size unrounded)
+        // (the size in px as the sheet gives it, exactly: 11.5px stays 11.5px; in points, without the noise
+        // of the conversion's last bits: 10pt is 10)
+        if (pt > 0 && pt <= 40) {
+            f.uiPx = px;
+            f.uiSize = std::round(pt * 1e9) / 1e9;
+        }
     }
     if (std::optional<std::string> mono = root.variable("--mono-font")) {
         std::string m = css::unquote(*mono);
@@ -159,7 +164,7 @@ void refresh() {
         if (!m.empty()) f.mono = m;
     }
     currentFonts = f;
-    Font::setDefaults(f.ui, f.uiSize > 0 ? f.uiSize : 9.0, f.mono.empty() ? "Consolas" : f.mono);
+    Font::setDefaults(f.ui, f.uiPx > 0 ? (float)f.uiPx : 12.f, f.mono.empty() ? "Consolas" : f.mono);
     ready = true;
 }
 }  // namespace

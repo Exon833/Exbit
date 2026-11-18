@@ -1594,4 +1594,62 @@ std::vector<std::string> imageFiles(const SheetPtr& sheet) { return sheet ? shee
 
 std::vector<FontFace> fontFaces(const SheetPtr& sheet) { return sheet ? sheet->fonts : std::vector<FontFace>(); }
 
+std::string resolveUrl(const std::string& dir, const std::string& url) {
+    if (url.empty() || detail::remote(url)) return "";
+    return detail::resolvePath(dir, url);
+}
+
+std::string rewriteUrls(const std::string& text, const std::function<std::string(const std::string& url)>& to) {
+    using detail::Tok;
+    detail::Tokens t;
+    detail::tokenize(text, t);
+    std::string out;
+    size_t copied = 0;  // (the text's bytes copied up to here)
+    auto quoted = [](const std::string& s) {
+        std::string q = "\"";
+        for (char ch : s) {
+            if (ch == '\n' || ch == '\r') {
+                q += "\\a ";
+                continue;
+            }
+            if (ch == '"' || ch == '\\') q += '\\';
+            q += ch;
+        }
+        return q + "\"";
+    };
+    // the bytes [b, e) of the text become `with`
+    auto replace = [&](size_t b, size_t e, const std::string& with) {
+        out.append(text, copied, b - copied);
+        out += with;
+        copied = e;
+    };
+    auto changed = [&](const std::string& url, std::string& now) {
+        if (!to) return false;
+        now = to(url);
+        return !now.empty() && now != url;
+    };
+    std::string now;
+    for (size_t i = 0; i < t.size(); i++) {
+        const detail::Token& k = t[i];
+        if (k.type == Tok::Url) {  // url(file)
+            if (changed(k.text, now)) replace(k.start, k.end, "url(" + quoted(now) + ")");
+        } else if (k.type == Tok::Function && detail::ieq(k.text, "url") && k.close < t.size()) {  // url("file")
+            size_t ib = i + 1, ie = k.close;
+            t.trim(ib, ie);
+            if (ie == ib + 1 && t[ib].type == Tok::String && changed(t[ib].text, now))
+                replace(t[ib].start, t[ib].end, quoted(now));
+            i = k.close;
+        } else if (k.type == Tok::AtKeyword && detail::ieq(k.text, "import")) {  // @import "file"
+            size_t j = i + 1;
+            while (j < t.size() && t[j].type == Tok::Whitespace) j++;
+            if (j < t.size() && t[j].type == Tok::String) {
+                if (changed(t[j].text, now)) replace(t[j].start, t[j].end, quoted(now));
+                i = j;
+            }
+        }
+    }
+    out.append(text, copied, std::string::npos);
+    return out;
+}
+
 }  // namespace css

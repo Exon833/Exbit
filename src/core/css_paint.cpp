@@ -15,8 +15,11 @@
 // any place around the lengths (box-shadow); text-shadow takes no inset and no spread. The blur can't be
 // negative. Without a colour: the node's `color` (currentColor), black if it has none.
 //
-// Every length here may be px, pt, em (of the node's font size) or calc() of those; what checkValue()
-// accepts when the sheet is read is what the getters read (with var() resolved first).
+// Every length here may be px, pt, em (of the node's font size) or calc() of those; where a percentage may be
+// (colour stops, background-position and -size, a radial gradient's centre and an ellipse's size) also calc() of
+// lengths and percentages together, calc(100% - 8px): kept as a fraction plus px, worked out against the box
+// where it is drawn. What checkValue() accepts when the sheet is read is what the getters read (with var()
+// resolved first).
 #include <cmath>
 
 #include "core/css_internal.h"
@@ -48,8 +51,10 @@ bool angleAt(const Tokens& t, std::pair<size_t, size_t> r, double& deg) {
     return std::isfinite(deg);
 }
 
-// a length (px) or a percentage (a fraction: 50% -> 0.5)
-bool lengthPercent(const Tokens& t, std::pair<size_t, size_t> r, double em, double& v, bool& percent) {
+// a length (px), a percentage (a fraction: 50% -> 0.5), or calc() of both (a fraction plus px: calc(100% - 8px) ->
+// 1 and `plus` -8; what 100% is is known only where it is drawn)
+bool lengthPercent(const Tokens& t, std::pair<size_t, size_t> r, double em, double& v, bool& percent, double& plus) {
+    plus = 0;
     if (one(r) && t[r.first].type == Tok::Percentage) {
         v = t[r.first].num / 100;
         percent = true;
@@ -57,9 +62,17 @@ bool lengthPercent(const Tokens& t, std::pair<size_t, size_t> r, double em, doub
     }
     LenCtx ctx;
     ctx.em = em;
-    ctx.percent = false;
-    percent = false;
-    return evalLength(t, r.first, r.second, ctx, v) && std::isfinite(v);
+    double px, frac;
+    if (!evalLengthPercent(t, r.first, r.second, ctx, px, frac) || !std::isfinite(px) || !std::isfinite(frac))
+        return false;
+    percent = frac != 0;
+    v = percent ? frac : px;
+    plus = percent ? px : 0;
+    return true;
+}
+bool lengthPercent(const Tokens& t, std::pair<size_t, size_t> r, double em, double& v, bool& percent) {
+    double plus;
+    return lengthPercent(t, r, em, v, percent, plus);
 }
 
 bool lengthOnly(const Tokens& t, std::pair<size_t, size_t> r, double em, double& v) {
@@ -80,6 +93,7 @@ bool positionAt(const Tokens& t, const std::vector<std::pair<size_t, size_t>>& c
         double v = 0.5;
         bool px = false;
         bool keyword = false;
+        double plus = 0;  // (a fraction) px added
     } v[2];
     for (size_t i = 0; i < n; i++) {
         auto r = c[from + i];
@@ -90,9 +104,9 @@ bool positionAt(const Tokens& t, const std::vector<std::pair<size_t, size_t>>& c
         else if (identIs(t, r, "bottom")) v[i] = {2, 1, false, true};
         else {
             bool pct;
-            double x;
-            if (!lengthPercent(t, r, em, x, pct)) return false;
-            v[i] = {0, x, !pct, false};
+            double x, plus;
+            if (!lengthPercent(t, r, em, x, pct, plus)) return false;
+            v[i] = {0, x, !pct, false, plus};
         }
     }
     V x{1, 0.5, false, true}, y{2, 0.5, false, true};
@@ -111,6 +125,8 @@ bool positionAt(const Tokens& t, const std::vector<std::pair<size_t, size_t>>& c
     g.centerY = y.v;
     g.centerXPx = x.px;
     g.centerYPx = y.px;
+    g.centerXPlus = x.plus;
+    g.centerYPlus = y.plus;
     return true;
 }
 
@@ -125,20 +141,21 @@ bool stopsAt(const Tokens& t, const std::vector<std::pair<size_t, size_t>>& args
         }
         Rgba color;
         bool haveColor = false;
-        double pos[2];
+        double pos[2], plus[2];
         bool px[2];
         int npos = 0;
         for (auto r : comps) {
             bool pct;
-            double v;
+            double v, add;
             if (!haveColor && evalColor(t, r.first, r.second, current, color)) {
                 haveColor = true;
-            } else if (lengthPercent(t, r, em, v, pct)) {
+            } else if (lengthPercent(t, r, em, v, pct, add)) {
                 if (npos == 2) {
                     why = "a colour stop has at most two positions";
                     return false;
                 }
                 pos[npos] = v;
+                plus[npos] = add;
                 px[npos++] = !pct;
             } else {
                 why = "'" + t.text(r.first, r.second) + "' is not a colour or a position";
@@ -157,6 +174,7 @@ bool stopsAt(const Tokens& t, const std::vector<std::pair<size_t, size_t>>& args
         for (int k = 0; k < npos; k++) {
             s.position = pos[k];
             s.px = px[k];
+            s.plus = plus[k];
             g.stops.push_back(s);
         }
     }
@@ -223,7 +241,7 @@ bool radialAt(const Tokens& t, const std::vector<std::pair<size_t, size_t>>& arg
         first = 1;
         bool shape = false, sizeKw = false;
         int nExplicit = 0;
-        double ex[2] = {0, 0};
+        double ex[2] = {0, 0}, exPlus[2] = {0, 0};
         bool exPct[2] = {false, false};
         for (size_t i = 0; i < comps.size(); i++) {
             auto r = comps[i];
@@ -255,10 +273,12 @@ bool radialAt(const Tokens& t, const std::vector<std::pair<size_t, size_t>>& arg
                 g.size = s;
                 continue;
             }
-            double v;
+            double v, add;
             bool pct;
-            if (!sizeKw && nExplicit < 2 && lengthPercent(t, r, em, v, pct) && v >= 0) {
+            if (!sizeKw && nExplicit < 2 && lengthPercent(t, r, em, v, pct, add) &&
+                (v >= 0 || (pct && add != 0))) {  // (calc(-10% + 50px): 0 where it comes to less)
                 ex[nExplicit] = v;
+                exPlus[nExplicit] = add;
                 exPct[nExplicit++] = pct;
                 continue;
             }
@@ -280,6 +300,8 @@ bool radialAt(const Tokens& t, const std::vector<std::pair<size_t, size_t>>& arg
             g.radiusY = g.circle ? ex[0] : ex[1];
             g.radiusXPercent = exPct[0];
             g.radiusYPercent = g.circle ? false : exPct[1];
+            g.radiusXPlus = exPlus[0];
+            g.radiusYPlus = g.circle ? 0 : exPlus[1];
         }
     }
     return stopsAt(t, args, first, current, em, g, why);
@@ -416,12 +438,12 @@ bool positionValue(const Tokens& t, const std::vector<std::pair<size_t, size_t>>
         else if (identIs(t, r, "top")) x = {true, 2, 0, 0, false};
         else if (identIs(t, r, "bottom")) x = {true, 2, 1, 0, false};
         else {
-            double l;
+            double l, plus;
             bool pct;
-            if (!lengthPercent(t, r, em, l, pct)) return false;
+            if (!lengthPercent(t, r, em, l, pct, plus)) return false;
             x.percent = pct;
             x.frac = pct ? l : 0;
-            x.px = pct ? 0 : l;
+            x.px = pct ? plus : l;  // (calc(100% - 8px): 1 and -8)
         }
         v.push_back(x);
     }
@@ -462,8 +484,8 @@ bool positionValue(const Tokens& t, const std::vector<std::pair<size_t, size_t>>
             if (offset) {
                 const V& o = v[i + 1];
                 double sign = k.frac >= 1 ? -1 : 1;  // (from the right / bottom: inwards)
-                if (o.percent) a.frac += sign * o.frac;
-                else a.px = sign * o.px;
+                a.frac += sign * o.frac;
+                a.px = sign * o.px;
             }
             i += offset ? 2 : 1;
         }
@@ -484,17 +506,21 @@ bool sizeValue(const Tokens& t, const std::vector<std::pair<size_t, size_t>>& c,
         return true;
     }
     if (c.empty() || c.size() > 2) return false;
-    double v[2] = {-1, -1};
+    double v[2] = {-1, -1}, plus[2] = {0, 0};
     bool pct[2] = {false, false};
     for (size_t i = 0; i < c.size(); i++) {
         if (identIs(t, c[i], "auto")) continue;
-        if (!lengthPercent(t, c[i], em, v[i], pct[i]) || v[i] < 0) return false;
+        // (a length or a percentage below 0 isn't one; calc() mixing them is, taken as 0 where it comes to less)
+        if (!lengthPercent(t, c[i], em, v[i], pct[i], plus[i]) || (v[i] < 0 && (!pct[i] || plus[i] == 0)))
+            return false;
     }
     out.sizing = B::Given;
     out.width = v[0];
     out.widthPercent = pct[0];
+    out.widthPlus = plus[0];
     out.height = v[1];
     out.heightPercent = pct[1];
+    out.heightPlus = plus[1];
     return true;
 }
 
@@ -693,6 +719,8 @@ std::vector<Style::Background> Style::backgrounds() const {
                     to.height = from.height;
                     to.widthPercent = from.widthPercent;
                     to.heightPercent = from.heightPercent;
+                    to.widthPlus = from.widthPlus;
+                    to.heightPlus = from.heightPlus;
                     break;
                 case Origin: to.origin = from.origin; break;
                 case Clip: to.clip = from.clip; break;

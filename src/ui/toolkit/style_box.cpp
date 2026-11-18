@@ -495,8 +495,11 @@ std::vector<GradientStop> fixStops(const std::vector<css::Style::ColorStop>& in,
     std::vector<float> pos(n);
     std::vector<bool> given(n);
     for (size_t i = 0; i < n; i++) {
-        given[i] = in[i].px || in[i].position != -1;
-        pos[i] = !given[i] ? 0 : in[i].px ? (lineLen > 0 ? (float)in[i].position * s / lineLen : 0) : (float)in[i].position;
+        given[i] = in[i].px || in[i].position != -1 || in[i].plus != 0;
+        pos[i] = !given[i] ? 0
+                 : in[i].px ? (lineLen > 0 ? (float)in[i].position * s / lineLen : 0)
+                 : in[i].plus != 0 ? (float)in[i].position + (lineLen > 0 ? (float)in[i].plus * s / lineLen : 0)
+                                   : (float)in[i].position;
     }
     if (!given[0]) {
         pos[0] = 0;
@@ -530,7 +533,7 @@ std::vector<GradientStop> fixStops(const std::vector<css::Style::ColorStop>& in,
 
 bool sizeIndependent(const css::Style::Gradient& g) {
     for (const auto& s : g.stops)
-        if (s.px) return false;
+        if (s.px || s.plus != 0) return false;
     return true;
 }
 
@@ -566,16 +569,16 @@ void paintGradient(Painter& p, const RoundRect& clip, const RoundRect& box,
         fillShape(p, clip, Fill{Color(), &sh});
         return;
     }
-    float cx = box.L + (float)(g.centerXPx ? g.centerX * s : g.centerX * W);
-    float cy = box.T + (float)(g.centerYPx ? g.centerY * s : g.centerY * H);
+    float cx = box.L + (float)(g.centerXPx ? g.centerX * s : g.centerX * W + g.centerXPlus * s);
+    float cy = box.T + (float)(g.centerYPx ? g.centerY * s : g.centerY * H + g.centerYPlus * s);
     float l = cx - box.L, rgt = box.R - cx, t = cy - box.T, btm = box.B - cy;
     float sideNearX = std::min(std::fabs(l), std::fabs(rgt)), sideFarX = std::max(std::fabs(l), std::fabs(rgt));
     float sideNearY = std::min(std::fabs(t), std::fabs(btm)), sideFarY = std::max(std::fabs(t), std::fabs(btm));
     float rx = 0, ry = 0;
     using G = css::Style::Gradient;
     if (g.size == G::Explicit) {
-        rx = (float)(g.radiusXPercent ? g.radiusX * W : g.radiusX * s);
-        ry = (float)(g.radiusYPercent ? g.radiusY * H : g.radiusY * s);
+        rx = std::max(0.f, (float)(g.radiusXPercent ? g.radiusX * W + g.radiusXPlus * s : g.radiusX * s));
+        ry = std::max(0.f, (float)(g.radiusYPercent ? g.radiusY * H + g.radiusYPlus * s : g.radiusY * s));
         if (g.circle) ry = rx;
     } else if (g.circle) {
         float nearC = 1e30f, farC = 0;
@@ -632,8 +635,13 @@ void paintImage(Painter& p, const RoundRect& clip, const RoundRect& area, const 
     if (bl.sizing == B::Cover || bl.sizing == B::Contain) {
         fit(bl.sizing == B::Cover);
     } else {
-        float gw = bl.width < 0 ? -1 : bl.widthPercent ? (float)bl.width * W : (float)bl.width * s;
-        float gh = bl.height < 0 ? -1 : bl.heightPercent ? (float)bl.height * H : (float)bl.height * s;
+        // (calc(100% - 8px): a fraction of the area plus px, 0 if that is below 0)
+        float gw = bl.widthPercent ? std::max(0.f, (float)bl.width * W + (float)bl.widthPlus * s)
+                   : bl.width < 0  ? -1
+                                   : (float)bl.width * s;
+        float gh = bl.heightPercent ? std::max(0.f, (float)bl.height * H + (float)bl.heightPlus * s)
+                   : bl.height < 0  ? -1
+                                    : (float)bl.height * s;
         if (gw >= 0 && gh >= 0) {
             w = gw;
             h = gh;
