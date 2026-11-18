@@ -326,10 +326,10 @@ never` for crisp, unsmoothed text. Saving an image reloads the skin. The skins' 
 `data/skins/fonts` (Selawik and Wine's Tahoma, free, with their licences).
 
 **Classic controls, 1:1.** Skins can draw spin buttons as separate bevelled boxes, a drop-down's arrow inside
-its border, tabs where the chosen one is larger and joins its page, joined title-bar button groups ( /
-), a face-coloured ring inside a window's frame (), a message box's button strip,
-dotted tree lines and focus rectangles ();  may mix percentages and lengths in backgrounds and
-gradient stops, SVG images stretch () and have gradients, and unsmoothed text keeps its
+its border, tabs where the chosen one is larger and joins its page, joined title-bar button groups (`:first` /
+`:last`), a face-coloured ring inside a window's frame (`Window:framed::frame`), a message box's button strip,
+dotted tree lines and focus rectangles (`outline`); `calc()` may mix percentages and lengths in backgrounds and
+gradient stops, SVG images stretch (`preserveAspectRatio`) and have gradients, and unsmoothed text keeps its
 thin strokes. **Options → Skin → Edit this skin…, Import… and Export…** take every file a skin uses (images,
 fonts, imported stylesheets) into a folder of its own beside the copy, so a copy works wherever it goes.
 
