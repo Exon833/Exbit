@@ -7,9 +7,7 @@
 
 /* The interface font: an 8-point bitmap-like sans, drawn without smoothing. The nearest free face shipped with the
    skins (fonts/: Wine's metric-compatible sans, LGPL) at 11.5 px: the original's widths ("Cancel": 33 px), 8 px
-   capitals, 6 px lower case; its bold made from it (2 px strokes). Drawn unsmoothed, an outline font keeps every
-   stroke only at the sizes that fall on its pixels: 11.5 px does (8 pt and 11 px lose the I's stem, smaller sizes
-   lose thin strokes such as the minus sign), so the few texts the program draws smaller are smoothed (below). */
+   capitals, 6 px lower case; its bold made from it (2 px strokes). */
 @font-face { font-family: "90s Sans"; src: url(fonts/tahoma.ttf); }
 
 /* ============================================================================================================
@@ -132,8 +130,9 @@
     --dock-close-size: 16px;
     --transport-button-size: 26px;
 }
-/* every text of the program crisp, each pixel of a letter on or off, as the bitmap fonts of the time; but the few
-   drawn smaller than 11.5 px smoothed, where unsmoothed outlines would lose strokes (the minus sign, an I's stem) */
+/* every text of the program crisp, each pixel of a letter on or off, as the bitmap fonts of the time; the few the
+   program draws smaller than 11.5 px smoothed: there this face's capital I (its serifs narrower than a pixel) would
+   come out lopsided, like a [ */
 Window { font-smooth: never; }
 Label.dimmed, Label#lufs, UpdateNotice, UpdateNotice::link, TrackPreview::readout, Scope::caption,
 Lane.automation::label, Lane.automation::value, PatchPanel::sources-title, PatchPanel::source, PatchPanel::end-title,
@@ -184,14 +183,11 @@ PushButton:focus {
     background-repeat: no-repeat;
     background-origin: border-box;
     background-position: 4px 4px, left 4px bottom 4px, 4px 4px, right 4px top 4px;
-    background-size: 100% 1px, 100% 1px, 1px 100%, 1px 100%;
-    /* (the dotted lines run on past the rectangle's ends: a ring of the face under the bevel covers that) */
-    box-shadow: inset -1px -1px #000000, inset 1px 1px #ffffff, inset -2px -2px #808080, inset 2px 2px #dfdfdf,
-                inset 0 0 0 3px #c0c0c0;
+    background-size: calc(100% - 8px) 1px, calc(100% - 8px) 1px, 1px calc(100% - 8px), 1px calc(100% - 8px);
 }
 PushButton:default:pressed, PushButton:focus:pressed, PushButton:pressed:hover:default {
     border-color: #000000;
-    box-shadow: inset 0 0 0 1px #808080, inset 0 0 0 3px #c0c0c0;
+    box-shadow: inset 0 0 0 1px #808080;
     padding: 5px 11px 3px 13px;
 }
 PushButton:focus:lit { border-color: #000000; }
@@ -264,7 +260,7 @@ CheckBox::indicator {
     width: 13px;
     height: 13px;
     padding: 0;
-    margin-right: 6px;
+    margin-right: 5px;  /* (and the label's 1 px: the text 6 px from the box) */
     background-color: #ffffff;
     border: 1px solid;
     border-color: var(--sunken-edge);
@@ -279,6 +275,9 @@ CheckBox:hover::indicator { border-color: var(--sunken-edge); }
 CheckBox:checked::indicator { background-color: #ffffff; border-color: var(--sunken-edge); }
 CheckBox:pressed::indicator { background-color: #c0c0c0; }
 CheckBox:disabled { text-shadow: 1px 1px #ffffff; }
+/* with the focus: a dotted rectangle around the text, a pixel from it */
+CheckBox::label { padding: 0 1px; }
+CheckBox::label:focus { outline: 1px dotted #000000; }
 CheckBox:disabled::indicator { background-color: #c0c0c0; border-color: var(--sunken-edge); color: #808080; }
 
 /* Group boxes: an etched frame (a grey line beside a white one: 2px groove of #d4d4d4 is exactly that), the title
@@ -298,36 +297,32 @@ GroupBox::title {
 }
 GroupBox:disabled::title { color: #808080; text-shadow: 1px 1px #ffffff; }
 
-/* Tabs: raised tabs (white and light grey on the left and top, black and grey on the right) standing on the page's
-   top line; the chosen one 2 px taller, joined to the page. (The toolkit's tabs are one row of one height and don't
-   overlap: the others are 2 px lower by a transparent top, and the chosen one isn't wider than its text.) */
-TabWidget::base { height: 1px; background-color: #ffffff; }
+/* Tabs: raised tabs on the window's bevel (light grey and white on the left and top, black and grey on the right),
+   side by side 2 px below the chosen one; the chosen one 2 px wider each side and 2 px taller, over the page's top
+   edge (joined to it), its title a pixel higher */
+TabWidget::base { height: 0; }
 TabWidget::tab {
+    margin: 2px 0 0;
     padding: 2px 6px 2px;
     color: #000000;
     background-color: #c0c0c0;
-    background-clip: padding-box;
-    border: 0 solid transparent;
-    border-top-width: 2px;
-    border-bottom: 1px solid #ffffff;
+    border: 0;
     border-radius: 0;
-    box-shadow: inset -1px 0 #000000, inset 1px 1px #ffffff, inset -2px 0 #808080, inset 2px 2px #dfdfdf;
+    box-shadow: inset -1px 0 #000000, inset 1px 1px #dfdfdf, inset -2px 0 #808080, inset 2px 2px #ffffff;
 }
-TabWidget::tab:selected {
-    padding: 3px 6px 3px;
-    border-width: 0;
-}
+TabWidget::tab:first { margin-left: 2px; }
+TabWidget::tab:selected { margin: 0 -2px -2px; padding: 3px 8px 5px; }
+TabWidget::tab:first:selected { margin-left: 0; }
 TabWidget::tab:hover { background-color: #c0c0c0; color: #000000; }
 TabWidget::tab:selected, TabWidget::tab:selected:hover { background-color: #c0c0c0; color: #000000; }
 TabWidget::tab:disabled { color: var(--disabled-text); text-shadow: 1px 1px #ffffff; }
 TabWidget::tab-line { height: 0; }
 TabWidget::tab-line:selected { background-color: transparent; }
-/* the page: the window's bevel, its top line the white one under the tabs (::base: the chosen tab covers it) */
+/* the page: the window's bevel all round (the chosen tab covers it under itself) */
 TabWidget::pane {
     border: 1px solid;
-    border-width: 0 1px 1px 1px;
-    border-color: var(--raised-edge);
-    box-shadow: inset -1px -1px #808080, inset 1px 0 #dfdfdf;
+    border-color: var(--window-edge);
+    box-shadow: var(--window-inner);
     padding: 4px;
 }
 
@@ -403,31 +398,27 @@ LineEdit::selection { background-color: #000080; color: #ffffff; padding: 1px 0;
 LineEdit::cursor { background-color: #000000; width: 1px; }
 LineEdit::clear-button { color: #000000; }
 
-/* Number fields: the buttons' column in the field's edge at the right, raised. (The toolkit draws both buttons'
-   boxes over the whole inside of the field's border, each clipped to its half: so each shows only its outer edges,
-   the field's inner ring then the button's bevel at the top, right and bottom; small 5 × 3 arrows.) */
+/* Number fields: two raised buttons (the scroll bar's bevel) inside the field's edge at the right, one above the
+   other; pressed: sunken, the arrow a pixel down and right; small 5 × 3 arrows */
 SpinBox { padding: 3px 3px; }
 SpinBox::up-button, SpinBox::down-button {
     background-color: #c0c0c0;
     color: #000000;
-    width: 16px;
-    border: 0;
+    width: 17px;
+    margin: 1px 1px 0 0;
+    border: 1px solid;
+    border-color: var(--window-edge);
     border-radius: 0;
-    box-shadow: inset 0 1px #000000, inset -1px 0 #dfdfdf, inset 0 -1px #dfdfdf,
-                inset 0 2px #ffffff, inset -2px 0 #000000, inset 0 -2px #000000,
-                inset 0 3px #dfdfdf, inset -3px 0 #808080, inset 0 -3px #808080;
+    box-shadow: var(--window-inner);
     -tiny-glyph: url(90s/arrow-up-small.svg);
-    -tiny-glyph-offset: -1px 1px;
 }
-SpinBox::down-button { -tiny-glyph: url(90s/arrow-down-small.svg); -tiny-glyph-offset: -1px -1px; }
+SpinBox::down-button { margin: 0 1px 1px 0; -tiny-glyph: url(90s/arrow-down-small.svg); }
 SpinBox:up-hover::up-button, SpinBox:down-hover::down-button { background-color: #c0c0c0; }
 SpinBox:up-pressed::up-button, SpinBox:down-pressed::down-button {
-    box-shadow: inset 0 1px #000000, inset -1px 0 #dfdfdf, inset 0 -1px #dfdfdf,
-                inset 0 2px #000000, inset -2px 0 #ffffff, inset 0 -2px #ffffff,
-                inset 0 3px #808080, inset -3px 0 #dfdfdf, inset 0 -3px #dfdfdf;
+    border-color: var(--sunken-edge);
+    box-shadow: var(--sunken-inner);
+    -tiny-glyph-offset: 1px;
 }
-SpinBox:up-pressed::up-button { -tiny-glyph-offset: 0 2px; }
-SpinBox:down-pressed::down-button { -tiny-glyph-offset: 0 0; }
 SpinBox:at-maximum::up-button, SpinBox:disabled::up-button {
     background-color: #c0c0c0;
     -tiny-glyph: url(90s/arrow-up-small-disabled.svg);
@@ -437,28 +428,24 @@ SpinBox:at-minimum::down-button, SpinBox:disabled::down-button {
     -tiny-glyph: url(90s/arrow-down-small-disabled.svg);
 }
 
-/* Drop-down lists: the arrow on a 16 × 17 raised button (the scroll bar's) inside the field's edge at the right;
-   while it is held or the list is open: a flat grey edge, the arrow a pixel down and right. (The toolkit puts the
-   arrow's box over the field's edge, the whole height: its rings draw that edge, then the button.) */
+/* Drop-down lists: the arrow on a 16 × 17 raised button (the scroll bar's) inside the field's 2 px edge at the right;
+   while it is held or the list is open: a flat grey edge, the arrow a pixel down and right */
 ComboBox { padding: 3px 3px; }
 ComboBox::arrow {
     background-color: #c0c0c0;
     color: #000000;
-    width: 18px;
+    width: 16px;
+    margin: 2px 2px 2px 0;
     padding-left: 0;
     border: 1px solid;
-    border-width: 1px 1px 1px 0;
-    border-color: #808080 #ffffff #ffffff transparent;
-    box-shadow: inset 0 1px #000000, inset -1px 0 #dfdfdf, inset 0 -1px #dfdfdf,
-                inset 0 2px #dfdfdf, inset 1px 0 #dfdfdf, inset -2px 0 #000000, inset 0 -2px #000000,
-                inset 0 3px #ffffff, inset 2px 0 #ffffff, inset -3px 0 #808080, inset 0 -3px #808080;
+    border-color: var(--window-edge);
+    box-shadow: var(--window-inner);
     -tiny-glyph: url(90s/arrow-down.svg);
-    -tiny-glyph-offset: -1px 0;
 }
 ComboBox:open::arrow, ComboBox:pressed::arrow {
-    box-shadow: inset 0 1px #000000, inset -1px 0 #dfdfdf, inset 0 -1px #dfdfdf,
-                inset 0 2px #808080, inset 1px 0 #808080, inset -2px 0 #808080, inset 0 -2px #808080;
-    -tiny-glyph-offset: 0 1px;
+    border-color: #808080;
+    box-shadow: none;
+    -tiny-glyph-offset: 1px;
 }
 ComboBox:disabled::arrow { -tiny-glyph: url(90s/arrow-down-disabled.svg); }
 ComboPopup { background-color: #ffffff; border: 1px solid #000000; padding: 0; }
@@ -570,6 +557,12 @@ ListWidget::indicator:checked { background-color: #ffffff; border-color: var(--s
 TreeWidget::branch, FileView::branch { color: #000000; -tiny-glyph: url(90s/plus.svg); }
 TreeWidget::branch:open, FileView::branch:open { -tiny-glyph: url(90s/minus.svg); }
 TreeWidget::branch:selected { color: #000000; }
+TreeWidget::branch { -tiny-tree-lines: dotted; -tiny-tree-line-color: #808080; }
+TreeWidget::item:selected { background-color: transparent; color: #000000; }
+TreeWidget::text { padding: 0 2px; }
+TreeWidget::text:selected { background-color: #000080; color: #ffffff; }
+/* the focus rectangle on the selected text: dotted, the selection's colours inverted (#ffff7f on navy) */
+TreeWidget:focus::text:selected { outline: 1px dotted #ffff7f; outline-offset: -1px; }
 
 /* The menu bar on the face: a title under the mouse thinly raised, the open one thinly sunken (its text a pixel
    down and right) */
@@ -942,25 +935,31 @@ HistoryWindow::undone { color: #808080; }
    grey), and 16 × 14 raised buttons 2 px from its top and right, silver with black signs (90s/), the close button
    2 px apart. No hover (the era had none); pressed: sunken, the sign a pixel down and right.
    ============================================================================================================ */
-:root { --title-bar-height: 20px; }
-/* the bevel: grey-white top-left (a 2 px border side takes only shades of one colour: the original's light grey
-   outer line is drawn a darker grey here, its white inner line exact), black and grey bottom-right (exact: a ridge
-   of #2c2c2c is black outside, #808080 inside) */
+:root { --title-bar-height: 19px; }
+/* the bevel: light grey and white top-left, black and grey bottom-right (the border, then the frame's ring), then the
+   face: 2 px around a window that can be resized, 1 px around a dialog */
 Window:framed, Window:framed:active, Window:framed:inactive {
-    border-width: 2px;
-    border-style: groove ridge ridge groove;
-    border-color: #ffffff #2c2c2c #2c2c2c #ffffff;
+    border: 1px solid;
+    border-color: #dfdfdf #000000 #000000 #dfdfdf;
 }
+Window:framed::frame {
+    border: 1px solid;
+    border-color: #ffffff #808080 #808080 #ffffff;
+    background-color: #c0c0c0;
+    padding: 2px;
+}
+Dialog:framed::frame { padding: 1px; }
 Window:framed:maximized { border-width: 0; }
-/* the caption: a pixel of the face around it (the face between it and the bevel, and above the menus) */
+Window:framed:maximized::frame { border-width: 0; padding: 0; }
+/* the caption: 18 px, a line of the face under it */
 TitleBar {
     background-color: #0e78c8;  /* (the gradient's colour by the buttons: where it can't be drawn) */
     background-image: linear-gradient(to right, #000080, #1084d0);
     background-clip: padding-box;
-    border: 1px solid #c0c0c0;
+    border: 0 solid #c0c0c0;
+    border-bottom-width: 1px;
     padding: 0 2px 0 2px;
 }
-TitleBar:maximized { border-width: 0 0 1px 0; }
 TitleBar:inactive {
     background-color: #808080;
     background-image: linear-gradient(to right, #808080, #b5b5b5);
