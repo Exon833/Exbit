@@ -288,16 +288,31 @@ ListWidget::indicator {
 }
 ListWidget::indicator:checked { background-color: #ffffff; border-color: #1c5180; }
 
-/* group boxes: a light rounded frame, the title in blue */
+/* group boxes: a light rounded frame with the title in blue across its top line */
 GroupBox {
-    background-color: var(--window);   /* (the face it sits on: the frame is all that shows) */
+    background-color: transparent;
     border: 1px solid #d0d0bf;
     border-radius: 4px;
+    margin-top: 8px;
+    padding: 4px 6px 6px;
 }
-GroupBox::title { color: var(--xp-blue-title); }
+GroupBox::title {
+    color: var(--xp-blue-title);
+    background-color: var(--window);   /* (over the frame's line, in the face it sits on) */
+    margin-top: -8px;
+    margin-left: 7px;
+    padding: 0 3px;
+}
+TabWidget GroupBox::title { background-color: #fcfcfe; }
 
 /* tabs: light faces with a grey edge; the chosen one white, with an orange line along its top */
 TabWidget::base { height: 1px; background-color: var(--xp-tab-edge); }
+TabWidget::pane {
+    background-color: #fcfcfe;
+    border: 1px solid var(--xp-tab-edge);
+    border-radius: 0 0 3px 3px;
+    padding: 6px;
+}
 TabWidget::tab {
     background-color: #f4f3ee;
     background-image: linear-gradient(to bottom, #ffffff 0%, #f6f5f0 60%, #ebe9e0 100%);
@@ -327,7 +342,9 @@ TabWidget::tab-line:selected { background-color: transparent; }
 StatusBar { color: #000000; }
 StatusBar::separator { background-color: #d8d2bd; }
 
-Separator { color: #c4c0ac; }
+/* separators: etched, a shadow line and a light one */
+Separator:vertical { border-left: 1px solid #aca899; border-right: 1px solid #ffffff; width: 2px; }
+Separator:horizontal { border-top: 1px solid #aca899; border-bottom: 1px solid #ffffff; height: 2px; }
 SplitterHandle { color: #c4c0ac; }
 SplitterHandle:hover, SplitterHandle:pressed { color: var(--highlight); }
 
@@ -463,6 +480,25 @@ ScrollBar::thumb:pressed {
 ScrollBar:horizontal::thumb:pressed {
     background-image: linear-gradient(to bottom, #b4c8f6 0%, #a9c0f4 100%);
 }
+/* the arrow buttons at the ends: small light blue buttons like the thumb */
+ScrollBar::sub-line, ScrollBar::add-line {
+    background-color: #c4d4f7;
+    background-image: linear-gradient(to bottom, #e1eafd 0%, #c9d8fa 50%, #b7cbf6 100%);
+    border: 1px solid #98b1e6;
+    border-radius: 3px;
+    box-shadow: inset 0 0 0 1px #ecf2ff;
+    color: #4d6185;
+    icon-size: 7px;
+    stroke-width: 1.8px;
+}
+ScrollBar:vertical::sub-line, ScrollBar:vertical::add-line { height: 14px; }
+ScrollBar:horizontal::sub-line, ScrollBar:horizontal::add-line { width: 14px; }
+ScrollBar::sub-line:hover, ScrollBar::add-line:hover {
+    background-image: linear-gradient(to bottom, #f0f5ff 0%, #dbe6fd 50%, #c8d8fa 100%);
+}
+ScrollBar::sub-line:pressed, ScrollBar::add-line:pressed {
+    background-image: linear-gradient(to bottom, #a9c0f4 0%, #b4c8f6 100%);
+}
 
 /* =============================================================================================
    Lists, trees, menus
@@ -502,6 +538,31 @@ FileView::header {
     background-image: linear-gradient(to bottom, #ffffff 0%, #f6f5ef 70%, #ebeadb 100%);
     color: #000000;
     border-color: #d6d2c2;
+}
+
+/* =============================================================================================
+   The Explorer's title: a blue caption bar, its ✕ turning red under the mouse
+   ============================================================================================= */
+
+ExplorerDock::title-bar {
+    background-color: #2a6fe3;
+    background-image: linear-gradient(to bottom,
+        #7ab3ff 0%, #4a8ff5 8%, #2f78ec 30%, #2368e2 60%, #1f5ed6 90%, #1a4fbf 100%);
+    border-bottom: 1px solid #0a3aa8;
+    color: #ffffff;
+    font-weight: bold;
+}
+ExplorerDock > :not(Explorer) > Label { text-shadow: 1px 1px 1px #0a2a7a; }
+ExplorerDock > :not(Explorer) > ToolButton.autoRaise { color: #ffffff; }
+ExplorerDock > :not(Explorer) > ToolButton.autoRaise:hover {
+    background-color: #e0502e;
+    background-image: linear-gradient(to bottom, #f6a58c 0%, #e8643f 45%, #d4441f 55%, #e05a33 100%);
+    border-color: #ffffff;
+    box-shadow: none;
+}
+ExplorerDock > :not(Explorer) > ToolButton.autoRaise:pressed {
+    background-image: linear-gradient(to bottom, #b8361a 0%, #d24a26 100%);
+    border-color: #ffffff;
 }
 
 /* =============================================================================================
@@ -573,7 +634,7 @@ Transport ToolButton.autoRaise:toggled, ToolButton.autoRaise:toggled {
 Transport ToolButton.autoRaise:disabled { color: #9ab8ee; text-shadow: none; }
 Transport IconButton::icon { color: #ffffff; }
 Transport IconButton:disabled::icon { color: #8aaae6; }
-Transport Separator { color: #5b95f0; }
+Transport Separator:vertical { border-left-color: #0a3aa8; border-right-color: #5b95f0; }
 Transport SpinBox { border-color: #0a3aa8; }
 
 /* =============================================================================================
@@ -594,16 +655,29 @@ CpuMonitor {
     background-image: linear-gradient(to bottom, #fdfcf7 0%, #f1efe4 55%, #e3dfcf 100%);
     border-color: #aca899;
 }
-CpuMonitor::track { background-color: #d6d3c4; }
+CpuMonitor::track { background-color: #ffffff; border: 1px solid #b7bdc8; border-radius: 1px; }
+CpuMonitor::bar:ok { background-image: linear-gradient(to bottom, #c4f3c4 0%, #36b336 100%); }
+CpuMonitor::bar:warn { background-image: linear-gradient(to bottom, #fff2b0 0%, #e8b70e 100%); }
+CpuMonitor::bar:hot { background-image: linear-gradient(to bottom, #ffc0b2 0%, #d42f1b 100%); }
 
 Lane.group { border-top-color: #b4c2da; }
 /* an automation lane's range values, written in a darker orange than the curve to read on the pale lane */
 Lane.automation::label, Lane.automation::value { color: #a8590a; }
 MasterLane { background-image: linear-gradient(to bottom, #eef3fc 0%, #e2eaf8 100%); }
 
-/* clips: their own colours; a thin dark outline and a softly rounded corner */
+/* clips: their own colours; a thin dark outline and a softly rounded corner. A selected one gets a white
+   line and a thin blue one inside its outline, and a faint brightening. */
 Clip::body { border-radius: 3px; }
 Clip::header { border-radius: 3px 3px 0 0; }
+Clip:selected::overlay {
+    background-color: #ffffff1c;
+    border: 2px solid #ffffffe0;   /* (its outer pixel under the clip's own outline) */
+    border-radius: 3px;
+    box-shadow: inset 0 0 0 3px #316ac5c0;
+}
+
+/* the timeline's well: the ruler, lanes and scroll bars inside a field's blue-grey edge */
+ScrollArea#timeline { border: 1px solid #7f9db9; }
 
 Overview { background-color: var(--overview-bg); }
 OverviewCaption { background-color: var(--overview-bg); color: #3c3b33; }
@@ -614,12 +688,17 @@ OverviewCaption { background-color: var(--overview-bg); color: #3c3b33; }
 
 TrackRow {
     background-color: var(--row);
+    /* (a soft gloss over the row's colour, its own or the track's) */
+    background-image: linear-gradient(to bottom, #ffffff40 0%, #ffffff14 45%, #ffffff00 55%, #00000012 100%);
     border-top-color: #e2dfd2;
 }
 TrackRow:alternate { background-color: var(--row-alt); }
 TrackRow.group { background-color: var(--group-lane); }
 LaneFrame::current { border-color: #316ac5; border-width: 2px 2px 2px 0; }
-LaneFrame.master { background-color: var(--master-lane); }
+LaneFrame.master {
+    background-color: var(--master-lane);
+    background-image: linear-gradient(to bottom, #f4f8fe 0%, #e3ebf9 100%);
+}
 LaneFrame.master::title { color: #0046d5; }
 .pin-cover { background-color: var(--window); }
 
@@ -634,7 +713,20 @@ SendsPanel { background-color: #ffffff; border: 1px solid #aca899; }
    Meters: glossy green, yellow and red on a white track
    ============================================================================================= */
 
-LevelMeter::track { background-color: #ffffff; border: 1px solid #b7bdc8; }
+LevelMeter::track { background-color: #ffffff; border: 1px solid #b7bdc8; border-radius: 1px; }
+/* glossy bars: a light top, the colour, a deeper band below the middle */
+LevelMeter::bar:ok, LevelMeter::peak:ok, MeterView::bar {
+    background-color: var(--meter-ok);
+    background-image: linear-gradient(to bottom, #c4f3c4 0%, #5fd15f 40%, #2ea52e 55%, #43bd43 100%);
+}
+LevelMeter::bar:warn, LevelMeter::peak:warn {
+    background-color: var(--meter-warn);
+    background-image: linear-gradient(to bottom, #fff6c2 0%, #f8d743 40%, #e2b10a 55%, #f1c62a 100%);
+}
+LevelMeter::bar:hot, LevelMeter::peak:hot {
+    background-color: var(--meter-hot);
+    background-image: linear-gradient(to bottom, #ffc0b2 0%, #f1604a 40%, #cf2b17 55%, #e3462f 100%);
+}
 LevelMeter::number { background-color: #ffffff; color: #3c3b33; }
 LevelMeter::number:clipped { background-color: var(--meter-hot); color: #ffffff; }
 
@@ -677,11 +769,11 @@ Steps::pad:odd { --darken: 106; }  /* (the pads of odd beats: a little darker) *
    ============================================================================================= */
 
 CurveView { background-color: #ffffff; border: 1px solid #7f9db9; }
-CurveView::grid { color: #a7b5cc; }  /* (its labels too) */
+CurveView::grid { color: #d3dbe8; }
+CurveView::grid-label { color: #5d6f8f; }
 CurveView::analyzer { color: #8fa6c8; }
 CurveView::curve { color: #316ac5; }
 MeterView::track { background-color: #ffffff; border: 1px solid #b7bdc8; }
-MeterView::bar { background-color: var(--meter-ok); }
 Tuner { background-color: #ffffff; border: 1px solid #7f9db9; }
 Tuner::scale { background-color: #b4c2da; }
 
