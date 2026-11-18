@@ -208,6 +208,7 @@ public:
 
     // --- skins ---
     void fillSkinMenu();
+    void collectSkinProblems();  // what the stylesheets showed wrong only while drawing (a var()'s value), added to the list
     void chooseSkin(const skin::Skin& s);
     void showSkin(const skin::Skin& s);
     void restyle();

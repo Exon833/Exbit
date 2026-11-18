@@ -763,6 +763,7 @@ void MainWindow::fillSkinMenu() {
         a->triggered = [this, s] { chooseSkin(s); };
     }
     menu->addSeparator();
+    collectSkinProblems();
     menu->addAction("&Edit this skin…", [this] { editSkin(); })->tooltip =
         "Opens its stylesheet in your text editor (one of the program's own: a copy of it, yours); what you save "
         "shows at once";
@@ -920,7 +921,15 @@ void MainWindow::editSkin() {
                                  "\n\nWhat you save there shows in Tiny DAW at once.");
 }
 
+void MainWindow::collectSkinProblems() {
+    for (const css::Problem& p : theme::styles().takeProblems()) {
+        std::string text = p.text();
+        if (std::find(skinProblems.begin(), skinProblems.end(), text) == skinProblems.end()) skinProblems.push_back(text);
+    }
+}
+
 void MainWindow::showSkinProblems() {
+    collectSkinProblems();
     if (skinProblems.empty()) return;
     std::string list;
     for (size_t i = 0; i < skinProblems.size() && i < 40; i++) list += (i ? "\n" : "") + skinProblems[i];
