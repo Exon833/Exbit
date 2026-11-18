@@ -107,7 +107,7 @@
     --scrollbar-width: 16px;
     --ruler-height: 26px;
     --dock-title-height: 20px;
-    --dock-close-size: 20px;
+    --dock-close-size: 16px;
     --transport-button-size: 26px;
 }
 
@@ -225,13 +225,20 @@ CheckBox:pressed::indicator { background-color: #c0c0c0; }
 CheckBox:disabled { text-shadow: 1px 1px #ffffff; }
 CheckBox:disabled::indicator { background-color: #c0c0c0; border-color: var(--sunken-edge); color: #808080; }
 
-/* Group boxes: an etched frame (grey and white), the title on the face */
+/* Group boxes: an etched frame (grey and white), the title on the face across its top line */
 GroupBox {
     background-color: transparent;
     border: 2px groove #d4d4d4;
     border-radius: 0;
+    margin-top: 8px;
 }
-GroupBox::title { color: #000000; }
+GroupBox::title {
+    color: #000000;
+    background-color: #c0c0c0;
+    margin-top: -8px;
+    margin-left: 8px;
+    padding: 0 3px;
+}
 
 /* Tabs (the toolkit's; no window of the program has them yet): raised tabs, the chosen one bold */
 TabWidget::base { height: 1px; background-color: #ffffff; }
@@ -248,9 +255,16 @@ TabWidget::tab:selected { background-color: #c0c0c0; font-weight: bold; }
 TabWidget::tab:disabled { color: var(--disabled-text); }
 TabWidget::tab-line { height: 0; }
 TabWidget::tab-line:selected { background-color: transparent; }
+TabWidget::pane {
+    border: 1px solid;
+    border-color: var(--raised-edge);
+    box-shadow: var(--raised-inner);
+    padding: 4px;
+}
 
-/* Separators: grey lines; splitters: no line, the face shows between the panes */
-Separator { color: #808080; line-width: 1px; }
+/* Separators: etched (a grey line beside a white one); splitters: no line, the face shows between the panes */
+Separator:vertical { border-left: 1px solid #808080; border-right: 1px solid #ffffff; width: 2px; }
+Separator:horizontal { border-top: 1px solid #808080; border-bottom: 1px solid #ffffff; height: 2px; }
 SplitterHandle { color: #c0c0c0; }
 SplitterHandle:hover, SplitterHandle:pressed { color: #808080; }
 
@@ -391,6 +405,24 @@ ScrollBar::thumb {
     box-shadow: var(--raised-inner);
 }
 ScrollBar::thumb:hover, ScrollBar::thumb:pressed { background-color: #c0c0c0; }
+/* … and a raised arrow button at each end (sunken, the arrow shifted, while pressed) */
+ScrollBar::sub-line, ScrollBar::add-line {
+    height: 16px;
+    background-color: #c0c0c0;
+    color: #000000;
+    border: 1px solid;
+    border-color: var(--raised-edge);
+    box-shadow: var(--raised-inner);
+    icon-size: 7px;
+    stroke-width: 1.6px;
+}
+ScrollBar:horizontal::sub-line, ScrollBar:horizontal::add-line { width: 16px; }
+ScrollBar::sub-line:hover, ScrollBar::add-line:hover { background-color: #c0c0c0; }
+ScrollBar::sub-line:pressed, ScrollBar::add-line:pressed {
+    border-color: #808080;
+    box-shadow: none;
+    padding: 1px 0 0 1px;
+}
 
 /* Lists and trees: white and sunken; the selected row navy */
 ListWidget, TreeWidget, FileList, FileView {
@@ -494,8 +526,21 @@ Overview {
 Overview::view { outline-color: #000080; }
 OverviewCaption { background-color: #c0c0c0; color: #000000; border-bottom: 1px solid #808080; }
 
-/* The track rows beside the lanes (a track's row is in the track's own colour, its data): automation, take and
-   group rows light grey */
+/* The timeline (ruler, lanes, master lane and their scroll bars) in a sunken 2 px well */
+ScrollArea#timeline {
+    border: 1px solid;
+    border-color: var(--sunken-edge);
+    box-shadow: var(--sunken-inner);
+    padding: 1px;
+}
+
+/* The track rows beside the lanes: raised panels in the track's own colour (its data; the left edge stays the
+   stripe), automation, take and group rows light grey */
+TrackRow {
+    border: 1px solid;
+    border-color: var(--raised-edge);
+    box-shadow: inset -1px -1px rgba(0, 0, 0, 0.35), inset 1px 1px rgba(255, 255, 255, 0.45);
+}
 TrackRow.automation, TrackRow.take { background-color: #d4d4d4; border-top-color: #808080; }
 TrackRow.group { background-color: #d4d4d4; }
 
@@ -504,20 +549,26 @@ TrackRow.group { background-color: #d4d4d4; }
 LaneFrame::edge { background-color: #808080; }
 LaneFrame::current { border-width: 1px 1px 1px 0; border-color: #000080; }
 LaneFrame::load { background-color: #000000; }
-LaneFrame.master { background-color: #dcdcdc; }
+LaneFrame.master {
+    background-color: #c0c0c0;
+    border: 1px solid;
+    border-color: var(--raised-edge);
+    box-shadow: var(--raised-inner);
+}
 
 /* ============================================================================================================
    Panels, meters and editors
    ============================================================================================================ */
 
-/* Meters: sunken black wells, green, yellow and red */
-LevelMeter::track { background-color: #000000; }
-LevelMeter::number {
+/* Meters: a sunken black well around the bars and the number; green, yellow and red */
+LevelMeter {
     background-color: #000000;
-    color: #00ff00;
     border: 1px solid;
-    border-color: var(--sunken-edge);
+    border-color: var(--sunken-edge);  /* (thin: the number's box covers the inside up to the border) */
+    padding: 0;
 }
+LevelMeter::track { background-color: #000000; }
+LevelMeter::number { background-color: #000000; color: #00ff00; }
 LevelMeter::number:clipped { background-color: #ff0000; color: #ffffff; }
 
 /* The transport: a raised tool bar */
@@ -654,24 +705,24 @@ PadView::frame { border-top: 1px solid #808080; }
 PadView::frame:selected, PadView::frame:dropping { border-top: 2px solid #ffff00; }
 SamplerWaveform::marker { background-color: #ffff00; }
 
-/* The Explorer's title, as a window's caption: white bold on navy (the bar's plain widget draws nothing, so the
-   title label carries the colour), its ✕ a small raised button */
-ExplorerDock > :not(Explorer) > Label {
+/* The Explorer's title bar, as a window's caption: white bold on navy, its ✕ a small raised button on it */
+ExplorerDock::title-bar {
     background-color: #000080;
     color: #ffffff;
     font-weight: bold;
-    padding: 2px 4px;
+    padding: 0 2px 0 4px;
+    column-gap: 0;
 }
-ExplorerDock::title-bar { padding: 0 2px; column-gap: 0; }
 ExplorerDock > :not(Explorer) > ToolButton.autoRaise {
     background-color: #c0c0c0;
     color: #000000;
-    border: 2px solid #000080;  /* the caption's navy around it */
-    box-shadow: inset -1px -1px #000000, inset 1px 1px #ffffff, inset -2px -2px #808080, inset 2px 2px #dfdfdf;
+    border-color: var(--raised-edge);
+    box-shadow: var(--raised-inner);
     padding: 0;
 }
 ExplorerDock > :not(Explorer) > ToolButton.autoRaise:pressed {
-    box-shadow: inset 1px 1px #000000, inset -1px -1px #ffffff, inset 2px 2px #808080, inset -2px -2px #dfdfdf;
+    border-color: var(--pressed-edge);
+    box-shadow: var(--pressed-inner);
 }
 
 /* The Explorer's list: white and sunken, folders in olive */
@@ -724,7 +775,8 @@ CurveView {
     border-color: var(--sunken-edge);
     box-shadow: var(--sunken-inner);
 }
-CurveView::grid { color: #909090; }
+CurveView::grid { color: #c8c8c8; }
+CurveView::grid-label { color: #404040; }
 CurveView::analyzer { color: #808080; }
 CurveView::curve { color: #000080; }
 MeterView { color: #000000; }
