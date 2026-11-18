@@ -307,6 +307,12 @@ CSS understood:
   (blurred, spread, inset, several), `text-shadow`, `opacity`.
 - **Shorthands:** `padding`, `margin`, `border`, `border-radius`, `border-style`, `background`.
 
+**Window frames.** Every Tiny DAW window (the main window, dialogs, effect and plugin windows) has its own
+title bar and border, drawn in the skin's look: drag the bar to move the window (the desktop still snaps
+and tiles it), double-click it to maximize, right-click it for Minimize / Maximize / Close, drag the
+edges to resize. Skins restyle them (`TitleBar`, its buttons, `Window:framed`, `:active` / `:inactive`,
+`--title-bar-height`). **Options → Window frames** switches to the system's own frames at once.
+
 **docs/skins.md** lists every variable, type, part, class, state and property.
 
 ## Several cores
