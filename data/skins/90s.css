@@ -1,17 +1,29 @@
-/* 90s: a skin of Tiny DAW with a mid-90s desktop look. A silver-grey window face, black text, white fields
-   and lists; 2 px bevels (raised buttons and bars, sunken fields, lists and meters), a navy selection, square
-   corners and a small, crisp font. It is put on top of default.css: it sets the variables, then changes the
-   rules that draw the bevels. docs/skins.md lists everything a skin can style. */
+/* 90s: a skin of Tiny DAW with the look of the mid-90s desktop (1995–1998), control by control: the silver-grey
+   face, black text, white fields and lists, two-ring bevels in four exact tones (raised buttons, sunken fields), a
+   navy selection, square corners, 16 px scroll bars on a dithered track, and small, unsmoothed text. It is put on top
+   of default.css: it sets the variables, then changes the rules that draw the bevels. The glyphs (check mark,
+   arrows, caption signs, tree boxes) and the track's dither are drawn pixel by pixel in 90s/. docs/skins.md lists
+   everything a skin can style. */
+
+/* The interface font: an 8-point bitmap-like sans, drawn without smoothing. The nearest free face shipped with the
+   skins (fonts/: Wine's metric-compatible sans, LGPL) at 11.5 px: the original's widths ("Cancel": 33 px), 8 px
+   capitals, 6 px lower case; its bold made from it (2 px strokes). Drawn unsmoothed, an outline font keeps every
+   stroke only at the sizes that fall on its pixels: 11.5 px does (8 pt and 11 px lose the I's stem, smaller sizes
+   lose thin strokes such as the minus sign), so the few texts the program draws smaller are smoothed (below). */
+@font-face { font-family: "90s Sans"; src: url(fonts/tahoma.ttf); }
 
 /* ============================================================================================================
-   The palette. The 16-colour desktop palette: silver #c0c0c0, grey #808080, white, black, navy #000080,
-   teal #008080, maroon, olive, and the bright red, yellow and green for the meters.
+   The palette: the 16-colour desktop palette and the standard scheme's five greys:
+   face #c0c0c0, light #dfdfdf, highlight #ffffff, shadow #808080, dark shadow #000000; navy #000080 selections,
+   teal #008080, the pale yellow #ffffe1 of tooltips, and the bright red, yellow and green for the meters.
    ============================================================================================================ */
 :root {
     --skin-name: "90s";
-    font-family: "Liberation Sans", "Nimbus Sans", "DejaVu Sans", sans-serif;
-    font-size: 8pt;
-    --mono-font: "Liberation Mono", "Nimbus Mono PS", "DejaVu Sans Mono", monospace;
+    font-family: "90s Sans", "Liberation Sans", "Nimbus Sans", "DejaVu Sans", sans-serif;
+    font-size: 11.5px;
+    /* numbers (times, LUFS, meters) in the same face: its figures are all one width, and its thin strokes (the minus
+       sign, the colon) stay when drawn unsmoothed, where the free monospaced faces' vanish */
+    --mono-font: "90s Sans", "Liberation Mono", "Nimbus Mono PS", "DejaVu Sans Mono", monospace;
 
     /* Window */
     --window: #c0c0c0;
@@ -92,27 +104,45 @@
     /* The shades (--hover … --accent-hover) stay default.css's mixes of the colours above: every rule that reads
        them is replaced below (no hover glow; pressed and switched-on controls are sunken instead). */
 
-    /* The bevels, used by the rules below: a 1 px border (the outer ring) and two inset shadows (the inner ring).
-       Raised: white and light grey top-left, grey and black bottom-right; sunken the other way round. */
+    /* The bevels, used by the rules below: a 1 px border (the outer ring) and two inset shadows (the inner ring),
+       each side its own tone, as the original draws its edges:
+       a button: white and light grey top-left, black and grey bottom-right (pressed: black and grey top-left,
+       white and light grey bottom-right); a window, a menu and the scroll bar's buttons: light grey and white
+       top-left, black and grey bottom-right; a field: grey and black top-left, white and light grey bottom-right;
+       thin (1 px) ones for the status bar, the menu bar's titles and flat tool buttons. */
     --raised-edge: #ffffff #000000 #000000 #ffffff;
     --raised-inner: inset -1px -1px #808080, inset 1px 1px #dfdfdf;
-    --sunken-edge: #808080 #ffffff #ffffff #808080;
-    --sunken-inner: inset 1px 1px #000000, inset -1px -1px #dfdfdf;
     --pressed-edge: #000000 #ffffff #ffffff #000000;
     --pressed-inner: inset 1px 1px #808080, inset -1px -1px #dfdfdf;
-    /* the light dithered face of a switched-on tool button and of scroll bar tracks */
-    --dither: repeating-linear-gradient(45deg, #c0c0c0 0 0.3536px, #ffffff 0.3536px 1.0607px, #c0c0c0 1.0607px 1.4142px);
+    --window-edge: #dfdfdf #000000 #000000 #dfdfdf;
+    --window-inner: inset -1px -1px #808080, inset 1px 1px #ffffff;
+    --sunken-edge: #808080 #ffffff #ffffff #808080;
+    --sunken-inner: inset 1px 1px #000000, inset -1px -1px #dfdfdf;
+    --thin-raised: #ffffff #808080 #808080 #ffffff;
+    --thin-sunken: #808080 #ffffff #ffffff #808080;
+    /* the light dithered face (a switched-on tool button, the scroll bar's track): face and white, every other pixel */
+    --dither: url(90s/track.png);
+    /* the focus rectangle: a dotted line around the inside, 3 px in from a button's bevel */
+    --focus-rect: url(90s/focus-h.svg), url(90s/focus-h.svg), url(90s/focus-v.svg), url(90s/focus-v.svg);
 
-    /* Sizes: a little more room for the bevels */
+    /* Sizes: 16 px scroll bars and their buttons, the bevels' room */
     --scrollbar-width: 16px;
     --ruler-height: 26px;
     --dock-title-height: 20px;
     --dock-close-size: 16px;
     --transport-button-size: 26px;
 }
+/* every text of the program crisp, each pixel of a letter on or off, as the bitmap fonts of the time; but the few
+   drawn smaller than 11.5 px smoothed, where unsmoothed outlines would lose strokes (the minus sign, an I's stem) */
+Window { font-smooth: never; }
+Label.dimmed, Label#lufs, UpdateNotice, UpdateNotice::link, TrackPreview::readout, Scope::caption,
+Lane.automation::label, Lane.automation::value, PatchPanel::sources-title, PatchPanel::source, PatchPanel::end-title,
+PatchPanel::end-label, PatchPanel::faceplate-text, PatchPanel::sidechain-label, PatchPanel::status,
+PatchPanel::value, PatchPanel::mod-link { font-smooth: auto; }
 
 /* ============================================================================================================
-   Buttons: raised 2 px bevels; pressed or switched on: sunken, the content one pixel down and right.
+   Buttons: the raised two-ring bevel; pressed or switched on: sunken, the content one pixel down and right.
+   A push button is 23 px high and at least 75 px wide in dialogs; no hover (the era had none).
    ============================================================================================================ */
 Button {
     background-color: var(--button);
@@ -133,29 +163,48 @@ PushButton:pressed, PushButton:checked { padding: 5px 11px 3px 13px; }
 ToolButton:pressed, ToolButton:checked { padding: 4px 4px 2px 6px; }
 ToolButton:icon:pressed, ToolButton:icon:checked { padding: 4px 2px 2px 4px; }
 /* a switched-on tool button: sunken on the light dithered face */
-ToolButton:checked { background-image: var(--dither); }
+ToolButton:checked { background-image: var(--dither); background-repeat: repeat; image-rendering: pixelated; }
+ButtonBox > Button, ProgressDialog > Button, Button.dialog-button { min-width: 75px; }
+ButtonBox { column-gap: 6px; }
 
 /* Lit buttons (a track's FX with plugins, Preview, Metronome on…): teal, raised (sunken while switched on) */
 Button:lit, Button:lit:hover { background-color: #008080; color: #ffffff; }
 Button:lit:checked { background-image: none; }
 
-/* A dialog's default button (and the focused one): a black frame around the bevel */
+/* A dialog's default button: a black frame around the bevel; the focused one also has the dotted focus rectangle.
+   Pressed: the frame, then a flat grey line, the text a pixel down and right. */
 Button:default, Button:default:hover, PushButton:focus {
     background-color: var(--button);
     color: var(--button-text);
     border-color: #000000;
     box-shadow: inset -1px -1px #000000, inset 1px 1px #ffffff, inset -2px -2px #808080, inset 2px 2px #dfdfdf;
 }
-PushButton:default:pressed, PushButton:focus:pressed {
-    box-shadow: inset 0 0 0 1px #808080;  /* pressed: the frame, then a flat grey edge */
+PushButton:focus {
+    background-image: var(--focus-rect);
+    background-repeat: no-repeat;
+    background-origin: border-box;
+    background-position: 4px 4px, left 4px bottom 4px, 4px 4px, right 4px top 4px;
+    background-size: 100% 1px, 100% 1px, 1px 100%, 1px 100%;
+    /* (the dotted lines run on past the rectangle's ends: a ring of the face under the bevel covers that) */
+    box-shadow: inset -1px -1px #000000, inset 1px 1px #ffffff, inset -2px -2px #808080, inset 2px 2px #dfdfdf,
+                inset 0 0 0 3px #c0c0c0;
+}
+PushButton:default:pressed, PushButton:focus:pressed, PushButton:pressed:hover:default {
+    border-color: #000000;
+    box-shadow: inset 0 0 0 1px #808080, inset 0 0 0 3px #c0c0c0;
     padding: 5px 11px 3px 13px;
 }
 PushButton:focus:lit { border-color: #000000; }
-PushButton:focus:disabled { border-color: var(--raised-edge); box-shadow: var(--raised-inner); }
+PushButton:focus:disabled {
+    border-color: var(--raised-edge);
+    box-shadow: var(--raised-inner);
+    background-image: none;
+}
 
 /* Mute, solo, record and the other switches with a role: sunken in their colour */
 Button:toggled, Button:toggled:hover {
     background-color: var(--toggle-color, var(--accent));
+    background-image: none;
     border-color: var(--pressed-edge);
     box-shadow: var(--pressed-inner);
 }
@@ -166,23 +215,25 @@ Button:toggled, Button:toggled:hover {
 Button:disabled { color: var(--disabled-text); text-shadow: 1px 1px #ffffff; }
 PushButton:disabled, ToolButton:disabled { background-color: var(--button); }
 
-/* Flat tool buttons (tool bars): no edge until the mouse is over them, then a thin raised one */
+/* Flat tool buttons (tool bars): no edge until the mouse is over them, then a thin raised one; pressed: thin sunken */
 ToolButton.autoRaise { background-color: transparent; border-color: transparent; box-shadow: none; }
-ToolButton.autoRaise:hover { border-color: #ffffff #808080 #808080 #ffffff; }
-ToolButton.autoRaise:pressed { border-color: #808080 #ffffff #ffffff #808080; box-shadow: none; }
-/* … and switched on (Beats, a menu's open button): sunken thin on the dithered face, the text black */
+ToolButton.autoRaise:hover { border-color: var(--thin-raised); }
+ToolButton.autoRaise:pressed { border-color: var(--thin-sunken); box-shadow: none; }
+/* … and switched on (Beats, a menu's open button): thin sunken on the dithered face, the text black */
 ToolButton.autoRaise:checked, ToolButton.autoRaise:lit, ToolButton.autoRaise:lit:hover {
     background-color: #c0c0c0;
     background-image: var(--dither);
+    background-repeat: repeat;
+    image-rendering: pixelated;
     color: #000000;
-    border-color: #808080 #ffffff #ffffff #808080;
+    border-color: var(--thin-sunken);
     box-shadow: none;
 }
 ToolButton.autoRaise:disabled { background-color: transparent; border-color: transparent; }
 
-/* The drop-down part of a split button */
-Button::arrow { background-color: transparent; }
-Button:arrow-hover::arrow { background-color: #d4d4d4; }
+/* The drop-down part of a split button: its ▾ the scroll bars' 7 × 4 arrow */
+Button::arrow { background-color: transparent; -tiny-glyph: url(90s/arrow-down.svg); -tiny-glyph-tint: color; }
+Button:arrow-hover::arrow { background-color: transparent; }
 Button::separator { background-color: #808080; }
 
 /* The playback buttons' icons */
@@ -194,8 +245,8 @@ IconButton:disabled::icon { color: #808080; }
    Basic controls: labels, check boxes, group boxes, tabs, separators, the status bar, tooltips, dialogs
    ============================================================================================================ */
 Label:link { color: #0000ff; }
-/* a disabled label is also how the program dims a hint: dark enough to read */
-Label:disabled { color: #606060; }
+/* a disabled label: grey embossed in white */
+Label:disabled { color: #808080; text-shadow: 1px 1px #ffffff; }
 
 /* The time display: a sunken black window with green digits */
 Label#time {
@@ -207,58 +258,76 @@ Label#time {
     padding: 1px 6px;
 }
 
-/* Check boxes: a white sunken square with a black tick */
+/* Check boxes: a 13 × 13 white sunken square (the field's bevel), the 7 × 7 check mark in its middle; pressed: the
+   square grey; disabled: grey, the mark grey */
 CheckBox::indicator {
     width: 13px;
     height: 13px;
-    padding: 2px;
+    padding: 0;
+    margin-right: 6px;
     background-color: #ffffff;
     border: 1px solid;
     border-color: var(--sunken-edge);
     border-radius: 0;
     box-shadow: var(--sunken-inner);
     color: #000000;
+    -tiny-glyph: url(90s/check.svg);
+    -tiny-glyph-tint: color;
 }
+CheckBox:checked:pressed::indicator { background-color: #c0c0c0; }
 CheckBox:hover::indicator { border-color: var(--sunken-edge); }
 CheckBox:checked::indicator { background-color: #ffffff; border-color: var(--sunken-edge); }
 CheckBox:pressed::indicator { background-color: #c0c0c0; }
 CheckBox:disabled { text-shadow: 1px 1px #ffffff; }
 CheckBox:disabled::indicator { background-color: #c0c0c0; border-color: var(--sunken-edge); color: #808080; }
 
-/* Group boxes: an etched frame (grey and white), the title on the face across its top line */
+/* Group boxes: an etched frame (a grey line beside a white one: 2px groove of #d4d4d4 is exactly that), the title
+   on the face across its top line, 8 px in */
 GroupBox {
     background-color: transparent;
     border: 2px groove #d4d4d4;
     border-radius: 0;
-    margin-top: 8px;
+    margin-top: 7px;
 }
 GroupBox::title {
     color: #000000;
     background-color: #c0c0c0;
-    margin-top: -8px;
-    margin-left: 8px;
-    padding: 0 3px;
+    margin-top: -7px;
+    margin-left: 7px;
+    padding: 0 2px;
 }
+GroupBox:disabled::title { color: #808080; text-shadow: 1px 1px #ffffff; }
 
-/* Tabs (the toolkit's; no window of the program has them yet): raised tabs, the chosen one bold */
+/* Tabs: raised tabs (white and light grey on the left and top, black and grey on the right) standing on the page's
+   top line; the chosen one 2 px taller, joined to the page. (The toolkit's tabs are one row of one height and don't
+   overlap: the others are 2 px lower by a transparent top, and the chosen one isn't wider than its text.) */
 TabWidget::base { height: 1px; background-color: #ffffff; }
 TabWidget::tab {
-    padding: 4px 10px 4px;
+    padding: 2px 6px 2px;
     color: #000000;
     background-color: #c0c0c0;
-    border: 1px solid;
-    border-color: #ffffff #000000 transparent #ffffff;
-    box-shadow: inset -1px 0 #808080, inset 1px 1px #dfdfdf;
+    background-clip: padding-box;
+    border: 0 solid transparent;
+    border-top-width: 2px;
+    border-bottom: 1px solid #ffffff;
+    border-radius: 0;
+    box-shadow: inset -1px 0 #000000, inset 1px 1px #ffffff, inset -2px 0 #808080, inset 2px 2px #dfdfdf;
 }
-TabWidget::tab:hover { background-color: #c0c0c0; }
-TabWidget::tab:selected { background-color: #c0c0c0; font-weight: bold; }
-TabWidget::tab:disabled { color: var(--disabled-text); }
+TabWidget::tab:selected {
+    padding: 3px 6px 3px;
+    border-width: 0;
+}
+TabWidget::tab:hover { background-color: #c0c0c0; color: #000000; }
+TabWidget::tab:selected, TabWidget::tab:selected:hover { background-color: #c0c0c0; color: #000000; }
+TabWidget::tab:disabled { color: var(--disabled-text); text-shadow: 1px 1px #ffffff; }
 TabWidget::tab-line { height: 0; }
 TabWidget::tab-line:selected { background-color: transparent; }
+/* the page: the window's bevel, its top line the white one under the tabs (::base: the chosen tab covers it) */
 TabWidget::pane {
     border: 1px solid;
+    border-width: 0 1px 1px 1px;
     border-color: var(--raised-edge);
-    box-shadow: var(--raised-inner);
+    box-shadow: inset -1px -1px #808080, inset 1px 0 #dfdfdf;
     padding: 4px;
 }
 
@@ -271,9 +340,9 @@ SplitterHandle:hover, SplitterHandle:pressed { color: #808080; }
 /* The status bar: a thin sunken pane along the bottom (no line above it) */
 StatusBar {
     color: #000000;
-    padding: 3px 6px;
+    padding: 2px 3px;
     border: 1px solid;
-    border-color: #808080 #ffffff #ffffff #808080;  /* a thin sunken pane */
+    border-color: var(--thin-sunken);
 }
 StatusBar::separator { height: 0; }
 
@@ -283,26 +352,35 @@ ToolTip {
     color: #000000;
     border: 1px solid #000000;
     border-radius: 0;
-    padding: 2px 4px;
+    padding: 2px 3px;
 }
 
-/* Dialogs: the message box's signs; the progress bar's sunken well and navy blocks */
-MessageIcon { background-color: #000080; color: #ffffff; }
-MessageIcon.question { background-color: #000080; }
-MessageIcon.warning { background-color: #ffff00; color: #000000; }
-MessageIcon.critical { background-color: #ff0000; color: #ffffff; }
+/* Dialogs: the message box's signs (drawn in 90s/); the progress bar: a thin sunken well with navy blocks, each
+   two thirds of the inside's height wide, 2 px apart */
+MessageIcon { background-color: #000080; color: #ffffff; -tiny-glyph: url(90s/information.svg); }
+MessageIcon.question { -tiny-glyph: url(90s/question.svg); }
+MessageIcon.warning { background-color: #ffff00; color: #000000; -tiny-glyph: url(90s/warning.svg); }
+MessageIcon.critical { background-color: #ff0000; color: #ffffff; -tiny-glyph: url(90s/critical.svg); }
 ProgressBar {
-    background-color: #ffffff;
+    height: 20px;
+    background-color: #c0c0c0;
     color: #000000;
     border: 1px solid;
-    border-color: var(--sunken-edge);
+    border-color: var(--thin-sunken);
     border-radius: 0;
-    box-shadow: var(--sunken-inner);
+    padding: 1px;
 }
-ProgressBar::chunk { background-color: #000080; color: #ffffff; border-radius: 0; }
+/* (the original shows no percentage: the blocks alone) */
+ProgressBar { color: transparent; }
+ProgressBar::chunk {
+    background-color: transparent;
+    background-image: repeating-linear-gradient(to right, #000080 0 11px, transparent 11px 13px);
+    color: transparent;
+    border-radius: 0;
+}
 
 /* ============================================================================================================
-   Fields: white and sunken (2 px), the selection navy
+   Fields: white and sunken (the field's bevel), 21 px high; the selection navy
    ============================================================================================================ */
 LineEdit, SpinBox, ComboBox {
     background-color: #ffffff;
@@ -312,7 +390,8 @@ LineEdit, SpinBox, ComboBox {
     border-radius: 0;
     box-shadow: var(--sunken-inner);
 }
-LineEdit:frameless { background-color: transparent; border-width: 0; box-shadow: none; }
+LineEdit { padding: 3px 3px; }
+LineEdit:frameless { background-color: transparent; border-width: 0; box-shadow: none; padding: 3px 3px; }
 LineEdit:hover, LineEdit:focus, LineEdit:disabled,
 SpinBox:hover, SpinBox:focus, SpinBox:disabled,
 ComboBox:hover, ComboBox:focus, ComboBox:open, ComboBox:disabled { border-color: var(--sunken-edge); }
@@ -324,104 +403,133 @@ LineEdit::selection { background-color: #000080; color: #ffffff; padding: 1px 0;
 LineEdit::cursor { background-color: #000000; width: 1px; }
 LineEdit::clear-button { color: #000000; }
 
-/* Number fields: the arrows on two small raised buttons at the right */
+/* Number fields: the buttons' column in the field's edge at the right, raised. (The toolkit draws both buttons'
+   boxes over the whole inside of the field's border, each clipped to its half: so each shows only its outer edges,
+   the field's inner ring then the button's bevel at the top, right and bottom; small 5 × 3 arrows.) */
+SpinBox { padding: 3px 3px; }
 SpinBox::up-button, SpinBox::down-button {
     background-color: #c0c0c0;
     color: #000000;
     width: 16px;
-    border: 1px solid;
-    border-color: var(--raised-edge);
+    border: 0;
     border-radius: 0;
-    box-shadow: var(--raised-inner);
-    icon-size: 7px;
-    stroke-width: 1.4px;
+    box-shadow: inset 0 1px #000000, inset -1px 0 #dfdfdf, inset 0 -1px #dfdfdf,
+                inset 0 2px #ffffff, inset -2px 0 #000000, inset 0 -2px #000000,
+                inset 0 3px #dfdfdf, inset -3px 0 #808080, inset 0 -3px #808080;
+    -tiny-glyph: url(90s/arrow-up-small.svg);
+    -tiny-glyph-offset: -1px 1px;
 }
+SpinBox::down-button { -tiny-glyph: url(90s/arrow-down-small.svg); -tiny-glyph-offset: -1px -1px; }
 SpinBox:up-hover::up-button, SpinBox:down-hover::down-button { background-color: #c0c0c0; }
 SpinBox:up-pressed::up-button, SpinBox:down-pressed::down-button {
-    border-color: var(--pressed-edge);
-    box-shadow: var(--pressed-inner);
+    box-shadow: inset 0 1px #000000, inset -1px 0 #dfdfdf, inset 0 -1px #dfdfdf,
+                inset 0 2px #000000, inset -2px 0 #ffffff, inset 0 -2px #ffffff,
+                inset 0 3px #808080, inset -3px 0 #dfdfdf, inset 0 -3px #dfdfdf;
 }
-SpinBox:at-maximum::up-button, SpinBox:at-minimum::down-button,
-SpinBox:disabled::up-button, SpinBox:disabled::down-button { background-color: #c0c0c0; color: #808080; }
+SpinBox:up-pressed::up-button { -tiny-glyph-offset: 0 2px; }
+SpinBox:down-pressed::down-button { -tiny-glyph-offset: 0 0; }
+SpinBox:at-maximum::up-button, SpinBox:disabled::up-button {
+    background-color: #c0c0c0;
+    -tiny-glyph: url(90s/arrow-up-small-disabled.svg);
+}
+SpinBox:at-minimum::down-button, SpinBox:disabled::down-button {
+    background-color: #c0c0c0;
+    -tiny-glyph: url(90s/arrow-down-small-disabled.svg);
+}
 
-/* Drop-down lists: the arrow on a raised button at the right */
+/* Drop-down lists: the arrow on a 16 × 17 raised button (the scroll bar's) inside the field's edge at the right;
+   while it is held or the list is open: a flat grey edge, the arrow a pixel down and right. (The toolkit puts the
+   arrow's box over the field's edge, the whole height: its rings draw that edge, then the button.) */
+ComboBox { padding: 3px 3px; }
 ComboBox::arrow {
     background-color: #c0c0c0;
     color: #000000;
-    width: 16px;
-    padding-left: 3px;
+    width: 18px;
+    padding-left: 0;
     border: 1px solid;
-    border-color: var(--raised-edge);
-    box-shadow: var(--raised-inner);
-    icon-size: 8px;
-    stroke-width: 1.6px;
+    border-width: 1px 1px 1px 0;
+    border-color: #808080 #ffffff #ffffff transparent;
+    box-shadow: inset 0 1px #000000, inset -1px 0 #dfdfdf, inset 0 -1px #dfdfdf,
+                inset 0 2px #dfdfdf, inset 1px 0 #dfdfdf, inset -2px 0 #000000, inset 0 -2px #000000,
+                inset 0 3px #ffffff, inset 2px 0 #ffffff, inset -3px 0 #808080, inset 0 -3px #808080;
+    -tiny-glyph: url(90s/arrow-down.svg);
+    -tiny-glyph-offset: -1px 0;
 }
-ComboBox:open::arrow, ComboBox:pressed::arrow { border-color: var(--pressed-edge); box-shadow: var(--pressed-inner); }
-ComboBox:disabled::arrow { color: #808080; }
+ComboBox:open::arrow, ComboBox:pressed::arrow {
+    box-shadow: inset 0 1px #000000, inset -1px 0 #dfdfdf, inset 0 -1px #dfdfdf,
+                inset 0 2px #808080, inset 1px 0 #808080, inset -2px 0 #808080, inset 0 -2px #808080;
+    -tiny-glyph-offset: 0 1px;
+}
+ComboBox:disabled::arrow { -tiny-glyph: url(90s/arrow-down-disabled.svg); }
 ComboPopup { background-color: #ffffff; border: 1px solid #000000; padding: 0; }
-ComboPopup::item { color: #000000; padding: 2px 6px; }
+ComboPopup::item { color: #000000; padding: 1px 3px; }
 ComboPopup::item:hover, ComboPopup::item:selected { background-color: #000080; color: #ffffff; }
+ComboPopup::item:disabled { color: #808080; }
 ComboPopup::separator { background-color: #808080; }
 
 /* ============================================================================================================
    Sliders, scroll bars, lists, trees, menus, the file dialog
    ============================================================================================================ */
 
-/* Sliders: a sunken groove, a raised upright handle */
-Slider { height: 20px; }
-Slider:vertical { width: 20px; }
+/* Sliders: a sunken 4 px channel (grey and black above, light grey and white below), an 11 × 21 raised handle */
+Slider { height: 24px; }
+Slider:vertical { width: 24px; }
 Slider::groove {
     width: 4px;
     height: 4px;
-    background-color: #ffffff;
+    background-color: #c0c0c0;
     border: 1px solid;
     border-color: var(--sunken-edge);
     border-radius: 0;
-    box-shadow: inset 1px 1px #000000;
+    box-shadow: var(--sunken-inner);
 }
-Slider::fill { background-color: #000080; border-radius: 0; }
-Slider::fill:disabled { background-color: #808080; }
+Slider::fill { background-color: transparent; border-radius: 0; }
+Slider::fill:disabled { background-color: transparent; }
 Slider::handle {
-    width: 10px;
-    height: 18px;
+    width: 11px;
+    height: 21px;
     background-color: #c0c0c0;
     border: 1px solid;
     border-color: var(--raised-edge);
     border-radius: 0;
     box-shadow: var(--raised-inner);
 }
-Slider:vertical::handle { width: 18px; height: 10px; }
+Slider:vertical::handle { width: 21px; height: 11px; }
 Slider::handle:hover, Slider::handle:pressed { background-color: #c0c0c0; }
 Slider::handle:disabled { background-color: #c0c0c0; }
 
-/* Scroll bars: a dithered light track, a raised thumb */
-ScrollBar { background-color: #dfdfdf; background-image: var(--dither); }
+/* Scroll bars: 16 px; the track the face and white dithered; a raised thumb (the window's bevel); 16 × 16 arrow
+   buttons at the ends, pressed: a flat grey edge, the arrow a pixel down and right */
+ScrollBar { background-color: #dfdfdf; background-image: var(--dither); background-repeat: repeat; image-rendering: pixelated; }
 ScrollBar::thumb {
     background-color: #c0c0c0;
     margin: 0;
+    min-width: 8px;
+    min-height: 8px;
     border: 1px solid;
-    border-color: var(--raised-edge);
+    border-color: var(--window-edge);
     border-radius: 0;
-    box-shadow: var(--raised-inner);
+    box-shadow: var(--window-inner);
 }
 ScrollBar::thumb:hover, ScrollBar::thumb:pressed { background-color: #c0c0c0; }
-/* … and a raised arrow button at each end (sunken, the arrow shifted, while pressed) */
 ScrollBar::sub-line, ScrollBar::add-line {
     height: 16px;
     background-color: #c0c0c0;
     color: #000000;
     border: 1px solid;
-    border-color: var(--raised-edge);
-    box-shadow: var(--raised-inner);
-    icon-size: 7px;
-    stroke-width: 1.6px;
+    border-color: var(--window-edge);
+    box-shadow: var(--window-inner);
 }
 ScrollBar:horizontal::sub-line, ScrollBar:horizontal::add-line { width: 16px; }
+ScrollBar::sub-line:vertical { -tiny-glyph: url(90s/arrow-up.svg); }
+ScrollBar::add-line:vertical { -tiny-glyph: url(90s/arrow-down.svg); }
+ScrollBar::sub-line:horizontal { -tiny-glyph: url(90s/arrow-left.svg); }
+ScrollBar::add-line:horizontal { -tiny-glyph: url(90s/arrow-right.svg); }
 ScrollBar::sub-line:hover, ScrollBar::add-line:hover { background-color: #c0c0c0; }
 ScrollBar::sub-line:pressed, ScrollBar::add-line:pressed {
     border-color: #808080;
     box-shadow: none;
-    padding: 1px 0 0 1px;
+    -tiny-glyph-offset: 1px;
 }
 
 /* Lists and trees: white and sunken; the selected row navy */
@@ -431,49 +539,67 @@ ListWidget, TreeWidget, FileList, FileView {
     border-color: var(--sunken-edge);
     border-radius: 0;
     box-shadow: var(--sunken-inner);
+    padding: 1px;
 }
 ListWidget::item, TreeWidget::item, FileList::item { color: #000000; }
+ListWidget::item { height: 16px; padding: 0 2px; }
+TreeWidget::item { height: 16px; }
 ListWidget::item:alternate { background-color: #ffffff; }
 ListWidget::item:hover, TreeWidget::item:hover, FileList::item:hover, FileView::row:hover { background-color: transparent; }
 ListWidget::item:selected, TreeWidget::item:selected, FileList::item:selected, FileView::row:selected {
     background-color: #000080;
     color: #ffffff;
 }
+ListWidget::item:disabled, TreeWidget::item:disabled { color: #808080; }
 ListWidget::indicator {
+    width: 13px;
+    height: 13px;
+    padding: 0;
+    margin-right: 4px;
     background-color: #ffffff;
     border: 1px solid;
     border-color: var(--sunken-edge);
     border-radius: 0;
     box-shadow: var(--sunken-inner);
     color: #000000;
-    padding: 2px;
+    -tiny-glyph: url(90s/check.svg);
+    -tiny-glyph-tint: color;
 }
 ListWidget::indicator:checked { background-color: #ffffff; border-color: var(--sunken-edge); }
-TreeWidget::branch { color: #000000; }
+/* the tree's branches: a 9 × 9 box with a plus (closed) or a minus (open) */
+TreeWidget::branch, FileView::branch { color: #000000; -tiny-glyph: url(90s/plus.svg); }
+TreeWidget::branch:open, FileView::branch:open { -tiny-glyph: url(90s/minus.svg); }
+TreeWidget::branch:selected { color: #000000; }
 
-/* The menu bar on the face: the open title navy */
-MenuBar::item { padding: 3px 7px; color: #000000; }
-MenuBar::item:hover { background-color: transparent; }
-MenuBar::item:open { background-color: #000080; color: #ffffff; }
-MenuBar::item:disabled { color: #808080; }
+/* The menu bar on the face: a title under the mouse thinly raised, the open one thinly sunken (its text a pixel
+   down and right) */
+MenuBar::item { padding: 2px 6px 3px; color: #000000; border: 1px solid transparent; }
+MenuBar::item:hover { background-color: transparent; border-color: var(--thin-raised); }
+MenuBar::item:open { background-color: transparent; border-color: var(--thin-sunken); padding: 3px 5px 2px 7px; }
+MenuBar::item:disabled { color: #808080; text-shadow: 1px 1px #ffffff; }
 
-/* Menus: a raised 2 px bevel on the face, the row under the mouse navy */
+/* Menus: the window's raised bevel on the face, the row under the mouse navy across the whole width; a checked
+   item's 7 × 7 mark and a submenu's 4 × 7 arrow in the text's colour; separators etched */
 Menu {
     background-color: #c0c0c0;
     border: 1px solid;
-    border-color: #dfdfdf #000000 #000000 #dfdfdf;
+    border-color: var(--window-edge);
     border-radius: 0;
-    box-shadow: inset -1px -1px #808080, inset 1px 1px #ffffff;
-    padding: 3px;
+    box-shadow: var(--window-inner);
+    padding: 2px;
 }
-Menu::item { padding: 3px 20px; color: #000000; }
+Menu::item { padding: 2px 20px 2px 20px; color: #000000; }
 Menu::item:hover { background-color: #000080; color: #ffffff; }
 Menu::item:disabled { color: #808080; text-shadow: 1px 1px #ffffff; }
-Menu::item:section { color: #000000; }
+Menu::item:section { color: #000000; text-shadow: none; }
 Menu::item:disabled:hover { background-color: #000080; color: #808080; text-shadow: none; }
-Menu::separator { height: 2px; margin: 3px 2px; background-color: #808080; border-bottom: 1px solid #ffffff; }
-Menu::check { color: #000000; }
+Menu::separator { height: 2px; margin: 3px 1px 4px; background-color: #808080; border-bottom: 1px solid #ffffff; }
+Menu::check { width: 7px; margin-left: 6px; color: #000000; -tiny-glyph: url(90s/check.svg); -tiny-glyph-tint: color; }
 Menu::check:hover { color: #ffffff; }
+Menu::check:disabled { color: #808080; }
+Menu::shortcut { margin-left: 20px; }
+Menu::arrow { width: 4px; margin-left: 4px; margin-right: 6px; color: #000000; -tiny-glyph: url(90s/arrow-right.svg); -tiny-glyph-tint: color; }
+Menu::arrow:hover { color: #ffffff; }
 
 /* The file dialog's list: column titles as raised buttons */
 FileList::header {
@@ -482,9 +608,12 @@ FileList::header {
     border: 1px solid;
     border-color: var(--raised-edge);
     box-shadow: var(--raised-inner);
-    padding: 2px 6px;
+    padding: 1px 6px;
 }
-FileList::icon { color: #808000; }
+FileList::item { height: 16px; }
+/* its signs: a yellow folder and a white page (90s/) */
+FileList::icon { color: #808000; width: 16px; -tiny-glyph: url(90s/file.svg); }
+FileList::icon:folder { -tiny-glyph: url(90s/folder.svg); }
 FileList::detail { color: #000000; }
 FileList::placeholder { color: #808080; }
 
@@ -808,35 +937,43 @@ EditorWindow::stopped { background-color: #c0c0c0; }
 HistoryWindow::undone { color: #808080; }
 
 /* ============================================================================================================
-   Window frames (Options → Window frames → Tiny DAW's own): the classic 2 px raised bevel around the window, a
-   short caption a pixel in from it: navy fading to a lighter blue with the title in white bold on the left
-   (inactive: grey fading to a lighter grey, the title light grey), and small square raised buttons, silver with black
-   glyphs, the close button a little apart. No hover (the era had none); pressed: sunken.
+   Window frames (Options → Window frames → Tiny DAW's own): the window's 2 px raised bevel, a pixel of the face, the
+   18 px caption: navy fading to light blue, the title in white bold on the left (inactive: grey fading to light
+   grey), and 16 × 14 raised buttons 2 px from its top and right, silver with black signs (90s/), the close button
+   2 px apart. No hover (the era had none); pressed: sunken, the sign a pixel down and right.
    ============================================================================================================ */
-:root { --title-bar-height: 22px; }
-/* the bevel: white and light grey top-left (outset), black and grey bottom-right (a ridge of near black) */
+:root { --title-bar-height: 20px; }
+/* the bevel: grey-white top-left (a 2 px border side takes only shades of one colour: the original's light grey
+   outer line is drawn a darker grey here, its white inner line exact), black and grey bottom-right (exact: a ridge
+   of #2c2c2c is black outside, #808080 inside) */
 Window:framed, Window:framed:active, Window:framed:inactive {
     border-width: 2px;
-    border-style: outset ridge ridge outset;
-    border-color: #dfdfdf #2c2c2c #2c2c2c #dfdfdf;
+    border-style: groove ridge ridge groove;
+    border-color: #ffffff #2c2c2c #2c2c2c #ffffff;
 }
 Window:framed:maximized { border-width: 0; }
-/* the caption: a silver pixel around it (the face between it and the bevel) */
+/* the caption: a pixel of the face around it (the face between it and the bevel, and above the menus) */
 TitleBar {
     background-color: #0e78c8;  /* (the gradient's colour by the buttons: where it can't be drawn) */
     background-image: linear-gradient(to right, #000080, #1084d0);
+    background-clip: padding-box;
     border: 1px solid #c0c0c0;
-    padding: 0 2px;
+    padding: 0 2px 0 2px;
 }
 TitleBar:maximized { border-width: 0 0 1px 0; }
 TitleBar:inactive {
     background-color: #808080;
     background-image: linear-gradient(to right, #808080, #b5b5b5);
 }
-TitleBar::icon { width: 16px; height: 16px; margin: 0 3px 0 0; }
-TitleBar::title { color: #ffffff; font-weight: bold; text-align: left; margin-left: 1px; }
-TitleBar:inactive::title { color: #e4e4e4; }
-/* the buttons: 16 × 14 raised bevels, the glyphs black and bold */
+TitleBar::icon { width: 16px; height: 16px; margin: 0 2px 0 0; }
+TitleBar::title {
+    color: #ffffff;
+    font-weight: bold;
+    text-align: left;
+    margin-left: 1px;
+}
+/* (the original's inactive title is #c0c0c0, which is too faint on the grey: a lighter grey keeps it readable) */
+TitleBar:inactive::title { color: #e1e1e1; }
 TitleBar::minimize, TitleBar::maximize, TitleBar::close,
 TitleBar:inactive::minimize, TitleBar:inactive::maximize, TitleBar:inactive::close,
 TitleBar::minimize:hover, TitleBar::maximize:hover, TitleBar::close:hover {
@@ -851,11 +988,14 @@ TitleBar::minimize:hover, TitleBar::maximize:hover, TitleBar::close:hover {
     border-radius: 0;
     box-shadow: var(--raised-inner);
 }
-TitleBar::minimize { icon-size: 6px; stroke-width: 2px; }
-TitleBar::maximize { icon-size: 8px; stroke-width: 1px; }
-TitleBar::close { icon-size: 7px; stroke-width: 2px; margin-left: 2px; }
+TitleBar::minimize { -tiny-glyph: url(90s/minimize.svg); -tiny-glyph-offset: -1px 3px; }
+TitleBar::maximize { -tiny-glyph: url(90s/maximize.svg); }
+TitleBar::maximize:maximized { -tiny-glyph: url(90s/restore.svg); }
+TitleBar::close { -tiny-glyph: url(90s/close.svg); margin-left: 2px; }
 TitleBar::minimize:pressed, TitleBar::maximize:pressed, TitleBar::close:pressed {
     background-color: #c0c0c0;
     border-color: var(--pressed-edge);
     box-shadow: var(--pressed-inner);
 }
+TitleBar::minimize:pressed { -tiny-glyph-offset: 0 4px; }
+TitleBar::maximize:pressed, TitleBar::close:pressed { -tiny-glyph-offset: 1px; }
