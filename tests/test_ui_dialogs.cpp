@@ -105,10 +105,10 @@ static void testSkinFiles() {
 
     // the program's own skins: read without problems; Dark first; default.css isn't one
     std::vector<skin::Skin> lib = skin::library();
-    CHECK(lib.size() == 5 && lib[0].name == "Dark" && lib[0].builtin);
+    CHECK(lib.size() == 8 && lib[0].name == "Dark" && lib[0].builtin);
     std::vector<std::string> names;
     for (auto& s : lib) names.push_back(s.name);
-    CHECK((names == std::vector<std::string>{"Dark", "High contrast", "Light", "Midnight", "OLED"}));
+    CHECK((names == std::vector<std::string>{"Dark", "7", "90s", "High contrast", "Light", "Midnight", "OLED", "XP"}));
     for (auto& s : lib) {
         std::vector<std::string> problems = skin::apply(s);
         CHECK(problems.empty());
@@ -207,7 +207,7 @@ static void testSkinFiles() {
         CHECK(theme::c("button").hex() == "#102030" && theme::fonts().ui == "DejaVu Sans");
     }
     lib = skin::library();
-    CHECK(lib.size() == 6 && lib.back().name == "Bob's \"own\"" && !lib.back().builtin);
+    CHECK(lib.size() == 9 && lib.back().name == "Bob's \"own\"" && !lib.back().builtin);
     // yours first, under the same name as one of the program's own
     util::writeFile(TMP + "/skins/Midnight.css", ":root { --skin-name: \"Midnight\"; --lane: #010203; }");
     CHECK(!skin::find("Midnight").builtin && skin::find("Midnight").path == TMP + "/skins/Midnight.css");
