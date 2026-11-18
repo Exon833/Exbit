@@ -599,6 +599,10 @@ void ScrollArea::place() {
         if (c->vPolicy == SizePolicy::Fixed) cmin.y = chint.y;
         cmax = c->maximumSize();
     }
+    // (its viewport and bars inside its border and padding: none in the default look)
+    Rect in = innerRect();
+    W = in.w;
+    H = in.h;
     bool needV = vpol_ == Policy::AlwaysOn, needH = hpol_ == Policy::AlwaysOn;
     int vw = W, vh = H, cw = 0, ch = 0;
     for (int i = 0; i < 4; ++i) {
@@ -619,11 +623,11 @@ void ScrollArea::place() {
         needV = nv;
         needH = nh;
     }
-    viewport_->setGeometry(0, 0, vw, vh);
+    viewport_->setGeometry(in.x, in.y, vw, vh);
     vbar_->setVisible(needV);
     hbar_->setVisible(needH);
-    vbar_->setGeometry(vw, 0, vsb, vh);
-    hbar_->setGeometry(0, vh, vw, hsb);
+    vbar_->setGeometry(in.x + vw, in.y, vsb, vh);
+    hbar_->setGeometry(in.x, in.y + vh, vw, hsb);
     vbar_->setPageStep(vh);
     hbar_->setPageStep(vw);
     vbar_->setRange(0, std::max(0, ch - vh));
@@ -633,6 +637,16 @@ void ScrollArea::place() {
 }
 
 void ScrollArea::contentResized() { place(); }
+
+Rect ScrollArea::innerRect() const {
+    const css::Style& st = computedStyle();
+    Rect in = style::contents(rect(), st);
+    return Rect(in.x, in.y, std::max(0, in.w), std::max(0, in.h));
+}
+
+void ScrollArea::paint(Painter& p) {
+    style::box(p, rect(), computedStyle());  // (the default look: nothing to draw)
+}
 
 void ScrollArea::resized() { place(); }
 
@@ -672,13 +686,21 @@ Point ScrollArea::sizeHint() const {
     if (hpol_ == Policy::AlwaysOn) h.y += hbar_->thickness();
     h.x = std::min(h.x, 36 * fh);
     h.y = std::min(h.y, 24 * fh);
+    const css::Style& st = computedStyle();  // (its border and padding around)
+    style::Insets b = style::insets(st, "border-width"), pad = style::insets(st, "padding");
+    h.x += b.w() + pad.w();
+    h.y += b.h() + pad.h();
     Point mn = minimumSize(), mx = maximumSize();
     if (mn.x == mx.x) h.x = mn.x;
     if (mn.y == mx.y) h.y = mn.y;
     return h;
 }
 
-Point ScrollArea::minimumSizeHint() const { return Point(4 * vbar_->thickness(), 4 * hbar_->thickness()); }
+Point ScrollArea::minimumSizeHint() const {
+    const css::Style& st = computedStyle();
+    style::Insets b = style::insets(st, "border-width"), pad = style::insets(st, "padding");
+    return Point(4 * vbar_->thickness() + b.w() + pad.w(), 4 * hbar_->thickness() + b.h() + pad.h());
+}
 
 // ============================================================================================
 // ListWidget

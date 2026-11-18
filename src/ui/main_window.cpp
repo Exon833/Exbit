@@ -37,6 +37,7 @@
 #include "ui/midi_editor.h"
 #include "ui/mix_export.h"
 #include "ui/overview.h"
+#include "ui/panel_style.h"
 #include "ui/plugin_dialog.h"
 #include "ui/plugin_folders_dialog.h"
 #include "ui/wine_prefixes_dialog.h"
@@ -51,6 +52,7 @@
 #include "ui/timeline.h"
 #include "ui/toolkit/dialogs.h"
 #include "ui/toolkit/layout.h"
+#include "ui/toolkit/style.h"
 #include "ui/track_render.h"
 #include "ui/transport_bar.h"
 #include "ui/update_notice.h"
@@ -82,46 +84,6 @@ public:
     OverviewCaption() : ui::Label("Project overview") {
         setStyleType("OverviewCaption");
         setAlignment(AlignCenter);
-    }
-};
-
-// The Explorer's dock (QDockWidget "Explorer"): a title bar with ✕ over the Explorer
-class ExplorerDock : public ui::Widget {
-public:
-    ExplorerDock(Explorer* explorer, std::function<void()> onClose) {
-        auto* col = ui::vbox(this, 0, 0);
-        setStyleType("ExplorerDock");
-        auto* bar = bar_ = add<ui::Widget>();
-        row_ = ui::hbox(bar, 0, 0);
-        auto* row = row_;
-        row->setContentsMargins(6, 0, 2, 0);
-        auto* title = bar->add<ui::Label>("Explorer");
-        row->addWidget(title, 1);
-        auto* x = close_ = bar->add<ui::Button>("✕");
-        x->setStyle(ui::Button::Style::Tool);
-        x->setProperty("autoRaise", "true");
-        x->setToolTip("Close the Explorer (View → Explorer, Ctrl+E shows it again)");
-        x->clicked.connect(std::move(onClose));
-        row->addWidget(x);
-        col->addWidget(bar);
-        adopt(std::unique_ptr<ui::Widget>(explorer));
-        col->addWidget(explorer, 1);
-        fit();
-    }
-    // (also after a skin change: App::repaintAll calls every widget's resized())
-    void resized() override { fit(); }
-
-private:
-    ui::Widget* bar_ = nullptr;
-    ui::Button* close_ = nullptr;
-    ui::HBox* row_ = nullptr;
-    // the title bar's and the ✕'s sizes from the skin (--dock-title-height, --dock-close-size), the room around the
-    // title and ✕ (ExplorerDock::title-bar's padding)
-    void fit() {
-        ui::styleRoom(row_, computedStyle("title-bar"));
-        int h = theme::metric("dock-title-height", 22), x = theme::metric("dock-close-size", 18);
-        if (bar_->minimumSize().y != h || bar_->maximumSize().y != h) bar_->setFixedHeight(h);
-        if (close_->minimumSize() != Point(x, x) || close_->maximumSize() != Point(x, x)) close_->setFixedSize(x, x);
     }
 };
 
@@ -160,7 +122,7 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
 
     menuBar = add<ui::MenuBar>();
     transport = add<TransportBar>();
-    scroll = add<ui::ScrollArea>();
+    scroll = add<TimelineView>();
     timeline = scroll->makeContent<Timeline>(project, engine, scroll);
     wine::setPrefixes(prefs.wineList());  // (Windows plugins: the prefixes they're found in)
     wine::setWinePrograms(prefs.wineProgramMap());  // (…and the wine program chosen for some of them)
@@ -407,11 +369,13 @@ void MainWindow::buildLayout() {
     // (the overview, scroll, caption, monitor and panel scroll are the window's children so far)
     for (ui::Widget* w : std::initializer_list<ui::Widget*>{overview, scroll, caption, cpuMonitor, panelScroll})
         central->adopt(release(w));
+    frameGap = central->add<ui::Widget>();
     left->addWidget(overview);
     left->addWidget(scroll, 1);
     auto right = std::make_unique<ui::VBox>();
     right->spacing = 0;
     right->addWidget(caption);
+    right->addWidget(frameGap);    // (the timeline frame's top: none in the default look)
     right->addWidget(cpuMonitor);  // same height as the ruler, so the rows still line up
     right->addWidget(panelScroll, 1);
     line->addLayout(std::move(left), 1);
@@ -420,6 +384,17 @@ void MainWindow::buildLayout() {
     root->addWidget(body, 1);
     status->setSizePolicy(ui::SizePolicy::Expanding, ui::SizePolicy::Fixed);
     root->addWidget(status);
+    fitTimelineFrame();
+}
+
+void MainWindow::fitTimelineFrame() {
+    auto* view = dynamic_cast<TimelineView*>(scroll);
+    int top = view ? view->insetTop() : 0, bottom = view ? view->insetBottom() : 0;
+    if (frameGap) {
+        frameGap->setFixedHeight(std::max(0, top));
+        frameGap->setVisible(top > 0);
+    }
+    if (masterPins.size() > 1) masterPins[1]->setMargin(theme::scrollbarWidth() + std::max(0, bottom));
 }
 
 void MainWindow::setExplorerVisible(bool on) {
@@ -822,7 +797,7 @@ void MainWindow::restyle() {
     lanes::setMasterScopeHeight(master->scope->settings.shown ? theme::metric("scope-height", config::SCOPE_H) : 0);
     panelScroll->setFixedWidth(lane_panel::panelWidth());
     for (auto& pin : masterPins) pin->setHeight(lanes::masterHeight());
-    if (masterPins.size() > 1) masterPins[1]->setMargin(theme::scrollbarWidth());
+    fitTimelineFrame();  // (the panel's master row's margin too)
     setExplorerWidth(explorerWidth);
     panel->rebuild();
     master->restyle();

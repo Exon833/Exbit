@@ -935,6 +935,20 @@ std::shared_ptr<const BoxPaint> boxPaint(const css::Style& s, const BoxLook& loo
 void drawBox(Painter& p, const RectF& r, const BoxLook& look) {
     const BoxPaint& b = *look.more;
     if (r.empty()) return;
+    // (a repaint wholly inside it, clear of its border and corners, where only its flat background is drawn: that
+    // fill alone, as below draws it there. A meter repainting in a bevelled track row, a cursor in a framed
+    // timeline: no ring worked out each frame)
+    if (b.layers.empty() && b.shadows.empty()) {
+        float most = 0;
+        for (int i = 0; i < 4; i++) most = std::max(most, b.width[i] + (theme::rounded ? b.radius[i] : 0.f));
+        RectF in = r.adjusted(most + 1, most + 1, -most - 1, -most - 1);  // (+1: what anti-aliasing reaches)
+        Rect c = p.clip();
+        bool inside = c.x >= in.x && c.y >= in.y && c.right() <= in.right() && c.bottom() <= in.bottom();
+        if (!c.empty() && !in.empty() && inside) {
+            if (b.bg.a) p.fillRect(c, b.bg);
+            return;
+        }
+    }
     Geo g = geometry(p, r, b);
     const RoundRect& o = g.border;
     float s = g.scale;

@@ -88,6 +88,12 @@ inline Rect inside(const Rect& r, const Insets& i) { return r.adjusted(i.left, i
 inline Rect contents(const Rect& r, const css::Style& s) {
     return inside(inside(r, insets(s, "border-width")), insets(s, "padding"));
 }
+// its border and padding together, what contents() takes off (read once and kept by what paints at frame rate:
+// reading them parses)
+inline Insets contentInsets(const css::Style& s) {
+    Insets b = insets(s, "border-width"), p = insets(s, "padding");
+    return Insets{b.left + p.left, b.top + p.top, b.right + p.right, b.bottom + p.bottom};
+}
 // its corners' radius (one for all four: border-top-left-radius), 0 when Options → Rounded corners is off
 inline float radius(const css::Style& s) {
     return theme::rounded ? (float)std::max(0.0, s.length("border-top-left-radius", 0)) : 0.f;

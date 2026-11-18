@@ -93,6 +93,7 @@ const CpuMonitor::Look& CpuMonitor::look() {
     l.lateW = panel_style::px(late, "min-width", 50);
     const css::Style& track = parts_.get("track");
     l.track = &track;
+    l.trackInset = ui::style::contentInsets(track);
     l.barH = std::max(0, panel_style::px(track, "height", 3));
     const char* states[] = {"ok", "warn", "hot"};
     for (int i = 0; i < 3; ++i) {
@@ -124,9 +125,11 @@ void CpuMonitor::paint(Painter& p) {
     // thin bar along the bottom (inside the borders): current load, full width = 100 %
     Rect bar = ui::style::inside(rect(), look.border);
     bar = Rect(bar.x, bar.bottom() - look.barH, bar.w, look.barH);
-    int barW = (int)(bar.w * std::min(1.0, current));
     const char* state = cpu_monitor::loadState(current);
     int range = state[0] == 'h' ? 2 : state[0] == 'w' ? 1 : 0;
     ui::style::box(p, bar, *look.track);
-    panel_style::fillPart(p, RectF(Rect(bar.x, bar.y, barW, bar.h)), look.barStyle[range], look.bar[range]);
+    Rect in = ui::style::inside(bar, look.trackInset);  // (the bar inside the track's border and padding)
+    int barW = (int)(std::max(0, in.w) * std::min(1.0, current));
+    if (barW > 0 && in.h > 0)
+        panel_style::fillPart(p, RectF(Rect(in.x, in.y, barW, in.h)), look.barStyle[range], look.bar[range]);
 }

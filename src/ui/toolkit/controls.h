@@ -29,6 +29,12 @@ public:
     void setWordWrap(bool on) { wrap_ = on; updateGeometry(); update(); }
     void setElide(bool on) { elide_ = on; updateGeometry(); update(); }
     void setFont(const Font& f) { font_ = f; hasFont_ = true; updateGeometry(); update(); }
+    void clearFont() {  // the stylesheets' again
+        if (!hasFont_) return;
+        hasFont_ = false;
+        updateGeometry();
+        update();
+    }
     void setColor(Color c) {  // overrides the style's (a repaint only when it changes: paint() may set it)
         if (hasColor_ && color_ == c) return;
         color_ = c;
@@ -495,7 +501,8 @@ private:
     void thumbStates(std::vector<const char*>& out) const;
 };
 
-// QScrollArea: shows a content widget through a viewport, with scroll bars as needed
+// QScrollArea: shows a content widget through a viewport, with scroll bars as needed. Styled as ScrollArea: a box,
+// its viewport and scroll bars inside its border and padding (read when it lays them out: a skin change does that)
 class ScrollArea : public Widget {
 public:
     explicit ScrollArea(Widget* parent = nullptr);
@@ -522,6 +529,10 @@ public:
     Point sizeHint() const override;
     Point minimumSizeHint() const override;
     void place();                                // (lays the content and the bars out now)
+    // inside its border and padding (its style's box: drawn under them; none in the default look): where its
+    // viewport and scroll bars go
+    Rect innerRect() const;
+    void paint(Painter& p) override;
 private:
     Widget* viewport_;
     Widget* content_ = nullptr;
