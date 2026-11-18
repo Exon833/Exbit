@@ -168,17 +168,15 @@ inline void box(Painter& p, const RectF& r, const css::Style& s) {
     fillF(r.adjusted((float)b.border.left, (float)b.border.top, (float)-b.border.right, (float)-b.border.bottom), b.bg,
           std::max(0.f, rad - (float)most));
 }
-// the font it is drawn in: `def` (the control's own) with what the stylesheets change of it: font-family (its
-// first name; system-ui and sans-serif: the interface font, monospace: the numbers font), font-size, font-weight
+// the font it is drawn in: `def` (the control's own) with what the stylesheets change of it: font-family (the
+// first of its list this computer has, theme::pickFamily; system-ui and sans-serif: the interface font,
+// monospace: the numbers font), font-size, font-weight
 inline Font font(const css::Style& s, const Font& def) {
     Font f = def;
     std::vector<std::string> families = s.list("font-family");
     if (!families.empty()) {
-        std::string first = families[0], key;
-        for (char ch : first) key += (char)std::tolower((unsigned char)ch);
-        std::string family = key == "system-ui" || key == "sans-serif" || key == "ui-sans-serif" ? Font::ui().family()
-                             : key == "monospace" || key == "ui-monospace" ? Font::mono().family()
-                                                                           : first;
+        std::string picked = theme::pickFamily(families);
+        std::string family = picked.empty() ? Font::ui().family() : picked == "monospace" ? Font::mono().family() : picked;
         if (family != f.family()) f = Font(family, f.pixelSize(), f.bold());
     }
     if (s.has("font-size")) {

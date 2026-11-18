@@ -76,6 +76,10 @@ A defined part of CSS, read by Tiny DAW's own parser (`src/core/css.h`):
   first local `url()` in `src` counts.
 - **Shorthands:** `padding`, `margin`, `border-width`, `border-color`, `border-radius` (1–4 values); `border`,
   `border-top`… (width, style and colour in any order); `background` (its colour).
+- **Fonts:** `font-family` is a list, tried in order: the first family this computer has (or a skin's
+  `@font-face`) is used, so `"Tahoma", "Liberation Sans", sans-serif` falls back as in a browser. `system-ui`,
+  `sans-serif` and `serif` are the interface's own font, `monospace` the numbers font. If none of the list is
+  there, its first name is asked for and the nearest look-alike drawn. `font-size`, `font-weight` (bold from 600).
 - **Inherited:** custom properties (`--name`) and the text properties (`color`, `font-family`, `font-size`,
   `font-weight`, `font-style`, `letter-spacing`). The rest isn't.
 - **Not understood (skipped and reported):** other at-rules (`@supports`, `@keyframes`, `@layer`…;

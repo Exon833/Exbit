@@ -1352,6 +1352,19 @@ static void testStylesheets() {
     CHECK(fb.colorAt(145, 14) == Color::fromHex("#00ff00"));
     CHECK(fb.colorAt(183, 13) == Color(10, 20, 30));
     CHECK(lit->textColor() == Color(255, 255, 255));
+    // font-family falls back along its list to a family this computer has; generic families always count;
+    // none there: the first name (the font code finds a look-alike)
+    {
+        std::vector<std::string> have = Font::families();
+        CHECK(!have.empty());
+        if (!have.empty()) {
+            CHECK(theme::pickFamily({"No Such Font", have[0], "sans-serif"}) == have[0]);
+            CHECK(theme::pickFamily({"No Such Font", "sans-serif", have[0]}).empty());
+        }
+        CHECK(theme::pickFamily({"No Such Font", "monospace"}) == "monospace");
+        CHECK(theme::pickFamily({"Consolas Not Here"}) == "Consolas Not Here");
+        CHECK(theme::pickFamily({}).empty() && theme::pickFamily({"system-ui"}).empty());
+    }
     // sizes of the layout: :root's variables, as lengths
     {
         std::vector<css::Problem> pr;

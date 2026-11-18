@@ -35,6 +35,11 @@ struct Fonts {
 };
 // every variable theme reads as a colour: the colours' (--lane…) and the shades' (--hover…)
 std::vector<std::string> colorVariables();
+// The family of a font-family list to draw with: the first this computer has (a skin's @font-face fonts too), as
+// CSS falls back along the list. A generic family is always there: "" for the interface's own (system-ui,
+// sans-serif, serif…), "monospace" for the numbers font. When none of the list is there, its first entry
+// (the font code then picks a look-alike itself: "Consolas" becomes a monospaced font).
+std::string pickFamily(const std::vector<std::string>& families);
 // "lane_alt" -> "--lane-alt": a colour's name as a stylesheet variable
 std::string variableName(const std::string& name);
 
