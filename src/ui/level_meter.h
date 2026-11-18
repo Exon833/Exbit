@@ -10,8 +10,9 @@
 // full scale (CLIP_DB: the master warns from -0.1 dB) until it is clicked or Play is pressed again
 // (resetPeaks).
 //
-// Styled as LevelMeter (default.css): ::track behind each bar; ::bar and ::peak (the held peak's line, and its
-// width) :ok, :warn and :hot for the three ranges; ::number (the loudest since Play: background-color, color,
+// Styled as LevelMeter (default.css): a box around it all (the bars and number inside its border and padding);
+// ::track behind each bar (a box: the bar inside its border and padding); ::bar and ::peak (the held peak's line,
+// and its width) :ok, :warn and :hot for the three ranges; ::number (the loudest since Play: background-color, color,
 // font-family, font-weight; its size follows the meter's height) and ::number:clipped. :root's --meter-gap: px
 // between the bars.
 #pragma once
@@ -74,7 +75,11 @@ private:
     void showTooltip();
     // what it is drawn with, from the stylesheets (kept: meters repaint at frame rate)
     struct Look {
-        const css::Style *track = nullptr, *number = nullptr, *clipped = nullptr;  // (boxes: style::box)
+        // (boxes: style::box)
+        const css::Style *self = nullptr, *track = nullptr, *number = nullptr, *clipped = nullptr;
+        ui::style::Insets inset;       // its own border and padding (the bars and number inside them)
+        ui::style::Insets trackInset;  // ::track's (each bar inside them)
+        bool selfShows = false;   // (its own box draws anything)
         Color bar[3], peak[3], numberText, clippedText;  // [ok, warn, hot]
         const css::Style* barStyle[3] = {nullptr, nullptr, nullptr};   // (more than a colour: drawn as boxes)
         const css::Style* peakStyle[3] = {nullptr, nullptr, nullptr};
@@ -82,6 +87,7 @@ private:
         Font font, clippedFont;
     };
     const Look& look() const;
+    Rect inner() const;  // inside its own border and padding: the bars' and the number's room
     mutable panel_style::Parts parts_{*this};
     mutable Look look_;
 };

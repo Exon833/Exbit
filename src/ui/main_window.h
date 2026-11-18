@@ -137,6 +137,7 @@ public:
     CpuMonitor* cpuMonitor = nullptr;
     Overview* overview = nullptr;
     ui::Label* overviewCaption = nullptr;
+    ui::Widget* frameGap = nullptr;      // above the CPU monitor: as tall as the timeline frame's top
     Explorer* explorer = nullptr;
     ui::Widget* explorerDock = nullptr;  // the Explorer with its title bar
     ui::SplitterHandle* explorerHandle = nullptr;
@@ -166,6 +167,9 @@ public:
     void buildOptionsMenu();
     void setExplorerVisible(bool on);    // View → Explorer, the dock's ✕
     void setExplorerWidth(int w);
+    // the timeline's frame (ScrollArea#timeline's border and padding): the track panel's rows moved down by its
+    // top, its bottom kept free under the master row, so they still line up with the lanes
+    void fitTimelineFrame();
 
     // --- Edit menu: undo / redo (history.h), clips' clipboard, time ---
     void showTimeEdit(const std::string& message);

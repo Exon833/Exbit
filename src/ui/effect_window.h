@@ -20,11 +20,13 @@
 // Styles (default.css, "Panels, meters and editors"):
 //   EffectWindow  background-color (its picture's), padding and row-gap (around and between its parts), column-gap
 //                 (between a parameter's controls); ::slider and ::value (min-width: a value's slider and text).
-//   CurveView     its box; ::grid (color, stroke-width; the labels' font), ::analyzer (the spectrum behind: color,
-//                 fill-opacity, stroke-opacity, stroke-width), ::curve (color, stroke-width).
-//   MeterView     color, font; line-height (a meter's row); ::label (width, padding-right), ::track (the bar's box: height),
-//                 ::bar (background-color), ::value (width, padding-left).
-//   Tuner         (a MeterView) its box; ::note (font, color) :in-tune / :silent; ::scale (background-color,
+//   CurveView     its box; ::grid (color, stroke-width; the labels' font), ::grid-label (the grid's labels: color,
+//                 font; inherited from ::grid), ::analyzer (the spectrum behind: color, fill-opacity, stroke-opacity,
+//                 stroke-width), ::curve (color, stroke-width).
+//   MeterView     color, font; line-height (a meter's row); ::label (width, padding-right), ::track (the bar's box:
+//                 height; the bar inside its border and padding), ::bar (background-color, or a box), ::value
+//                 (width, padding-left).
+//   Tuner         (a MeterView) its box; ::note (font, color) :in-tune / :silent; ::scale (background-color, or a box;
 //                 height; margin-left / margin-right: its ends from the sides; top: its place), ::tick (color)
 //                 and ::tick:centre; ::needle (background-color, border-radius) and :in-tune; ::cents and ::hz
 //                 (color, font), ::end-label (−50 / +50: color, font).
@@ -67,7 +69,7 @@ public:
 private:
     struct Look {  // (kept: the analyzer repaints it every REFRESH_MS)
         const css::Style* self = nullptr;
-        Color grid, analyzerFill, analyzerLine, curve;
+        Color grid, label, analyzerFill, analyzerLine, curve;
         float gridW = 1, analyzerW = 1, curveW = 2;
         Font font;
     };
@@ -92,6 +94,7 @@ protected:
         Color text, bar;
         const css::Style* barStyle = nullptr;  // (more than a colour: drawn as a box)
         int rowH = 20, labelW = 110, labelPad = 6, trackH = 12, valueW = 80, valuePad = 6;
+        ui::style::Insets trackInset;  // (::track's border and padding: the bar inside them)
         Font font;
     };
     const Look& look() const;
@@ -112,6 +115,7 @@ private:
     struct TunerLook {
         const css::Style* self = nullptr;
         const css::Style* note[3] = {};  // heard, in tune, silent
+        const css::Style* scaleStyle = nullptr;  // (more than a colour: drawn as a box)
         Color scale, tick, tickCentre, needle, needleInTune, cents, hz, endLabel;
         float needleR = 2;  // (before Options → Rounded corners)
         float needleW = 4, needleH = 30, needleTop = -14;  // (its top: from the scale's)

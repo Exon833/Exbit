@@ -47,6 +47,7 @@ private:
         Color text, late, bar[3];
         const css::Style* barStyle[3] = {nullptr, nullptr, nullptr};  // (more than a colour: drawn as boxes)
         ui::style::Insets padding, border;
+        ui::style::Insets trackInset;  // (::track's border and padding: the bar inside them)
         int lateW = 50, barH = 3;
         Font font, lateFont;
     };

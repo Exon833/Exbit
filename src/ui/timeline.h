@@ -218,6 +218,19 @@ constexpr int STRIP_GAP_PX = 16;
 // the clip zone under the mouse (Timeline::hit)
 enum class ClipZone { None, Handle, Body };
 
+// The main window's scroll area of the timeline: a ScrollArea with the id #timeline, its box around the ruler, the
+// lanes, the pinned master lane and the scroll bars, all inside its border and padding (a sunken well:
+// `ScrollArea#timeline { border: 2px inset … }`). The track panel's rows keep lining up with the lanes: the main
+// window moves them down by its top inset (border-top-width + padding-top) and keeps its bottom inset free under the
+// panel's master row (LanePanel::fitHeight too).
+class TimelineView : public ui::ScrollArea {
+public:
+    TimelineView() { objectName = "timeline"; }
+    // what its border and padding take off at the top and bottom (0 in the default look)
+    int insetTop() const;
+    int insetBottom() const;
+};
+
 class Timeline : public ui::Widget {
 public:
     Timeline(Project& project, audio::Engine& engine, ui::ScrollArea* scroll);
