@@ -62,6 +62,7 @@ constexpr plat::Event::Type EvFocusOut = plat::Event::FocusOut;
 #include <X11/Xcursor/Xcursor.h>
 #include <X11/cursorfont.h>
 #include <X11/extensions/XShm.h>
+#include <X11/extensions/shape.h>
 #include <X11/extensions/Xrandr.h>
 #include <X11/keysym.h>
 #undef min  // Xlibint.h's
@@ -570,6 +571,7 @@ public:
     void minimize() override;
     bool isMinimized() const override { return minimized_; }
     void setDecorated(bool on) override;
+    void setCornerRadii(int tl, int tr, int br, int bl) override;
     bool beginMoveResize(int edges, Point screenPos, int button) override;
     uintptr_t embedArea(const Rect& area) override;
     bool hasFocus() const override { return focus_; }
@@ -598,6 +600,9 @@ private:
     bool resizable_ = true;
     bool visible_ = false, mapped_ = false, shownOnce_ = false, moved_ = false;
     bool focus_ = false, maximized_ = false, fullscreen_ = false, minimized_ = false;
+    int radii_[4] = {0, 0, 0, 0};  // setCornerRadii (device pixels)
+    bool shaped_ = false;          // a shape is set on the window
+    void applyShape();
     bool focusOnMap_ = false;
     XWin embed_ = 0;              // embedArea(): the window plugins' views go into (0: none, they go into win_)
     Rect embedRect_;
@@ -1033,6 +1038,49 @@ void XWindow::setDecorated(bool on) {
     opts_.decorated = on;
     setMotifDecorations(on);
     XFlush(S().dpy);
+}
+
+void XWindow::setCornerRadii(int tl, int tr, int br, int bl) {
+    int r[4] = {std::max(0, tl), std::max(0, tr), std::max(0, br), std::max(0, bl)};
+    if (opts_.popup || opts_.offscreen || std::equal(r, r + 4, radii_)) return;
+    std::copy(r, r + 4, radii_);
+    applyShape();
+}
+
+// the window's bounding shape: the rectangle, less what lies outside each corner's quarter circle (rows of
+// rectangles; X shapes are 1-bit, so the anti-aliased edge drawn inside stays)
+void XWindow::applyShape() {
+    State& s = S();
+    int w = w_, h = h_;
+    bool any = radii_[0] || radii_[1] || radii_[2] || radii_[3];
+    if (!any || w <= 0 || h <= 0) {
+        if (shaped_) XShapeCombineMask(s.dpy, win_, ShapeBounding, 0, 0, 0 /*None*/, ShapeSet);
+        shaped_ = false;
+        XFlush(s.dpy);
+        return;
+    }
+    auto inset = [](int r, int row) {  // how far in from the side the inside starts on this row of a corner
+        double d = r - row - 0.5;
+        return (int)std::lround(r - std::sqrt(std::max(0.0, (double)r * r - d * d)));
+    };
+    int top = std::min(h / 2, std::max(radii_[0], radii_[1]));
+    int bottom = std::min(h - top, std::max(radii_[2], radii_[3]));
+    std::vector<XRectangle> rects;
+    for (int y = 0; y < top; y++) {
+        int l = y < radii_[0] ? inset(std::min(radii_[0], w / 2), y) : 0;
+        int r = y < radii_[1] ? inset(std::min(radii_[1], w / 2), y) : 0;
+        if (w - l - r > 0) rects.push_back({(short)l, (short)y, (unsigned short)(w - l - r), 1});
+    }
+    if (h - top - bottom > 0) rects.push_back({0, (short)top, (unsigned short)w, (unsigned short)(h - top - bottom)});
+    for (int i = 0; i < bottom; i++) {
+        int y = h - 1 - i;
+        int l = i < radii_[3] ? inset(std::min(radii_[3], w / 2), i) : 0;
+        int r = i < radii_[2] ? inset(std::min(radii_[2], w / 2), i) : 0;
+        if (w - l - r > 0) rects.push_back({(short)l, (short)y, (unsigned short)(w - l - r), 1});
+    }
+    XShapeCombineRectangles(s.dpy, win_, ShapeBounding, 0, 0, rects.data(), (int)rects.size(), ShapeSet, YXBanded);
+    shaped_ = true;
+    XFlush(s.dpy);
 }
 
 void XWindow::minimize() {
@@ -1647,6 +1695,7 @@ void XWindow::handle(XEvent& ev) {
             w_ = c.width;
             h_ = c.height;
             bool sized = w_ != reportedW_ || h_ != reportedH_;
+            if (sized && shaped_) applyShape();  // (its corners follow the new size)
             reportedW_ = w_;
             reportedH_ = h_;
             int ox = x_, oy = y_;

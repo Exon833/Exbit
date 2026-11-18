@@ -1147,7 +1147,23 @@ void Window::paintBackground(Painter& p) {
     style::box(p, r, st);
 }
 
+// the native window's corners cut round where the frame's are (the Window's border-*-radius): framed, not
+// maximized, Options → Rounded corners on; else square (checked on each frame paint: a skin change shows there)
+void Window::updateShape() {
+    if (!native_) return;
+    int r[4] = {0, 0, 0, 0};
+    if (framed_ && theme::rounded && !isWindowMaximized() && !native_->isFullScreen()) {
+        css::Edges e = computedStyle().radii(css::Edges());
+        double v[4] = {e.top, e.right, e.bottom, e.left};
+        for (int i = 0; i < 4; i++) r[i] = (int)std::lround(std::max(0.0, v[i]) * scale_);
+    }
+    if (std::equal(r, r + 4, shapeRadii_)) return;
+    std::copy(r, r + 4, shapeRadii_);
+    native_->setCornerRadii(r[0], r[1], r[2], r[3]);
+}
+
 void Window::paintFrame(Painter& p, const Rect& dirty) {
+    updateShape();
     if (!titleBar_ || !titleBar_->isVisible()) return;
     Rect g = titleBar_->geometry();
     if (!dirty.intersects(titleBar_->paintRect().translated(g.x, g.y))) return;
@@ -1267,6 +1283,7 @@ void Window::updateFrame() {
         }
         if (native_) native_->setDecorated(!want);
         statesChanged();
+        updateShape();
     }
     if (framed_ || frame_ != FrameInsets()) {
         bool keepOuter = isWindowMaximized() || (native_ && native_->isFullScreen());
@@ -1309,6 +1326,7 @@ void Window::frameStateChanged() {
     if (!framed_) return;
     applyFrameInsets(true);  // (maximized: the stylesheets may take the border off)
     statesChanged();
+    updateShape();
     if (titleBar_) titleBar_->update();
     invalidate(outerRect());  // (:maximized, its border)
     applyCursor();

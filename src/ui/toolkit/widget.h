@@ -528,6 +528,8 @@ private:
     // the frame (isFramed)
     bool framed_ = false;
     FrameInsets frame_;                // as applied: what the native window has around the inside
+    int shapeRadii_[4] = {-1, -1, -1, -1};  // the corner radii last given to the native window (device px)
+    void updateShape();                // its corners cut round as its frame's style says (isFramed, not maximized)
     std::unique_ptr<TitleBar> titleBar_;
     bool maximizedHeadless_ = false, minimizedHeadless_ = false;  // (no native window: what was asked)
     int edgeHover_ = 0;                // the resize band's edges under the pointer (plat::Edge flags)

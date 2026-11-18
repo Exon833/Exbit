@@ -431,6 +431,8 @@ window changes at once.
   States **`:active`** (the keyboard focus is in it) or **`:inactive`**, and **`:maximized`** (default.css: a 1 px
   edge of `--frame-edge`, lighter while active, none while maximized). A window without a frame has none of these
   states, and its border is drawn inside it, as before.
+  Its corners' radii (`border-top-left-radius`…) also cut the window itself round, so the desktop shows past a
+  rounded corner (not while maximized, or with Options → Rounded corners off).
 - **`TitleBar`**: the bar across the top, above the window's inside: a box (`background-color`, gradients,
   borders, `box-shadow`, `padding`), `--title-bar-height` high. States `:active` / `:inactive` and `:maximized`
   (the window's), `:hover` and `:pressed` (the bar's). Its parts, each with the bar's states:

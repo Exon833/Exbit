@@ -116,6 +116,10 @@ public:
     virtual bool isMinimized() const { return false; }
     // with (false) or without the window manager's frame (WindowOptions::decorated), at once
     virtual void setDecorated(bool on) { (void)on; }
+    // The window's shape: its corners cut round (radii in device pixels: top-left, top-right, bottom-right,
+    // bottom-left), so a frame of the program's own with rounded corners shows the desktop there, not black. All 0:
+    // the whole rectangle. Kept across resizes.
+    virtual void setCornerRadii(int tl, int tr, int br, int bl) { (void)tl, (void)tr, (void)br, (void)bl; }
     // The window manager moves the window (edges: EdgeNone) or resizes it by those edges, following the
     // pointer while `button` (a MouseButton) is held, as when its own title bar or border is dragged: it
     // snaps and tiles it. screenPos: the pointer, in screen coordinates. Call it from a press (or a move with
