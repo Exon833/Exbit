@@ -159,12 +159,12 @@ public:
                 style::icon(p, (float)(in.x + style::px(ck, "margin-left", 7)), in.y + (in.h - size) / 2.f, size, "check",
                             style::foreground(ck));
             }
-            style::text(p, c, AlignLeft | AlignVCenter, stripAmp(leftPart(a->text)), parts.font(item, base), tc);
+            style::text(p, c, AlignLeft | AlignVCenter, stripAmp(leftPart(a->text)), parts.font(item, base), tc, item);
             std::string right = !a->shortcut.empty() ? a->shortcut.text() : rightPart(a->text);
             if (!right.empty()) {
                 const css::Style& sc = parts.get("shortcut", states, &item);
                 style::text(p, Rect(in.x, c.y, std::max(0, c.right() - in.x), c.h), AlignRight | AlignVCenter, right,
-                            parts.font(sc, base), style::foreground(sc));
+                            parts.font(sc, base), style::foreground(sc), sc);
             }
             if (a->submenu) {
                 const css::Style& ar = parts.get("arrow", states, &item);
@@ -675,7 +675,7 @@ void MenuBar::paint(Painter& p) {
         const css::Style& item = parts.get("item", states);
         style::box(p, rects[i], item);
         style::text(p, style::contents(rects[i], item), AlignCenter, stripAmp(menus_[i]->title), parts.font(item, base),
-                    style::foreground(item));
+                    style::foreground(item), item);
     }
 }
 

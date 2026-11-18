@@ -6,7 +6,9 @@
 #include <cctype>
 #include <cmath>
 #include <functional>
+#include <memory>
 #include <string>
+#include <vector>
 
 #include "gfx/painter.h"
 #include "ui/theme.h"
@@ -92,12 +94,25 @@ inline float radius(const css::Style& s) {
 }
 // What a box is drawn from, worked out once per style (kept in the style's memo: drawing a box every frame
 // costs a pointer check, not parsing): its background, its border's colour and widths, its corners' radius.
+// A box with no more than that (one border colour and style, one radius, a flat background) is a plain box,
+// drawn here inline; anything more (per-side colours or styles, four radii, gradients, shadows: BoxPaint) is
+// worked out once too and drawn by drawBox (style_box.cpp).
+struct BoxPaint;
 struct BoxLook {
     Color bg, edge;
     Insets border;
     float radius = 0;  // (before Options → Rounded corners)
     bool fillOnly = true;  // no border to draw (none, transparent, or of the background's colour)
+    std::shared_ptr<const BoxPaint> more;  // null: a plain box
+    std::vector<css::Style::Shadow> textShadows;  // text-shadow (the first on top): style::text
+    float opacity = 1;  // the node's whole opacity (Widget::paintTree), 0..1
 };
+// what a box has beyond a plain one (null: nothing), and drawing such a box (style_box.cpp)
+std::shared_ptr<const BoxPaint> boxPaint(const css::Style& s, const BoxLook& look);
+void drawBox(Painter& p, const RectF& r, const BoxLook& look);
+// (tests, timings) how many shadow masks were made (not found kept), and forgetting the kept ones
+int shadowMasksMade();
+void clearBoxCaches();
 inline const BoxLook& boxLook(const css::Style& s) {
     if (!s.memo_.value) {
         auto look = std::make_shared<BoxLook>();
@@ -106,14 +121,22 @@ inline const BoxLook& boxLook(const css::Style& s) {
         look->edge = color(s, "border-top-color", foreground(s));
         look->radius = (float)std::max(0.0, s.length("border-top-left-radius", 0));
         look->fillOnly = (look->border.w() == 0 && look->border.h() == 0) || look->edge.a == 0 || look->edge == look->bg;
+        look->more = boxPaint(s, *look);
+        if (s.has("text-shadow")) look->textShadows = s.shadows("text-shadow");
+        if (s.has("opacity")) look->opacity = (float)std::clamp(s.number("opacity", 1), 0.0, 1.0);
         s.memo_.value = look;
     }
     return *static_cast<const BoxLook*>(s.memo_.value.get());
 }
-// A box as CSS draws one: its background, inside its border (one colour: border-top-color; a side of 0 px has
-// none), with rounded corners. (A border of the background's colour, or transparent, is drawn as the fill alone.)
+// A box as CSS draws one: its shadows, its background (colour and gradients) inside its border (each side its
+// width, colour and style), with rounded corners (each its radius). (A border of the background's colour, or
+// transparent, is drawn as the fill alone.)
 inline void box(Painter& p, const Rect& r, const css::Style& s) {
     const BoxLook& b = boxLook(s);
+    if (b.more) {
+        drawBox(p, RectF(r), b);
+        return;
+    }
     float rad = theme::rounded ? b.radius : 0.f;
     if (b.fillOnly) {
         fill(p, r, b.bg, rad);
@@ -122,6 +145,28 @@ inline void box(Painter& p, const Rect& r, const css::Style& s) {
     fill(p, r, b.edge, rad);
     int most = std::max(std::max(b.border.left, b.border.right), std::max(b.border.top, b.border.bottom));
     fill(p, inside(r, b.border), b.bg, std::max(0.f, rad - (float)most));
+}
+// the same on a fractional rectangle (a knob's cap, a fader's groove, a pad): its edges anti-aliased
+inline void box(Painter& p, const RectF& r, const css::Style& s) {
+    const BoxLook& b = boxLook(s);
+    if (b.more) {
+        drawBox(p, r, b);
+        return;
+    }
+    auto fillF = [&p](const RectF& q, Color c, float rad) {
+        if (q.empty() || c.a == 0) return;
+        if (rad <= 0.01f) p.fillRect(q, c);
+        else p.fillRoundedRect(q, rad, c);
+    };
+    float rad = theme::rounded ? b.radius : 0.f;
+    if (b.fillOnly) {
+        fillF(r, b.bg, rad);
+        return;
+    }
+    fillF(r, b.edge, rad);
+    int most = std::max(std::max(b.border.left, b.border.right), std::max(b.border.top, b.border.bottom));
+    fillF(r.adjusted((float)b.border.left, (float)b.border.top, (float)-b.border.right, (float)-b.border.bottom), b.bg,
+          std::max(0.f, rad - (float)most));
 }
 // the font it is drawn in: `def` (the control's own) with what the stylesheets change of it: font-family (its
 // first name; system-ui and sans-serif: the interface font, monospace: the numbers font), font-size, font-weight
@@ -156,6 +201,20 @@ inline int textWidth(const Font& f, const std::string& s) { return (int)std::cei
 
 // one line of text, vertically centred in r (baseline as Qt places it)
 inline void text(Painter& p, const Rect& r, int align, const std::string& s, const Font& f, Color c, bool elide = false) {
+    p.drawText(RectF(r), align, s, f, c, elide);
+}
+// text-shadow's shadows of that text, drawn before it (the last first; blurred ones through a blurred mask,
+// kept for the next repaint) (style_box.cpp)
+void textShadows(Painter& p, const RectF& r, int align, const std::string& s, const Font& f,
+                 const std::vector<css::Style::Shadow>& shadows, bool elide);
+// the same for Painter::drawTextBlock's lines
+void textBlockShadows(Painter& p, const RectF& r, int align, const std::string& s, const Font& f,
+                      const std::vector<css::Style::Shadow>& shadows, bool wrap);
+// the same with the style it is drawn in: its text-shadow drawn under it
+inline void text(Painter& p, const Rect& r, int align, const std::string& s, const Font& f, Color c,
+                 const css::Style& style, bool elide = false) {
+    const BoxLook& b = boxLook(style);
+    if (!b.textShadows.empty()) textShadows(p, RectF(r), align, s, f, b.textShadows, elide);
     p.drawText(RectF(r), align, s, f, c, elide);
 }
 

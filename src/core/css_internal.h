@@ -88,6 +88,18 @@ std::string formatNumber(double v);
 using VarLookup = std::function<const std::string*(const std::string& name)>;
 bool substitute(std::string_view text, const VarLookup& lookup, std::string& out, std::string& why, int depth = 0);
 
+// --- what paints (css_paint.cpp) ---
+bool isGradientFunction(const Token& k);  // linear-gradient( radial-gradient( and their repeating- forms
+// one gradient: [b, e) is exactly one gradient function; `current` is currentColor (null: not one)
+bool parseGradient(const Tokens& t, size_t b, size_t e, const Rgba* current, double em, Style::Gradient& g,
+                   std::string& why);
+// background-image's value: none, or a comma list of gradients (and none); `out` may be null (checking only)
+bool parseImages(const Tokens& t, size_t b, size_t e, const Rgba* current, double em,
+                 std::vector<Style::Gradient>* out, std::string& why);
+// box-shadow (box) or text-shadow's value: none, or a comma list of shadows
+bool parseShadows(const Tokens& t, size_t b, size_t e, bool box, const Rgba* current, double em,
+                  std::vector<Style::Shadow>* out, std::string& why);
+
 // --- properties ---
 bool isShorthand(const std::string& name);
 const std::vector<std::string>& longhands(const std::string& shorthand);

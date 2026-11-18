@@ -1,7 +1,9 @@
 // The GUI toolkit, headless: widget trees, layouts, events through the windows' dispatch paths,
 // painting into images (pixel checks), text editing, spin boxes, shortcuts, menus, dialogs,
 // deleteLater safety. Also writes a gallery of the controls as PNGs to build/toolkit-samples/.
+#include <chrono>
 #include <cstdio>
+#include <memory>
 #include <string>
 
 #include "check.h"
@@ -12,6 +14,7 @@
 #include "ui/toolkit/dialogs.h"
 #include "ui/toolkit/layout.h"
 #include "ui/toolkit/menu.h"
+#include "ui/toolkit/style.h"
 #include "ui/toolkit/widget.h"
 
 using namespace ui;
@@ -1613,6 +1616,407 @@ static void testListAndMenuStylesheets() {
     w.hideWindow();
 }
 
+// ------------------------------------------------------------------------------------------
+// CSS painting (style::box beyond plain boxes): every border style, per-side colours and widths, four radii,
+// linear / radial / repeating gradients, outer / inset / blurred shadows, text-shadow on a Label, opacity on a
+// widget with a child. Pictures: build/toolkit-samples/css-*.png; timings printed.
+namespace {
+
+struct BoxSheet {
+    css::Engine engine;
+    std::vector<css::Problem> problems;
+    std::vector<std::unique_ptr<css::SimpleNode>> nodes;
+    std::vector<std::unique_ptr<css::Style>> styles;
+    explicit BoxSheet(const std::string& text) { engine.setSheets({css::parse(text, "boxes.css", problems)}); }
+    const css::Style& style(const std::string& cls) {
+        auto n = std::make_unique<css::SimpleNode>("Box");
+        n->classes.push_back(cls);
+        styles.push_back(std::make_unique<css::Style>(engine.compute(*n)));
+        nodes.push_back(std::move(n));
+        return *styles.back();
+    }
+};
+
+int grey(const Image& img, int x, int y) { return img.colorAt(x, y).r; }
+bool rgbIs(const Image& img, int x, int y, int r, int g, int b, int tol = 0) {
+    Color c = img.colorAt(x, y);
+    return std::abs(c.r - r) <= tol && std::abs(c.g - g) <= tol && std::abs(c.b - b) <= tol;
+}
+int darkness(const Image& img, int x, int y) {
+    Color c = img.colorAt(x, y);
+    return 765 - c.r - c.g - c.b;
+}
+
+}  // namespace
+
+static void testCssPainting() {
+    const Color canvas(0xd4, 0xd0, 0xc8);
+    // --- border styles, per-side colours and widths, four radii ---
+    BoxSheet bs(
+        ".outset2 { background-color: #c0c0c0; border: 2px outset #c0c0c0; }\n"
+        ".inset2 { background-color: #ffffff; border: 2px inset #c0c0c0; }\n"
+        ".outset1 { background-color: #c0c0c0; border: 1px outset #c0c0c0; }\n"
+        ".inset1 { background-color: #c0c0c0; border: 1px inset #c0c0c0; }\n"
+        ".groove { border: 2px groove #c0c0c0; }\n"
+        ".ridge { border: 4px ridge #c0c0c0; background-color: #c0c0c0; }\n"
+        ".double { border: 6px double #204080; background-color: #ffffff; }\n"
+        ".dashed { border: 2px dashed #a00000; background-color: #ffffff; }\n"
+        ".dotted { border: 2px dotted #006000; background-color: #ffffff; }\n"
+        ".dotted4 { border: 4px dotted #006000; border-radius: 14px; background-color: #ffffff; }\n"
+        ".dashedr { border: 3px dashed #303030; border-radius: 12px; background-color: #ffffe0; }\n"
+        ".solid { border: 2px solid #000080; background-color: #ffffff; }\n"
+        ".sides { border-style: solid; border-width: 1px 4px 8px 2px; border-color: red lime blue orange; background-color: white; }\n"
+        ".radii { background-color: #3070c0; border: 3px solid #102040; border-radius: 0 10px 20px 30px; }\n"
+        ".sidesr { border: 6px solid; border-color: red lime blue orange; border-radius: 16px; background-color: white; }\n"
+        ".none { border: 3px none red; background-color: #eeeeee; }\n"
+        ".insetr { border: 3px inset #6080c0; border-radius: 8px; background-color: #6080c0; }\n"
+        ".hidden { border: 2px solid red; border-left-style: hidden; border-bottom-style: dotted; background-color: white; }\n");
+    CHECK(bs.problems.empty());
+    for (const css::Problem& p : bs.problems) printf("%s\n", p.text().c_str());
+    const char* order[] = {"outset2", "inset2", "outset1", "inset1", "groove",  "ridge",  "double", "dashed", "dotted",
+                           "dotted4", "dashedr", "solid", "sides",  "radii",  "sidesr", "none",   "insetr", "hidden"};
+    const int cols = 6, bw = 100, bh = 60, gap = 16;
+    Image img(cols * (bw + gap) + gap, 3 * (bh + gap) + gap, canvas);
+    Painter p(img);
+    auto at = [&](int i) { return Rect(gap + (i % cols) * (bw + gap), gap + (i / cols) * (bh + gap), bw, bh); };
+    for (int i = 0; i < 18; i++) style::box(p, at(i), bs.style(order[i]));
+    savePng(outDir() + "/css-borders.png", img);
+    {
+        Rect r = at(0);  // outset 2px on silver: the four-tone bevel (lighter, the colour | darker, darker still)
+        CHECK(grey(img, r.x, r.y) == 255 && grey(img, r.x + 1, r.y + 1) == 192);
+        CHECK(grey(img, r.right() - 2, r.bottom() - 2) == 108 && grey(img, r.right() - 1, r.bottom() - 1) == 24);
+        CHECK(grey(img, r.right() - 1, r.y) == 24 && grey(img, r.x, r.bottom() - 1) == 24);  // (corners: to the dark sides)
+        CHECK(grey(img, r.right() - 2, r.y + 1) == 108 && grey(img, r.x + 1, r.bottom() - 2) == 108);
+        CHECK(grey(img, r.x + 50, r.y) == 255 && grey(img, r.x, r.y + 30) == 255 && grey(img, r.x + 50, r.y + 30) == 192);
+        r = at(1);  // inset 2px: darker, darker still | the colour, lighter
+        CHECK(grey(img, r.x, r.y) == 108 && grey(img, r.x + 1, r.y + 1) == 24);
+        CHECK(grey(img, r.right() - 2, r.bottom() - 2) == 192 && grey(img, r.right() - 1, r.bottom() - 1) == 255);
+        CHECK(grey(img, r.x + 50, r.y + 30) == 255);
+        r = at(2);  // outset 1px: the classic two tones
+        CHECK(grey(img, r.x + 50, r.y) == 255 && grey(img, r.x, r.y + 30) == 255);
+        CHECK(grey(img, r.x + 50, r.bottom() - 1) == 108 && grey(img, r.right() - 1, r.y + 30) == 108);
+        r = at(3);
+        CHECK(grey(img, r.x + 50, r.y) == 108 && grey(img, r.x + 50, r.bottom() - 1) == 255);
+        r = at(4);  // groove: the outer half dark at the top, light at the bottom
+        CHECK(grey(img, r.x + 50, r.y) == 108 && grey(img, r.x + 50, r.y + 1) == 255);
+        CHECK(grey(img, r.x + 50, r.bottom() - 1) == 255 && grey(img, r.x + 50, r.bottom() - 2) == 108);
+        CHECK(rgbIs(img, r.x + 50, r.y + 30, canvas.r, canvas.g, canvas.b));  // (no background)
+        r = at(5);  // ridge 4px: light then dark at the top
+        CHECK(grey(img, r.x + 50, r.y) == 255 && grey(img, r.x + 50, r.y + 1) == 255 && grey(img, r.x + 50, r.y + 2) == 108);
+        r = at(6);  // double 6px: thirds
+        CHECK(rgbIs(img, r.x + 50, r.y + 1, 0x20, 0x40, 0x80) && rgbIs(img, r.x + 50, r.y + 2, 255, 255, 255) &&
+              rgbIs(img, r.x + 50, r.y + 3, 255, 255, 255) && rgbIs(img, r.x + 50, r.y + 4, 0x20, 0x40, 0x80));
+        r = at(7);  // dashed: a dash at the corner, gaps along the side
+        CHECK(rgbIs(img, r.x, r.y, 0xa0, 0, 0) && rgbIs(img, r.right() - 1, r.y, 0xa0, 0, 0));
+        int on = 0, off = 0;
+        for (int x = r.x; x < r.right(); x++) (rgbIs(img, x, r.y, 0xa0, 0, 0) ? on : off)++;
+        CHECK(on > 40 && off > 30 && on + off == 100);
+        r = at(8);  // dotted 2px: square dots, as far apart as they are wide
+        on = off = 0;
+        for (int x = r.x; x < r.right(); x++) (rgbIs(img, x, r.y, 0, 0x60, 0) ? on : off)++;
+        CHECK(on >= 48 && on <= 52 && on + off == 100 && rgbIs(img, r.x, r.y + 1, 0, 0x60, 0));
+        r = at(12);  // per-side colours and widths
+        CHECK(rgbIs(img, r.x + 50, r.y, 255, 0, 0) && rgbIs(img, r.x + 50, r.y + 1, 255, 255, 255));
+        CHECK(rgbIs(img, r.right() - 1, r.y + 30, 0, 255, 0) && rgbIs(img, r.right() - 4, r.y + 30, 0, 255, 0) &&
+              rgbIs(img, r.right() - 5, r.y + 30, 255, 255, 255));
+        CHECK(rgbIs(img, r.x + 50, r.bottom() - 8, 0, 0, 255) && rgbIs(img, r.x + 50, r.bottom() - 9, 255, 255, 255));
+        CHECK(rgbIs(img, r.x + 1, r.y + 30, 255, 165, 0) && rgbIs(img, r.x + 2, r.y + 30, 255, 255, 255));
+        CHECK(rgbIs(img, r.x, r.bottom() - 1, 0, 0, 255) && rgbIs(img, r.right() - 1, r.bottom() - 1, 0, 0, 255));  // (corners)
+        r = at(13);  // four radii: square top-left, rounder and rounder clockwise
+        CHECK(rgbIs(img, r.x, r.y, 0x10, 0x20, 0x40));
+        CHECK(rgbIs(img, r.right() - 1, r.y, canvas.r, canvas.g, canvas.b) &&
+              rgbIs(img, r.right() - 3, r.bottom() - 3, canvas.r, canvas.g, canvas.b) &&
+              rgbIs(img, r.x + 4, r.bottom() - 4, canvas.r, canvas.g, canvas.b));
+        CHECK(rgbIs(img, r.x + 50, r.y + 30, 0x30, 0x70, 0xc0));
+        int mixed = 0;  // (anti-aliased pixels along the big corner: neither the canvas, the border nor the inside)
+        for (int y = r.bottom() - 30; y < r.bottom(); y++)
+            for (int x = r.x; x < r.x + 30; x++) {
+                Color c = img.colorAt(x, y);
+                mixed += c != canvas && c != Color(0x10, 0x20, 0x40) && c != Color(0x30, 0x70, 0xc0);
+            }
+        CHECK(mixed > 40);
+        r = at(14);  // rounded per-side colours: each side its own, mixed only along the corner's line
+        CHECK(rgbIs(img, r.x + 50, r.y + 2, 255, 0, 0) && rgbIs(img, r.right() - 3, r.y + 30, 0, 255, 0) &&
+              rgbIs(img, r.x + 50, r.bottom() - 3, 0, 0, 255) && rgbIs(img, r.x + 2, r.y + 30, 255, 165, 0));
+        r = at(15);  // none: no border, no width
+        CHECK(rgbIs(img, r.x, r.y, 0xee, 0xee, 0xee));
+        r = at(17);  // a hidden left side, a dotted bottom
+        CHECK(rgbIs(img, r.x, r.y + 30, 255, 255, 255) && rgbIs(img, r.x + 50, r.y, 255, 0, 0));
+    }
+
+    // --- gradients ---
+    BoxSheet gs(
+        ".v { background: linear-gradient(#ffffff, #000000); }\n"
+        ".h { background-image: linear-gradient(90deg, #ff0000, #0000ff); }\n"
+        ".corner { background-image: linear-gradient(to bottom right, #ffffff, #000000); }\n"
+        ".hard { background-image: linear-gradient(to right, #ff0000 0 50%, #0000ff 50% 100%); }\n"
+        ".xp { background: linear-gradient(#ffffff 0%, #ece9d8 85%, #d6d0c5 100%); border: 1px solid #003c74; border-radius: 3px; }\n"
+        ".glass { background: linear-gradient(rgba(255,255,255,0.6) 0 50%, rgba(255,255,255,0) 50% 100%), linear-gradient(#a8d0f0, #2070b0);"
+        " border: 1px solid rgba(0,0,0,0.5); border-radius: 6px; }\n"
+        ".rad { background-image: radial-gradient(circle, #ffffff, #0000ff); }\n"
+        ".radc { background-image: radial-gradient(circle closest-side at 30% 40%, yellow, red 60%, transparent); }\n"
+        ".rep { background-image: repeating-linear-gradient(45deg, #ffcc00 0 8px, #222222 8px 16px); }\n"
+        ".repr { background-image: repeating-radial-gradient(circle, #ff0000 0 5px, #ffffff 5px 10px); }\n"
+        ".ell { background-image: radial-gradient(ellipse farthest-corner at 20px 20px, white, green); border-radius: 12px; }\n"
+        ".fade { background-image: linear-gradient(to right, #ff0000, transparent); }\n");
+    CHECK(gs.problems.empty());
+    const char* gorder[] = {"v", "h", "corner", "hard", "xp", "glass", "rad", "radc", "rep", "repr", "ell", "fade"};
+    Image gimg(cols * (bw + gap) + gap, 2 * (100 + gap) + gap, canvas);
+    Painter gp(gimg);
+    auto gat = [&](int i) { return Rect(gap + (i % cols) * (bw + gap), gap + (i / cols) * (100 + gap), bw, 100); };
+    for (int i = 0; i < 12; i++) style::box(gp, gat(i), gs.style(gorder[i]));
+    savePng(outDir() + "/css-gradients.png", gimg);
+    {
+        Rect r = gat(0);  // white at the top, black at the bottom, grey between; smooth: steps of at most 3 per row
+        CHECK(grey(gimg, r.x + 50, r.y) >= 252 && grey(gimg, r.x + 50, r.bottom() - 1) <= 3);
+        CHECK(std::abs(grey(gimg, r.x + 50, r.y + 50) - 127) <= 2);
+        bool smooth = true;
+        for (int y = r.y + 1; y < r.bottom(); y++) {
+            int d = grey(gimg, r.x + 50, y - 1) - grey(gimg, r.x + 50, y);
+            smooth = smooth && d >= 0 && d <= 3;
+        }
+        CHECK(smooth);
+        CHECK(gimg.colorAt(r.x, r.y + 40) == gimg.colorAt(r.right() - 1, r.y + 40));  // (one colour along a row)
+        r = gat(1);
+        CHECK(rgbIs(gimg, r.x, r.y + 50, 254, 0, 1, 2) && rgbIs(gimg, r.right() - 1, r.y + 50, 1, 0, 254, 2) &&
+              rgbIs(gimg, r.x + 50, r.y + 50, 127, 0, 128, 2));
+        r = gat(2);  // to the corner: the corners black and white, the other diagonal mid-grey
+        CHECK(grey(gimg, r.x, r.y) >= 250 && grey(gimg, r.right() - 1, r.bottom() - 1) <= 5);
+        CHECK(std::abs(grey(gimg, r.right() - 1, r.y) - grey(gimg, r.x, r.bottom() - 1)) <= 2 &&
+              std::abs(grey(gimg, r.right() - 1, r.y) - 128) <= 3);
+        r = gat(3);  // a hard stop
+        CHECK(rgbIs(gimg, r.x + 48, r.y + 50, 255, 0, 0) && rgbIs(gimg, r.x + 51, r.y + 50, 0, 0, 255));
+        r = gat(5);  // glass: the gloss's hard line half way, the colour under it
+        Color top = gimg.colorAt(r.x + 50, r.y + 49), below = gimg.colorAt(r.x + 50, r.y + 51);
+        CHECK(top.r > below.r + 60);
+        r = gat(6);  // radial: white in the middle, blue at the corners
+        CHECK(rgbIs(gimg, r.x + 50, r.y + 50, 255, 255, 255, 4) && rgbIs(gimg, r.x, r.y, 0, 0, 255, 6));
+        CHECK(gimg.colorAt(r.x + 30, r.y + 50) == gimg.colorAt(r.x + 69, r.y + 50));  // (symmetric)
+        r = gat(8);  // repeating: one period (16 px along 45°: 16√2 across) apart, the same
+        CHECK(gimg.colorAt(r.x + 30, r.y + 60) == gimg.colorAt(r.x + 40, r.y + 70));  // (along a stripe)
+        {
+            int yellow = 0, dark = 0;
+            for (int x = r.x; x < r.right(); x++) {
+                yellow += rgbIs(gimg, x, r.y + 50, 0xff, 0xcc, 0x00, 1);
+                dark += rgbIs(gimg, x, r.y + 50, 0x22, 0x22, 0x22, 1);
+            }
+            CHECK(yellow > 30 && dark > 30);
+        }
+        CHECK(rgbIs(gimg, r.x + 1, r.bottom() - 2, 0xff, 0xcc, 0x00, 1));
+        r = gat(9);  // repeating radial: rings of 5 px
+        CHECK(rgbIs(gimg, r.x + 50, r.y + 50, 255, 0, 0, 1) && rgbIs(gimg, r.x + 57, r.y + 50, 255, 255, 255, 1) &&
+              rgbIs(gimg, r.x + 62, r.y + 50, 255, 0, 0, 1));
+        r = gat(11);  // to transparent: red fading, never grey
+        Color mid = gimg.colorAt(r.x + 50, r.y + 50);
+        Color expect = blendOver(Color(255, 0, 0, 128), canvas);
+        CHECK(std::abs(mid.r - expect.r) <= 3 && std::abs(mid.g - expect.g) <= 3 && std::abs(mid.b - expect.b) <= 3);
+    }
+
+    // --- shadows ---
+    BoxSheet ss(
+        ".hard { background-color: white; box-shadow: 4px 4px 0 #000000; }\n"
+        ".soft { background-color: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.6); }\n"
+        ".inner { background-color: #dddddd; box-shadow: inset 0 2px 6px rgba(0,0,0,0.7); }\n"
+        ".ring { background-color: white; border-radius: 4px; box-shadow: 0 0 0 3px #3070c0, 0 0 10px 3px rgba(48,112,192,0.6); }\n"
+        ".aero { background: linear-gradient(#e8f2fc, #b0d0f0); border: 1px solid #5080b0; border-radius: 6px;"
+        " box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 5px rgba(0,0,0,0.5); }\n"
+        ".clear { background-color: rgba(255,255,255,0.3); box-shadow: 6px 6px 8px #000000; }\n");
+    CHECK(ss.problems.empty());
+    const char* sorder[] = {"hard", "soft", "inner", "ring", "aero", "clear"};
+    Image simg(cols * (bw + 2 * gap) + gap, bh + 4 * gap, canvas);
+    Painter sp(simg);
+    auto sat = [&](int i) { return Rect(gap + i * (bw + 2 * gap), 2 * gap, bw, bh); };
+    style::clearBoxCaches();
+    int made0 = style::shadowMasksMade();
+    for (int i = 0; i < 6; i++) style::box(sp, sat(i), ss.style(sorder[i]));
+    int made1 = style::shadowMasksMade();
+    CHECK(made1 - made0 == 8);  // (one mask per shadow)
+    Image simg2(simg.width(), simg.height(), canvas);  // (a repaint: the kept masks, the same pixels)
+    Painter sp2(simg2);
+    for (int i = 0; i < 6; i++) style::box(sp2, sat(i), ss.style(sorder[i]));
+    CHECK(style::shadowMasksMade() == made1);
+    savePng(outDir() + "/css-shadows.png", simg2);
+    {
+        Rect r = sat(0);
+        CHECK(rgbIs(simg2, r.right() + 2, r.bottom() + 2, 0, 0, 0) && rgbIs(simg2, r.right() + 5, r.bottom() + 5, canvas.r, canvas.g, canvas.b));
+        CHECK(rgbIs(simg2, r.right() + 2, r.y + 2, canvas.r, canvas.g, canvas.b));  // (offset: none at the top right)
+        r = sat(1);  // a soft shadow falling off below the box
+        int d1 = darkness(simg2, r.x + 50, r.bottom() + 1), d2 = darkness(simg2, r.x + 50, r.bottom() + 5),
+            d3 = darkness(simg2, r.x + 50, r.bottom() + 9), d0 = darkness(simg2, r.x + 50, r.bottom() + 20);
+        int base = darkness(simg2, 2, 2);
+        CHECK(d1 > d2 && d2 > d3 && d3 > base && d0 - base <= 3);
+        CHECK(darkness(simg2, r.x + 50, r.y - 3) < darkness(simg2, r.x + 50, r.bottom() + 3));  // (offset down)
+        CHECK(rgbIs(simg2, r.x + 50, r.y + 30, 255, 255, 255));
+        r = sat(2);  // inset: darker near the top edge than in the middle
+        CHECK(darkness(simg2, r.x + 50, r.y + 1) > darkness(simg2, r.x + 50, r.y + 8) + 30);
+        CHECK(rgbIs(simg2, r.x + 50, r.y + 30, 0xdd, 0xdd, 0xdd, 1));
+        r = sat(3);  // spread 3px, the first shadow on top
+        CHECK(rgbIs(simg2, r.x + 50, r.y - 2, 0x30, 0x70, 0xc0) && rgbIs(simg2, r.x - 2, r.y + 30, 0x30, 0x70, 0xc0));
+        CHECK(darkness(simg2, r.x + 50, r.y - 6) > base);
+        r = sat(5);  // a see-through box: its shadow is cut out under it
+        Color in = simg2.colorAt(r.x + 50, r.y + 30), expect = blendOver(Color(255, 255, 255, 77), canvas);
+        CHECK(std::abs(in.r - expect.r) <= 1 && std::abs(in.g - expect.g) <= 1);
+        CHECK(darkness(simg2, r.right() + 4, r.bottom() + 4) > base + 100);
+        bool same = true;  // (kept masks draw the same pixels)
+        for (int y = 0; y < simg.height(); y++)
+            for (int x = 0; x < simg.width(); x++) same = same && simg.pixel(x, y) == simg2.pixel(x, y);
+        CHECK(same);
+    }
+
+    // --- fractional rectangles and a scaled painter ---
+    {
+        Image fimg(220, 120, canvas);
+        Painter fp(fimg);
+        style::box(fp, RectF(10.5f, 10.25f, 80.5f, 40.5f), bs.style("outset2"));
+        style::box(fp, RectF(110.3f, 10.6f, 90.2f, 40.1f), gs.style("glass"));
+        Painter big(fimg, 1.5f);
+        style::box(big, Rect(8, 40, 50, 30), bs.style("outset2"));
+        style::box(big, Rect(70, 40, 60, 30), ss.style("soft"));
+        savePng(outDir() + "/css-fractional.png", fimg);
+        CHECK(grey(fimg, 50, 30) == 192);
+        Color edge = fimg.colorAt(10, 30);  // (half covered: the light edge over the canvas)
+        CHECK(edge.r > canvas.r && edge.r < 255);
+        CHECK(grey(fimg, 12, 60) == 255 && grey(fimg, 13, 61) == 192);  // (scaled 1.5: 2 px are 3 device px)
+        CHECK(grey(fimg, 14, 62) == 192 && grey(fimg, 86, 104) == 24);
+    }
+
+    // --- text-shadow on a Label, Button and list rows; opacity on a widget with a child ---
+    std::vector<css::Problem> problems;
+    css::SheetPtr extra = css::parse(
+        "#shadowed { color: white; text-shadow: 1px 1px 0 #000000, 0 0 4px #ff0000; font-size: 18px; background-color: #406080; }\n"
+        "#sharp { color: #ffffff; text-shadow: 2px 2px 0 #000000; background-color: #808080; font-size: 16px; }\n"
+        "#outer { opacity: 0.5; background-color: #ff0000; }\n"
+        "#inner { background-color: #0000ff; }\n"
+        "#lit { color: #ffffff; text-shadow: 0 2px 0 #ff00ff; }\n"
+        "#rows::item { color: #ffffff; text-shadow: 1px 1px 0 #00ffff; }\n",
+        "paint.css", problems);
+    CHECK(problems.empty());
+    theme::setStyles({theme::builtinSheet(), extra});
+    {
+        Window w(plat::WindowOptions{});
+        w.resizeWindow(360, 200);
+        auto* shadowed = w.add<Label>("Shadowed text");
+        shadowed->objectName = "shadowed";
+        shadowed->setGeometry(10, 10, 200, 40);
+        auto* sharp = w.add<Label>("Sharp");
+        sharp->objectName = "sharp";
+        sharp->setGeometry(220, 10, 120, 40);
+        auto* outer = w.add<Label>("");
+        outer->objectName = "outer";
+        outer->setGeometry(10, 60, 160, 70);
+        auto* inner = outer->add<Label>("");
+        inner->objectName = "inner";
+        inner->setGeometry(20, 15, 60, 40);
+        auto* lit = w.add<Button>("Lit button");
+        lit->objectName = "lit";
+        lit->setGeometry(190, 70, 140, 30);
+        auto* rows = w.add<ListWidget>();
+        rows->objectName = "rows";
+        rows->addItem("A list row");
+        rows->addItem("Another row");
+        rows->setGeometry(10, 140, 200, 56);
+        w.showWindow();
+        App::get().tick();
+        savePicture(w, "css-text");
+        const Image& fb = w.framebuffer();
+        Color bgc = fb.colorAt(200, 120);  // (the window's own background)
+        // the opacity: the parent's red at half over the window, the child's blue at half over the window
+        // (not over the red: the two are put on together, as one layer)
+        Color red = fb.colorAt(15, 65), blue = fb.colorAt(50, 100);
+        Color expRed = blendOver(Color(255, 0, 0, 128), bgc), expBlue = blendOver(Color(0, 0, 255, 128), bgc);
+        CHECK(std::abs(red.r - expRed.r) <= 1 && std::abs(red.g - expRed.g) <= 1 && std::abs(red.b - expRed.b) <= 1);
+        CHECK(std::abs(blue.r - expBlue.r) <= 1 && std::abs(blue.g - expBlue.g) <= 1 && std::abs(blue.b - expBlue.b) <= 1);
+        // the sharp shadow: black pixels 2 px right and down of white ones
+        int shadowPx = 0, whitePx = 0;
+        for (int y = 10; y < 50; y++)
+            for (int x = 220; x < 340; x++) {
+                Color c = fb.colorAt(x, y);
+                if (c == Color(255, 255, 255)) {
+                    whitePx++;
+                    Color d = fb.colorAt(x + 2, y + 2);
+                    if (d == Color(0, 0, 0)) shadowPx++;
+                }
+            }
+        CHECK(whitePx > 20 && shadowPx > whitePx / 4);
+        // the blurred red glow: reddish pixels around the text, beyond the sharp shadow
+        int glow = 0;
+        for (int y = 10; y < 50; y++)
+            for (int x = 10; x < 210; x++) {
+                Color c = fb.colorAt(x, y);
+                if (c.r > 0x40 + 20 && c.g < 0x60 && c.b < 0x80) glow++;
+            }
+        CHECK(glow > 50);
+        // the button's and the list rows' shadows
+        auto count = [&](Rect area, bool magenta) {  // (pixels mostly of the shadow's colour)
+            int n = 0;
+            for (int y = area.y; y < area.bottom(); y++)
+                for (int x = area.x; x < area.right(); x++) {
+                    Color c = fb.colorAt(x, y);
+                    n += magenta ? c.r > c.g + 80 && c.b > c.g + 80 : c.g > c.r + 80 && c.b > c.r + 80;
+                }
+            return n;
+        };
+        CHECK(count(Rect(190, 70, 140, 30), true) > 15);
+        CHECK(count(Rect(10, 140, 200, 56), false) > 15);
+        // with no opacity anywhere the layer isn't made: the same picture as painting directly (default.css)
+    }
+    theme::setSkin();
+    CHECK(!css::declaresOnNodes(theme::styles(), "opacity"));
+
+    // --- timings: a plain box, a gradient box, a blurred shadow (kept and made) ---
+    {
+        BoxSheet ts(
+            ".plain { background-color: #333333; border: 1px solid #555555; border-radius: 3px; }\n"
+            ".flat { background-color: #333333; }\n"
+            ".grad { background: linear-gradient(#fafafa, #d0d0d0); border: 1px solid #555555; border-radius: 3px; }\n"
+            ".shadow { background-color: white; border-radius: 3px; box-shadow: 0 2px 6px rgba(0,0,0,0.5); }\n");
+        Image timg(300, 100, canvas);
+        Painter tp(timg);
+        Rect r(20, 20, 100, 24);
+        auto time = [&](const css::Style& st, int n, bool clear) {
+            style::box(tp, r, st);
+            auto t0 = std::chrono::steady_clock::now();
+            for (int i = 0; i < n; i++) {
+                if (clear) style::clearBoxCaches();
+                style::box(tp, r, st);
+            }
+            return std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - t0).count() / n;
+        };
+        const css::Style& plain = ts.style("plain");
+        const css::Style& flat = ts.style("flat");
+        const css::Style& grad = ts.style("grad");
+        const css::Style& shadow = ts.style("shadow");
+        CHECK(!style::boxLook(plain).more && !style::boxLook(flat).more && style::boxLook(grad).more && style::boxLook(shadow).more);
+        // the box code as it was before gradients and shadows (the plain path must cost what it did)
+        auto before = [&](const css::Style& st, int n) {
+            auto t0 = std::chrono::steady_clock::now();
+            for (int i = 0; i < n; i++) {
+                const style::BoxLook& b = style::boxLook(st);
+                float rad = theme::rounded ? b.radius : 0.f;
+                if (b.fillOnly) {
+                    style::fill(tp, r, b.bg, rad);
+                    continue;
+                }
+                style::fill(tp, r, b.edge, rad);
+                int most = std::max(std::max(b.border.left, b.border.right), std::max(b.border.top, b.border.bottom));
+                style::fill(tp, style::inside(r, b.border), b.bg, std::max(0.f, rad - (float)most));
+            }
+            return std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - t0).count() / n;
+        };
+        auto fills = [&](int n) {
+            auto t0 = std::chrono::steady_clock::now();
+            for (int i = 0; i < n; i++) tp.fillRect(r, Color(0x33, 0x33, 0x33));
+            return std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - t0).count() / n;
+        };
+        double tFill = fills(400000), tFlat = time(flat, 400000, false), tFlatBefore = before(flat, 400000);
+        double tPlain = time(plain, 50000, false), tPlainBefore = before(plain, 50000);
+        double tGrad = time(grad, 20000, false), tShadow = time(shadow, 20000, false), tShadowNew = time(shadow, 2000, true);
+        printf("style::box 100x24: flat %.0f ns (code before: %.0f, fillRect: %.0f); rounded with a border %.0f ns (code "
+               "before: %.0f); gradient %.0f ns; blurred shadow %.0f ns kept / %.0f ns made\n",
+               tFlat, tFlatBefore, tFill, tPlain, tPlainBefore, tGrad, tShadow, tShadowNew);
+    }
+}
+
 int main() {
     App::get().initHeadless();
     util::makeDirs("build/toolkit-samples");
@@ -1636,5 +2040,6 @@ int main() {
     testDialogs();
     testFileDialog();
     gallery();
+    testCssPainting();
     TEST_MAIN_END();
 }

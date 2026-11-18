@@ -21,8 +21,22 @@
 // font-weight, font-style, letter-spacing) inherit from the parent node; the rest don't. var() is resolved on
 // the node it is used on (after inheritance), with cycles reported and treated as invalid (the fallback,
 // else the property's default). Shorthands are expanded when parsed: padding / margin / border-width /
-// border-color / border-radius (1–4 values), border / border-top… (width style colour, any order),
-// background (its colour).
+// border-style / border-color / border-radius (1–4 values), border / border-top… (width style colour, any
+// order; what is left out takes its initial value: medium, none, currentColor), background (the colour of its
+// last layer and each layer's gradient, in any order: background-color and background-image; url() images,
+// positions, sizes and repeats in it are not read).
+//
+// PAINTING VALUES (css_paint.cpp; drawn by ui/toolkit's style::box). background-image: none, or a comma list of
+// linear-gradient() / radial-gradient() and their repeating- forms (the first on top): angles in deg, rad,
+// turn, grad, or `to` a side or a corner; a radial gradient's shape (circle / ellipse), size (closest-side,
+// closest-corner, farthest-side, farthest-corner, or a circle's length / an ellipse's two lengths or
+// percentages) and `at` position (keywords, lengths, percentages); colour stops with no, one or two positions
+// (% or lengths, before or after the colour). Style::gradients(). box-shadow: none, or a list of [inset] x y
+// [blur [spread]] [colour] (the colour: currentColor when left out); text-shadow the same without inset and
+// spread. Style::shadows(). border-style and border-top-style…: none hidden solid dashed dotted double groove
+// ridge inset outset; a side whose style is none or hidden has a width of 0 (Style::length, edges). opacity:
+// a number or a percentage (the whole node: Widget::paintTree). declaresOnNodes() tells whether a sheet sets a
+// property at all. Transition hints, conic gradients and url() images are not supported (reported).
 //
 // PROBLEMS. Nothing in a stylesheet stops it loading: a rule, declaration or value that can't be read is
 // left out and reported (line, column, message), as browsers skip what they don't understand. At-rules are
@@ -33,9 +47,7 @@
 //   combinators A + B and A ~ B (Node::childIndex / sibling);
 // - at-rules: @import url(…) / "…" (ParseOptions), @media (width / height / resolution… : Engine::setMedia),
 //   @font-face (fontFaces());
-// - units: rem (of :root's font size), vw / vh (of the media's width / height), ch;
-// - values: linear-gradient() / radial-gradient() (repeating- too) in background-image and the background
-//   shorthand (Style::gradients), box-shadow and text-shadow (Style::shadows), border-style per side, opacity.
+// - units: rem (of :root's font size), vw / vh (of the media's width / height), ch.
 //
 // THREADS. Parsing and computing are pure functions of their inputs: any thread. An Engine is changed on
 // one thread (the GUI's) and read there.
@@ -170,7 +182,7 @@ public:
     // empty: none
     struct ColorStop {
         Rgba color;
-        double position = -1;  // where on the gradient line: a fraction (0…1), or px if `px`; -1: spread evenly
+        double position = -1;  // where on the gradient line: a fraction (0…1), or px if `px`; -1: not given
         bool px = false;
     };
     struct Gradient {
@@ -181,10 +193,10 @@ public:
         int cornerX = 0, cornerY = 0;  // (toCorner) -1 left / top, +1 right / bottom
         bool circle = false;  // radial: a circle (else an ellipse)
         enum Size { FarthestCorner, ClosestSide, ClosestCorner, FarthestSide, Explicit } size = FarthestCorner;
-        double radiusX = 0, radiusY = 0;  // (Explicit) px, or fractions of the box if radiusPercent
-        bool radiusPercent = false;
-        double centerX = 0.5, centerY = 0.5;  // radial: fractions of the box, or px if centerPx
-        bool centerPx = false;
+        double radiusX = 0, radiusY = 0;  // (Explicit) px, or fractions of the box's width / height if …Percent
+        bool radiusXPercent = false, radiusYPercent = false;
+        double centerX = 0.5, centerY = 0.5;  // radial: fractions of the box, or px from its left / top if …Px
+        bool centerXPx = false, centerYPx = false;
         std::vector<ColorStop> stops;
     };
     std::vector<Gradient> gradients(const std::string& property = "background-image") const;
@@ -256,5 +268,9 @@ private:
     mutable std::vector<Problem> problems_;
     mutable std::set<std::string> reported_;  // (each problem once per set of sheets)
 };
+
+// does any rule of the engine's sheets declare `property` for nodes themselves (not only for parts, ::name)?
+// (Widget::paintTree asks it for opacity once per set of sheets: no rule, nothing to look up per widget)
+bool declaresOnNodes(const Engine& engine, const std::string& property);
 
 }  // namespace css

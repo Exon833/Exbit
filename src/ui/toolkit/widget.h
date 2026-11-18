@@ -295,12 +295,15 @@ protected:
     // the type that was `was` becomes `now` (Button: PushButton <-> ToolButton); else it is added
     void replaceStyleType(const std::string& was, const std::string& now);
 public:
-    void paintTree(Painter& p, const Rect& dirty);  // dirty in this widget's coordinates
+    // dirty in this widget's coordinates; with an `opacity` below 1 (its computed style), it and its children
+    // are drawn into a layer, put on at that opacity
+    void paintTree(Painter& p, const Rect& dirty);
     bool deleted_ = false;
     bool layoutDirty_ = false;
     static bool alive(const Widget* w);  // not destroyed yet (dispatch safety)
 
 private:
+    void paintSelf(Painter& p, const Rect& dirty);  // (paintTree, without the opacity)
     Widget* parent_ = nullptr;
     std::vector<std::unique_ptr<Widget>> children_;
     std::unique_ptr<class Layout> layout_;

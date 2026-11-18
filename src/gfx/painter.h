@@ -13,6 +13,7 @@
 // image is multiplied by it; pixel-aligned rectangles stay pixel-aligned (their edges are rounded to
 // device pixels, so neighbours still meet exactly). At scale 1 nothing differs from a plain Painter.
 #pragma once
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -56,6 +57,80 @@ private:
     std::vector<Sub> subpaths_;
     PointF cur_, start_;
 };
+
+// (added) A colour for every pixel of a fill (gradients): shade() writes the n premultiplied pixels of device
+// row y from device column x on (pixel centres at +0.5).
+class Shader {
+public:
+    virtual ~Shader() = default;
+    virtual void shade(int x, int y, int n, uint32_t* out) const = 0;
+};
+
+// (added) A gradient's colours along its line, worked out once: stops at positions along it (0 its start, 1
+// its end; any order of equal positions is a hard stop), interpolated premultiplied (as CSS: a fade to
+// transparent stays the colour, not grey). Before the first stop: its colour, after the last: the last's;
+// repeating: the stops' span over and over.
+struct GradientStop {
+    float pos = 0;
+    Color color;
+};
+class GradientRamp {
+public:
+    GradientRamp() = default;
+    GradientRamp(const std::vector<GradientStop>& stops, bool repeating);  // stops in order of position
+    uint32_t at(float t) const {
+        if (!(t == t)) t = t0_;  // (NaN)
+        float u = (t - t0_) * k_;
+        if (repeating_) {
+            u -= std::floor(u);
+        } else {
+            if (u < 0) return first_;
+            if (u >= 1) return last_;
+        }
+        int i = (int)(u * kSize);
+        return lut_[i < 0 ? 0 : i >= kSize ? kSize - 1 : i];
+    }
+    // its average over [t - width / 2, t + width / 2] (a pixel's footprint along the gradient): hard stops
+    // anti-aliased
+    uint32_t average(float t, float width) const;
+    bool sharp() const { return sharp_; }  // has steps a pixel may straddle (hard stops): worth average()
+    bool empty() const { return lut_.empty(); }
+    bool opaque() const { return opaque_; }  // every colour of it
+private:
+    static constexpr int kSize = 1024;
+    float t0_ = 0, k_ = 1;
+    bool repeating_ = false, opaque_ = true, sharp_ = false;
+    uint32_t first_ = 0, last_ = 0;
+    std::vector<uint32_t> lut_;
+    std::vector<float> sum_;  // (sharp) prefix sums of the entries, 4 channels each: sum_[4 i + c]
+    void integral(float u, float out[4]) const;
+};
+// a linear gradient in device pixels: from p0 (t = 0) to p1 (t = 1)
+class LinearGradientShader : public Shader {
+public:
+    LinearGradientShader(PointF p0, PointF p1, const GradientRamp& ramp);
+    void shade(int x, int y, int n, uint32_t* out) const override;
+private:
+    const GradientRamp& ramp_;
+    float a_ = 0, b_ = 0, c_ = 0;  // t = a x + b y + c
+    float foot_ = 0;               // a pixel's width along the gradient (in t)
+};
+// a radial gradient in device pixels: t = 1 on the ellipse of radii rx, ry around the centre
+class RadialGradientShader : public Shader {
+public:
+    RadialGradientShader(PointF centre, float rx, float ry, const GradientRamp& ramp);
+    void shade(int x, int y, int n, uint32_t* out) const override;
+private:
+    const GradientRamp& ramp_;
+    float cx_, cy_, kx_, ky_;
+};
+
+// (added) the coverage (0..255) of polygons (device pixels, closed) over `area`, into mask (area.w x area.h)
+void coverageMask(const std::vector<std::vector<PointF>>& polys, const Rect& area, std::vector<uint8_t>& mask,
+                  bool evenOdd = false);
+// (added) a Gaussian blur (standard deviation sigma px) of an 8-bit mask, as three box blurs each way; what is
+// beyond its edges counts as its edge pixels
+void blurMask(uint8_t* mask, int w, int h, float sigma);
 
 enum class LineCap { Flat, Square, Round };
 enum class LineJoin { Miter, Bevel, Round };
@@ -117,6 +192,22 @@ public:
     void drawTextBlock(const RectF& box, int align, const std::string& text, const Font& font, Color c,
                        bool wrap = true);
 
+    // --- device pixels (added: style::box's borders, shadows and gradients are worked out in them) ---
+    PointF toDevice(PointF p) const { return {(p.x + tx_) * scale_, (p.y + ty_) * scale_}; }
+    Rect deviceClip() const { return clip_; }
+    // closed polygons in device pixels (non-zero winding, or even-odd), in a colour or a shader's colours
+    void fillDevice(const std::vector<std::vector<PointF>>& polys, Color c, bool evenOdd = false);
+    void fillDevice(const std::vector<std::vector<PointF>>& polys, const Shader& shader, bool evenOdd = false);
+    // a rectangle in device pixels (fractional edges: partly covered pixels), in a colour or a shader's
+    // colours: spans, no rasterizing
+    void fillDeviceRect(const RectF& r, Color c);
+    void fillDeviceRect(const RectF& r, const Shader& shader);
+    // an 8-bit coverage mask (w x h, stride w) with its top-left at device (x, y), in colour c
+    void blendMask(int x, int y, int w, int h, const uint8_t* mask, Color c);
+    // a premultiplied image with its top-left at device (x, y), its alpha times `opacity` (a widget drawn into
+    // a layer for its opacity)
+    void blendLayer(const Image& layer, int x, int y, float opacity);
+
     // pixel blending with the current clip/opacity (used by the rasterizer and by callers that
     // write coverage directly, e.g. waveform tiles). x, y in current coordinates (the translation,
     // rounded to whole pixels, is added); premulColor is premultiplied 0xAARRGGBB.
@@ -135,4 +226,5 @@ private:
     float opacity_ = 1;
     std::vector<State> stack_;
     void rasterize(const std::vector<Path::Poly>& polys, Color c, bool evenOdd);  // device coordinates
+    void rasterizeShaded(const std::vector<std::vector<PointF>>& polys, const Shader& s, bool evenOdd);
 };
