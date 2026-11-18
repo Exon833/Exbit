@@ -520,11 +520,35 @@ std::string Widget::property(const std::string& key) const {
 }
 
 // --- painting ---
-void Widget::update() { update(rect()); }
+namespace {
+// whether the stylesheets set opacity / box-shadow on widgets at all (else neither is looked up: an int compare)
+struct NodeLooks {
+    int generation = -1;
+    bool opacity = false, shadow = false;
+};
+const NodeLooks& nodeLooks() {
+    static NodeLooks n;
+    const css::Engine& engine = theme::styles();
+    if (engine.generation() != n.generation) {
+        n.generation = engine.generation();
+        n.opacity = css::declaresOnNodes(engine, "opacity");
+        n.shadow = css::declaresOnNodes(engine, "box-shadow");
+    }
+    return n;
+}
+}  // namespace
+
+Rect Widget::paintRect() const {
+    if (!nodeLooks().shadow) return rect();
+    const style::Insets& o = style::boxLook(computedStyle()).overflow;
+    return rect().adjusted(-o.left, -o.top, o.right, o.bottom);
+}
+
+void Widget::update() { update(paintRect().united(paintedRect_)); }
 
 void Widget::update(const Rect& area) {
     if (deleted_ && !visible_) return;
-    Rect r = area.intersected(rect());
+    Rect r = area.intersected(paintRect().united(paintedRect_));
     if (r.empty()) return;
     const Widget* c = this;
     while (c->parent_) {
@@ -543,14 +567,7 @@ void Widget::paintTree(Painter& p, const Rect& dirty) {
     if (!visible_ || deleted_) return;
     // its opacity: only looked up while some rule of the stylesheets sets one for widgets (else this costs an
     // int compare); kept with its computed style (style::boxLook)
-    static int generation = -1;
-    static bool anyOpacity = false;
-    const css::Engine& engine = theme::styles();
-    if (engine.generation() != generation) {
-        generation = engine.generation();
-        anyOpacity = css::declaresOnNodes(engine, "opacity");
-    }
-    float opacity = anyOpacity ? style::boxLook(computedStyle()).opacity : 1.f;
+    float opacity = nodeLooks().opacity ? style::boxLook(computedStyle()).opacity : 1.f;
     if (opacity >= 1.f) {
         paintSelf(p, dirty);
         return;
@@ -559,7 +576,7 @@ void Widget::paintTree(Painter& p, const Rect& dirty) {
     // into a layer (device pixels: the part of the dirty area it may draw on), put on at once
     float s = p.scale();
     PointF t = p.translation();
-    Rect lim = clipsChildren_ ? dirty.intersected(rect()) : dirty;
+    Rect lim = clipsChildren_ ? dirty.intersected(paintRect()) : dirty;
     if (lim.empty()) return;
     int x0 = (int)std::floor((lim.x + t.x) * s), y0 = (int)std::floor((lim.y + t.y) * s);
     int x1 = (int)std::ceil((lim.right() + t.x) * s), y1 = (int)std::ceil((lim.bottom() + t.y) * s);
@@ -573,23 +590,24 @@ void Widget::paintTree(Painter& p, const Rect& dirty) {
 }
 
 void Widget::paintSelf(Painter& p, const Rect& dirty) {
-    Rect area = dirty.intersected(rect());
+    Rect own = paintRect();  // (its rect, and where its outer shadows reach)
+    paintedRect_ = own;
+    Rect area = dirty.intersected(own);
     if (area.empty() && clipsChildren_) return;
     p.save();
-    p.setClip(rect());
+    p.setClip(own);
     if (!area.empty()) {
-        if (hasBackground_) p.fillRect(area, background_);
+        if (hasBackground_) p.fillRect(area.intersected(rect()), background_);
         paint(p);
     }
-    if (!clipsChildren_) {
-        p.restore();
-        p.save();
-    }
+    p.restore();
+    p.save();
+    if (clipsChildren_) p.setClip(rect());
     for (size_t i = 0; i < children_.size(); ++i) {
         Widget* c = children_[i].get();
         if (!c->visible_ || c->deleted_) continue;
         Rect cr = c->geom_;
-        Rect cd = dirty.intersected(cr);
+        Rect cd = dirty.intersected(c->paintRect().translated(cr.x, cr.y));
         if (cd.empty()) continue;
         p.save();
         p.translate((float)cr.x, (float)cr.y);

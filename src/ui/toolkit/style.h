@@ -106,6 +106,7 @@ struct BoxLook {
     std::shared_ptr<const BoxPaint> more;  // null: a plain box
     std::vector<css::Style::Shadow> textShadows;  // text-shadow (the first on top): style::text
     float opacity = 1;  // the node's whole opacity (Widget::paintTree), 0..1
+    Insets overflow;    // how far its outer box-shadows reach beyond it (Widget::paintRect)
 };
 // what a box has beyond a plain one (null: nothing), and drawing such a box (style_box.cpp)
 std::shared_ptr<const BoxPaint> boxPaint(const css::Style& s, const BoxLook& look);
@@ -124,6 +125,16 @@ inline const BoxLook& boxLook(const css::Style& s) {
         look->more = boxPaint(s, *look);
         if (s.has("text-shadow")) look->textShadows = s.shadows("text-shadow");
         if (s.has("opacity")) look->opacity = (float)std::clamp(s.number("opacity", 1), 0.0, 1.0);
+        if (s.has("box-shadow"))
+            for (const css::Style::Shadow& sh : s.shadows("box-shadow")) {
+                if (sh.inset) continue;
+                double reach = std::max(0.0, sh.blur + sh.spread) + 1;  // (+1: the soft edge's last pixel)
+                Insets& o = look->overflow;
+                o.left = std::max(o.left, (int)std::ceil(std::max(0.0, reach - sh.x)));
+                o.right = std::max(o.right, (int)std::ceil(std::max(0.0, reach + sh.x)));
+                o.top = std::max(o.top, (int)std::ceil(std::max(0.0, reach - sh.y)));
+                o.bottom = std::max(o.bottom, (int)std::ceil(std::max(0.0, reach + sh.y)));
+            }
         s.memo_.value = look;
     }
     return *static_cast<const BoxLook*>(s.memo_.value.get());

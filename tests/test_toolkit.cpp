@@ -2179,6 +2179,62 @@ static void testCssPainting() {
     }
 }
 
+// outer box-shadows reach beyond the widget (a glow around a focused button), and are repainted away
+static void testShadowOverflow() {
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(200, 60);
+    auto* b = w.add<Button>("Glow");
+    b->setGeometry(40, 15, 80, 26);
+    std::vector<css::Problem> problems;
+    theme::setStyles({theme::builtinSheet(),
+                      css::parse("PushButton:focus { box-shadow: 0 0 6px 3px #ff0000; }", "glow.css", problems)});
+    CHECK(problems.empty());
+    w.showWindow();
+    App::get().tick();
+    Color before = w.framebuffer().colorAt(36, 28);  // (4 px left of the button)
+    b->setFocus();
+    App::get().tick();
+    Color glow = w.framebuffer().colorAt(36, 28);
+    CHECK(glow.r > before.r + 40 && glow.g < glow.r);
+    CHECK(b->paintRect().x < 0 && b->paintRect().right() > b->width());
+    b->clearFocus();
+    App::get().tick();
+    CHECK(w.framebuffer().colorAt(36, 28) == before);  // (repainted away)
+    theme::setSkin();
+    CHECK(b->paintRect() == b->rect());
+    w.hideWindow();
+}
+
+// a border around a see-through background: the border is a ring, the inside shows what is under it
+static void testSeeThroughBorder() {
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(120, 60);
+    auto* g = w.add<GroupBox>("");
+    g->setGeometry(10, 10, 100, 40);
+    std::vector<css::Problem> problems;
+    theme::setStyles({theme::builtinSheet(),
+                      css::parse("GroupBox { margin-top: 0; background-color: transparent; border: 2px solid #ff0000; "
+                                 "border-radius: 0; }",
+                                 "ring.css", problems)});
+    CHECK(problems.empty());
+    w.showWindow();
+    App::get().tick();
+    const Image& fb = w.framebuffer();
+    CHECK(fb.colorAt(10, 30) == Color(255, 0, 0) && fb.colorAt(11, 30) == Color(255, 0, 0));
+    CHECK(fb.colorAt(60, 30) == theme::c("window"));  // (the inside: the window, not the border's red)
+    // half see-through: tinted, not red
+    theme::setStyles({theme::builtinSheet(),
+                      css::parse("GroupBox { margin-top: 0; background-color: rgb(0 0 255 / 50%); border: 2px solid #ff0000; "
+                                 "border-radius: 0; }",
+                                 "ring2.css", problems)});
+    App::get().repaintAll();
+    App::get().tick();
+    Color mid = w.framebuffer().colorAt(60, 30);
+    CHECK(mid.r < 100 && mid.b > 100);
+    theme::setSkin();
+    w.hideWindow();
+}
+
 int main() {
     App::get().initHeadless();
     util::makeDirs("build/toolkit-samples");
@@ -2191,6 +2247,8 @@ int main() {
     testBasicControlStyles();
     testRestyleRelayout();
     testSiblingStates();
+    testShadowOverflow();
+    testSeeThroughBorder();
     testListAndMenuStylesheets();
     testButtonsAndClicks();
     testLineEdit();

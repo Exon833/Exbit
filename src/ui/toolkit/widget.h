@@ -253,6 +253,10 @@ public:
     // a state of it changed (hover, pressed, focus…: the toolkit calls it for those): the siblings after it are
     // repainted when the stylesheets use A + B or A ~ B
     void statesChanged();
+    // where it may draw: its rect, and as far as its outer box-shadows reach beyond it (a glow, a drop shadow), as
+    // CSS lets them overflow. What it repaints and is repainted for; clicks still go by its rect.
+    Rect paintRect() const;
+    Rect paintedRect_;  // (internal) paintRect() when it was last painted: repainted too, so a glow that went is wiped
     // opaque per-widget data for the program
     std::shared_ptr<void> userData;
 

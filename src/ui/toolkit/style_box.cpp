@@ -912,6 +912,9 @@ std::shared_ptr<const BoxPaint> boxPaint(const css::Style& s, const BoxLook& loo
             plain = false;
         }
     }
+    // (the plain path fills the whole box with the border's colour and the background over it: right only for an
+    // opaque background; under a see-through one the border would show through, so the border is drawn as a ring)
+    if (!look.fillOnly && look.bg.a < 255) plain = false;
     if (plain) return nullptr;
 
     for (int i = 0; i < 4; i++) {
