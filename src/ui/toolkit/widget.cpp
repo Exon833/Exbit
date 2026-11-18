@@ -1486,6 +1486,7 @@ void Window::externalDrag(const plat::Event& e) {
 
 void Window::onEvent(plat::Window*, const plat::Event& physical) {
     App& app = App::get();
+    if (app.eventFilter && app.eventFilter(this, physical)) return;
     if (physical.type == plat::Event::Resize) {
         physW_ = physical.w;
         physH_ = physical.h;

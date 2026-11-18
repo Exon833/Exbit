@@ -622,27 +622,77 @@ GroupBox::GroupBox(const std::string& title, Widget* parent) : Widget(parent), t
 namespace {
 // (default.css: the box starts 20 px down, its contents 8 px below that and 6 px in from its other sides)
 Rect groupBoxRect(const Rect& r, const css::Style& st) { return style::inside(r, style::insets(st, "margin")); }
-// the room the box takes around its contents: margin, border and padding
-Point groupBoxExtra(const css::Style& st) {
-    style::Insets m = style::insets(st, "margin"), b = style::insets(st, "border-width"), pad = style::insets(st, "padding");
-    return Point(m.w() + b.w() + pad.w(), m.h() + b.h() + pad.h());
+// whether the title is drawn as a box of its own: it has a background (a colour, a gradient, a shadow), a
+// border or padding
+bool titleIsBox(const css::Style& ts) {
+    const style::BoxLook& b = style::boxLook(ts);
+    style::Insets pad = style::insets(ts, "padding");
+    return b.bg.a != 0 || b.more || b.border.w() + b.border.h() > 0 || pad.w() + pad.h() > 0;
 }
-// the title's width with its margin
-int groupTitleWidth(const css::Style& ts, const std::string& title) {
-    return style::textWidth(style::font(ts, theme::uiFont()), title) + style::insets(ts, "margin").w();
+// Where the title goes, placed against the frame (the box: `frame`). Its row: `height` tall (default 18), its top
+// margin-top below the frame's top (negative: above it; default.css's -19px puts it in the 20 px above the
+// frame), from margin-left to margin-right in from the frame's sides. The text is centred in the row; a title
+// that is a box (titleIsBox) is shrink-wrapped around its text (its padding and border around it, no wider than
+// the row) and centred in the row as the text is. `bottom`: the lowest it reaches, with its margin-bottom.
+struct GroupTitle {
+    Rect row, box, text;
+    bool isBox = false;
+    int bottom = 0;
+};
+GroupTitle groupTitle(const Rect& frame, const css::Style& ts, const std::string& title) {
+    GroupTitle t;
+    style::Insets m = style::insets(ts, "margin");
+    t.row = Rect(frame.x + m.left, frame.y + m.top, frame.w - m.w(), style::px(ts, "height", 18));
+    t.text = t.row;
+    t.isBox = titleIsBox(ts);
+    if (t.isBox) {
+        Font f = style::font(ts, theme::uiFont());
+        style::Insets pad = style::insets(ts, "padding"), b = style::insets(ts, "border-width");
+        int w = std::min(style::textWidth(f, title) + pad.w() + b.w(), std::max(0, t.row.w));
+        int h = style::textHeight(f) + pad.h() + b.h();
+        t.box = Rect(t.row.x, t.row.y + (t.row.h - h) / 2, w, h);
+        t.text = style::contents(t.box, ts);
+    }
+    t.bottom = std::max(t.row.bottom(), t.isBox ? t.box.bottom() : t.row.bottom()) + m.bottom;
+    return t;
+}
+// how far the title reaches below the frame's top border (0: not that far): the contents start that much lower,
+// as a fieldset's legend widens its top border
+int titleOverhang(const css::Style& st, const css::Style& ts, const std::string& title) {
+    if (title.empty()) return 0;
+    GroupTitle t = groupTitle(Rect(0, 0, 1 << 16, 0), ts, title);
+    return std::max(0, t.bottom - style::insets(st, "border-width").top);
+}
+// the room the box takes around its contents: margin, border and padding, and the title's overhang
+Point groupBoxExtra(const css::Style& st, const css::Style& ts, const std::string& title) {
+    style::Insets m = style::insets(st, "margin"), b = style::insets(st, "border-width"), pad = style::insets(st, "padding");
+    return Point(m.w() + b.w() + pad.w(), m.h() + b.h() + pad.h() + titleOverhang(st, ts, title));
+}
+// the room the title takes across: its text, its margins and the box's (and its padding and border when it is a box)
+int groupTitleWidth(const css::Style& st, const css::Style& ts, const std::string& title) {
+    int w = style::textWidth(style::font(ts, theme::uiFont()), title) + style::insets(ts, "margin").w() +
+            style::insets(st, "margin").w();
+    if (titleIsBox(ts)) w += style::insets(ts, "padding").w() + style::insets(ts, "border-width").w();
+    return w;
 }
 }  // namespace
 
 Rect GroupBox::contentsRect() const {
     const css::Style& st = computedStyle();
-    return style::contents(groupBoxRect(rect(), st), st);
+    Rect cr = style::contents(groupBoxRect(rect(), st), st);
+    int over = title_.empty() ? 0 : titleOverhang(st, computedStyle("title"), title_);
+    return cr.adjusted(0, over, 0, 0);
 }
 
 Point GroupBox::sizeHint() const {
     Point h = Widget::sizeHint();
-    Point extra = groupBoxExtra(computedStyle());
-    if (!layout()) h = Point(std::max(h.x, extra.x), std::max(h.y, extra.y));
-    if (!title_.empty()) h.x = std::max(h.x, groupTitleWidth(computedStyle("title"), title_));
+    const css::Style& st = computedStyle();
+    const css::Style& ts = computedStyle("title");
+    if (!layout()) {
+        Point extra = groupBoxExtra(st, ts, title_);
+        h = Point(std::max(h.x, extra.x), std::max(h.y, extra.y));
+    }
+    if (!title_.empty()) h.x = std::max(h.x, groupTitleWidth(st, ts, title_));
     Point mn = minimumSize(), mx = maximumSize();
     if (mn.x == mx.x) h.x = mn.x;
     if (mn.y == mx.y) h.y = mn.y;
@@ -651,19 +701,23 @@ Point GroupBox::sizeHint() const {
 
 Point GroupBox::minimumSizeHint() const {
     Point h = Widget::minimumSizeHint();
-    if (!layout()) h = groupBoxExtra(computedStyle());
-    if (!title_.empty()) h.x = std::max(h.x, groupTitleWidth(computedStyle("title"), title_));
+    const css::Style& st = computedStyle();
+    const css::Style& ts = computedStyle("title");
+    if (!layout()) h = groupBoxExtra(st, ts, title_);
+    if (!title_.empty()) h.x = std::max(h.x, groupTitleWidth(st, ts, title_));
     return h;
 }
 
 void GroupBox::paint(Painter& p) {
     const css::Style& st = computedStyle();
-    style::box(p, groupBoxRect(rect(), st), st);
+    Rect frame = groupBoxRect(rect(), st);
+    style::box(p, frame, st);
     if (!title_.empty()) {
         const css::Style& ts = computedStyle("title");
-        style::Insets m = style::insets(ts, "margin");
-        style::text(p, Rect(m.left, m.top, width() - m.w(), style::px(ts, "height", 18)), AlignLeft | AlignVCenter, title_,
-                    style::font(ts, theme::uiFont()), style::foreground(ts), ts, true);
+        GroupTitle t = groupTitle(frame, ts, title_);
+        if (t.isBox) style::box(p, t.box, ts);  // (over the frame: across its line, it hides it)
+        style::text(p, t.text, AlignLeft | AlignVCenter, title_, style::font(ts, theme::uiFont()), style::foreground(ts),
+                    ts, true);
     }
 }
 
@@ -690,12 +744,21 @@ void Separator::styleStates(std::vector<std::string>& out) const {
 namespace {
 // a line's thickness (line-width: Separator, SplitterHandle)
 int lineWidth(const css::Style& st) { return std::max(0, style::px(st, "line-width", 1)); }
+// A separator whose style has a border is a box across its thickness (an etched line: two borders of their own
+// colours): `width` thick when vertical, `height` when horizontal (else its borders across it); 0 when it has no
+// border (a line of `color`, line-width thick)
+int separatorBox(const css::Style& st, bool vertical) {
+    style::Insets b = style::insets(st, "border-width");
+    if (b.w() + b.h() == 0) return 0;
+    return std::max(1, style::px(st, vertical ? "width" : "height", vertical ? b.w() : b.h()));
+}
 }  // namespace
 
 Point Separator::sizeHint() const {
     const css::Style& st = computedStyle();
     style::Insets m = style::insets(st, "margin");
     int lw = lineWidth(st);
+    if (int box = separatorBox(st, orientation == Orientation::Vertical)) lw = box;
     Point h = orientation == Orientation::Vertical ? Point(lw + m.w(), 1 + m.h()) : Point(1 + m.w(), lw + m.h());
     Point mn = minimumSize(), mx = maximumSize();
     if (mn.x == mx.x) h.x = mn.x;
@@ -708,8 +771,15 @@ void Separator::paint(Painter& p) {
     Color c = style::foreground(st);
     style::Insets m = style::insets(st, "margin");
     int lw = lineWidth(st);
+    bool vertical = orientation == Orientation::Vertical;
+    if (int across = separatorBox(st, vertical)) {  // (a box, along the middle of the room inside its margin)
+        Rect r = vertical ? Rect(m.left + (width() - m.w()) / 2 - across / 2, m.top, across, height() - m.h())
+                          : Rect(m.left, m.top + (height() - m.h()) / 2 - across / 2, width() - m.w(), across);
+        if (!r.empty()) style::box(p, r, st);
+        return;
+    }
     // (along the middle of the room inside its margin)
-    if (orientation == Orientation::Vertical) {
+    if (vertical) {
         int x = m.left + (width() - m.w()) / 2 - lw / 2;
         for (int k = 0; k < lw; ++k) p.drawVLine(x + k, m.top, height() - m.bottom, c);
     } else {
@@ -961,10 +1031,25 @@ int TabWidget::tabAt(Point p) const {
     return -1;
 }
 
-void TabWidget::resized() {
+// the pane: the box under the tabs, inside its margin (default.css: none, so all of the room under the tabs)
+Rect TabWidget::paneRect() const {
     int bh = barHeight();
-    for (int i = 0; i < count(); ++i)
-        if (i == current_) pages_[i]->setGeometry(0, bh, width(), std::max(0, height() - bh));
+    return style::inside(Rect(0, bh, width(), std::max(0, height() - bh)), style::insets(computedStyle("pane"), "margin"));
+}
+
+namespace {
+// the room the pane takes around the page: its margin, border and padding
+Point paneExtra(const css::Style& ps) {
+    style::Insets m = style::insets(ps, "margin"), b = style::insets(ps, "border-width"), pad = style::insets(ps, "padding");
+    return Point(m.w() + b.w() + pad.w(), m.h() + b.h() + pad.h());
+}
+}  // namespace
+
+void TabWidget::resized() {
+    if (current_ < 0 || current_ >= count()) return;
+    // (the current page: inside the pane's border and padding)
+    Rect page = style::contents(paneRect(), computedStyle("pane"));
+    pages_[current_]->setGeometry(page.x, page.y, std::max(0, page.w), std::max(0, page.h));
 }
 
 Point TabWidget::sizeHint() const {
@@ -979,8 +1064,9 @@ Point TabWidget::sizeHint() const {
     Font f = style::font(st, theme::uiFont());
     int extra = style::insets(st, "padding").w() + style::insets(st, "border-width").w();
     for (auto& t : titles_) tw += style::textWidth(f, t) + extra;
-    h.x = std::max(h.x, tw);
-    h.y += barHeight();
+    Point pane = paneExtra(computedStyle("pane"));
+    h.x = std::max(h.x + pane.x, tw);
+    h.y += barHeight() + pane.y;
     return h;
 }
 
@@ -991,12 +1077,15 @@ Point TabWidget::minimumSizeHint() const {
         h.x = std::max(h.x, std::max(s.x, m.x));
         h.y = std::max(h.y, std::max(s.y, m.y));
     }
-    h.y += barHeight();
+    Point pane = paneExtra(computedStyle("pane"));
+    h.x += pane.x;
+    h.y += barHeight() + pane.y;
     return h;
 }
 
 void TabWidget::paint(Painter& p) {
     style::box(p, rect(), computedStyle());
+    style::box(p, paneRect(), computedStyle("pane"));  // (under the tabs, around the page)
     int bh = barHeight();
     {  // the line under the tabs (they are drawn over it)
         const css::Style& bs = computedStyle("base");

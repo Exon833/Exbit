@@ -41,8 +41,8 @@ inline void frame(Painter& p, const Rect& r, Color fillC, Color edge, float rad)
     }
 }
 
-// the small drawings of theme.ICON_LINES, in a size x size box at (x, y), stroke 1.5 px at 10 px
-inline void icon(Painter& p, float x, float y, float size, const char* kind, Color c) {
+// the small drawings of theme.ICON_LINES, in a size x size box at (x, y), its lines `stroke` px wide
+inline void icon(Painter& p, float x, float y, float size, const char* kind, Color c, float stroke) {
     static const float down[] = {2, 3.5f, 5, 6.5f, 8, 3.5f};
     static const float up[] = {2, 6.5f, 5, 3.5f, 8, 6.5f};
     static const float right[] = {3.5f, 2, 6.5f, 5, 3.5f, 8};
@@ -57,7 +57,11 @@ inline void icon(Painter& p, float x, float y, float size, const char* kind, Col
     float s = size / 10.f;
     std::vector<PointF> v;
     for (int i = 0; i < 3; ++i) v.push_back(PointF(x + pts[i * 2] * s, y + pts[i * 2 + 1] * s));
-    p.drawPolyline(v, c, 1.5f * s, LineCap::Round, LineJoin::Round);
+    p.drawPolyline(v, c, stroke, LineCap::Round, LineJoin::Round);
+}
+// the same, stroke 1.5 px at 10 px
+inline void icon(Painter& p, float x, float y, float size, const char* kind, Color c) {
+    icon(p, x, y, size, kind, c, 1.5f * (size / 10.f));
 }
 
 // --- what the stylesheets give (Widget::computedStyle(part)) ---

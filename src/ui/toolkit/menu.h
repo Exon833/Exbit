@@ -100,14 +100,15 @@ public:
     void registerShortcuts(ShortcutScope scope = ShortcutScope::Window);  // every menu's actions
     void navigate(int dir);                         // (from an open menu's Left / Right keys)
     int openIndex() const { return open_; }
+    // opens menu i under its title, as a click on the title does (the title :open while it is open)
+    void openMenu(int i);
+    Rect itemRect(int i) const;                         // title i's (in the bar's coordinates)
 private:
     std::vector<std::unique_ptr<Menu>> menus_;
     int hover_ = -1, open_ = -1;
-    Rect itemRect(int i) const;
     std::vector<Rect> itemRects() const;                // every title's (each as wide as its style makes it)
     int itemAt(Point p) const;
     void itemStates(int i, std::vector<const char*>& out) const;
-    void openMenu(int i);
 };
 
 }  // namespace ui
