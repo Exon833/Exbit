@@ -37,8 +37,7 @@ is its `--skin-name` (else its file's name).
 - **Skins of earlier versions** (JSON) in your skins folder become stylesheets the first time the skins are
   listed. The JSON files are moved into the folder's `old JSON skins`; whatever couldn't be kept is noted in a
   comment at the end of the new stylesheet.
-- **Options → Rounded corners** off draws corners square whatever the stylesheets say (round marks, like the
-  tuner's needle, stay round).
+- **Options → Rounded corners** off draws every corner square, whatever the stylesheets say.
 - Sizes are in logical pixels: Options → Interface size scales them like everything else.
 
 ## The CSS understood
@@ -46,21 +45,41 @@ is its `--skin-name` (else its file's name).
 A defined part of CSS, read by Tiny DAW's own parser (`src/core/css.h`):
 
 - **Selectors:** a type (`Button`), `*`, `.class`, `#id`, states (`:hover`), `:root`, a part (`::handle`, on
-  the last compound only), the descendant (`A B`) and child (`A > B`) combinators, and lists (`A, B`).
-  Specificity as in CSS (ids, then classes / states / `:root`, then types / parts), then source order; later
-  stylesheets win over earlier ones at equal specificity; `!important` wins over all of that. Not understood:
-  `+`, `~`, `:not()` and other functional pseudo-classes, attribute selectors, nesting.
+  the last compound only); the combinators `A B` (descendant), `A > B` (child), `A + B` (the sibling right
+  before) and `A ~ B` (any sibling before); lists (`A, B`); `:not(…)`, `:is(…)` and `:where(…)` of selector
+  lists (nested up to 16 deep, without parts); a node's place among its siblings: `:first-child`, `:last-child`,
+  `:only-child`, `:nth-child(an+b | odd | even)`, `:nth-last-child(…)`. Specificity as in CSS: ids, then
+  classes / states / place / `:root`, then types / parts; `:not` and `:is` count as their most specific
+  argument, `:where` as nothing. Then source order; later stylesheets win over earlier ones at equal
+  specificity; `!important` wins over all of that. A sibling's hover, press or focus restyles the siblings
+  after it (`Button:hover + Button`). Not understood: attribute selectors, `:has()`, `:nth-child(… of S)`,
+  nesting.
 - **Colours:** `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb()` / `rgba()` (commas or spaces, `/ alpha`, numbers or
   %), `hsl()` / `hsla()`, the CSS named colours, `transparent`, `currentColor`, and
   `color-mix(in srgb, A p%, B q%)`. Mixing two opaque colours is exactly the program's own mix, to the byte.
-- **Lengths:** `px`, `pt`, `em` (of the node's font size), `%` (of what the property refers to), and `calc()` of
-  them (`+ - * /`). `var(--name, fallback)`, nested.
+- **Lengths:** `px`, `pt`, `em` (of the node's font size), `rem` (of `:root`'s font size), `ch` (the width of
+  "0" in the node's font), `vw`, `vh`, `vmin`, `vmax` (of the main window's size), `%` (of what the property
+  refers to), `in`, `cm`, `mm`, `Q`, `pc` (at 96 dpi), and `calc()` of them (`+ - * /`). `var(--name,
+  fallback)`, nested.
+- **`@import`** `url("x.css")`, `url(x.css)` or `"x.css"` (with an optional media list), before the rules:
+  the file is read from the importing stylesheet's folder, and its rules come where the `@import` is. Imports
+  may import (8 levels); loops, missing files and remote URLs are reported. Saving an imported file reloads
+  the skin too.
+- **`@media`** `<query list> { rules }` (nested up to 32 deep): `[not|only] all|screen [and (feature)…]` or
+  `[not] (feature) [and (feature)…]`, joined by commas. Features: `width`, `height` and their `min-` /
+  `max-` forms and ranges (`(width >= 600px)`, `(400px < width < 800px)`), of the main window (px, or em /
+  rem at 16 px); `orientation`; `resolution` and `min-` / `max-resolution` in `dppx`, `x`, `dpi` or `dpcm`
+  (the interface size: 150 % is `1.5dppx`). Re-worked out whenever the window is resized. An unknown
+  feature makes its query false (reported).
+- **`@font-face`** `{ font-family: "Name"; src: url(file.ttf); font-weight: bold; font-style: italic }`: a
+  font file (TrueType or OpenType) next to the skin, named in `font-family` like any installed font. The
+  first local `url()` in `src` counts.
 - **Shorthands:** `padding`, `margin`, `border-width`, `border-color`, `border-radius` (1–4 values); `border`,
   `border-top`… (width, style and colour in any order); `background` (its colour).
 - **Inherited:** custom properties (`--name`) and the text properties (`color`, `font-family`, `font-size`,
   `font-weight`, `font-style`, `letter-spacing`). The rest isn't.
-- **Not understood (skipped and reported):** at-rules such as `@media` and `@import` (`@charset` is ignored),
-  units other than those above, gradients, shadows.
+- **Not understood (skipped and reported):** other at-rules (`@supports`, `@keyframes`, `@layer`…;
+  `@charset` is ignored), units other than those above.
 - **Boxes:** a box is drawn as its `background-color` inside its border. The border has one colour
   (`border-top-color`), each side its own width, and the corners one radius (`border-top-left-radius`).
 - **Properties of Tiny DAW's own** (besides the CSS ones): `stroke-width` (a line's thickness), `icon-size` (a
@@ -217,6 +236,8 @@ made from `default.css` by `tools/skins_reference.py`.
 
 | Name | Default | What it is |
 |---|---|---|
+| `--layout-spacing` | `4px` | between the controls of a row or column made without a gap of its own |
+| `--grid-spacing` | `6px` | between the cells of a grid made without one (the Pad Kit's pads…) |
 | `--label-wrap-width` | `360px` | a wrapping label's width when nothing gives it one |
 | `--label-min-width` | `16px` | the least width of a label that elides its text |
 | `--message-box-margin` | `14px` | around its parts |
@@ -278,6 +299,12 @@ made from `default.css` by `tools/skins_reference.py`.
 | `--sends-button-width` | `20px` | → (the sends) |
 | `--sends-button-height` | `16px` | (its height) |
 | `--output-selector-width` | `58px` | a row's outputs (1/2 ▾) |
+| `--output-selector-height` | `18px` | (its height) |
+| `--auto-button-width` | `58px` | a track's Auto (its automation lanes) |
+| `--auto-button-short-width` | `36px` | … beside the sends button (→) |
+| `--auto-button-height` | `16px` | (its height) |
+| `--write-button-width` | `40px` | an automation lane's Write |
+| `--group-meter-indent` | `26px` | a group row's meter, from the row's left (past the fold button) |
 | `--volume-slider-height` | `14px` | a row's volume |
 | `--db-reading-width` | `44px` | its dB beside it |
 | `--pan-knob-size` | `22px` | a row's pan knob |
@@ -347,6 +374,31 @@ Each entry gives the type's own properties (what it reads besides its box), its 
 - **`MessageIcon`**: `background-color` (the circle), `color` (the sign). Classes `.information`, `.question`,
   `.warning`, `.critical`.
 - **`Canvas`**: a plain drawing area (the type only).
+- **`MessageIcon`** also reads `width` and `height` (its drawing is scaled to them).
+
+### Dialogs
+
+Every dialog's room is its style: `padding` (its margins), `row-gap` and `column-gap` (between its parts), and
+the same on the parts named here (a part's own row or column of controls). What a dialog's layout doesn't get
+from its style is `--layout-spacing` (rows and columns) and `--grid-spacing` (grids). Its buttons are
+`Button.dialog-button` (`min-width`). A heading in a dialog is `Label.heading` (bold).
+
+- **`ColorPickerDialog`** (choosing a colour): parts `::row`, `::recent`, `::brightness`, `::hex`. **`ColorWheel`**,
+  **`ClipPreview`**, **`TrackPreview`** and **`Swatch`**: see below.
+- **`MetronomeDialog`**: parts `::editors`, `::buttons`. **`ClickEditor`** (a `GroupBox`: one click's sound): parts
+  `::column`, `::form`. **`EnvelopeGraph`**: below, and `min-width` / `min-height`.
+- **`PadKitDialog`**: parts `::columns`, `::pads`, `::settings`. **`SliceDialog`** (Slice to a Pad Kit): `::count`.
+  **`SamplerDialog`**.
+- **`PluginsDialog`** (a track's effects or instrument): parts `::header`, `::buttons`. **`MidiEffectsDialog`**:
+  parts `::settings`, `::value`. **`PluginChooser`**, **`PluginFoldersDialog`**, **`WinePrefixesDialog`**,
+  **`StretchDialog`**: part `::row`. **`ParameterDialog`**, **`LinksDialog`** (MIDI learn's links).
+- **`FileDialog`** (opening and saving files): `width`, `height`, `min-width`, `min-height` (its size when it
+  opens, and its least); parts `::path-row`, `::nav-button` (Up and Home: `width`, `height`), `::middle`,
+  `::places` (the list of places: `width`), `::form`. Its list is a **`FileList`**.
+- **`AudioPropertiesDialog`**, **`RecordOffsetDialog`**, **`RenderDialog`** (render the mix),
+  **`RecordSettingsDialog`**, **`TempoDialog`**.
+- `Dialog.group-tracks` (grouping tracks), `Dialog.recovery` (after a crash: parts `::text`, `::buttons` with
+  `margin-top`).
 
 ### Fields
 
@@ -410,7 +462,7 @@ Each entry gives the type's own properties (what it reads besides its box), its 
   `:selected`, `:disabled`, `:frozen`, `:muted`, `:linked`, `:looping`. Parts `::body` and `::header` (boxes in the
   clip's own colours), `::overlay` (a box), `::name` (`padding`, the font), `::fade` (`background-color`,
   `stroke-width`), `::loop-start` (`stroke-width`, `height`), `::link` (`stroke-width`).
-- **`MasterLane`**: a box. **`Overview`**: a box, `padding-top` / `padding-bottom`; parts `::view` (a box and
+- **`OverviewCaption`** (a `Label`: "Project overview"). **`MasterLane`**: a box. **`Overview`**: a box, `padding-top` / `padding-bottom`; parts `::view` (a box and
   `outline-*`), `::cursor`, `::playhead`; its rows are `Lane`s (`Overview Lane.group { … }`).
 
 ### The track panel and the master
@@ -418,13 +470,14 @@ Each entry gives the type's own properties (what it reads besides its box), its 
 - **`TrackPanel`**: the right-hand panel. **`TrackRow`** (a row in it): `background-color`, `border-left-color`
   (the stripe), `border-top-color`, `padding`, `row-gap`, `column-gap`. Classes `.track`, `.automation`, `.take`,
   `.group`, `.audio`, `.midi`, `.return`; states `:alternate`, `:armed`. Parts `::tint`, `::group-bar` (`width`,
-  `background-color`).
+  `background-color`), `::controls`, `::volume`, `::auto` (the room of those rows of controls). Its controls'
+  sizes are `:root` variables (the Auto and Write buttons, the outputs).
 - **`LaneFrame`** (`#lane`, a row's frame): parts `::stripe` (`width`), `::edge` (`background-color`, `width`),
   `::current` (the current row's outline: `border-color`, `border-width`), `::load` (a box, `height`,
   `margin-bottom`), `::load-bar` (`:ok`, `:warn`, `:hot`). Class `.master` (`background-color`, `padding`,
   `row-gap`, `column-gap`; `::title` font, `::notice` `margin-top`).
 - **`NameLabel`** (`.group`: the font), **`PanKnob`** (`background-color`, `padding`; `::arc`, `::pointer`:
-  `color`, `stroke-width`), **`SendsPanel`** (a box, `padding`, `row-gap`, `column-gap`; `::title` font). Class
+  `color`, `stroke-width`), **`SendsPanel`** (a box, `padding`, `row-gap`, `column-gap`, `min-width`, `min-height`; `::title` font). Class
   `.pin-cover` (a box).
 
 ### Meters, the transport and the top bar
@@ -464,13 +517,14 @@ Each entry gives the type's own properties (what it reads besides its box), its 
   `::rail-edge`, `::screw`, `::sources` (a box), `::sources-title`, `::source` (`:blocked`: `opacity`), `::jack`,
   `::jack-ring` (`:hover`), `::end-title`, `::end-label`, `::empty-hint`, `::unit` (a box; `:hover`; `:selected`:
   `outline-color`, `outline-width`), `::picture` (`:bypassed`), `::faceplate`, `::faceplate-text`, `::wave`,
-  `::reload-shade`, `::reload` (`:hover`), `::name` (`:bypassed`), `::sidechain-label`, `::led` (`:on`, `:idle`,
-  `:bypassed`, `:problem`), `::status` (`:hover`), `::groove`, `::level` (`:bypassed`), `::zero-mark`, `::knob`
-  (`:hover`), `::value` (`:hover`), `::mod-link`, `::mod-label`, `::cable` (`stroke-width`, `outline-width`).
+  `::reload-shade`, `::reload` (`width`, `height`; `:hover`), `::name` (`:bypassed`), `::sidechain-label`, `::led` (`:on`, `:idle`,
+  `:bypassed`, `:problem`), `::status` (`:hover`), `::groove` (`height`), `::level` (`:bypassed`), `::zero-mark`, `::knob`
+  (`width`, `height`; `:hover`), `::value` (`:hover`), `::mod-link`, `::mod-label`, `::cable` (`stroke-width`, `outline-width`).
 
 ### The Explorer, waveforms and the Pad Kit
 
-- **`Explorer`**: `padding`, `row-gap`; parts `::folder-row` and `::preview-row` (`column-gap`).
+- **`Explorer`**: `padding`, `row-gap`; parts `::folder-row` and `::preview-row` (`column-gap`), `::folder` (the
+  folder list: `min-width`). **`ExplorerDock`** (the Explorer with its title): `::title-bar`.
 - **`FileView`** (the Explorer's list): a box, `color`. Parts `::row` (`:hover`, `:selected`), `::icon` (`color`,
   `fill-opacity`; `:selected`), `::header` (a box).
 - **`SampleWaveform`**: a box, `color`, the font. Parts `::caption` (`color`, the font, `height`, `padding`,
@@ -488,10 +542,10 @@ Each entry gives the type's own properties (what it reads besides its box), its 
 - **`MeterView`**: `color`, the font, `line-height` (a row's height). Parts `::label` (`width`, `padding-right`),
   `::track` (a box, `height`), `::bar`, `::value` (`width`, `padding-left`).
 - **`Tuner`** (a `MeterView`): a box. Parts `::note` (`:in-tune`, `:silent`), `::scale` (`background-color`,
-  `height`, `margin-left`, `margin-right`, `top`), `::tick` (`:centre`), `::needle` (`background-color`,
-  `border-radius`; `:in-tune`), `::cents`, `::hz`, `::end-label`.
+  `height`, `margin-left`, `margin-right`, `top`), `::tick` (`width`, `height`; `:centre`), `::needle` (`background-color`,
+  `border-radius`, `width`, `height`, `top`; `:in-tune`), `::cents`, `::hz`, `::end-label`.
 - **`EditorWindow`** (a plugin's own window): parts `::plugin` and `::stopped` (`background-color`, `padding`,
-  `row-gap`).
+  `row-gap`; `::stopped` also `min-width`, `min-height`).
 - **`HistoryWindow`**: `padding`, `row-gap`, `min-width`, `min-height`; `::undone` (`color`).
 - **`EnvelopeGraph`** (the metronome's; classes `.bar`, `.beat`): a box, `color`. Parts `::grid`, `::envelope`
   (`stroke-width`, `fill-opacity`), `::label`, `::handle` (`:dragging`).
@@ -501,10 +555,16 @@ Each entry gives the type's own properties (what it reads besides its box), its 
 
 ### What stays the program's
 
-Colours that are data stay data: a clip's, track's, group's or pad's own colour (and the lighter and darker
-shades worked out from it), waveforms, the overview's clip blocks. So does geometry that what you do depends on:
-how far from an edge a drag grabs it, the patch panel's unit and jack sizes (saved with projects), and the
-shapes of arrows and marks.
+- **Data:** a clip's, track's, group's, pad's or choke group's own colour, and the shades worked out from it
+  (notes and velocity bars take their clip's); waveforms; the overview's clip blocks.
+- **What you do depends on it:** how far from an edge a drag grabs it, drag thresholds, the patch panel's unit,
+  jack and card geometry (saved with projects), the fader's value layout, clip insets used for clicking.
+- **Drawings:** the shapes of arrows, check marks, the Explorer's file and folder icons, the clip's chain mark,
+  the patch panel's faceplates; dash patterns; text positions inside the tuner and the patch cards.
+- **Placement:** tooltip and drag-picture offsets, the overlap of a submenu, the tool buttons' content insets
+  (their padding sets their size); dialogs' first sizes before they fit their contents.
+- **When sizes apply:** most follow a skin change at once; a dialog reads its room when it opens, and the track
+  panel's rows when they are rebuilt (a skin change does that).
 
 ## Examples
 
