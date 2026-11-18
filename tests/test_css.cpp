@@ -4,7 +4,10 @@
 // units, shorthands, error recovery and where problems are reported, random and cut-short stylesheets that
 // must never crash, and the speed of computing many styles.
 #include <chrono>
+#include <cmath>
 #include <cstring>
+#include <map>
+#include <memory>
 #include <random>
 #include <string>
 #include <vector>
@@ -312,8 +315,8 @@ void testSelectors() {
 
     // selectors that can't be read drop their rule (the whole list), and nothing else
     Sheet bad(
-        "A + B { color: red }\n"
-        "A, :not(B) { color: red }\n"
+        "A | B { color: red }\n"
+        "A, :has(B) { color: red }\n"
         "A::x B { color: red }\n"
         "A::x.c { color: red }\n"
         "#1a { color: red }\n"
@@ -322,8 +325,8 @@ void testSelectors() {
         ", A { color: red }\n"
         "A { color: green }\n");
     CHECK(bad.problems.size() == 8);
-    CHECK(bad.reported("'+' combinator is not supported"));
-    CHECK(bad.reported("':not()' is not supported"));
+    CHECK(bad.reported("unexpected '|' in a selector"));
+    CHECK(bad.reported("':has()' is not supported"));
     CHECK(bad.reported("must be on the last compound"));
     CHECK(bad.engine.compute(SimpleNode("A")).raw("color") == "green");
 
@@ -541,7 +544,7 @@ void testShorthands() {
     CHECK(b2.length("border-top-width", 0) == 3);  // (medium)
     CHECK(b2.raw("border-top-color") == "currentcolor");
     Style b3 = s.engine.compute(SimpleNode("B3"));
-    CHECK(same(b3.edges("border-width", Edges{}), 1, 2, 1, 2));
+    CHECK(same(b3.edges("border-width", Edges{}), 0, 2, 0, 2));  // (a side whose style is none has no width)
     CHECK(b3.raw("border-top-style") == "none" && b3.raw("border-right-style") == "solid");
     CHECK(b3.raw("border-top-color") == "red" && b3.raw("border-right-color") == "green" &&
           b3.raw("border-bottom-color") == "blue" && b3.raw("border-left-color") == "green");
@@ -557,7 +560,7 @@ void testShorthands() {
 void testRecovery() {
     const char* text =
         "@charset \"utf-8\";\n"                                // 1 (silently)
-        "@media screen { A { color: red } }\n"                 // 2
+        "@supports (x) { A { color: red } }\n"                 // 2
         "A { color: blu; color: green; width 3px; height: 2px }\n"  // 3
         "B { nested { color: red } padding-top: 1px; ; ; }\n"  // 4
         "C { color: 'oops\n"                                   // 5 (a bad string: to the next ';')
@@ -577,7 +580,7 @@ void testRecovery() {
             if (p.message.find(what) != std::string::npos) return p.line == line && p.column == col;
         return false;
     };
-    CHECK(at("@media", 2, 1));
+    CHECK(at("@supports", 2, 1));
     CHECK(at("unknown colour 'blu'", 3, 5));
     CHECK(at("expected ':' after 'width'", 3, 31));
     CHECK(at("nested rules", 4, 5));
@@ -591,7 +594,7 @@ void testRecovery() {
     CHECK(at("missing '}'", 13, 1));
     CHECK(!anyProblem(ps, "charset"));
     for (const Problem& p : ps) CHECK(p.source == "skin.css");
-    CHECK(ps.front().text() == "skin.css:2:1: @media rules are not supported (skipped)");  // (in source order)
+    CHECK(ps.front().text() == "skin.css:2:1: @supports rules are not supported (skipped)");  // (in source order)
     for (size_t i = 1; i < ps.size(); i++) CHECK(ps[i - 1].line <= ps[i].line);
     CHECK(ps.size() == 11);
 
@@ -633,6 +636,1022 @@ void testRecovery() {
     Engine none;
     CHECK(!none.compute(SimpleNode("A")).has("color"));
     CHECK(none.root().variables().empty());
+}
+
+// a parent's children, each knowing its place (as widgets do)
+struct Family {
+    SimpleNode parent;
+    std::vector<std::unique_ptr<SimpleNode>> kids;
+    std::vector<const Node*> list;
+    explicit Family(const std::vector<std::string>& types, const Node* up = nullptr, const std::string& type = "List")
+        : parent(type, up) {
+        for (const std::string& t : types) kids.push_back(std::make_unique<SimpleNode>(t, &parent));
+        for (auto& k : kids) list.push_back(k.get());
+        for (size_t i = 0; i < kids.size(); i++) {
+            kids[i]->family = &list;
+            kids[i]->index = (int)i;
+        }
+    }
+    SimpleNode& operator[](size_t i) { return *kids[i]; }
+};
+
+// :first-child, :last-child, :only-child, :nth-child(), :nth-last-child()
+void testPositions() {
+    Sheet s(
+        "Item:first-child { --first: y }\n"
+        "Item:last-child { --last: y }\n"
+        "Item:only-child { --only: y }\n"
+        "Item:nth-child(2n+1) { --odd: y }\n"
+        "Item:nth-child( even ) { --even: y }\n"
+        "Item:nth-child(-n + 3) { --upto3: y }\n"
+        ":nth-child(3) { --third: y }\n"
+        "Item:nth-child(n) { --any: y }\n"
+        "Item:nth-child(3n-1) { --m: y }\n"
+        "Item:nth-child(+n+4) { --from4: y }\n"
+        "Item:nth-child(-2n+5) { --odd-upto5: y }\n"
+        "Item:nth-child(0n+2) { --second: y }\n"
+        "Item:nth-last-child(2) { --butlast: y }\n"
+        "Item:nth-last-child(odd) { --oddend: y }\n"
+        "Item:NTH-CHILD(ODD):First-Child { --both: y }\n");
+    CHECK(s.problems.empty());
+    CHECK(s.engine.uses() == Engine::UsesPosition);
+    Family f({"Item", "Item", "Item", "Item", "Item"});
+    auto has = [&](size_t i, const char* var) { return s.engine.compute(f[i]).has(var); };
+    CHECK(f[0].childIndex() == 0 && f[4].childIndex() == 4 && f[2].siblingCount() == 5 && f[1].sibling(3) == &f[3]);
+    CHECK(!f[1].sibling(5) && !f[1].sibling(-1) && f.parent.childIndex() == -1 && f.parent.siblingCount() == 0);
+    const char* vars[] = {"--first", "--last", "--only", "--odd", "--even", "--upto3", "--third", "--any", "--m",
+                          "--from4", "--odd-upto5", "--second", "--butlast", "--oddend", "--both"};
+    // which of the five each matches
+    const char* want[] = {"10000", "00001", "00000", "10101", "01010", "11100", "00100", "11111", "01001",
+                          "00011", "10101", "01000", "00010", "10101", "10000"};
+    for (size_t v = 0; v < sizeof vars / sizeof vars[0]; v++)
+        for (size_t i = 0; i < 5; i++) CHECK(has(i, vars[v]) == (want[v][i] == '1'));
+    Family one({"Item"});
+    Style o = s.engine.compute(one[0]);
+    CHECK(o.has("--first") && o.has("--last") && o.has("--only") && o.has("--odd") && !o.has("--even"));
+    // a node whose place isn't known matches none of them (nor :nth-child(n))
+    SimpleNode alone("Item");
+    Style a = s.engine.compute(alone);
+    for (const char* v : vars) CHECK(!a.has(v));
+    CHECK(s.engine.root().variables().empty());
+
+    // specificity: as a class
+    Sheet sp(
+        "Item:first-child { color: red }\n"
+        ".c { color: blue }\n"
+        ":first-child { width: 1px }\n"
+        ".c { width: 2px }\n"
+        ":nth-child(1) { height: 1px }\n"
+        "Item { height: 2px }\n");
+    f[0].classes = {"c"};
+    Style st = sp.engine.compute(f[0]);
+    CHECK(st.raw("color") == "red");   // (0,1,1) over (0,1,0)
+    CHECK(st.raw("width") == "2px");   // (equal: the later)
+    CHECK(st.raw("height") == "1px");  // (0,1,0) over (0,0,1)
+    f[0].classes.clear();
+
+    // arguments that can't be read
+    Sheet bad(
+        "Item:nth-child(2n+) { color: red }\n"
+        "Item:nth-child(n2) { color: red }\n"
+        "Item:nth-child(x) { color: red }\n"
+        "Item:nth-child() { color: red }\n"
+        "Item:nth-child(2n of .a) { color: red }\n"
+        "Item:nth-of-type(1) { color: red }\n"
+        "Item { color: green }\n");
+    CHECK(bad.reported("a bad argument for :nth-child(): '2n+'"));
+    CHECK(bad.reported("'n2'") && bad.reported("'x'") && bad.reported("''"));
+    CHECK(bad.reported("':nth-child(… of …)' is not supported"));
+    CHECK(bad.reported("':nth-of-type()' is not supported"));
+    CHECK(bad.engine.compute(f[1]).raw("color") == "green");
+    // huge numbers don't overflow
+    Sheet huge("Item:nth-child(99999999999n+99999999999) { color: red } Item:nth-child(-99999999999n) { width: 1px }");
+    CHECK(huge.problems.empty());
+    CHECK(!huge.engine.compute(f[0]).has("color") && !huge.engine.compute(f[0]).has("width"));
+}
+
+// :not(), :is(), :where(): matching, specificity, nesting
+void testNotIs() {
+    Sheet s(
+        "Item:not(.a) { --not-a: y }\n"
+        "Item:not(.a, .b) { --neither: y }\n"
+        "Item:is(.a, .b) { --either: y }\n"
+        ":where(.a) { --where-a: y }\n"
+        "Item:not(:is(.a, .b)) { --not-is: y }\n"
+        "Item:not(:not(.c)) { --c: y }\n"
+        ":is(Panel Item) { --in-panel: y }\n"
+        "Item:not(Panel > *) { --not-child-of-panel: y }\n"
+        ":is(:first-child, :last-child) { --end: y }\n"
+        ":is(Item:hover, #x) { --hover-or-x: y }\n"
+        ":is(Thing, Item).a { --typed: y }\n"
+        ":not(:is(:not(:is(.a)))) { --deep-a: y }\n");
+    CHECK(s.problems.empty());
+    CHECK(s.engine.uses() == Engine::UsesPosition);  // (an argument's :first-child counts)
+    SimpleNode panel("Panel");
+    Family f({"Item", "Item", "Item"}, &panel, "Box");
+    SimpleNode direct("Item", &panel);
+    f[0].classes = {"a"};
+    f[1].classes = {"b", "c"};
+    auto has = [&](const Node& n, const char* var) { return s.engine.compute(n).has(var); };
+    CHECK(!has(f[0], "--not-a") && has(f[1], "--not-a") && has(f[2], "--not-a"));
+    CHECK(!has(f[0], "--neither") && !has(f[1], "--neither") && has(f[2], "--neither"));
+    CHECK(has(f[0], "--either") && has(f[1], "--either") && !has(f[2], "--either"));
+    CHECK(has(f[0], "--where-a") && !has(f[1], "--where-a"));
+    CHECK(!has(f[0], "--not-is") && !has(f[1], "--not-is") && has(f[2], "--not-is"));
+    CHECK(!has(f[0], "--c") && has(f[1], "--c"));
+    CHECK(has(f[0], "--in-panel") && has(direct, "--in-panel") && !has(SimpleNode("Item"), "--in-panel"));
+    CHECK(has(f[0], "--not-child-of-panel") && !has(direct, "--not-child-of-panel"));
+    CHECK(has(f[0], "--end") && !has(f[1], "--end") && has(f[2], "--end"));
+    CHECK(!has(f[1], "--hover-or-x"));
+    f[1].states = {"hover"};
+    CHECK(has(f[1], "--hover-or-x"));
+    f[2].idName = "x";
+    CHECK(has(f[2], "--hover-or-x"));
+    CHECK(has(f[0], "--typed") && !has(f[1], "--typed"));
+    CHECK(has(f[0], "--deep-a") && !has(f[1], "--deep-a") && !has(f[2], "--deep-a"));
+
+    // specificity: :not() and :is() take their most specific argument, :where() none
+    Sheet sp(
+        ":is(#i, .k) { color: red }\n"
+        ".a.b.c { color: blue }\n"
+        ":where(#i) { width: 1px }\n"
+        "T { width: 2px }\n"
+        ":not(#zz) { height: 1px }\n"
+        ".a.b.c.a { height: 2px }\n"
+        "T:not(.q):not(.r) { margin-top: 1px }\n"
+        "T.a.b { margin-top: 2px }\n"
+        ".a:where(.b, #i) { padding-top: 1px }\n"
+        ".b { padding-top: 2px }\n"
+        ":is(T) { z-index: 1 }\n"
+        "T { z-index: 2 }\n"
+        ":is(.a, T, #i) { opacity: 1 }\n"
+        ".a.a.a.a { opacity: 0 }\n");
+    CHECK(sp.problems.empty());
+    SimpleNode t("T");
+    t.idName = "i";
+    t.classes = {"a", "b", "c"};
+    Style st = sp.engine.compute(t);
+    CHECK(st.raw("color") == "red");          // (1,0,0) whichever argument matched
+    CHECK(st.raw("width") == "2px");          // (0,0,0) under (0,0,1)
+    CHECK(st.raw("height") == "1px");         // (1,0,0) over (0,4,0)
+    CHECK(st.raw("margin-top") == "2px");     // (0,2,1) both: the later
+    CHECK(st.raw("padding-top") == "2px");    // (0,1,0) both
+    CHECK(st.raw("z-index") == "2");          // (0,0,1) both
+    CHECK(st.raw("opacity") == "1");          // (1,0,0)
+    t.idName.clear();
+    t.classes.push_back("k");
+    CHECK(sp.engine.compute(t).raw("color") == "red");      // (still 1,0,0: .k matched, #i counts)
+    CHECK(sp.engine.compute(t).raw("opacity") == "1");
+
+    // what can't be read: the rule is dropped (the whole list), and nothing else
+    std::string deep = ".a";
+    for (int i = 0; i < 20; i++) deep = ":is(" + deep + ")";
+    Sheet bad(
+        "A:not() { color: red }\n"
+        "A:is(.a,) { color: red }\n"
+        "A:not(::part) { color: red }\n"
+        "A:is(B::x) { color: red }\n"
+        "A:not(> B) { color: red }\n"
+        "A:is(B +) { color: red }\n"
+        "A:where(#1) { color: red }\n"
+        "A" + deep + " { color: red }\n"
+        "A { color: green }\n"
+        "A:is(.a { color: red }\n");
+    CHECK(bad.problems.size() == 9);
+    CHECK(bad.reported("an empty selector in a selector list"));
+    CHECK(bad.reported("can't be inside :not(), :is() or :where()"));
+    CHECK(bad.reported("unexpected '>' in a selector"));
+    CHECK(bad.reported("a selector ends with '+'"));
+    CHECK(bad.reported("nested too deeply"));
+    CHECK(bad.reported("a rule without a { block"));
+    SimpleNode an("A");
+    an.classes = {"a"};
+    CHECK(bad.engine.compute(an).raw("color") == "green");
+    // 16 levels are fine
+    deep = ".a";
+    for (int i = 0; i < 16; i++) deep = ":is(" + deep + ")";
+    Sheet ok("A" + deep + " { color: red }");
+    CHECK(ok.problems.empty() && ok.engine.compute(an).raw("color") == "red");
+}
+
+// the sibling combinators A + B and A ~ B
+void testSiblingCombinators() {
+    Sheet s(
+        "A + B { --next: y }\n"
+        "A ~ B { --later: y }\n"
+        "B+B { --bb: y }\n"
+        "C ~ D { --cd: y }\n"
+        "A + B + C { --abc: y }\n"
+        "A ~ C ~ D { --acd: y }\n"
+        "List > A ~ B { --in-list: y }\n"
+        "Wrap A ~ D { --wrapped: y }\n"
+        "A + B > X { --child-of-b: y }\n"
+        "A ~ B X { --inside-b: y }\n"
+        ".k ~ * { --after-k: y }\n"
+        "B:not(A + B) { --b-not-after-a: y }\n");
+    CHECK(s.problems.empty());
+    CHECK(s.engine.uses() == Engine::UsesSiblings);
+    SimpleNode wrap("Wrap");
+    Family f({"A", "B", "C", "B", "D"}, &wrap);
+    auto has = [&](const Node& n, const char* var) { return s.engine.compute(n).has(var); };
+    const char* vars[] = {"--next", "--later", "--bb", "--cd", "--abc", "--acd", "--in-list", "--wrapped", "--b-not-after-a"};
+    const char* want[] = {"01000", "01010", "00000", "00001", "00100", "00001", "01010", "00001", "00010"};
+    for (size_t v = 0; v < sizeof vars / sizeof vars[0]; v++)
+        for (size_t i = 0; i < 5; i++) CHECK(has(f[i], vars[v]) == (want[v][i] == '1'));
+    f[2].classes = {"k"};
+    CHECK(!has(f[2], "--after-k") && has(f[3], "--after-k") && has(f[4], "--after-k") && !has(f[1], "--after-k"));
+    f[2].classes.clear();
+    // into a sibling's children
+    Family inB({"X", "Y"}, &f.parent, "B");
+    inB.parent.family = &f.list;  // (it stands in for f[1]: the same place)
+    inB.parent.index = 1;
+    CHECK(has(inB[0], "--child-of-b") && has(inB[0], "--inside-b") && !has(inB[1], "--child-of-b"));
+    // without a place (no siblings known): none
+    SimpleNode a("A"), b("B");
+    CHECK(!has(b, "--next") && !has(b, "--later"));
+
+    // a + search that fails at the nearest ancestor goes on to the next one: B1 (after an A) > B2 (first) > C
+    Sheet up("A + B C { color: red }");
+    SimpleNode top("Top");
+    Family outer({"A", "B"}, &top);
+    Family inner({"B"}, &outer[1]);  // (outer[1] > List > B)
+    Family leaf({"C"}, &inner[0]);
+    CHECK(up.engine.compute(leaf[0]).raw("color") == "red");
+    // likewise a ~ search: A ~ B C, where the nearest B has no A before it
+    Sheet up2("A ~ B C { color: red } X ~ B C { width: 1px }");
+    CHECK(up2.engine.compute(leaf[0]).raw("color") == "red");
+    CHECK(!up2.engine.compute(leaf[0]).has("width"));
+
+    // long ~ chains over many siblings stay quick (a search that ran out of siblings gives up at once)
+    std::vector<std::string> many(400, "A");
+    Family lots(many);
+    std::string chain = "B";
+    for (int i = 0; i < 12; i++) chain += " ~ A";
+    std::string plus = "B";
+    for (int i = 0; i < 12; i++) plus += " + A";
+    Sheet longs(chain + " { color: red } " + plus + " { width: 1px } Z A ~ A ~ A ~ A ~ A { height: 1px }");
+    auto t0 = std::chrono::steady_clock::now();
+    for (size_t i = 0; i < 400; i += 7) {
+        Style st = longs.engine.compute(lots[i]);
+        CHECK(!st.has("color") && !st.has("width") && !st.has("height"));
+    }
+    CHECK(std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() < 0.5);
+    lots[3].typeName = "B";
+    CHECK(longs.engine.compute(lots[15]).raw("color") == "red");
+    CHECK(longs.engine.compute(lots[15]).raw("width") == "1px");
+    CHECK(!longs.engine.compute(lots[16]).has("width") && longs.engine.compute(lots[16]).has("color"));
+    CHECK(!longs.engine.compute(lots[14]).has("color"));
+
+    // specificity: combinators add nothing
+    Sheet sp("A + B { color: red } B.x { color: blue } A ~ B { width: 1px } B { width: 2px }");
+    f[1].classes = {"x"};
+    CHECK(sp.engine.compute(f[1]).raw("color") == "blue" && sp.engine.compute(f[1]).raw("width") == "1px");
+    f[1].classes.clear();
+    // what an engine looks at
+    CHECK(Sheet("A B > C { color: red } :root { --x: 1 }").engine.uses() == 0);
+    CHECK(Sheet("A:first-child + B { color: red }").engine.uses() == (Engine::UsesPosition | Engine::UsesSiblings));
+    CHECK(Sheet("@media print { A ~ B { color: red } }").engine.uses() == 0);  // (an @media that doesn't apply)
+}
+
+// @media: features, query lists, nesting, and the generation
+void testMedia() {
+    Sheet s(
+        "A { color: red }\n"
+        "@media (min-width: 1000px) { A { color: blue } }\n"
+        "@media screen and (max-width: 600px) { A { color: green } }\n"
+        "@media print { A { --print: y } }\n"
+        "@media not print { A { --not-print: y } }\n"
+        "@media all { A { --all: y } }\n"
+        "@media (orientation: portrait) { A { --portrait: y } }\n"
+        "@media (orientation: landscape) { A { --landscape: y } }\n"
+        "@media (min-resolution: 2dppx) { A { --hidpi: y } }\n"
+        "@media (resolution: 1x) { A { --res1: y } }\n"
+        "@media (max-resolution: 96dpi) { A { --upto96dpi: y } }\n"
+        "@media (min-width: 50em) { A { --em: y } }\n"
+        "@media (min-width: 50rem) and (max-height: 50em) { A { --rem: y } }\n"
+        "@media (width >= 900px) and (height < 801px) { A { --range: y } }\n"
+        "@media (400px < width < 1300px) { A { --between: y } }\n"
+        "@media (1300px > width > 400px) { A { --between2: y } }\n"
+        "@media (width = 1280px) { A { --exact: y } }\n"
+        "@media (1280px = width) { A { --exact2: y } }\n"
+        "@media (width: 1280px) { A { --exact3: y } }\n"
+        "@media (height <= 799px) { A { --short: y } }\n"
+        "@media only screen and (min-width: 1px), print { A { --list: y } }\n"
+        "@media print, (max-width: 10px) { A { --list-none: y } }\n"
+        "@media (min-width: 1px) { @media (max-width: 500px) { A { --nested: y } } A { --outer: y } }\n"
+        "@media not (min-width: 2000px) { A { --not-cond: y } }\n"
+        "@media not screen and (min-width: 2000px) { A { --not-query: y } }\n"
+        "@media (width) { A { --bool: y } }\n"
+        "@media (min-width: calc(500px + 10em)) { A { --calc: y } }\n"
+        "@media (min-width: 1in) { A { --in: y } }\n"
+        "@media SCREEN AND (MIN-WIDTH: 1PX) { A { --case: y } }\n"
+        "@media { A { --empty-list: y } }\n"
+        "@media tv { A { --tv: y } }\n"
+        "B { width: 1px }\n");
+    CHECK(s.problems.empty());
+    SimpleNode a("A");
+    auto on = [&](const char* var) { return s.engine.compute(a).has(var); };
+    // the default media: 1280 x 800, scale 1
+    CHECK(s.engine.media().width == 1280 && s.engine.media().height == 800 && s.engine.media().scale == 1);
+    CHECK(s.engine.compute(a).raw("color") == "blue");
+    const char* yes[] = {"--not-print", "--all", "--landscape", "--res1", "--upto96dpi", "--em", "--rem", "--range",
+                         "--between", "--between2", "--exact", "--exact2", "--exact3", "--list", "--outer",
+                         "--not-cond", "--not-query", "--bool", "--calc", "--in", "--case", "--empty-list"};
+    const char* no[] = {"--print", "--portrait", "--hidpi", "--short", "--list-none", "--nested", "--tv"};
+    for (const char* v : yes) CHECK(on(v));
+    for (const char* v : no) CHECK(!on(v));
+
+    // the generation: bumped only when the set of @media blocks that apply changes
+    int g = s.engine.generation();
+    s.engine.setMedia(Media{1280, 800, 1});
+    CHECK(s.engine.generation() == g);
+    s.engine.setMedia(Media{1300, 800, 1});
+    CHECK(s.engine.generation() != g && !on("--between") && !on("--exact"));
+    g = s.engine.generation();
+    s.engine.setMedia(Media{500, 800, 1});
+    CHECK(s.engine.generation() != g);
+    CHECK(s.engine.compute(a).raw("color") == "green");
+    CHECK(on("--portrait") && !on("--landscape") && on("--nested") && !on("--em") && !on("--range"));
+    g = s.engine.generation();
+    s.engine.setMedia(Media{500, 800, 2});
+    CHECK(s.engine.generation() != g && on("--hidpi") && !on("--res1") && !on("--upto96dpi"));
+    g = s.engine.generation();
+    s.engine.setMedia(Media{500, 800, 2.5});  // (min-resolution: 2dppx still; nothing else asks)
+    CHECK(s.engine.generation() == g);
+    s.engine.setMedia(Media{800, 799, 1});
+    CHECK(on("--short") && on("--em") && on("--rem") && s.engine.compute(a).raw("color") == "red");
+    s.engine.setMedia(Media{799, 801, 1});
+    CHECK(!on("--short") && !on("--em") && !on("--rem") && !on("--range"));
+    // only a change in what applies bumps the generation (no vw / vh here)
+    Sheet few("@media (min-width: 1000px) { A { color: blue } }");
+    g = few.engine.generation();
+    few.engine.setMedia(Media{1100, 800, 1});
+    CHECK(few.engine.generation() == g && few.engine.media().width == 1100);
+    few.engine.setMedia(Media{900, 800, 1});
+    CHECK(few.engine.generation() != g && !few.engine.compute(a).has("color"));
+    g = few.engine.generation();
+    few.engine.setMedia(Media{950, 300, 4});
+    CHECK(few.engine.generation() == g);
+    few.engine.setMedia(Media{1000, 300, 4});
+    CHECK(few.engine.generation() != g && few.engine.compute(a).raw("color") == "blue");
+    // setSheets keeps the media
+    s.engine.setSheets(s.engine.sheets());
+    CHECK(s.engine.media().width == 799 && !on("--em") && on("--portrait"));
+    // a sheet without @media and without vw / vh: never bumped by the media
+    Sheet plain("A { color: red; width: 10px }");
+    g = plain.engine.generation();
+    plain.engine.setMedia(Media{100, 100, 3});
+    CHECK(plain.engine.generation() == g);
+    // the root's variables follow the media too
+    Sheet rootMedia(":root { --w: narrow } @media (min-width: 1000px) { :root { --w: wide } }");
+    CHECK(rootMedia.engine.root().raw("--w") == "wide");
+    rootMedia.engine.setMedia(Media{900, 800, 1});
+    CHECK(rootMedia.engine.root().raw("--w") == "narrow");
+
+    // the cascade inside @media: source order still counts
+    Sheet order("@media all { A { color: red } } A { color: blue } @media all { B { color: red } } B { color: blue } @media all { B { color: green } }");
+    CHECK(order.engine.compute(a).raw("color") == "blue");
+    CHECK(order.engine.compute(SimpleNode("B")).raw("color") == "green");
+
+    // queries that can't be read are false (reported); the others in the list still count
+    Sheet bad(
+        "@media (hover: hover) { A { --hover: y } }\n"                               // 1
+        "@media screen and (prefers-color-scheme: dark), (min-width: 1px) { A { --second: y } }\n"
+        "@media not (hover) { A { --not-unknown: y } }\n"                            // 3
+        "@media screen and { A { --x1: y } }\n"
+        "@media (min-width: 10vw) { A { --x2: y } }\n"                               // 5
+        "@media (orientation: up) { A { --x3: y } }\n"
+        "@media (width: red) { A { --x4: y } }\n"                                    // 7
+        "@media (min-width: 1px) or (max-width: 2px) { A { --x5: y } }\n"
+        "@media screen (min-width: 1px) { A { --x6: y } }\n"                        // 9
+        "@media (resolution: 2) { A { --x7: y } }\n"
+        "@media (min-orientation: portrait) { A { --x8: y } }\n"                    // 11
+        "@media (400px < width > 300px) { A { --x9: y } }\n"
+        "@media only (min-width: 1px) { A { --x10: y } }\n"                         // 13
+        "@media screen;\n"
+        "@media (orientation < 3px) { A { --x11: y } }\n"                           // 15
+        "A { @media all { color: red } --kept: y }\n"
+        "@media all { @import 'x.css'; A { --after-import: y } }\n"                 // 17
+        "@media (min-width: 1px) { A { --last: y }\n");
+    SimpleNode b("A");
+    Style st = bad.engine.compute(b);
+    CHECK(st.has("--second") && st.has("--kept") && st.has("--after-import") && st.has("--last"));
+    for (const char* v : {"--hover", "--not-unknown", "--x1", "--x2", "--x3", "--x4", "--x5", "--x6", "--x7", "--x8",
+                          "--x9", "--x10", "--x11"})
+        CHECK(!st.has(v));
+    CHECK(bad.reported("unknown media feature 'hover' (that query is false)"));
+    CHECK(bad.reported("unknown media feature 'prefers-color-scheme'"));
+    CHECK(bad.reported("a media query ends with 'and'"));
+    CHECK(bad.reported("vw, vh and ch can't be used in a media query"));
+    CHECK(bad.reported("orientation is portrait or landscape, not 'up'"));
+    CHECK(bad.reported("'red' is not a length"));
+    CHECK(bad.reported("'or' in media queries is not supported"));
+    CHECK(bad.reported("expected 'and' in a media query"));
+    CHECK(bad.reported("a resolution is in dppx, x, dpi or dpcm"));
+    CHECK(bad.reported("unknown media feature 'min-orientation'"));
+    CHECK(bad.reported("must point the same way"));
+    CHECK(bad.reported("expected a media type after 'only'"));
+    CHECK(bad.reported("@media without a { block"));
+    CHECK(bad.reported("orientation can't be a range"));
+    CHECK(bad.reported("@media rules are not supported (skipped)"));  // (inside a rule's block)
+    CHECK(bad.reported("@import can't be inside @media"));
+    CHECK(bad.reported("missing '}' at the end"));
+    int missing = 0;
+    for (const Problem& p : bad.problems) missing += p.message.find("missing '}'") != std::string::npos;
+    CHECK(missing == 1);
+    auto line = [&](const std::string& what) {
+        for (const Problem& p : bad.problems)
+            if (p.message.find(what) != std::string::npos) return p.line;
+        return -1;
+    };
+    CHECK(line("'hover' (that") == 1 && line("not 'up'") == 6 && line("'or' in") == 8 && line("must point") == 12);
+    for (size_t i = 1; i < bad.problems.size(); i++) CHECK(bad.problems[i - 1].line <= bad.problems[i].line);
+}
+
+// rem, vw, vh, vmin, vmax, ch, and the absolute units
+void testUnits() {
+    SimpleNode top("Top");  // (a parent: a node without one is the root, which :root rules match)
+    Sheet s(
+        ":root { font-size: 20px; --gap: 0.5rem; --wide: 10vw; --ch: 3ch; --mixed: calc(1rem + 1vh) }\n"
+        "A { width: 2rem; font-size: 1.5rem; height: 10vh; min-width: 50vw; max-width: calc(100vw - 2rem);\n"
+        "    margin-top: 1vmin; margin-bottom: 1vmax; padding-top: var(--gap); padding-left: var(--wide) }\n"
+        "B { font-size: 10px; width: 2ch; height: var(--ch); letter-spacing: 1ch }\n"
+        "B C { font-size: 30px }\n"
+        "D { width: 1in; height: 2.54cm; min-width: 25.4mm; max-width: 4Q; min-height: 1pc; max-height: 3pt;\n"
+        "    margin-top: calc(1in - 2.54cm); margin-left: 1IN }\n"
+        "E { font-size: 2ch }\n"
+        "F { border-top-width: 1rem; border: 0.1rem solid red }\n");
+    CHECK(s.problems.empty());
+    const Style& root = s.engine.root();
+    CHECK(root.raw("font-size") == "20px");
+    CHECK(root.raw("--gap") == "10px" && root.raw("--wide") == "128px" && root.raw("--mixed") == "calc(20px + 8px)");
+    CHECK(root.raw("--ch") == "3ch");  // (ch: of the node that uses it)
+    Style a = s.engine.compute(SimpleNode("A", &top));
+    CHECK(a.raw("width") == "40px");       // (rem: :root's font size, not A's)
+    CHECK(a.raw("font-size") == "30px");
+    CHECK(a.raw("height") == "80px" && a.raw("min-width") == "640px");
+    CHECK(a.raw("max-width") == "calc(1280px - 40px)" && a.length("max-width", 0) == 1240);
+    CHECK(a.raw("margin-top") == "8px" && a.raw("margin-bottom") == "12.8px");
+    CHECK(a.raw("padding-top") == "10px" && a.raw("padding-left") == "128px");
+    // ch: half the font size without a measure; the node's font (font-size: the parent's)
+    SimpleNode b("B", &top);
+    Style bs = s.engine.compute(b);
+    CHECK(bs.raw("width") == "10px" && bs.raw("height") == "15px" && bs.raw("letter-spacing") == "5px");
+    SimpleNode c("C", &b);
+    Style cs = s.engine.compute(c, &bs);
+    CHECK(cs.raw("letter-spacing") == "5px");  // (inherited as it was worked out)
+    Style e = s.engine.compute(SimpleNode("E", &top));
+    CHECK(e.raw("font-size") == "20px");       // (2ch of :root's 20px font: 2 * 10)
+    Style d = s.engine.compute(SimpleNode("D", &top));
+    CHECK_NEAR(d.length("width", 0), 96, 1e-9);
+    CHECK_NEAR(d.length("height", 0), 96, 1e-9);
+    CHECK_NEAR(d.length("min-width", 0), 96, 1e-9);
+    CHECK_NEAR(d.length("max-width", 0), 96 / 25.4, 1e-9);
+    CHECK_NEAR(d.length("min-height", 0), 16, 1e-9);
+    CHECK_NEAR(d.length("max-height", 0), 4, 1e-9);
+    CHECK_NEAR(d.length("margin-top", -1), 0, 1e-9);
+    CHECK_NEAR(d.length("margin-left", 0), 96, 1e-9);
+    Style fs = s.engine.compute(SimpleNode("F", &top));
+    CHECK(fs.raw("border-left-width") == "2px" && fs.length("border-top-width", 0) == 2);
+    // rem in :root's own font-size: of the initial size (12px)
+    Sheet r(":root { font-size: 2rem; --r: 1rem } A { width: 1rem }");
+    CHECK(r.engine.root().raw("font-size") == "24px" && r.engine.root().raw("--r") == "24px");
+    CHECK(r.engine.compute(SimpleNode("A", &top)).raw("width") == "24px");
+    // a measure of "0" in the node's font
+    Engine m;
+    int calls = 0;
+    m.setCharWidth([&](const std::string& family, double px) {
+        calls++;
+        return family == "Mono" ? px * 0.6 : family.empty() ? px * 0.25 : px * 0.4;
+    });
+    std::vector<Problem> ps;
+    m.setSheets({parse("A { font-family: 'Mono', sans-serif; font-size: 10px; width: 10ch } B { width: 10ch } "
+                       "C { font-family: X; font-size: 20px; width: 1ch } C D { font-size: 2ch; width: 1px }",
+                       "ch.css", ps)});
+    CHECK(ps.empty());
+    CHECK(calls == 0);
+    CHECK(m.compute(SimpleNode("A")).raw("width") == "60px");
+    CHECK(m.compute(SimpleNode("B")).raw("width") == "30px");  // (no font-family: "", 12px)
+    SimpleNode cn("C"), dn("D", &cn);
+    Style cst = m.compute(cn);
+    CHECK(cst.raw("width") == "8px");
+    CHECK(m.compute(dn, &cst).raw("font-size") == "16px");  // (the parent's font: X at 20px)
+    calls = 0;
+    m.compute(dn, &cst);
+    CHECK(calls == 1);
+    m.compute(SimpleNode("Z"));
+    CHECK(calls == 1);  // (not asked when nothing uses ch)
+    int g = m.generation();
+    m.setCharWidth(nullptr);
+    CHECK(m.generation() != g && m.compute(SimpleNode("A")).raw("width") == "50px");
+    // a measure that makes no sense: half the size
+    m.setCharWidth([](const std::string&, double) { return std::nan(""); });
+    CHECK(m.compute(SimpleNode("A")).raw("width") == "50px");
+
+    // vw / vh: styles that used them are stale (the generation changes) when the size does
+    Sheet v("A { width: 50vw; height: 100vh } B { width: 1px }");
+    CHECK(v.problems.empty());
+    Style before = v.engine.compute(SimpleNode("A"));
+    CHECK(before.raw("width") == "640px" && before.raw("height") == "800px");
+    int gen = v.engine.generation();
+    v.engine.setMedia(Media{1280, 800, 2});  // (the scale alone: no)
+    CHECK(v.engine.generation() == gen);
+    v.engine.setMedia(Media{1000, 600, 2});
+    CHECK(v.engine.generation() != gen);
+    Style after = v.engine.compute(SimpleNode("A"));
+    CHECK(after.raw("width") == "500px" && after.raw("height") == "600px");
+    CHECK(before.raw("width") == "640px");  // (what was computed stays: the generation says it is stale)
+    // vw through a variable from another sheet: that sheet says it uses vw
+    std::vector<Problem> p2;
+    SheetPtr vars = parse(":root { --w: 10vw }", "vars.css", p2);
+    SheetPtr use = parse("A { width: var(--w) }", "use.css", p2);
+    Engine two;
+    two.setSheets({vars, use});
+    CHECK(two.compute(SimpleNode("A")).raw("width") == "128px");
+    gen = two.generation();
+    two.setMedia(Media{640, 800, 1});
+    CHECK(two.generation() != gen && two.compute(SimpleNode("A")).raw("width") == "64px");
+    // vw in a property value inside a custom property used as var(): resolved after substitution
+    Sheet sub(":root { --x: calc(var(--y) * 2); --y: 1vh } A { height: var(--x) }");
+    CHECK(sub.engine.compute(SimpleNode("A")).length("height", 0) == 16);
+    // the units are checked like any length
+    Sheet bad("A { margin-top: 2rems; margin-left: 1vq; font-size: 3chx; padding: 1rem 1vw 1vh 1ch }");
+    CHECK(bad.problems.size() == 3);
+    Style bst = bad.engine.compute(SimpleNode("A"));
+    CHECK(!bst.has("margin-top") && !bst.has("margin-left") && !bst.has("font-size"));
+    CHECK(bst.raw("padding-top") == "12px" && bst.raw("padding-right") == "12.8px" && bst.raw("padding-bottom") == "8px" &&
+          bst.raw("padding-left") == "6px");
+    // the helpers
+    detail::UnitPx px;
+    px.rem = 10;
+    CHECK(detail::resolveUnits("calc(1rem + 2REM) 3px '4rem' url(5rem.png)", px, detail::URem) ==
+          "calc(10px + 20px) 3px '4rem' url(5rem.png)");
+    CHECK(detail::resolveUnits("1vw 1vh", px, detail::UVw) == "12.8px 1vh");
+    CHECK(detail::resolveUnits("no units", px, 15) == "no units");
+}
+
+// @import: in place, relative to each file, with media, loops, depth, files that can't be read
+void testImport() {
+    std::map<std::string, std::string> files = {
+        {"/skins/a.css", "A { color: red; width: 1px } X { color: blue } A { color: blu }"},
+        {"/skins/sub/b.css", "@import \"../c.css\";\nB { width: 1px }"},
+        {"/skins/c.css",
+         "C { width: 3px }\n"
+         "@font-face { font-family: \"Grand\"; src: local(Grand), url(fonts/grand.woff2) format(\"woff2\"),"
+         " url('fonts/grand.ttf') format(\"truetype\"); font-weight: bold }\n"
+         "@media (max-width: 1px) { C { height: 1px } }\n"},
+        {"/skins/v.css", "V { width: 1vw }"},
+        {"/skins/loop.css", "@import 'loop.css'; L { width: 1px }"},
+        {"/skins/x.css", "@import 'y.css'; X { width: 1px }"},
+        {"/skins/y.css", "@import url(./x.css); Y { width: 1px }"},
+        {"/skins/twice.css", "T { width: 1px }"},
+        {"/skins/e.css", "E { color: var(--nope) }"},
+    };
+    for (int i = 0; i < 12; i++) files["/skins/d" + std::to_string(i) + ".css"] = "@import 'd" + std::to_string(i + 1) + ".css'; D" + std::to_string(i) + " { width: 1px }";
+    int reads = 0;
+    ParseOptions o;
+    o.baseDir = "/skins";
+    o.readFile = [&](const std::string& path, std::string& text) {
+        reads++;
+        auto it = files.find(path);
+        if (it == files.end()) return false;
+        text = it->second;
+        return true;
+    };
+    std::vector<Problem> ps;
+    SheetPtr main = parse(
+        "@charset \"utf-8\";\n"
+        "@import url(\"a.css\");\n"
+        "@import \"sub/b.css\" screen and (min-width: 2000px);\n"
+        "@import url(missing.css);\n"
+        "@import url(v.css) all;\n"
+        "@import 'twice.css'; @import 'twice.css';\n"
+        "@import 'e.css';\n"
+        "X { color: red }\n",
+        "main.css", ps, o);
+    CHECK(reads == 8);
+    std::vector<std::string> imported = importedFiles(main);
+    CHECK(imported.size() == 8);
+    if (imported.size() == 8) {
+        CHECK(imported[0] == "/skins/a.css" && imported[1] == "/skins/sub/b.css" && imported[2] == "/skins/c.css");
+        CHECK(imported[3] == "/skins/missing.css" && imported[4] == "/skins/v.css" && imported[5] == "/skins/twice.css");
+        CHECK(imported[6] == "/skins/twice.css" && imported[7] == "/skins/e.css");
+    }
+    CHECK(anyProblem(ps, "@import of 'missing.css': can't read /skins/missing.css (skipped)"));
+    for (const Problem& p : ps)
+        if (p.message.find("missing.css") != std::string::npos) CHECK(p.source == "main.css" && p.line == 4 && p.column == 1);
+    // an import's own problems are its own (and come first)
+    CHECK(!ps.empty() && ps[0].source == "a.css" && ps[0].message.find("unknown colour 'blu'") != std::string::npos);
+    CHECK(ps.size() == 2);
+    Engine e;
+    e.setSheets({main});
+    CHECK(e.compute(SimpleNode("A")).raw("color") == "red");
+    CHECK(e.compute(SimpleNode("X")).raw("color") == "red");   // (the importing sheet's rule comes later)
+    CHECK(!e.compute(SimpleNode("B")).has("width"));             // (screen and (min-width: 2000px))
+    CHECK(!e.compute(SimpleNode("C")).has("width"));             // (inside that import too)
+    CHECK(e.compute(SimpleNode("T")).raw("width") == "1px");
+    CHECK(e.compute(SimpleNode("V")).raw("width") == "12.8px");
+    e.setMedia(Media{2000, 800, 1});
+    CHECK(e.compute(SimpleNode("B")).raw("width") == "1px" && e.compute(SimpleNode("C")).raw("width") == "3px");
+    CHECK(!e.compute(SimpleNode("C")).has("height"));
+    e.setMedia(Media{1, 800, 1});                                 // (c.css's own @media, but not the import's)
+    CHECK(!e.compute(SimpleNode("C")).has("height") && !e.compute(SimpleNode("C")).has("width"));
+    // a problem found computing a rule of an import: where it is (the imported sheet is kept alive by `main`)
+    e.compute(SimpleNode("E"));
+    std::vector<Problem> found = e.takeProblems();
+    CHECK(found.size() == 1 && found[0].source == "e.css" && found[0].line == 1 && found[0].column == 5);
+    // an @import's @font-face: its path is its own sheet's folder
+    std::vector<FontFace> faces = fontFaces(main);
+    CHECK(faces.size() == 1 && faces[0].family == "Grand" && faces[0].file == "/skins/fonts/grand.ttf");
+    CHECK(faces.size() == 1 && faces[0].bold && !faces[0].italic);
+
+    // loops: a file that imports itself, two that import each other
+    std::vector<Problem> lp;
+    SheetPtr loop = parse(files["/skins/loop.css"], "loop.css", lp, o);
+    CHECK(lp.size() == 1 && lp[0].message.find("a loop") != std::string::npos && lp[0].source == "loop.css");
+    CHECK(importedFiles(loop).empty());
+    lp.clear();
+    SheetPtr x = parse(files["/skins/x.css"], "x.css", lp, o);
+    CHECK(lp.size() == 1 && lp[0].source == "y.css" && lp[0].message.find("'./x.css': a loop") != std::string::npos);
+    CHECK(importedFiles(x).size() == 1 && importedFiles(x)[0] == "/skins/y.css");
+    Engine xe;
+    xe.setSheets({x});
+    CHECK(xe.compute(SimpleNode("X")).has("width") && xe.compute(SimpleNode("Y")).has("width"));
+    // depth: more than maxDepth levels
+    lp.clear();
+    SheetPtr deep = parse("@import 'd0.css';", "top.css", lp, o);
+    CHECK(lp.size() == 1 && lp[0].message.find("nested more than 8 deep") != std::string::npos && lp[0].source == "d7.css");
+    CHECK(importedFiles(deep).size() == 8);
+    Engine de;
+    de.setSheets({deep});
+    CHECK(de.compute(SimpleNode("D7")).has("width") && !de.compute(SimpleNode("D8")).has("width"));
+    ParseOptions shallow = o;
+    shallow.maxDepth = 0;
+    lp.clear();
+    parse("@import 'd0.css';", "top.css", lp, shallow);
+    CHECK(lp.size() == 1 && lp[0].message.find("nested more than 0 deep") != std::string::npos);
+
+    // what isn't an import that can be followed
+    lp.clear();
+    SheetPtr bad = parse(
+        "@import;\n"
+        "@import url();\n"
+        "@import 'http://example.com/x.css';\n"
+        "@import url(a.css) layer(base);\n"
+        "@import url(a.css) supports(display: grid);\n"
+        "@import 'a.css' { }\n"
+        "@import 42;\n"
+        "A { color: red }\n"
+        "@import 'a.css';\n",
+        "bad.css", lp, o);
+    CHECK(lp.size() == 8);
+    CHECK(anyProblem(lp, "@import needs url(\"file\") or \"file\""));
+    CHECK(anyProblem(lp, "only files can be imported"));
+    CHECK(anyProblem(lp, "@import with layer is not supported"));
+    CHECK(anyProblem(lp, "@import with supports is not supported"));
+    CHECK(anyProblem(lp, "@import with a { block"));
+    CHECK(anyProblem(lp, "@import must come before the rules"));
+    CHECK(importedFiles(bad).empty());
+    // no way to read files: reported
+    lp.clear();
+    parse("@import 'a.css';", "n.css", lp);
+    CHECK(lp.size() == 1 && lp[0].message.find("files can't be read here") != std::string::npos);
+    // no baseDir: as written; absolute paths as they are; file: URLs
+    ParseOptions here = o;
+    here.baseDir = "";
+    std::vector<std::string> asked;
+    here.readFile = [&](const std::string& path, std::string&) {
+        asked.push_back(path);
+        return false;
+    };
+    lp.clear();
+    parse("@import 'q.css'; @import '/abs/./r.css'; @import 'file:///f/s.css'; @import '../up/t.css'; @import 'a/../../u.css';",
+          "h.css", lp, here);
+    CHECK(asked.size() == 5);
+    if (asked.size() == 5)
+        CHECK(asked[0] == "q.css" && asked[1] == "/abs/r.css" && asked[2] == "/f/s.css" && asked[3] == "../up/t.css" &&
+              asked[4] == "../u.css");
+    here.baseDir = "/";
+    asked.clear();
+    parse("@import 'q.css'; @import '../q.css';", "h.css", lp, here);
+    CHECK(asked.size() == 2 && asked[0] == "/q.css" && asked[1] == "/q.css");
+    CHECK(importedFiles(nullptr).empty() && fontFaces(nullptr).empty());
+}
+
+// @font-face: into fontFaces(), the first file that can be read, its path resolved
+void testFontFace() {
+    ParseOptions o;
+    o.baseDir = "/home/me/skins";
+    std::vector<Problem> ps;
+    SheetPtr s = parse(
+        "@font-face { font-family: \"My Font\"; src: url(fonts/my.ttf); }\n"
+        "@font-face { font-family: Other Name; src: url(\"../x.otf\") format(\"opentype\"); font-style: italic }\n"
+        "@font-face { font-family: 'W'; src: url(w.woff2), url(w.woff) format('woff'), url(w.ttf) format(truetype);"
+        " font-weight: 700 }\n"
+        "@font-face { font-family: Abs; src: url(/usr/share/fonts/a.ttc) format(collection); font-weight: 400 }\n"
+        "@font-face { font-family: Net; src: url(https://x.org/a.ttf), url(file:///opt/n.ttf) }\n"
+        "@font-face { font-family: V; src: url(v.ttf) format(\"truetype-variations\"); font-weight: bolder;"
+        " font-style: oblique 10deg; unicode-range: U+0-7F }\n"
+        "@font-face { src: url(none.ttf) }\n"                                     // 7: no family
+        "@font-face { font-family: Only Local; src: local(\"Arial\") }\n"         // 8
+        "@font-face { font-family: Woff; src: url(a.woff2) format('woff2') }\n"   // 9
+        "@font-face;\n"                                                           // 10
+        "@media all { @font-face { font-family: M; src: url(m.ttf) } }\n"         // 11
+        "A { font-family: \"My Font\" }\n",
+        "faces.css", ps, o);
+    std::vector<FontFace> f = fontFaces(s);
+    CHECK(f.size() == 6);
+    if (f.size() == 6) {
+        CHECK(f[0].family == "My Font" && f[0].file == "/home/me/skins/fonts/my.ttf" && !f[0].bold && !f[0].italic);
+        CHECK(f[1].family == "Other Name" && f[1].file == "/home/me/x.otf" && !f[1].bold && f[1].italic);
+        CHECK(f[2].family == "W" && f[2].file == "/home/me/skins/w.ttf" && f[2].bold);
+        CHECK(f[3].family == "Abs" && f[3].file == "/usr/share/fonts/a.ttc" && !f[3].bold);
+        CHECK(f[4].family == "Net" && f[4].file == "/opt/n.ttf");
+        CHECK(f[5].family == "V" && f[5].bold && f[5].italic);
+    }
+    CHECK(ps.size() == 5);
+    CHECK(anyProblem(ps, "@font-face without a font-family"));
+    CHECK(anyProblem(ps, "@font-face for 'Only Local' has no font file"));
+    CHECK(anyProblem(ps, "@font-face for 'Woff' has no font file"));
+    CHECK(anyProblem(ps, "@font-face without a { block"));
+    CHECK(anyProblem(ps, "@font-face inside @media is not supported"));
+    Engine e;
+    e.setSheets({s});
+    CHECK(e.compute(SimpleNode("A")).list("font-family")[0] == "My Font");
+    // no baseDir: as written
+    ps.clear();
+    std::vector<FontFace> g = fontFaces(parse("@font-face { font-family: G; src: url(./g.ttf) }", "g.css", ps));
+    CHECK(ps.empty() && g.size() == 1 && g[0].file == "g.ttf");
+}
+
+// random stylesheets with the new parts, on nodes with siblings: never a crash
+void testFuzzMore() {
+    const std::string corpus =
+        "@import 'a.css' screen and (min-width: 10px); @media (400px < width < 1300px), not print { A + B ~ C { width: 2rem } }"
+        " :is(.a, #b):not(:nth-child(2n+1)) > :first-child ~ *:where(.c) { height: calc(10vw - 1ch) }"
+        " @font-face { font-family: X; src: url(x.ttf) format('truetype') } :nth-last-child(odd) { --v: 1vh }";
+    const std::string alphabet = "{}();:,.#*>+~!@ \n(-n+3)<=>=2n+1odd:not(:is(:where(@media@importurl('rem vw vh ch";
+    std::mt19937 rng(4242);
+    SimpleNode top("Window");
+    Family f({"A", "B", "C", "A"}, &top);
+    f[1].classes = {"a", "c"};
+    f[2].idName = "b";
+    std::map<std::string, std::string> files = {{"a.css", corpus}, {"b.css", "@import 'a.css';"}};
+    ParseOptions o;
+    o.readFile = [&](const std::string& path, std::string& text) {
+        auto it = files.find(path);
+        if (it == files.end()) return false;
+        text = it->second;
+        return true;
+    };
+    auto exercise = [&](const std::string& text) {
+        std::vector<Problem> ps;
+        files["a.css"] = text;
+        SheetPtr sheet = parse(text, "fuzz.css", ps, o);
+        Engine e;
+        e.setSheets({sheet});
+        e.setMedia(Media{double(rng() % 2000), double(rng() % 2000), double(1 + rng() % 3)});
+        e.setCharWidth([](const std::string&, double px) { return px * 0.6; });
+        Style r = e.compute(top);
+        for (size_t i = 0; i < 4; i++) {
+            Style st = e.compute(f[i], &r);
+            for (const auto& kv : st.props_) st.length(kv.first, 0, 100);
+        }
+        fontFaces(sheet);
+        importedFiles(sheet);
+        e.takeProblems();
+        for (const Problem& pr : ps) CHECK(pr.line >= 1 && pr.column >= 1);
+    };
+    for (size_t cut = 0; cut <= corpus.size(); cut++) exercise(corpus.substr(0, cut));
+    for (int i = 0; i < 1500; i++) {
+        std::string t;
+        if (i % 2 == 0) {
+            t = corpus;
+            int edits = 1 + rng() % 8;
+            for (int k = 0; k < edits && !t.empty(); k++) {
+                size_t at = rng() % t.size();
+                switch (rng() % 3) {
+                    case 0: t.erase(at, 1 + rng() % 5); break;
+                    case 1: t.insert(at, 1, alphabet[rng() % alphabet.size()]); break;
+                    default: t[at] = (char)(rng() & 255); break;
+                }
+            }
+        } else {
+            int n = rng() % 80;
+            for (int k = 0; k < n; k++) {
+                size_t from = rng() % alphabet.size();
+                t += alphabet.substr(from, 1 + rng() % 6);
+            }
+        }
+        exercise(t);
+    }
+    exercise(std::string(20000, '@') + "media");
+    exercise("@media " + std::string(5000, '(') + " { A { color: red } }");
+    std::string nest;
+    for (int i = 0; i < 3000; i++) nest += "@media all { ";
+    exercise(nest + "A { color: red }");
+    std::string isDeep;
+    for (int i = 0; i < 3000; i++) isDeep += ":is(";
+    exercise("A" + isDeep + " { color: red }");
+}
+
+// what paints: gradients (every form), box-shadow and text-shadow lists, border styles (alone, per side and in
+// the border shorthands), opacity, all through var() too; bad values left out and reported where they are
+void testPaintValues() {
+    using G = Style::Gradient;
+    auto near = [](double a, double b) { return std::fabs(a - b) < 1e-9; };
+    Sheet s(
+        ":root { --a: red; --g: linear-gradient(to right, var(--a), blue); --sh: 1px 2px 3px green; --t: 45deg }\n"  // 1
+        "L1 { background-image: linear-gradient(red, blue) }\n"                                                       // 2
+        "L2 { background-image: linear-gradient(90deg, red 10%, lime 20px, blue) }\n"                                 // 3
+        "L3 { background-image: linear-gradient(0.25turn, red, blue), linear-gradient(1.5708rad, red, blue) }\n"     // 4
+        "L4 { background-image: linear-gradient(100grad, red 0 50%, blue 50% 100%); }\n"                            // 5
+        "L5 { background-image: linear-gradient(to left top, red, blue) }\n"                                         // 6
+        "L6 { background-image: linear-gradient(to bottom, red, blue); background-image: linear-gradient(0, red, blue) }\n"  // 7
+        "L7 { background-image: repeating-linear-gradient(-45deg, red, red 5px, white 5px, white 10px) }\n"         // 8
+        "L8 { background-image: linear-gradient(10% red, 90% blue) }\n"                                             // 9
+        "R1 { background-image: radial-gradient(red, blue) }\n"                                                       // 10
+        "R2 { background-image: radial-gradient(circle closest-side at left top, red, blue) }\n"                     // 11
+        "R3 { background-image: radial-gradient(farthest-side ellipse at 30% 10px, red, blue) }\n"                   // 12
+        "R4 { background-image: radial-gradient(20px at bottom right, red, blue) }\n"                                // 13
+        "R5 { background-image: radial-gradient(40% 2em, red, blue); font-size: 10px }\n"                            // 14
+        "R6 { background-image: repeating-radial-gradient(circle at top, red 0 4px, blue 4px 8px) }\n"              // 15
+        "R7 { background-image: radial-gradient(closest-corner, red, blue), none }\n"                                // 16
+        "B1 { background: linear-gradient(red, blue) #123456 }\n"                                                    // 17
+        "B2 { background: #102030 radial-gradient(red, blue) }\n"                                                    // 18
+        "B3 { background: linear-gradient(red, blue), url(x.png) no-repeat green }\n"                                // 19
+        "B4 { background: blue }\n"                                                                                   // 20
+        "V1 { background-image: var(--g) }\n"                                                                         // 21
+        "V2 { background: var(--g) var(--a) }\n"                                                                      // 22
+        "V3 { background-image: linear-gradient(var(--t), var(--a) 0%, blue) }\n"                                    // 23
+        "S1 { box-shadow: 2px 3px }\n"                                                                                // 24
+        "S2 { box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5), 0 0 0 1px white, 1px 1px 4px 2px blue inset }\n"      // 25
+        "S3 { box-shadow: red 1px 2px 3px 4px; color: #00ff00 }\n"                                                   // 26
+        "S4 { box-shadow: 1px 1px; color: #00ff00 }\n"                                                               // 27
+        "S5 { box-shadow: none; text-shadow: 1px 1px 2px black, 0 0 1em blue; font-size: 10px }\n"                  // 28
+        "S6 { box-shadow: var(--sh); text-shadow: var(--sh) }\n"                                                     // 29
+        "O1 { opacity: 0.5 } O2 { opacity: 25% } O3 { opacity: var(--o, 0.75) }\n"                                   // 30
+        "Y1 { border-style: inset outset; border-top-style: double }\n"                                              // 31
+        "Y2 { border: 2px groove #808080; border-left: 3px ridge red; border-bottom: dotted }\n"                     // 32
+        "Y3 { border-top: 1px dashed blue; border-right-style: hidden; border-right-width: 4px }\n"                  // 33
+        "Y4 { border-width: 2px; border-style: none }\n"                                                             // 34
+        "Y5 { border: var(--w, 2px) outset var(--a) }\n"                                                             // 35
+        "X { background-image: linear-gradient(red) }\n"                                                             // 36
+        "X { background-image: linear-gradient(to middle, red, blue) }\n"                                            // 37
+        "X { background-image: radial-gradient(circle 10% , red, blue) }\n"                                          // 38
+        "X { background-image: url(a.png) }\n"                                                                       // 39
+        "X { background-image: linear-gradient(red, 50%, blue) }\n"                                                  // 40
+        "X { background: linear-gradient(red, nope) blue }\n"                                                        // 41
+        "X { box-shadow: 1px }\n"                                                                                     // 42
+        "X { box-shadow: 1px 1px -2px red }\n"                                                                       // 43
+        "X { text-shadow: inset 1px 1px red }\n"                                                                     // 44
+        "X { text-shadow: 1px 1px 1px 1px red }\n"                                                                   // 45
+        "X { opacity: big }\n"                                                                                        // 46
+        "X { border-left-style: wavy }\n"                                                                             // 47
+        "X { border-style: solid wavy }\n"                                                                            // 48
+        "X { background-image: radial-gradient(circle 10px 20px, red, blue) }\n"                                    // 49
+        "X { background-image: linear-gradient(45deg 10px, red, blue) }\n"                                           // 50
+        "X { box-shadow: 1px 2px red 3px }\n"                                                                         // 51
+        "Z1 { background-image: var(--nothing, linear-gradient(red, nope)) }\n");                                    // 52
+    auto at = [&](const std::string& what, int line, int col) {
+        for (const Problem& p : s.problems)
+            if (p.line == line && p.message.find(what) != std::string::npos) return p.column == col;
+        return false;
+    };
+    CHECK(at("a gradient needs two colour stops", 36, 5));
+    CHECK(at("is not a side", 37, 5));
+    CHECK(at("a circle's size is one length", 38, 5));
+    CHECK(at("url() images are not supported", 39, 5));
+    CHECK(at("transition hints", 40, 5));
+    CHECK(at("bad value for 'background'", 41, 5));
+    CHECK(at("needs its x and y offsets", 42, 5));
+    CHECK(at("blur can't be negative", 43, 5));
+    CHECK(at("is not part of a shadow", 44, 5));
+    CHECK(at("at most 3 lengths", 45, 5));
+    CHECK(at("bad value for 'opacity'", 46, 5));
+    CHECK(at("bad value for 'border-left-style'", 47, 5));
+    CHECK(at("bad value for 'border-style'", 48, 5));
+    CHECK(at("a circle's size is one length", 49, 5));
+    CHECK(at("is not a colour or a position", 50, 5));
+    CHECK(at("is not part of a shadow", 51, 5));
+    CHECK(s.problems.size() == 16);
+    for (const Problem& p : s.problems) CHECK(p.line >= 36 && p.line <= 51);
+    CHECK(!s.engine.compute(SimpleNode("X")).has("background-image") && !s.engine.compute(SimpleNode("X")).has("box-shadow"));
+
+    auto grads = [&](const char* type) { return s.engine.compute(SimpleNode(type)).gradients(); };
+    auto stopIs = [&](const Style::ColorStop& st, Rgba c, double pos, bool px) {
+        return st.color == c && near(st.position, pos) && st.px == px;
+    };
+    std::vector<G> g = grads("L1");
+    CHECK(g.size() == 1 && g[0].kind == G::Linear && !g[0].repeating && g[0].angle == 180 && !g[0].toCorner);
+    CHECK(g.size() == 1 && g[0].stops.size() == 2 && stopIs(g[0].stops[0], rgba(255, 0, 0), -1, false) &&
+          stopIs(g[0].stops[1], rgba(0, 0, 255), -1, false));
+    g = grads("L2");
+    CHECK(g.size() == 1 && g[0].angle == 90 && g[0].stops.size() == 3);
+    CHECK(g.size() == 1 && stopIs(g[0].stops[0], rgba(255, 0, 0), 0.1, false) && stopIs(g[0].stops[1], rgba(0, 255, 0), 20, true));
+    g = grads("L3");
+    CHECK(g.size() == 2 && near(g[0].angle, 90) && std::fabs(g[1].angle - 90) < 0.01);
+    g = grads("L4");
+    CHECK(g.size() == 1 && near(g[0].angle, 90) && g[0].stops.size() == 4);  // (two-position stops: two each)
+    CHECK(g.size() == 1 && stopIs(g[0].stops[0], rgba(255, 0, 0), 0, true) && stopIs(g[0].stops[1], rgba(255, 0, 0), 0.5, false) &&
+          stopIs(g[0].stops[2], rgba(0, 0, 255), 0.5, false) && stopIs(g[0].stops[3], rgba(0, 0, 255), 1, false));
+    g = grads("L5");
+    CHECK(g.size() == 1 && g[0].toCorner && g[0].cornerX == -1 && g[0].cornerY == -1);
+    g = grads("L6");
+    CHECK(g.size() == 1 && g[0].angle == 0);  // (the later declaration)
+    g = grads("L7");
+    CHECK(g.size() == 1 && g[0].repeating && near(g[0].angle, 315) && g[0].stops.size() == 4 && g[0].stops[3].px);
+    g = grads("L8");  // (a position before its colour)
+    CHECK(g.size() == 1 && stopIs(g[0].stops[0], rgba(255, 0, 0), 0.1, false) && stopIs(g[0].stops[1], rgba(0, 0, 255), 0.9, false));
+    g = grads("R1");
+    CHECK(g.size() == 1 && g[0].kind == G::Radial && !g[0].circle && g[0].size == G::FarthestCorner && g[0].centerX == 0.5 &&
+          g[0].centerY == 0.5);
+    g = grads("R2");
+    CHECK(g.size() == 1 && g[0].circle && g[0].size == G::ClosestSide && g[0].centerX == 0 && g[0].centerY == 0 &&
+          !g[0].centerXPx && !g[0].centerYPx);
+    g = grads("R3");
+    CHECK(g.size() == 1 && !g[0].circle && g[0].size == G::FarthestSide && near(g[0].centerX, 0.3) && !g[0].centerXPx &&
+          g[0].centerY == 10 && g[0].centerYPx);
+    g = grads("R4");
+    CHECK(g.size() == 1 && g[0].circle && g[0].size == G::Explicit && g[0].radiusX == 20 && g[0].radiusY == 20 &&
+          g[0].centerX == 1 && g[0].centerY == 1);
+    g = grads("R5");
+    CHECK(g.size() == 1 && !g[0].circle && g[0].size == G::Explicit && near(g[0].radiusX, 0.4) && g[0].radiusXPercent &&
+          g[0].radiusY == 20 && !g[0].radiusYPercent);
+    g = grads("R6");
+    CHECK(g.size() == 1 && g[0].repeating && g[0].circle && g[0].centerX == 0.5 && g[0].centerY == 0 && g[0].stops.size() == 4);
+    g = grads("R7");
+    CHECK(g.size() == 1 && g[0].size == G::ClosestCorner);  // (a `none` layer is no gradient)
+    Style b1 = s.engine.compute(SimpleNode("B1"));
+    CHECK(b1.color("background-color", Rgba{}) == rgba(0x12, 0x34, 0x56) && b1.gradients().size() == 1);
+    Style b2 = s.engine.compute(SimpleNode("B2"));
+    CHECK(b2.color("background-color", Rgba{}) == rgba(0x10, 0x20, 0x30) && b2.gradients().size() == 1 &&
+          b2.gradients()[0].kind == G::Radial);
+    Style b3 = s.engine.compute(SimpleNode("B3"));  // (the url() layer: none; the colour from the last layer)
+    CHECK(b3.raw("background-image") == "linear-gradient(red, blue), none" && b3.gradients().size() == 1 &&
+          b3.color("background-color", Rgba{}) == rgba(0, 128, 0));
+    Style b4 = s.engine.compute(SimpleNode("B4"));
+    CHECK(b4.raw("background-image") == "none" && b4.gradients().empty());
+    g = grads("V1");
+    CHECK(g.size() == 1 && g[0].angle == 90 && g[0].stops.size() == 2 && g[0].stops[0].color == rgba(255, 0, 0));
+    Style v2 = s.engine.compute(SimpleNode("V2"));
+    CHECK(v2.gradients().size() == 1 && v2.color("background-color", Rgba{}) == rgba(255, 0, 0));
+    g = grads("V3");
+    CHECK(g.size() == 1 && g[0].angle == 45 && g[0].stops[0].position == 0);
+    CHECK(grads("Z1").empty() && anyProblem(s.engine.takeProblems(), "after var()"));
+
+    auto shadows = [&](const char* type, const char* prop) { return s.engine.compute(SimpleNode(type)).shadows(prop); };
+    std::vector<Style::Shadow> sh = shadows("S1", "box-shadow");
+    CHECK(sh.size() == 1 && !sh[0].inset && sh[0].x == 2 && sh[0].y == 3 && sh[0].blur == 0 && sh[0].spread == 0 &&
+          sh[0].color == rgba(0, 0, 0));
+    sh = shadows("S2", "box-shadow");
+    CHECK(sh.size() == 3 && sh[0].inset && sh[0].y == 1 && sh[0].blur == 2 && sh[0].color == rgba(0, 0, 0, 128));
+    CHECK(sh.size() == 3 && !sh[1].inset && sh[1].spread == 1 && sh[1].color == rgba(255, 255, 255));
+    CHECK(sh.size() == 3 && sh[2].inset && sh[2].blur == 4 && sh[2].spread == 2 && sh[2].color == rgba(0, 0, 255));
+    sh = shadows("S3", "box-shadow");
+    CHECK(sh.size() == 1 && sh[0].color == rgba(255, 0, 0) && sh[0].spread == 4);
+    sh = shadows("S4", "box-shadow");
+    CHECK(sh.size() == 1 && sh[0].color == rgba(0, 255, 0));  // (currentColor)
+    CHECK(shadows("S5", "box-shadow").empty());
+    sh = shadows("S5", "text-shadow");
+    CHECK(sh.size() == 2 && sh[0].blur == 2 && sh[1].blur == 10 && sh[1].color == rgba(0, 0, 255));  // (1em: 10px)
+    sh = shadows("S6", "box-shadow");
+    CHECK(sh.size() == 1 && sh[0].x == 1 && sh[0].y == 2 && sh[0].blur == 3 && sh[0].color == rgba(0, 128, 0));
+    CHECK(shadows("S6", "text-shadow").size() == 1);
+    CHECK(shadows("L1", "box-shadow").empty());
+
+    CHECK(near(s.engine.compute(SimpleNode("O1")).number("opacity", 1), 0.5));
+    CHECK(near(s.engine.compute(SimpleNode("O2")).number("opacity", 1), 0.25));
+    CHECK(near(s.engine.compute(SimpleNode("O3")).number("opacity", 1), 0.75));
+
+    Style y1 = s.engine.compute(SimpleNode("Y1"));
+    CHECK(y1.keyword("border-top-style", "") == "double" && y1.keyword("border-right-style", "") == "outset" &&
+          y1.keyword("border-bottom-style", "") == "inset" && y1.keyword("border-left-style", "") == "outset");
+    Style y2 = s.engine.compute(SimpleNode("Y2"));
+    CHECK(y2.keyword("border-top-style", "") == "groove" && y2.keyword("border-left-style", "") == "ridge" &&
+          y2.length("border-left-width", 0) == 3 && y2.color("border-left-color", Rgba{}) == rgba(255, 0, 0));
+    CHECK(y2.keyword("border-bottom-style", "") == "dotted" && y2.length("border-bottom-width", 0) == 3);  // (medium)
+    Style y3 = s.engine.compute(SimpleNode("Y3"));
+    CHECK(y3.keyword("border-top-style", "") == "dashed" && y3.length("border-right-width", 9) == 0);  // (hidden: none)
+    Style y4 = s.engine.compute(SimpleNode("Y4"));
+    CHECK(y4.edges("border-width", Edges{9, 9, 9, 9}).top == 0 && y4.edges("border-width", Edges{9, 9, 9, 9}).left == 0);
+    Style y5 = s.engine.compute(SimpleNode("Y5"));
+    CHECK(y5.keyword("border-left-style", "") == "outset" && y5.length("border-left-width", 0) == 2 &&
+          y5.color("border-left-color", Rgba{}) == rgba(255, 0, 0));
+    // the value helpers directly: every angle unit, every keyword position
+    using namespace css::detail;
+    auto angle = [](const char* text) {
+        Tokens t;
+        tokenize(text, t);
+        G gr;
+        std::string why;
+        return parseGradient(t, 0, t.size(), nullptr, 12, gr, why) ? gr.angle : -1.0;
+    };
+    CHECK(near(angle("linear-gradient(0.5turn, red, blue)"), 180) && near(angle("linear-gradient(200grad, red, blue)"), 180));
+    CHECK(std::fabs(angle("linear-gradient(3.14159265rad, red, blue)") - 180) < 1e-5 && near(angle("linear-gradient(-90deg, red, blue)"), 270));
+    CHECK(near(angle("linear-gradient(to top, red, blue)"), 0) && near(angle("linear-gradient(to left, red, blue)"), 270));
+    CHECK(angle("linear-gradient(1px, red, blue)") == -1 && angle("linear-gradient(red, blue") == -1);
+    CHECK(angle("linear-gradient(currentColor, blue)") == -1);  // (no currentColor here)
 }
 
 // random and cut-short stylesheets: never a crash, never an exception, and quick
@@ -789,7 +1808,16 @@ int main() {
     testValues();
     testShorthands();
     testRecovery();
+    testPositions();
+    testNotIs();
+    testSiblingCombinators();
+    testMedia();
+    testUnits();
+    testImport();
+    testFontFace();
+    testPaintValues();
     testFuzz();
+    testFuzzMore();
     testSpeed();
     TEST_MAIN_END();
 }

@@ -75,15 +75,13 @@ std::string fmtG(double v) {
     return b;
 }
 
-// "Project overview" beside the overview: same height, its colours, a line under it
+// "Project overview" beside the overview: same height; its box and text colour are the stylesheets'
+// (default.css: OverviewCaption, the overview's colours with a line under it)
 class OverviewCaption : public ui::Label {
 public:
-    OverviewCaption() : ui::Label("Project overview") { setAlignment(AlignCenter); }
-    void paint(Painter& p) override {
-        p.fillRect(rect(), theme::c("overview_bg"));
-        p.fillRect(Rect(0, height() - 1, width(), 1), theme::c("overview_edge"));
-        setColor(theme::c("ruler_text"));
-        ui::Label::paint(p);
+    OverviewCaption() : ui::Label("Project overview") {
+        setStyleType("OverviewCaption");
+        setAlignment(AlignCenter);
     }
 };
 
@@ -92,8 +90,10 @@ class ExplorerDock : public ui::Widget {
 public:
     ExplorerDock(Explorer* explorer, std::function<void()> onClose) {
         auto* col = ui::vbox(this, 0, 0);
+        setStyleType("ExplorerDock");
         auto* bar = bar_ = add<ui::Widget>();
-        auto* row = ui::hbox(bar, 0, 0);
+        row_ = ui::hbox(bar, 0, 0);
+        auto* row = row_;
         row->setContentsMargins(6, 0, 2, 0);
         auto* title = bar->add<ui::Label>("Explorer");
         row->addWidget(title, 1);
@@ -114,8 +114,11 @@ public:
 private:
     ui::Widget* bar_ = nullptr;
     ui::Button* close_ = nullptr;
-    // the title bar's and the ✕'s sizes from the skin (--dock-title-height, --dock-close-size)
+    ui::HBox* row_ = nullptr;
+    // the title bar's and the ✕'s sizes from the skin (--dock-title-height, --dock-close-size), the room around the
+    // title and ✕ (ExplorerDock::title-bar's padding)
     void fit() {
+        ui::styleRoom(row_, computedStyle("title-bar"));
         int h = theme::metric("dock-title-height", 22), x = theme::metric("dock-close-size", 18);
         if (bar_->minimumSize().y != h || bar_->maximumSize().y != h) bar_->setFixedHeight(h);
         if (close_->minimumSize() != Point(x, x) || close_->maximumSize() != Point(x, x)) close_->setFixedSize(x, x);
@@ -149,6 +152,7 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     theme::rounded = prefs.roundedCorners;
     skinStamp_ = skinFilesStamp();  // (before reading: see showSkin)
     skinProblems = skin::apply(skin);
+    updateMedia();
     metronomeSettings = metronome_dialog::loadSettings();
     engine.blocksize = prefs.bufferSize;
     engine.cores = prefs.processingCores;
@@ -770,10 +774,23 @@ void MainWindow::showSkin(const skin::Skin& s) {
 }
 
 std::string MainWindow::skinFilesStamp() const {
-    std::string stamp;
+    // the skin's stylesheet, default.css, and what they @import (as last read: skin::watchedFiles)
+    std::vector<std::string> files = skin::watchedFiles();
     for (const std::string& path : {skin.path, skin::defaultSheet()})
-        if (!path.empty()) stamp += std::to_string(util::fileMtime(path)) + ":" + std::to_string(util::fileSize(path)) + ";";
+        if (!path.empty() && std::find(files.begin(), files.end(), path) == files.end()) files.push_back(path);
+    std::string stamp;
+    for (const std::string& path : files)
+        stamp += path + "=" + std::to_string(util::fileMtime(path)) + ":" + std::to_string(util::fileSize(path)) + ";";
     return stamp;
+}
+
+void MainWindow::updateMedia() {
+    // @media rules and vw / vh follow the window's size and the interface size
+    css::Media m;
+    m.width = std::max(1, width());
+    m.height = std::max(1, height());
+    m.scale = prefs::interfaceScale() / 100.0;
+    if (theme::setMedia(m) && panel) restyle();
 }
 
 void MainWindow::checkSkinFile() {
@@ -1765,6 +1782,7 @@ void MainWindow::onCpuTimer() {
 
 void MainWindow::resized() {
     ui::Window::resized();
+    updateMedia();
     if (explorerDock) setExplorerWidth(explorerWidth);
     if (timeline) timeline->relayout();
 }

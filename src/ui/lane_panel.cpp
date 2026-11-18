@@ -29,12 +29,17 @@ const char* kindClass(Kind kind) { return kind == Kind::Midi ? "midi" : kind == 
 
 // what the stylesheets give a row: TrackRow with these classes and states under the panel, its ::tint and ::group-bar
 struct RowStyle {
-    css::Style row, tint, bar;
+    // (controls: a track's grid under its name; volume: its slider and dB; autoCell: Auto and the sends button)
+    css::Style row, tint, bar, controls, volume, autoCell;
     RowStyle(const ui::Widget* panel, std::vector<std::string> classes, std::vector<std::string> states = {}) {
-        auto st = paint::nodeStyles(panel, "TrackRow", classes, states, {"", "tint", "group-bar"});
+        auto st = paint::nodeStyles(panel, "TrackRow", classes, states,
+                                    {"", "tint", "group-bar", "controls", "volume", "auto"});
         row = std::move(st[0]);
         tint = std::move(st[1]);
         bar = std::move(st[2]);
+        controls = std::move(st[3]);
+        volume = std::move(st[4]);
+        autoCell = std::move(st[5]);
     }
     Color background(Color def) const { return ui::style::color(row, "background-color", def); }
     std::optional<Color> stripe() const {
@@ -79,7 +84,8 @@ Color automationRowColor(const Automation& lane, const ui::Widget* panel, Kind k
 std::optional<std::vector<TrackPtr>> chooseTracks(ui::Window* parent, const std::vector<TrackPtr>& tracks,
                                                   const std::vector<TrackPtr>& checked) {
     ui::Dialog dialog(parent, "Group tracks", 320, 300);
-    ui::VBox* col = ui::vbox(&dialog, 9, 6);
+    dialog.addStyleClass("group-tracks");  // (default.css: Dialog.group-tracks, its room)
+    ui::VBox* col = ui::styleRoom(ui::vbox(&dialog, 9, 6), dialog.computedStyle());
     col->addWidget(dialog.add<ui::Label>("Tracks to put in a new group:"));
     auto* box = dialog.add<ui::ListWidget>();
     for (auto& track : tracks) {
@@ -410,8 +416,8 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
     // one row is too low for them at the default track height)
     auto glayout = std::make_unique<ui::GridLayout>();
     ui::GridLayout* bottom = glayout.get();
-    bottom->hSpacing = 6;
-    bottom->vSpacing = 2;
+    bottom->hSpacing = std::max(0, ui::style::px(style.controls, "column-gap", 6));
+    bottom->vSpacing = std::max(0, ui::style::px(style.controls, "row-gap", 2));
     col->addLayout(std::move(glayout), 1);
     std::weak_ptr<bool> alive = alive_;
     ui::ComboBox* outputs = widgets::outputSelector(frame, channels, track->output, [this, alive, track, meter](int first) {
@@ -420,12 +426,12 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
         if (!alive.expired()) showUsedOutputs();  // the master's and its group's meters show the outputs in use
     });
     // (as tall as Qt's flat combo box comes out in a default-height row: the row's controls fit in 72 px)
-    outputs->setFixedHeight(18);
+    outputs->setFixedHeight(theme::metric("output-selector-height", 18));
     bottom->addWidget(outputs, 0, 0, 1, 1, AlignTop);
     bottom->addWidget(meter, 0, 1);
     bottom->addWidget(display, 0, 2, 2, 1, AlignVCenter | AlignRight);
     ui::Widget* volumeCell;
-    ui::HBox* volume = cellRow(frame, volumeCell, 4);
+    ui::HBox* volume = cellRow(frame, volumeCell, std::max(0, ui::style::px(style.volume, "column-gap", 4)));
     auto* reading = frame->add<DbReading>(slider);
     volumeCell->adopt(frame->release(slider));
     volumeCell->adopt(frame->release(reading));
@@ -437,7 +443,9 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
     autoButton->setStyle(ui::Button::Style::Tool);
     autoButton->setCheckable(true);
     autoButton->setCheckedSilently(track->showAutomation);
-    autoButton->setFixedSize(track->kind == Kind::Return || returns.empty() ? 58 : 36, 16);
+    bool alone = track->kind == Kind::Return || returns.empty();  // (narrower beside the sends button)
+    autoButton->setFixedSize(alone ? theme::metric("auto-button-width", 58) : theme::metric("auto-button-short-width", 36),
+                             theme::metric("auto-button-height", 16));
     autoButton->setFocusPolicy(ui::FocusPolicy::None);
     autoButton->setProperty("accent", "true");  // lit while its lanes show
     size_t count = track->automation.size();
@@ -448,7 +456,7 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
         if (!alive.expired()) toggleAutomation(track, on);
     });
     ui::Widget* autoCell;  // Auto, and → (sends) when there are return tracks to send to
-    ui::HBox* cell = cellRow(frame, autoCell, 2);
+    ui::HBox* cell = cellRow(frame, autoCell, std::max(0, ui::style::px(style.autoCell, "column-gap", 2)));
     autoCell->adopt(frame->release(autoButton));
     cell->addWidget(autoButton);
     if (!returns.empty() && track->kind != Kind::Return) {
@@ -501,7 +509,7 @@ LaneFrame* LanePanel::automationHeader(ui::Widget* parent, const Lane& lane) {
             },
             "Write: while the song plays, moving this parameter (" + a->param +
                 ") writes its curve, from when you grab the control until you let go");
-        write->setFixedWidth(40);
+        write->setFixedWidth(theme::metric("write-button-width", 40));
         row->addWidget(write);
     }
     if (!track->frozen) {
@@ -585,7 +593,7 @@ LaneFrame* LanePanel::groupHeader(ui::Widget* parent, const GroupPtr& group) {
     row->addWidget(widgets::iconButton(frame, "✕", [tl, group] { tl->ungroup(group); }, "Ungroup (the tracks stay)"));
     auto* meter = frame->add<LevelMeter>(channels);
     auto* meterRow = nest<ui::HBox>(col, 1);
-    meterRow->setContentsMargins(26, 0, 0, 0);  // under the name, past the fold button
+    meterRow->setContentsMargins(theme::metric("group-meter-indent", 26), 0, 0, 0);  // under the name, past the fold button
     meterRow->addWidget(meter);
     groupMeters[group] = meter;
     return frame;

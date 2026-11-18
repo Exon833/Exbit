@@ -4,7 +4,8 @@
 // (TrueType outlines) files: on Linux /usr/share/fonts, /usr/local/share/fonts, ~/.local/share/fonts,
 // ~/.fonts; on Windows C:\Windows\Fonts. Family names are matched case-insensitively on the font's
 // own name table (and on the file name as a fallback). "" means the system's own interface font
-// (Linux: DejaVu Sans, Noto Sans, Liberation Sans… whichever exists; Windows: Segoe UI).
+// (Linux: DejaVu Sans, Noto Sans, Liberation Sans… whichever exists; Windows: Segoe UI). A skin's own
+// font files (@font-face) are added by addFamily and found first.
 // Glyphs a font lacks (✕ ▾ ♩ ⟲ 🎹 …) come from fallback fonts (DejaVu Sans, DejaVu Sans Mono,
 // Noto Sans Symbols, Symbola… whichever exist); a glyph nobody has is drawn as a hollow box.
 //
@@ -50,6 +51,10 @@ public:
     static Font mono();        // the skin's "mono" font at the ui size
     static void setDefaults(const std::string& uiFamily, float uiPoints, const std::string& monoFamily);
     static std::vector<std::string> families();  // installed family names, sorted (skin editor)
+    // a family from a font file (a skin's @font-face): `family` finds it from now on, before the system's fonts
+    // of that name, as a face of the weight and style given (whatever the file says). False if the file has no
+    // face that can be read (TrueType outlines: .ttf, .ttc, most .otf). Adding the same again changes nothing.
+    static bool addFamily(const std::string& family, const std::string& path, bool bold = false, bool italic = false);
 
     // internal: used by Painter::drawText
     struct Glyph {

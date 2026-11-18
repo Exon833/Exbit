@@ -168,6 +168,44 @@ static void testSkinFiles() {
         CHECK(theme::fonts().ui == "DejaVu Sans" && theme::fonts().uiSize == 10 &&
               theme::fonts().mono == "DejaVu Sans Mono");
     }
+    // a skin that imports a file of its own and brings its own font (@import, @font-face: next to the sheet)
+    {
+        std::string dir = TMP + "/fontskin", font;
+        util::makeDirs(dir + "/parts");
+        util::makeDirs(dir + "/fonts");
+        CHECK(util::readFile("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", font) && font.size() > 1000);
+        util::writeFile(dir + "/fonts/test.ttf", font);
+        util::writeFile(dir + "/parts/colours.css", ":root { --button: #405060; }\n");
+        util::writeFile(dir + "/Fonty.css",
+                        "@import \"parts/colours.css\";\n"
+                        "@import 'parts/none.css';\n"
+                        "@font-face { font-family: \"Skin Test Face\"; src: url(fonts/test.woff2), url(fonts/test.ttf); }\n"
+                        "@font-face { font-family: \"Skin Broken Face\"; src: url(parts/colours.css) format(\"truetype\"); }\n"
+                        ":root { --skin-name: \"Fonty\"; font-family: \"Skin Test Face\"; }\n");
+        skin::Skin s;
+        std::vector<std::string> problems;
+        std::string err;
+        CHECK(skin::read(dir + "/Fonty.css", s, problems, err) && s.name == "Fonty");
+        problems = skin::apply(s);
+        bool missing = false, broken = false;
+        for (auto& p : problems) {
+            missing = missing || p == "Fonty.css:2:1: @import of 'parts/none.css': can't read " + dir + "/parts/none.css (skipped)";
+            broken = broken || p == "Fonty.css:0:0: @font-face 'Skin Broken Face': no font that can be read in " + dir + "/parts/colours.css";
+        }
+        CHECK(missing && broken && problems.size() == 2);
+        if (!missing || !broken || problems.size() != 2)
+            for (auto& p : problems) printf("  %s\n", p.c_str());
+        CHECK(theme::c("button").hex() == "#405060");  // (from the imported file)
+        CHECK(theme::fonts().ui == "Skin Test Face");
+        Font ui = Font::ui();
+        CHECK(ui.family() == "Skin Test Face" && std::fabs(ui.width("iiii") - ui.width("WWWW")) < 0.01);  // (monospaced)
+        CHECK(std::fabs(ui.width("0") - Font::fromPoints("DejaVu Sans Mono", ui.pointSize()).width("0")) < 0.001);
+        // (back to the skin of yours, as it was)
+        skin::Skin back;
+        CHECK(skin::read(mine, back, problems, err));
+        skin::apply(back);
+        CHECK(theme::c("button").hex() == "#102030" && theme::fonts().ui == "DejaVu Sans");
+    }
     lib = skin::library();
     CHECK(lib.size() == 6 && lib.back().name == "Bob's \"own\"" && !lib.back().builtin);
     // yours first, under the same name as one of the program's own
@@ -401,6 +439,71 @@ static void testRecentColours() {
     settings::set("recent_clip_colors", Json("#123456"));  // a one-item list stored as a string
     r = color_picker::loadRecent();
     CHECK(r.size() == 1 && r[0] == "#123456");
+}
+
+// The dialogs' room and sizes are the stylesheets': a sheet over default.css changes the colour dialog's grid,
+// its slider and field and its buttons, the metronome's room and graphs, .heading labels and the spacing of
+// layouts made without one; theme::setSkin() gives back default.css's
+static void testDialogStyles() {
+    struct Seen {
+        int pickerMargin = -1, pickerGap = -1, brightnessW = 0, hexW = 0, okW = 0;
+        int metronomeMargin = -1, metronomeGap = -1, editorGap = -1, layoutGap = -1, gridGap = -1;
+        Point graph;
+        bool headingBold = false;
+    };
+    auto look = [] {
+        Seen s;
+        ColorPickerDialog d(nullptr, "#326996", "", ColorSubject::Clip);
+        if (auto* g = dynamic_cast<GridLayout*>(d.layout())) s.pickerMargin = g->margins[0], s.pickerGap = g->hSpacing;
+        s.brightnessW = d.brightness->minimumSize().x;
+        s.hexW = d.hexEdit->minimumSize().x;
+        std::function<void(Widget*)> findOk = [&](Widget* w) {
+            for (auto& c : w->children()) {
+                if (auto* b = dynamic_cast<Button*>(c.get()); b && b->text() == "OK") s.okW = b->minimumSize().x;
+                findOk(c.get());
+            }
+        };
+        findOk(&d);
+        metronome::MetronomeSettings ms;
+        MetronomeDialog m(nullptr, ms, nullptr, nullptr);
+        if (auto* l = dynamic_cast<BoxLayout*>(m.layout())) s.metronomeMargin = l->margins[0], s.metronomeGap = l->spacing;
+        if (auto* l = dynamic_cast<BoxLayout*>(m.editors[0]->layout())) s.editorGap = l->spacing;
+        s.graph = m.editors[0]->graph->minimumSize();
+        Label heading("A title");
+        heading.addStyleClass("heading");
+        s.headingBold = heading.font().bold();
+        s.layoutGap = HBox().spacing;
+        s.gridGap = GridLayout().hSpacing;
+        return s;
+    };
+    Seen before = look();
+    CHECK(before.pickerMargin == 11 && before.pickerGap == 6 && before.brightnessW == 200 && before.hexW == 80);
+    CHECK(before.okW == 80 && before.metronomeMargin == 11 && before.metronomeGap == 6 && before.editorGap == 6);
+    CHECK(before.graph == Point(240, 120) && before.headingBold && before.layoutGap == 4 && before.gridGap == 6);
+    std::vector<css::Problem> problems;
+    theme::setStyles({theme::builtinSheet(),
+                      css::parse("ColorPickerDialog { padding: 20px; column-gap: 9px; }\n"
+                                 "ColorPickerDialog::brightness { width: 260px; }\n"
+                                 "ColorPickerDialog::hex { width: 100px; }\n"
+                                 "Button.dialog-button { min-width: 96px; }\n"
+                                 "MetronomeDialog { padding: 15px; row-gap: 10px; }\n"
+                                 "ClickEditor::column { row-gap: 3px; }\n"
+                                 "EnvelopeGraph { min-width: 300px; min-height: 150px; }\n"
+                                 "Label.heading { font-weight: normal; }\n"
+                                 ":root { --layout-spacing: 7px; --grid-spacing: 9px; }\n",
+                                 "dialogs.css", problems)});
+    CHECK(problems.empty());
+    Seen styled = look();
+    CHECK(styled.pickerMargin == 20 && styled.pickerGap == 9 && styled.brightnessW == 260 && styled.hexW == 100);
+    CHECK(styled.okW == 96 && styled.metronomeMargin == 15 && styled.metronomeGap == 10 && styled.editorGap == 3);
+    CHECK(styled.graph == Point(300, 150) && !styled.headingBold && styled.layoutGap == 7 && styled.gridGap == 9);
+    theme::setSkin();
+    Seen after = look();
+    CHECK(after.pickerMargin == before.pickerMargin && after.pickerGap == before.pickerGap);
+    CHECK(after.brightnessW == before.brightnessW && after.hexW == before.hexW && after.okW == before.okW);
+    CHECK(after.metronomeMargin == before.metronomeMargin && after.metronomeGap == before.metronomeGap);
+    CHECK(after.editorGap == before.editorGap && after.graph == before.graph && after.headingBold);
+    CHECK(after.layoutGap == before.layoutGap && after.gridGap == before.gridGap);
 }
 
 static void testColorPickerDialog() {
@@ -1371,6 +1474,7 @@ int main() {
     testColorWheel();
     testRecentColours();
     testColorPickerDialog();
+    testDialogStyles();
     testMetronome();
     testAudioDialog();
     testRecordingHelpers();

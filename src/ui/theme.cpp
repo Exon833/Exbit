@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <map>
+#include <set>
 
 #include "core/util.h"
 
@@ -85,7 +86,8 @@ const std::vector<ColorInfo>& colors() {
 }
 
 namespace {
-std::map<std::string, double> metrics;  // sizes asked for (NaN: not set)
+std::map<std::string, double> metrics;
+std::set<std::string> installed;  // font families this computer has, lower case (read again with the sheets)  // sizes asked for (NaN: not set)
 std::map<std::string, Color> current;  // colours by name: the table's, then what the stylesheets set
 Fonts currentFonts;
 Shades currentShades;
@@ -104,7 +106,19 @@ bool rootColor(const std::string& variable, Color& out) {
     return true;
 }
 
+// "" for the interface's font, "monospace" for the numbers font, "-" for not a generic family
+std::string genericFamily(const std::string& name) {
+    std::string key = util::lower(util::trim(name));
+    if (key == "system-ui" || key == "sans-serif" || key == "serif" || key == "ui-sans-serif" || key == "ui-serif" ||
+        key == "-apple-system" || key == "blinkmacsystemfont")
+        return "";
+    if (key == "monospace" || key == "ui-monospace") return "monospace";
+    return "-";
+}
+
 void refresh() {
+    installed.clear();
+    for (const std::string& name : Font::families()) installed.insert(util::lower(name));
     current.clear();
     metrics.clear();
     for (auto& info : colors()) {
@@ -133,12 +147,8 @@ void refresh() {
     // --mono-font
     const css::Style& root = engine.root();
     Fonts f;
-    std::vector<std::string> families = root.list("font-family");
-    std::string family = families.empty() ? "" : families[0];
-    std::string generic = util::lower(family);
-    if (generic == "system-ui" || generic == "sans-serif" || generic == "serif" || generic == "ui-sans-serif")
-        family.clear();
-    f.ui = family;
+    std::string family = pickFamily(root.list("font-family"));
+    f.ui = family == "monospace" ? Font::mono().family() : family;
     if (root.has("font-size")) {
         double pt = root.fontSizePx(12) * 0.75;  // (px are 1/96 in, pt 1/72)
         if (pt > 0 && pt <= 40) f.uiSize = std::round(pt * 100) / 100;
@@ -192,6 +202,10 @@ css::SheetPtr builtinSheet() {
 
 void setStyles(std::vector<css::SheetPtr> sheets, std::vector<css::Problem>* problems) {
     if (sheets.empty()) sheets.push_back(builtinSheet());
+    // (ch: the width of "0" in the node's font; no font-family: the interface's)
+    engine.setCharWidth([](const std::string& family, double px) {
+        return (double)Font(family.empty() ? Font::ui().family() : family, (float)px).charWidth('0');
+    });
     engine.setSheets(std::move(sheets));
     refresh();
     std::vector<css::Problem> found = engine.takeProblems();
@@ -217,7 +231,29 @@ double metricF(const std::string& name, double def) {
     return std::isnan(it->second) ? def : it->second;
 }
 
+std::string pickFamily(const std::vector<std::string>& families) {
+    if (families.empty()) return "";
+    if (installed.empty())
+        for (const std::string& name : Font::families()) installed.insert(util::lower(name));
+    for (const std::string& name : families) {
+        std::string generic = genericFamily(name);
+        if (generic != "-") return generic;
+        if (installed.count(util::lower(util::trim(name)))) return util::trim(name);
+    }
+    std::string generic = genericFamily(families[0]);
+    return generic != "-" ? generic : util::trim(families[0]);
+}
+
 int metric(const std::string& name, int def) { return (int)std::lround(metricF(name, def)); }
+
+bool setMedia(const css::Media& media) {
+    if (!ready) setSkin();
+    int before = engine.generation();
+    engine.setMedia(media);
+    if (engine.generation() == before) return false;
+    refresh();
+    return true;
+}
 
 const css::Engine& styles() {
     if (!ready) setSkin();

@@ -188,9 +188,11 @@ void SoundControls::connect(std::function<void()> changed) {
 SamplerDialog::SamplerDialog(ui::Window* window, TrackPtr track_)
     : ui::Dialog(window, "Built-in sampler \xe2\x80\x94 " + track_->name, 460, 560), track(std::move(track_)) {
     deleteOnClose = true;
-    ui::VBox* col = ui::vbox(this, 9, 6);
+    setStyleType("SamplerDialog");
+    ui::VBox* col = ui::styleRoom(ui::vbox(this, 9, 6), computedStyle());
     auto row = std::make_unique<ui::HBox>();
     sampleName = add<ui::Label>();
+    sampleName->addStyleClass("heading");  // (default.css: Label.heading, bold)
     row->addWidget(sampleName, 1);
     ui::Button* chooseButton = ui::pushButton(this, "Choose\xe2\x80\xa6", [this] { choose(); });
     chooseButton->setToolTip("Play another sample (the settings stay)");
@@ -231,7 +233,6 @@ void SamplerDialog::showSettings(const SamplerSettings& s) {
                          ? (double)s.sample->source->frames() / s.sample->sourceSr : 0.0;
     std::string name = s.sample ? s.sample->name : std::string();
     sampleName->setText(name + "  (" + fixed(seconds, 2) + " s)");
-    sampleName->setFont(theme::uiFont().withBold(true));
     waveform->setAudio(s.sample ? s.sample->source : nullptr, name, s.sample ? s.sample->sourceSr : 48000);
     waveform->start = s.start;
     waveform->end = s.end;

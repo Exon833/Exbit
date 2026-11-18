@@ -11,6 +11,7 @@
 #include "ui/theme.h"
 #include "ui/toolkit/layout.h"
 #include "ui/toolkit/menu.h"
+#include "ui/toolkit/style.h"
 #include "ui/widgets.h"
 
 namespace midi_effects_dialog {
@@ -89,7 +90,8 @@ const Kind* kindOf(const std::string& name) {
 MidiEffectsDialog::MidiEffectsDialog(ui::Window* window, TrackPtr track_)
     : ui::Dialog(window, "MIDI effects \xe2\x80\x94 " + track_->name, 640, 360), track(std::move(track_)) {
     deleteOnClose = true;
-    ui::HBox* row = ui::hbox(this, 9, 9);
+    setStyleType("MidiEffectsDialog");
+    ui::HBox* row = ui::styleRoom(ui::hbox(this, 9, 9), computedStyle());
     auto left = std::make_unique<ui::VBox>();
     left->addWidget(add<ui::Label>("They change the notes in this order, before the instrument:"));
     list = add<ui::ListWidget>();
@@ -190,14 +192,14 @@ void MidiEffectsDialog::setValue(int row, const std::string& key, double value) 
 
 void MidiEffectsDialog::showSettings(int row) {
     settingsPane->clearChildren();
-    ui::FormLayout* form = ui::form(settingsPane, 0, 6);
+    ui::FormLayout* form = ui::styleRoom(ui::form(settingsPane, 0, 6), computedStyle("settings"));
     if (row < 0 || row >= (int)track->midiEffects.size()) {
         form->addRow(settingsPane->add<ui::Label>(track->midiEffects.empty() ? "Add an effect with Add \xe2\x96\xbe." : ""));
         return;
     }
     const MidiEffect& effect = track->midiEffects[row];
     ui::Label* title = settingsPane->add<ui::Label>(effect.kind);
-    title->setFont(theme::uiFont().withBold(true));
+    title->addStyleClass("heading");  // (default.css: Label.heading, bold)
     form->addRow(title);
     const Kind* kind = kindOf(effect.kind);
     if (!kind) return;
@@ -216,7 +218,7 @@ void MidiEffectsDialog::showSettings(int row) {
             slider->setValueSilently((int)std::lround(param.toNormal(value) * STEPS));
             slider->setSizePolicy(ui::SizePolicy::Expanding, ui::SizePolicy::Fixed);
             ui::Label* text = settingsPane->add<ui::Label>(param.text(value));
-            text->setMinimumWidth(90);
+            text->setMinimumWidth(std::max(0, ui::style::px(computedStyle("value"), "min-width", 90)));
             Param p = param;
             slider->valueChanged.connect([this, row, p, text](int v) {
                 double to = p.fromNormal((double)v / STEPS);

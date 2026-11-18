@@ -30,7 +30,10 @@
 //   setStyleType), its id its objectName, its classes its properties (setProperty("toggle", "mute"):
 //   .toggle and .toggle-mute; "false", "0" or "" set none) and addStyleClass; its states :hover :pressed
 //   :disabled :focus and whatever styleStates() adds (:checked…). computedStyle(part) is what applies to it now,
-//   kept until the skin, its states, its classes or an ancestor's style change.
+//   kept until the skin, its states, its classes or an ancestor's style change, or (if the skin has
+//   :first-child, :nth-child()… or A + B, A ~ B) its place among its siblings or the classes, types and states
+//   of the siblings before it (a sibling's hover, pressed or focus changing repaints those after it:
+//   statesChanged).
 // - Layouts are redone lazily: updateGeometry() (called by setText, setVisible, size changes…)
 //   marks the parents' layouts dirty and they run before the next frame is painted (or at once with
 //   App::doLayouts() / relayout()).
@@ -237,12 +240,19 @@ public:
     bool hasClass(const std::string& name) const override;
     bool hasState(const std::string& name) const override;
     Widget* parent() const override { return parent_; }
+    // its place among its parent's children (in order, hidden ones too), for :first-child, :nth-child(), + and ~
+    int childIndex() const override;
+    int siblingCount() const override { return parent_ ? (int)parent_->children_.size() : 0; }
+    const css::Node* sibling(int index) const override;
     void addStyleClass(const std::string& name);
     void removeStyleClass(const std::string& name);
     // what applies to it (or its part: "handle", "arrow"…) in its states now
     const css::Style& computedStyle(const std::string& part = "") const;
     // the names of the states it is in (the base: hover, pressed, disabled, focus; overrides add theirs)
     virtual void styleStates(std::vector<std::string>& out) const;
+    // a state of it changed (hover, pressed, focus…: the toolkit calls it for those): the siblings after it are
+    // repainted when the stylesheets use A + B or A ~ B
+    void statesChanged();
     // opaque per-widget data for the program
     std::shared_ptr<void> userData;
 
@@ -295,12 +305,15 @@ protected:
     // the type that was `was` becomes `now` (Button: PushButton <-> ToolButton); else it is added
     void replaceStyleType(const std::string& was, const std::string& now);
 public:
-    void paintTree(Painter& p, const Rect& dirty);  // dirty in this widget's coordinates
+    // dirty in this widget's coordinates; with an `opacity` below 1 (its computed style), it and its children
+    // are drawn into a layer, put on at that opacity
+    void paintTree(Painter& p, const Rect& dirty);
     bool deleted_ = false;
     bool layoutDirty_ = false;
     static bool alive(const Widget* w);  // not destroyed yet (dispatch safety)
 
 private:
+    void paintSelf(Painter& p, const Rect& dirty);  // (paintTree, without the opacity)
     Widget* parent_ = nullptr;
     std::vector<std::unique_ptr<Widget>> children_;
     std::unique_ptr<class Layout> layout_;
@@ -320,8 +333,12 @@ private:
         std::string part, states;
         std::shared_ptr<const css::Style> parent;  // (kept alive: never mistaken for another)
         int generation = -1, classes = -1;
+        // (only when the sheets look at them, css::Engine::uses(): its place, and the siblings before it)
+        int index = -1, count = 0;
+        size_t siblings = 0;
         std::shared_ptr<const css::Style> style;
     };
+    mutable int indexHint_ = 0;  // (where it was among its parent's children last time)
     mutable std::vector<StyleEntry> styles_;
     std::shared_ptr<const css::Style> styleShared(const std::string& part) const;
     friend class Window;

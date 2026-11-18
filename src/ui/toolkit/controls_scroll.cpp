@@ -949,7 +949,7 @@ void ListWidget::paint(Painter& p) {
         bool plain = !selected_[row] && it.enabled && isEnabled();
         Color tc = it.hasColor && plain ? it.color : style::foreground(item);
         style::text(p, Rect(x, c.y, std::max(0, c.right() - x), c.h), AlignLeft | AlignVCenter, it.text,
-                    parts.font(item, f), tc, true);
+                    parts.font(item, f), tc, item, true);
     }
     if (clip) p.restore();
 }
@@ -1314,7 +1314,7 @@ void TreeWidget::paint(Painter& p) {
             x += iw + style::px(ic, "margin-right", 4);
         }
         style::text(p, Rect(x, c.y, std::max(0, c.right() - x), c.h), AlignLeft | AlignVCenter, n->text,
-                    parts.font(item, f), style::foreground(item), true);
+                    parts.font(item, f), style::foreground(item), item, true);
     }
     if (clip) p.restore();
 }

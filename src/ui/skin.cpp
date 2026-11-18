@@ -18,6 +18,7 @@ const char* const DEFAULT = "Dark";
 
 namespace {
 std::string gUserDir, gBuiltinDir;
+std::vector<std::string> gWatched;
 std::vector<std::pair<int, std::function<void()>>>& hooks() {
     static std::vector<std::pair<int, std::function<void()>>> h;
     return h;
@@ -56,7 +57,10 @@ css::SheetPtr parseFile(const std::string& path, std::vector<css::Problem>& prob
     std::string text;
     ok = util::readFile(path, text);
     if (textOut) *textOut = text;
-    return ok ? css::parse(text, util::baseName(path), problems) : nullptr;
+    css::ParseOptions options;  // (@import and @font-face's files: next to the stylesheet)
+    options.baseDir = util::dirName(path);
+    options.readFile = [](const std::string& file, std::string& out) { return util::readFile(file, out); };
+    return ok ? css::parse(text, util::baseName(path), problems, options) : nullptr;
 }
 
 // where `variable` is declared last among the files ({name, text}, in cascade order): its line and column
@@ -248,6 +252,18 @@ std::vector<std::string> apply(const Skin& s) {
             problems.push_back({util::baseName(s.path), 0, 0, "can't read " + s.path});
         }
     }
+    // the sheets' own fonts (@font-face), before the styles that name them
+    for (size_t i = 0, built = sheets.size() - files.size(); i < sheets.size(); i++)
+        for (const css::FontFace& f : css::fontFaces(sheets[i]))
+            if (!Font::addFamily(f.family, f.file, f.bold, f.italic))
+                problems.push_back({i >= built ? files[i - built].first : util::baseName(def), 0, 0,
+                                    "@font-face '" + f.family + "': no font that can be read in " + f.file});
+    gWatched.clear();
+    gWatched.push_back(def);
+    if (!s.path.empty() && util::absolutePath(s.path) != util::absolutePath(def)) gWatched.push_back(s.path);
+    for (auto& sheet : sheets)
+        for (auto& f : css::importedFiles(sheet))
+            if (std::find(gWatched.begin(), gWatched.end(), f) == gWatched.end()) gWatched.push_back(f);
     theme::setStyles(std::move(sheets), &problems);
     // colour variables that aren't colours (any text is a variable's value: only its use tells)
     for (const std::string& var : theme::colorVariables()) {
@@ -264,6 +280,8 @@ std::vector<std::string> apply(const Skin& s) {
         if (h.second) h.second();
     return texts(problems);
 }
+
+std::vector<std::string> watchedFiles() { return gWatched; }
 
 void removeOnApply(int id) {
     auto& h = hooks();

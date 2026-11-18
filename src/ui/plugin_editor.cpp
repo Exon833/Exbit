@@ -156,7 +156,9 @@ void EditorWindow::showStopped() {
         lay->addLayout(std::move(row));
     }
     lay->addStretch(1);
-    if (width() < 360 || height() < 140) fit(std::max(width(), 360), std::max(height(), 140));
+    const css::Style& least = computedStyle("stopped");  // (min-width / min-height: the least it is made)
+    int minW = ui::style::px(least, "min-width", 360), minH = ui::style::px(least, "min-height", 140);
+    if (width() < minW || height() < minH) fit(std::max(width(), minW), std::max(height(), minH));
     update();
 }
 

@@ -71,8 +71,12 @@ struct LenCtx {
     double em = 12;          // px per em
     double percentOf = 0;    // what 100% is, in px
     bool percent = true;     // are percentages allowed?
+    // px per rem, vw, vh (vmin / vmax: of those), ch (< 0: half an em). The engine makes these units px on the
+    // node (resolveUnits); the defaults are what they are for a node of the default size in the default media.
+    double rem = 12, vw = 12.8, vh = 8, ch = -1;
 };
-// a length in px: 12px, 9pt, 1.5em, 50%, 0, calc(); false if [b, e) is something else
+// a length in px: 12px, 9pt, 1.5em, 50%, 0, calc(); also rem, vw, vh, vmin, vmax, ch (the LenCtx's) and in, cm,
+// mm, Q, pc (96 px to the inch); false if [b, e) is something else
 bool evalLength(const Tokens& t, size_t b, size_t e, const LenCtx& ctx, double& px);
 bool lengthText(std::string_view text, const LenCtx& ctx, double& px);
 // a number: 1.5, 50% (= 0.5), calc() of numbers
@@ -88,6 +92,18 @@ std::string formatNumber(double v);
 using VarLookup = std::function<const std::string*(const std::string& name)>;
 bool substitute(std::string_view text, const VarLookup& lookup, std::string& out, std::string& why, int depth = 0);
 
+// --- what paints (css_paint.cpp) ---
+bool isGradientFunction(const Token& k);  // linear-gradient( radial-gradient( and their repeating- forms
+// one gradient: [b, e) is exactly one gradient function; `current` is currentColor (null: not one)
+bool parseGradient(const Tokens& t, size_t b, size_t e, const Rgba* current, double em, Style::Gradient& g,
+                   std::string& why);
+// background-image's value: none, or a comma list of gradients (and none); `out` may be null (checking only)
+bool parseImages(const Tokens& t, size_t b, size_t e, const Rgba* current, double em,
+                 std::vector<Style::Gradient>* out, std::string& why);
+// box-shadow (box) or text-shadow's value: none, or a comma list of shadows
+bool parseShadows(const Tokens& t, size_t b, size_t e, bool box, const Rgba* current, double em,
+                  std::vector<Style::Shadow>* out, std::string& why);
+
 // --- properties ---
 bool isShorthand(const std::string& name);
 const std::vector<std::string>& longhands(const std::string& shorthand);
@@ -98,18 +114,39 @@ std::string expand(const std::string& shorthand, const Tokens& t, size_t b, size
 std::string checkValue(const std::string& property, const Tokens& t, size_t b, size_t e);
 bool isInherited(const std::string& property);
 
+// --- units worked out on the node (css.cpp): rem, vw / vh (vmin / vmax: both), ch ---
+enum Unit : uint8_t { URem = 1, UVw = 2, UVh = 4, UCh = 8 };
+uint8_t unitsOf(const Tokens& t, size_t b, size_t e);  // the units [b, e) uses (in functions too)
+struct UnitPx {  // px per unit
+    double rem = 12, vw = 12.8, vh = 8, ch = 6;
+};
+// `text` with every length in the units `which` made px (each dimension token replaced, the rest as it is)
+std::string resolveUnits(const std::string& text, const UnitPx& px, uint8_t which);
+
 // --- a parsed stylesheet ---
+struct Selector;
+
+// a pseudo-class that isn't a state: :not() / :is() / :where() of selector lists, or a place among siblings
+struct Pseudo {
+    enum Kind : uint8_t { Not, Is, FirstChild, LastChild, OnlyChild, NthChild, NthLastChild } kind = Is;
+    int a = 0, b = 0;            // :nth-child(an+b)
+    std::vector<Selector> args;  // :not() / :is() / :where()
+};
+
 struct Compound {
     std::string type;  // "" any (*)
     std::vector<std::string> ids, classes, states;
-    bool root = false;   // :root
-    bool child = false;  // joined to the compound before it by '>' (else as a descendant)
+    std::vector<Pseudo> pseudos;
+    bool root = false;      // :root
+    char combinator = ' ';  // how it is joined to the compound before it: ' ' descendant, '>' child, '+' the next
+                            // sibling, '~' a later sibling
 };
 
 struct Selector {
     std::vector<Compound> compounds;  // left to right
     std::string part;                 // ::part, "" none
     uint32_t specificity = 0;         // ids << 20 | classes, states << 10 | types, parts
+    uint8_t uses = 0;                 // Engine::UsesPosition | UsesSiblings (its arguments' too)
 };
 
 struct Decl {
@@ -118,6 +155,7 @@ struct Decl {
     std::string shorthand;  // set when the value has var(): the shorthand this longhand is expanded from at compute
                             // time, `value` being the shorthand's text
     bool important = false, hasVar = false, custom = false;
+    uint8_t units = 0;      // Unit: what is worked out on the node (with var(): found after substitution)
     const std::string* source = nullptr;  // the stylesheet's name
     int line = 0, column = 0;
 };
@@ -125,7 +163,28 @@ struct Decl {
 struct Rule {
     std::vector<Selector> selectors;
     std::vector<Decl> decls;
+    int media = -1;  // the @media block it is in (Stylesheet::media), -1 none
 };
+
+// @media: a feature of a query, a query, a block (its query list)
+struct MediaFeature {
+    enum Name : uint8_t { Width, Height, Resolution, Orientation } name = Width;
+    // Width / Height (px), Resolution (dppx): lo <= value <= hi (or < with the strict flags)
+    double lo = -1e300, hi = 1e300;
+    bool loStrict = false, hiStrict = false;
+    int orientation = 0;  // (Orientation) 1 portrait, 2 landscape, 0 either
+};
+struct MediaQuery {
+    bool negated = false;  // `not`
+    bool never = false;    // a type other than all / screen, or a query that can't be read (then not negated)
+    std::vector<MediaFeature> features;  // all of them
+};
+struct MediaBlock {
+    std::vector<MediaQuery> queries;  // any of them (none: always)
+    int parent = -1;                  // the @media block it is in
+};
+bool mediaMatches(const MediaQuery& q, const Media& m);
+bool mediaMatches(const std::vector<MediaQuery>& list, const Media& m);
 
 }  // namespace detail
 
@@ -133,6 +192,11 @@ class Stylesheet {
 public:
     std::string name;
     std::vector<detail::Rule> rules;
+    std::vector<detail::MediaBlock> media;  // its @media blocks (its imports' too)
+    std::vector<std::string> imports;       // the files it imported, at any depth (resolved)
+    std::vector<FontFace> fonts;            // its @font-face rules (its imports' too)
+    std::vector<SheetPtr> imported;         // the imported sheets (their rules moved here; kept for their names)
+    bool viewport = false;                  // does it use vw / vh (its imports too)?
 };
 
 }  // namespace css

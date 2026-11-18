@@ -14,7 +14,8 @@ ParameterDialog::ParameterDialog(ui::Window* parent, const TrackPtr& track_, con
       track(track_) {
     if (!modulating)
         for (auto& a : track->automation) taken_.insert({a->slot.get(), a->param});
-    auto* col = ui::vbox(this, 10, 6);
+    setStyleType("ParameterDialog");
+    auto* col = ui::styleRoom(ui::vbox(this, 10, 6), computedStyle());
     auto formLayout = std::make_unique<ui::FormLayout>();
     ui::FormLayout* form = formLayout.get();
     col->addLayout(std::move(formLayout));

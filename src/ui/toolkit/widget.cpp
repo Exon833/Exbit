@@ -426,12 +426,37 @@ void Widget::styleStates(std::vector<std::string>& out) const {
     if (hasFocus()) out.push_back("focus");
 }
 
+void Widget::statesChanged() {
+    // a state of this one changed: the siblings after it may look different when the sheets use A + B / A ~ B
+    // (their styles see it: Widget::styleShared); repaint them
+    if (!parent_ || !(theme::styles().uses() & css::Engine::UsesSiblings)) return;
+    bool after = false;
+    for (auto& c : parent_->children_) {
+        if (after) c->update();
+        else if (c.get() == this) after = true;
+    }
+}
+
 bool Widget::hasState(const std::string& name) const {
     std::vector<std::string> states;
     styleStates(states);
     for (auto& s : states)
         if (s == name) return true;
     return false;
+}
+
+int Widget::childIndex() const {
+    if (!parent_) return -1;
+    const auto& v = parent_->children_;
+    if (indexHint_ >= 0 && indexHint_ < (int)v.size() && v[(size_t)indexHint_].get() == this) return indexHint_;
+    for (size_t i = 0; i < v.size(); i++)
+        if (v[i].get() == this) return indexHint_ = (int)i;
+    return -1;
+}
+
+const css::Node* Widget::sibling(int index) const {
+    if (!parent_ || index < 0 || index >= (int)parent_->children_.size()) return nullptr;
+    return parent_->children_[(size_t)index].get();
 }
 
 std::shared_ptr<const css::Style> Widget::styleShared(const std::string& part) const {
@@ -443,9 +468,26 @@ std::shared_ptr<const css::Style> Widget::styleShared(const std::string& part) c
     // the parent's style first (it is what this one inherits from, and changes with the parent's own states)
     std::shared_ptr<const css::Style> up = parent_ ? parent_->styleShared("") : nullptr;
     int gen = engine.generation();
+    // (its place, and the siblings before it: their order, types and classes; only if the sheets look at them)
+    int uses = engine.uses(), index = -1, count = 0;
+    size_t siblings = 0;
+    if (uses) {
+        index = childIndex();
+        count = siblingCount();
+        if ((uses & css::Engine::UsesSiblings) && index > 0)
+            for (int i = 0; i < index; i++) {
+                const Widget* w = parent_->children_[(size_t)i].get();
+                siblings = (siblings * 1000003u) ^ (std::hash<const void*>()(w) + (size_t)w->classesVersion_ * 0x9E3779B9u);
+                // (and their states: A:hover + B)
+                std::vector<std::string> theirs;
+                w->styleStates(theirs);
+                for (auto& st : theirs) siblings = (siblings * 31u) ^ std::hash<std::string>()(st);
+            }
+    }
     for (size_t i = 0; i < styles_.size(); i++) {
         StyleEntry& e = styles_[i];
-        if (e.part == part && e.states == key && e.parent == up && e.generation == gen && e.classes == classesVersion_) {
+        if (e.part == part && e.states == key && e.parent == up && e.generation == gen && e.classes == classesVersion_ &&
+            e.index == index && e.count == count && e.siblings == siblings) {
             if (i > 0) std::rotate(styles_.begin(), styles_.begin() + i, styles_.begin() + i + 1);  // (most recent first)
             return styles_[0].style;
         }
@@ -456,6 +498,9 @@ std::shared_ptr<const css::Style> Widget::styleShared(const std::string& part) c
     e.parent = up;
     e.generation = gen;
     e.classes = classesVersion_;
+    e.index = index;
+    e.count = count;
+    e.siblings = siblings;
     // a part inherits from its node (Slider::handle from Slider)
     std::shared_ptr<const css::Style> base = part.empty() ? up : styleShared("");
     e.style = std::make_shared<const css::Style>(engine.compute(*this, base.get(), part));
@@ -496,6 +541,38 @@ void Widget::update(const Rect& area) {
 
 void Widget::paintTree(Painter& p, const Rect& dirty) {
     if (!visible_ || deleted_) return;
+    // its opacity: only looked up while some rule of the stylesheets sets one for widgets (else this costs an
+    // int compare); kept with its computed style (style::boxLook)
+    static int generation = -1;
+    static bool anyOpacity = false;
+    const css::Engine& engine = theme::styles();
+    if (engine.generation() != generation) {
+        generation = engine.generation();
+        anyOpacity = css::declaresOnNodes(engine, "opacity");
+    }
+    float opacity = anyOpacity ? style::boxLook(computedStyle()).opacity : 1.f;
+    if (opacity >= 1.f) {
+        paintSelf(p, dirty);
+        return;
+    }
+    if (opacity <= 0.f) return;
+    // into a layer (device pixels: the part of the dirty area it may draw on), put on at once
+    float s = p.scale();
+    PointF t = p.translation();
+    Rect lim = clipsChildren_ ? dirty.intersected(rect()) : dirty;
+    if (lim.empty()) return;
+    int x0 = (int)std::floor((lim.x + t.x) * s), y0 = (int)std::floor((lim.y + t.y) * s);
+    int x1 = (int)std::ceil((lim.right() + t.x) * s), y1 = (int)std::ceil((lim.bottom() + t.y) * s);
+    Rect dev = Rect(x0, y0, x1 - x0, y1 - y0).intersected(p.deviceClip());
+    if (dev.empty()) return;
+    Image layer(dev.w, dev.h);
+    Painter lp(layer, s);
+    lp.translate(t.x - dev.x / s, t.y - dev.y / s);
+    paintSelf(lp, dirty);
+    p.blendLayer(layer, dev.x, dev.y, opacity);
+}
+
+void Widget::paintSelf(Painter& p, const Rect& dirty) {
     Rect area = dirty.intersected(rect());
     if (area.empty() && clipsChildren_) return;
     p.save();
@@ -951,11 +1028,13 @@ void Window::setFocusWidget(Widget* w) {
         old->filterEvent("focusOut");
         old->focusOut();
         old->update();
+        if (Widget::alive(old)) old->statesChanged();
     }
     if (w && Widget::alive(w) && focus_ == w) {
         w->filterEvent("focusIn");
         w->focusIn();
         w->update();
+        if (Widget::alive(w)) w->statesChanged();
     }
     focusReason = 0;
 }
@@ -1024,6 +1103,7 @@ void Window::releaseGrab() {
     if (grab_ && Widget::alive(grab_)) {
         grab_->pressed_ = false;
         grab_->update();
+        grab_->statesChanged();
     }
     grab_ = nullptr;
     heldButtons_ = 0;
@@ -1051,6 +1131,7 @@ void Window::setHover(Widget* w) {
         if (std::find(newChain.begin(), newChain.end(), x) != newChain.end()) continue;
         if (!Widget::alive(x)) continue;
         x->hovered_ = false;
+        x->statesChanged();
         x->filterEvent("leave");
         if (Widget::alive(x)) x->leave();
     }
@@ -1059,6 +1140,7 @@ void Window::setHover(Widget* w) {
         if (std::find(oldChain.begin(), oldChain.end(), x) != oldChain.end()) continue;
         if (!Widget::alive(x)) continue;
         x->hovered_ = true;
+        x->statesChanged();
         x->filterEvent("enter");
         if (Widget::alive(x)) x->enter();
     }
@@ -1182,6 +1264,7 @@ void Window::dispatchMouse(const plat::Event& e) {
             grab_ = handler ? handler : target;
             grab_->pressed_ = true;
             grab_->update();
+            grab_->statesChanged();
             applyCursor();
         }
         if (e.button == plat::RightButton && Widget::alive(target) && epoch == app.grabEpoch_) {

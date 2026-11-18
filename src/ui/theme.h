@@ -35,6 +35,11 @@ struct Fonts {
 };
 // every variable theme reads as a colour: the colours' (--lane…) and the shades' (--hover…)
 std::vector<std::string> colorVariables();
+// The family of a font-family list to draw with: the first this computer has (a skin's @font-face fonts too), as
+// CSS falls back along the list. A generic family is always there: "" for the interface's own (system-ui,
+// sans-serif, serif…), "monospace" for the numbers font. When none of the list is there, its first entry
+// (the font code then picks a look-alike itself: "Consolas" becomes a monospaced font).
+std::string pickFamily(const std::vector<std::string>& families);
 // "lane_alt" -> "--lane-alt": a colour's name as a stylesheet variable
 std::string variableName(const std::string& name);
 
@@ -44,6 +49,9 @@ const Color& c(const std::string& name);
 // colours, shades and fonts are read from them again. Problems found while computing are added to
 // `problems` (if given). No sheets: the program's own stylesheet as built in (builtinSheet()).
 void setStyles(std::vector<css::SheetPtr> sheets, std::vector<css::Problem>* problems = nullptr);
+// What @media rules and vw / vh are worked out against: the main window's size and the interface size. True if
+// that changed what applies (then the colours, shades and fonts are read again; the caller restyles).
+bool setMedia(const css::Media& media);
 // back to the built-in default.css (tests; also what is used before any skin is put on)
 void setSkin();
 // data/skins/default.css as it was when the program was built: what is used where it can't be read

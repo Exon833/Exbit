@@ -291,11 +291,22 @@ PushButton { border-radius: 8px; padding: 5px 16px; }
 Rules match the interface by **type** (`Button`, `PushButton`, `ToolButton`, …), `#name`, **class** (the
 program's own marks: `.lit`, `.accent`, `.toggle-mute`, …) and **state** (`:hover`, `:pressed`, `:checked`,
 `:disabled`, `:focus`, and each control's own, like a button's `:lit`), with parts (`Button::arrow`). The
-CSS understood: selectors (type, `*`, `.class`, `#id`, states, `:root`, `::part`, descendant and child,
-lists) with specificity and `!important`; colours (`#hex`, `rgb()`, `hsl()`, names, `transparent`,
-`currentColor`, `color-mix(in srgb, …)`); lengths in `px`, `pt`, `em`, `%` and `calc()`; `var()` with
-fallbacks; the `padding`, `margin`, `border`, `border-radius` and `background` shorthands. **docs/skins.md**
-lists every variable, type, part, class, state and property.
+CSS understood:
+
+- **Selectors:** type, `*`, `.class`, `#id`, states, `:root`, `::part`; the descendant, child, `+` and `~`
+  combinators; `:not()`, `:is()`, `:where()`, `:first-child`, `:last-child`, `:only-child`, `:nth-child()`,
+  `:nth-last-child()`; lists, specificity and `!important`.
+- **At-rules:** `@import` (shared parts of skins; saving one reloads the skin), `@media` on the window's size
+  and the interface size (re-worked out as the window is resized), `@font-face` (a font file shipped with a skin).
+- **Colours:** `#hex`, `rgb()`, `hsl()`, names, `transparent`, `currentColor`, `color-mix(in srgb, …)`.
+- **Lengths:** `px`, `pt`, `em`, `rem`, `ch`, `vw`, `vh`, `vmin`, `vmax`, `%`, `in`, `cm`, `mm` and `calc()`;
+  `var()` with fallbacks.
+- **Boxes:** per-side border widths, colours and styles (solid, dashed, dotted, double, inset, outset, groove,
+  ridge), four corner radii, `linear-gradient()` and `radial-gradient()` (and repeating ones), `box-shadow`
+  (blurred, spread, inset, several), `text-shadow`, `opacity`.
+- **Shorthands:** `padding`, `margin`, `border`, `border-radius`, `border-style`, `background`.
+
+**docs/skins.md** lists every variable, type, part, class, state and property.
 
 ## Several cores
 

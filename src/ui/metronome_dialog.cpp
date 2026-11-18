@@ -8,6 +8,7 @@
 #include "core/util.h"
 #include "ui/theme.h"
 #include "ui/toolkit/layout.h"
+#include "ui/toolkit/style.h"
 
 using namespace ui;
 namespace m = metronome;
@@ -116,7 +117,8 @@ using metronome_dialog::HANDLE_R;
 EnvelopeGraph::EnvelopeGraph(m::Click* c, const std::string& role) : click(c) {
     setStyleType("EnvelopeGraph");
     if (!role.empty()) addStyleClass(role);
-    setMinimumSize(240, 120);
+    const css::Style& st = computedStyle();
+    setMinimumSize(std::max(0, ui::style::px(st, "min-width", 240)), std::max(0, ui::style::px(st, "min-height", 120)));
     setSizePolicy(SizePolicy::Expanding, SizePolicy::Expanding);
     setMouseTracking(true);
     setToolTip("Drag the points: attack, sustain and release times; up and down for the level");
@@ -258,13 +260,16 @@ double* fieldOf(m::Click& c, const std::string& attr) {
 ClickEditor::ClickEditor(const std::string& title, m::Click* c, const std::string& role,
                          std::function<void(const m::Click&)> test)
     : GroupBox(title), click(c) {
+    setStyleType("ClickEditor");
     graph = add<EnvelopeGraph>(c, role);
     graph->changed.connect([this] { fromGraph(); });
-    auto* col = vbox(this, 0, 6);
+    // (its own padding is the group box's: the rows' room is its parts')
+    auto* col = styleRoom(vbox(this, 0, 6), computedStyle("column"));
     col->addWidget(graph, 1);
     auto formOwner = std::make_unique<FormLayout>();
     FormLayout* form = formOwner.get();
     form->spacing = 6;
+    styleRoom(form, computedStyle("form"));
     struct Row { const char* attr; const char* label; double lo, hi; const char* suffix; double step; };
     const Row rows[] = {{"attack_ms", "Attack", 0, m::MAX_ATTACK_MS, " ms", 0.5},
                         {"sustain_ms", "Sustain", 0, m::MAX_SUSTAIN_MS, " ms", 1},
@@ -334,10 +339,12 @@ void ClickEditor::fromGraph() {
 MetronomeDialog::MetronomeDialog(Window* parent, m::MetronomeSettings& s, Apply apply,
                                  std::function<void(const m::Click&)> test)
     : Dialog(parent, "Metronome", 560, 420), settings(s), apply_(std::move(apply)) {
-    auto* col = vbox(this, 11, 6);
+    setStyleType("MetronomeDialog");
+    auto* col = styleRoom(vbox(this, 11, 6), computedStyle());
     auto rowOwner = std::make_unique<HBox>();  // the two envelopes right next to each other
     HBox* row = rowOwner.get();
     row->setSpacing(6);
+    styleRoom(row, computedStyle("editors"));
     editors.push_back(add<ClickEditor>("Start of the bar", &settings.bar, "bar", test));
     editors.push_back(add<ClickEditor>("Other beats", &settings.beat, "beat", test));
     for (ClickEditor* e : editors) {
@@ -350,10 +357,11 @@ MetronomeDialog::MetronomeDialog(Window* parent, m::MetronomeSettings& s, Apply 
     defaults->setToolTip("Back to the standard metronome sounds");
     defaults->clicked.connect([this] { useDefaults(); });
     close->setDefault(true);
-    close->setMinimumWidth(80);
+    dialogButton(close);
     close->clicked.connect([this] { accept(); });
     auto buttonsOwner = std::make_unique<HBox>();
     HBox* buttons = buttonsOwner.get();
+    styleRoom(buttons, computedStyle("buttons"));
     buttons->addWidget(defaults);
     buttons->addStretch(1);
     buttons->addWidget(close);

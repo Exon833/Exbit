@@ -6,6 +6,7 @@
 #include "core/util.h"
 #include "ui/preferences.h"
 #include "ui/toolkit/layout.h"
+#include "ui/toolkit/style.h"
 
 #include <thread>
 
@@ -52,8 +53,9 @@ AudioPropertiesDialog::AudioPropertiesDialog(Window* parent, const std::string& 
       bufferSize(bufferSize_),
       exclusive(exclusive_),
       cores(engine.cores) {
-    FormLayout* form = ui::form(this, 11, 6);
-    setMinimumSize(480, 0);
+    setStyleType("AudioPropertiesDialog");
+    FormLayout* form = styleRoom(ui::form(this, 11, 6), computedStyle());
+    setMinimumSize(std::max(0, style::px(computedStyle(), "min-width", 480)), 0);
 
     types = add<ComboBox>();
     for (auto& t : audio::driverTypes()) types->addItem(t.label, t.key);

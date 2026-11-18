@@ -12,7 +12,8 @@
 WinePrefixesDialog::WinePrefixesDialog(ui::Window* parent, const std::vector<std::string>& prefixes_,
                                        const std::map<std::string, std::string>& programs_)
     : ui::Dialog(parent, "Wine prefixes", 620, 440) {
-    auto* lay = ui::vbox(this, 10, 6);
+    setStyleType("WinePrefixesDialog");
+    auto* lay = ui::styleRoom(ui::vbox(this, 10, 6), computedStyle());
     lay->addWidget(Widget::add<ui::Label>("Wine prefixes with Windows plugins in them:"));
     list = Widget::add<ui::ListWidget>();
     for (auto& p : prefixes_) list->addItem(p);
@@ -23,6 +24,7 @@ WinePrefixesDialog::WinePrefixesDialog(ui::Window* parent, const std::vector<std
     lay->addWidget(list, 1);
     auto row = std::make_unique<ui::HBox>();
     row->spacing = 6;
+    ui::styleRoom(row.get(), computedStyle("row"));
     auto* addB = Widget::add<ui::Button>("Add prefix…");
     addB->clicked.connect([this] { addPrefix(); });
     auto* newB = Widget::add<ui::Button>("New prefix…");
@@ -43,6 +45,7 @@ WinePrefixesDialog::WinePrefixesDialog(ui::Window* parent, const std::vector<std
     lay->addWidget(about);
     auto wineRow = std::make_unique<ui::HBox>();
     wineRow->spacing = 6;
+    ui::styleRoom(wineRow.get(), computedStyle("row"));
     wineButton = Widget::add<ui::Button>("Wine program…");
     wineButton->setToolTip("Run this prefix's plugins with another Wine (e.g. the one it was made with)");
     wineButton->clicked.connect([this] { chooseWine(); });

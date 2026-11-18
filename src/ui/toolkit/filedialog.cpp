@@ -408,19 +408,27 @@ public:
     FileDialog(Window* parent, const std::string& title, Mode m, const std::string& dir, const std::string& filter)
         : Dialog(parent, title, 760, 480), mode(m), key(title) {
         filters = mode == Mode::Folder ? std::vector<Filter>{{"Folders", {"*"}}} : parseFilters(filter);
-        auto* v = vbox(this, 10, 8);
+        // its look (default.css: FileDialog, its size and room; ::path-row, ::nav-button, ::middle, ::places, ::form)
+        setStyleType("FileDialog");
+        const css::Style& st = computedStyle();
+        int w = std::max(1, style::px(st, "width", 760)), h = std::max(1, style::px(st, "height", 480));
+        if (w != 760 || h != 480) resizeWindow(w, h);  // (760 x 480: as the window was made)
+        auto* v = styleRoom(vbox(this, 10, 8), st);
         // the path row
         auto top = std::make_unique<HBox>();
         HBox* t = top.get();
         t->spacing = 4;
+        styleRoom(t, computedStyle("path-row"));
         v->addLayout(std::move(top));
+        const css::Style& nav = computedStyle("nav-button");
+        Point navSize(std::max(0, style::px(nav, "width", 26)), std::max(0, style::px(nav, "height", 24)));
         upBtn = toolButton(this, "", [this] { goUp(); }, "Up one folder (Backspace)");
         upBtn->setIconSvg(kUpSvg, 16);
-        upBtn->setFixedSize(26, 24);
+        upBtn->setFixedSize(navSize.x, navSize.y);
         upBtn->setFocusPolicy(FocusPolicy::None);
         homeBtn = toolButton(this, "", [this] { go(plat::homeDir()); }, "Your home folder");
         homeBtn->setIconSvg(kHomeSvg, 16);
-        homeBtn->setFixedSize(26, 24);
+        homeBtn->setFixedSize(navSize.x, navSize.y);
         homeBtn->setFocusPolicy(FocusPolicy::None);
         pathEdit = add<LineEdit>();
         t->addWidget(upBtn);
@@ -441,9 +449,10 @@ public:
         auto mid = std::make_unique<HBox>();
         HBox* mh = mid.get();
         mh->spacing = 8;
+        styleRoom(mh, computedStyle("middle"));
         v->addLayout(std::move(mid), 1);
         places = add<ListWidget>();
-        places->setFixedWidth(150);
+        places->setFixedWidth(std::max(0, style::px(computedStyle("places"), "width", 150)));
         places->vPolicy = SizePolicy::Expanding;
         places->setFocusPolicy(FocusPolicy::Tab);
         fillPlaces();
@@ -460,7 +469,7 @@ public:
         list->selectionChanged.connect([this] { selectionToName(); });
         // name and type
         auto* fw = add<Widget>();
-        auto* fl = form(fw, 0, 6);
+        auto* fl = styleRoom(form(fw, 0, 6), computedStyle("form"));
         nameEdit = fw->add<LineEdit>();
         fl->addRow(mode == Mode::Folder ? "Folder:" : "File name:", nameEdit);
         typeCombo = fw->add<ComboBox>();
@@ -476,7 +485,8 @@ public:
         bb->accepted.connect([this] { tryAccept(); });
         bb->rejected.connect([this] { reject(); });
         v->addWidget(bb);
-        setMinimumWindowSize(480, 320);
+        const css::Style& own = computedStyle();
+        setMinimumWindowSize(std::max(0, style::px(own, "min-width", 480)), std::max(0, style::px(own, "min-height", 320)));
         // where to start
         std::string start, name;
         if (!dir.empty()) {

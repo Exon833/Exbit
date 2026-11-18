@@ -1021,7 +1021,7 @@ public:
             // the text inside its padding's left and right, centred in the row's height
             style::Insets ia = around(is);
             style::text(p, r.adjusted(ia.left, 0, -ia.right, 0), AlignLeft | AlignVCenter, combo->itemText(i), fonts[k],
-                        style::foreground(is), true);
+                        style::foreground(is), is, true);
         }
         p.restore();
     }
@@ -1300,7 +1300,7 @@ void ComboBox::paint(Painter& p) {
     if (!edit_) {
         // the text from the padding's left up to the arrow's box, centred in the whole height
         Rect tr(textX, 0, std::max(0, ar.x - textX), height());
-        style::text(p, tr, AlignLeft | AlignVCenter, currentText(), f, tc, true);
+        style::text(p, tr, AlignLeft | AlignVCenter, currentText(), f, tc, st, true);
     }
     style::box(p, ar, as);
     float size = iconSize(as, 10);

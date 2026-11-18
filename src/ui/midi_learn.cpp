@@ -255,7 +255,8 @@ void chooseAndLearn(ui::Window* parent, const TrackPtr& track, const SlotPtr& sl
 
 LinksDialog::LinksDialog(ui::Window* parent, Learner& l)
     : ui::Dialog(parent, "MIDI controller links", 560, 360), learner(l) {
-    ui::VBox* col = ui::vbox(this, 12, 8);
+    setStyleType("LinksDialog");
+    ui::VBox* col = ui::styleRoom(ui::vbox(this, 12, 8), computedStyle());
     auto* intro = add<ui::Label>(
         "Knobs of your MIDI controller and what each moves. To link one, right-click a knob (an effect's, in "
         "its window) or a track's row (its fader, pan or a plugin's parameter) and choose \xe2\x80\x9cLink to a MIDI "

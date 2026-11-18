@@ -286,6 +286,45 @@ bool colorAt(const Tokens& t, size_t b, size_t e, const Rgba* current, Rgba& out
     return true;
 }
 
+// --- lengths ---
+// px per `unit` (lower case, as the tokenizer gives it); false if it isn't a length's
+bool pxPerUnit(const std::string& unit, const LenCtx& ctx, double& f) {
+    switch (unit.size()) {
+        case 1:
+            if (unit[0] == 'q') return f = 96 / 101.6, true;  // (a quarter of a millimetre)
+            return false;
+        case 2:
+            if (unit == "px") return f = 1, true;
+            if (unit == "em") return f = ctx.em, true;
+            if (unit == "pt") return f = 96.0 / 72, true;
+            if (unit == "vw") return f = ctx.vw, true;
+            if (unit == "vh") return f = ctx.vh, true;
+            if (unit == "ch") return f = ctx.ch < 0 ? ctx.em * 0.5 : ctx.ch, true;
+            if (unit == "in") return f = 96, true;
+            if (unit == "cm") return f = 96 / 2.54, true;
+            if (unit == "mm") return f = 96 / 25.4, true;
+            if (unit == "pc") return f = 16, true;
+            return false;
+        case 3:
+            if (unit == "rem") return f = ctx.rem, true;
+            return false;
+        case 4:
+            if (unit == "vmin") return f = std::min(ctx.vw, ctx.vh), true;
+            if (unit == "vmax") return f = std::max(ctx.vw, ctx.vh), true;
+            return false;
+        default: return false;
+    }
+}
+
+uint8_t unitOf(const std::string& unit) {
+    if (unit == "rem") return URem;
+    if (unit == "vw") return UVw;
+    if (unit == "vh") return UVh;
+    if (unit == "vmin" || unit == "vmax") return UVw | UVh;
+    if (unit == "ch") return UCh;
+    return 0;
+}
+
 // --- calc() ---
 struct Quantity {
     double v = 0;
@@ -311,10 +350,9 @@ struct Calc {
             else if (ctx.percent) q = {k.num * ctx.percentOf / 100, true};
             else return false;
         } else if (k.type == Tok::Dimension) {
-            if (k.text == "px") q = {k.num, true};
-            else if (k.text == "pt") q = {k.num * 96 / 72, true};
-            else if (k.text == "em") q = {k.num * ctx.em, true};
-            else return false;
+            double f;
+            if (!pxPerUnit(k.text, ctx, f)) return false;
+            q = {k.num * f, true};
         } else if (k.type == Tok::LParen || (k.type == Tok::Function && ieq(k.text, "calc"))) {
             if (depth > 32 || k.close >= e) return false;
             size_t j = i + 1;
@@ -429,7 +467,7 @@ std::map<std::string, std::vector<std::string>> makeLonghands() {
             m["border"].push_back(side + what);
         }
     }
-    m["background"] = {"background-color"};
+    m["background"] = {"background-color", "background-image"};
     return m;
 }
 const std::map<std::string, std::vector<std::string>>& longhandTable() {
@@ -506,6 +544,34 @@ std::string formatNumber(double v) {
     std::string s;
     formatInto(s, v);
     return s;
+}
+
+uint8_t unitsOf(const Tokens& t, size_t b, size_t e) {
+    uint8_t u = 0;
+    for (size_t i = b; i < e; i++)
+        if (t[i].type == Tok::Dimension) u |= unitOf(t[i].text);
+    return u;
+}
+
+std::string resolveUnits(const std::string& text, const UnitPx& px, uint8_t which) {
+    Tokens t;
+    tokenize(text, t);
+    std::string out;
+    size_t last = 0;
+    for (const Token& k : t.list) {
+        if (k.type != Tok::Dimension) continue;
+        uint8_t u = unitOf(k.text);
+        if (!u || (u & which) != u) continue;
+        double f = u == URem ? px.rem : u == UVw ? px.vw : u == UVh ? px.vh : u == UCh ? px.ch
+                 : k.text == "vmin" ? std::min(px.vw, px.vh) : std::max(px.vw, px.vh);
+        out.append(text, last, k.start - last);
+        formatInto(out, k.num * f);
+        out += "px";
+        last = k.end;
+    }
+    if (last == 0) return text;
+    out.append(text, last, std::string::npos);
+    return out;
 }
 
 // --- var() ---
@@ -610,13 +676,31 @@ std::string expand(const std::string& name, const Tokens& t, size_t b, size_t e,
     }
     auto bad = [&]() { return "a bad value for '" + name + "': '" + (whole.size() > 60 ? whole.substr(0, 57) + "..." : whole) + "'"; };
     if (name == "background") {
+        // each layer's image (a gradient; "none" without one), the colour from the last layer; what else a
+        // layer may say (url() images, positions, sizes, repeat…) is not read
         auto layers = splitTop(t, b, e, Tok::Comma);
-        auto [lb, le] = layers.back();
-        std::string color = "transparent";
-        for (auto [cb, ce] : components(t, lb, le))
-            if (isKind(t, cb, ce, Kind::Color)) color = t.text(cb, ce);
+        std::string color = "transparent", images;
+        bool anyImage = false;
+        for (size_t li = 0; li < layers.size(); li++) {
+            auto [lb, le] = layers[li];
+            std::string image;
+            for (auto [cb, ce] : components(t, lb, le)) {
+                if (isGradientFunction(t[cb])) {
+                    std::string why;
+                    Rgba dummy;
+                    if (!image.empty()) return bad();
+                    if (!parseImages(t, cb, ce, &dummy, 12, nullptr, why)) return "a bad value for 'background': " + why;
+                    image = t.text(cb, ce);
+                    anyImage = true;
+                } else if (li + 1 == layers.size() && isKind(t, cb, ce, Kind::Color)) {
+                    color = t.text(cb, ce);
+                }
+            }
+            images += (li ? ", " : "") + (image.empty() ? std::string("none") : image);
+        }
         out.emplace_back("background", whole);
         out.emplace_back("background-color", color);
+        out.emplace_back("background-image", anyImage ? images : std::string("none"));
         return "";
     }
     auto comps = components(t, b, e);
@@ -677,6 +761,20 @@ std::string checkValue(const std::string& p, const Tokens& t, size_t b, size_t e
         return p.size() >= n && p.compare(p.size() - n, n, s) == 0;
     };
     auto starts = [&](const char* s) { return p.compare(0, strlen(s), s) == 0; };
+    if (p == "background-image") {
+        std::string why;
+        Rgba dummy;
+        return parseImages(t, b, e, &dummy, 12, nullptr, why) ? "" : "a bad value for 'background-image': " + why;
+    }
+    if (p == "box-shadow" || p == "text-shadow") {
+        std::string why;
+        Rgba dummy;
+        return parseShadows(t, b, e, p == "box-shadow", &dummy, 12, nullptr, why) ? "" : "a bad value for '" + p + "': " + why;
+    }
+    if (p == "opacity") {
+        double v;
+        return evalNumber(t, b, e, v) ? "" : bad();
+    }
     if (p == "color" || ends("-color")) {
         if (isKind(t, b, e, Kind::Color)) return "";
         if (e == b + 1 && t[b].type == Tok::Ident) return "unknown colour '" + whole + "'";
@@ -750,6 +848,11 @@ double Style::length(const std::string& property, double def, double percentOf) 
     size_t n = property.size();
     if (n > 6 && property.compare(n - 6, 6, "-width") == 0 &&
         (property.compare(0, 7, "border-") == 0 || property.compare(0, 8, "outline-") == 0)) {
+        // (a border whose style is none or hidden has no width, as in CSS)
+        if (property.compare(0, 7, "border-") == 0) {
+            auto st = props_.find(property.substr(0, n - 6) + "-style");
+            if (st != props_.end() && (detail::ieq(st->second, "none") || detail::ieq(st->second, "hidden"))) return 0;
+        }
         if (detail::ieq(v, "thin")) return 1;
         if (detail::ieq(v, "medium")) return 3;
         if (detail::ieq(v, "thick")) return 5;
