@@ -277,8 +277,8 @@ public:
     // place among its siblings (:first-child, :nth-child()…: its childIndex() and siblingCount()); UsesSiblings:
     // the siblings before it (A + B, A ~ B). With UsesSiblings, a node's style can change while nothing of its
     // own (nor of its ancestors) does: a sibling before it changing its class, type, id or state. The widgets'
-    // cache (ui/toolkit/widget.h) follows the earlier siblings' order, types and classes, not their states:
-    // `A:hover + B` is seen when B's style is next worked out for another reason.
+    // cache (ui/toolkit/widget.h) follows the earlier siblings' order, types, classes and states, and repaints the
+    // later siblings when one's hover / pressed / focus changes (Widget::statesChanged).
     enum Uses { UsesPosition = 1, UsesSiblings = 2 };
     int uses() const { return uses_; }
     // for ch: the width of "0" in a font (family: the first of the node's font-family, "" none; px: its size).

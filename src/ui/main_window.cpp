@@ -149,6 +149,7 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     theme::rounded = prefs.roundedCorners;
     skinStamp_ = skinFilesStamp();  // (before reading: see showSkin)
     skinProblems = skin::apply(skin);
+    updateMedia();
     metronomeSettings = metronome_dialog::loadSettings();
     engine.blocksize = prefs.bufferSize;
     engine.cores = prefs.processingCores;
@@ -770,10 +771,23 @@ void MainWindow::showSkin(const skin::Skin& s) {
 }
 
 std::string MainWindow::skinFilesStamp() const {
-    std::string stamp;
+    // the skin's stylesheet, default.css, and what they @import (as last read: skin::watchedFiles)
+    std::vector<std::string> files = skin::watchedFiles();
     for (const std::string& path : {skin.path, skin::defaultSheet()})
-        if (!path.empty()) stamp += std::to_string(util::fileMtime(path)) + ":" + std::to_string(util::fileSize(path)) + ";";
+        if (!path.empty() && std::find(files.begin(), files.end(), path) == files.end()) files.push_back(path);
+    std::string stamp;
+    for (const std::string& path : files)
+        stamp += path + "=" + std::to_string(util::fileMtime(path)) + ":" + std::to_string(util::fileSize(path)) + ";";
     return stamp;
+}
+
+void MainWindow::updateMedia() {
+    // @media rules and vw / vh follow the window's size and the interface size
+    css::Media m;
+    m.width = std::max(1, width());
+    m.height = std::max(1, height());
+    m.scale = prefs::interfaceScale() / 100.0;
+    if (theme::setMedia(m) && panel) restyle();
 }
 
 void MainWindow::checkSkinFile() {
@@ -1765,6 +1779,7 @@ void MainWindow::onCpuTimer() {
 
 void MainWindow::resized() {
     ui::Window::resized();
+    updateMedia();
     if (explorerDock) setExplorerWidth(explorerWidth);
     if (timeline) timeline->relayout();
 }

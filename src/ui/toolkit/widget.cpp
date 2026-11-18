@@ -426,6 +426,17 @@ void Widget::styleStates(std::vector<std::string>& out) const {
     if (hasFocus()) out.push_back("focus");
 }
 
+void Widget::statesChanged() {
+    // a state of this one changed: the siblings after it may look different when the sheets use A + B / A ~ B
+    // (their styles see it: Widget::styleShared); repaint them
+    if (!parent_ || !(theme::styles().uses() & css::Engine::UsesSiblings)) return;
+    bool after = false;
+    for (auto& c : parent_->children_) {
+        if (after) c->update();
+        else if (c.get() == this) after = true;
+    }
+}
+
 bool Widget::hasState(const std::string& name) const {
     std::vector<std::string> states;
     styleStates(states);
@@ -467,6 +478,10 @@ std::shared_ptr<const css::Style> Widget::styleShared(const std::string& part) c
             for (int i = 0; i < index; i++) {
                 const Widget* w = parent_->children_[(size_t)i].get();
                 siblings = (siblings * 1000003u) ^ (std::hash<const void*>()(w) + (size_t)w->classesVersion_ * 0x9E3779B9u);
+                // (and their states: A:hover + B)
+                std::vector<std::string> theirs;
+                w->styleStates(theirs);
+                for (auto& st : theirs) siblings = (siblings * 31u) ^ std::hash<std::string>()(st);
             }
     }
     for (size_t i = 0; i < styles_.size(); i++) {
@@ -981,11 +996,13 @@ void Window::setFocusWidget(Widget* w) {
         old->filterEvent("focusOut");
         old->focusOut();
         old->update();
+        if (Widget::alive(old)) old->statesChanged();
     }
     if (w && Widget::alive(w) && focus_ == w) {
         w->filterEvent("focusIn");
         w->focusIn();
         w->update();
+        if (Widget::alive(w)) w->statesChanged();
     }
     focusReason = 0;
 }
@@ -1054,6 +1071,7 @@ void Window::releaseGrab() {
     if (grab_ && Widget::alive(grab_)) {
         grab_->pressed_ = false;
         grab_->update();
+        grab_->statesChanged();
     }
     grab_ = nullptr;
     heldButtons_ = 0;
@@ -1081,6 +1099,7 @@ void Window::setHover(Widget* w) {
         if (std::find(newChain.begin(), newChain.end(), x) != newChain.end()) continue;
         if (!Widget::alive(x)) continue;
         x->hovered_ = false;
+        x->statesChanged();
         x->filterEvent("leave");
         if (Widget::alive(x)) x->leave();
     }
@@ -1089,6 +1108,7 @@ void Window::setHover(Widget* w) {
         if (std::find(oldChain.begin(), oldChain.end(), x) != oldChain.end()) continue;
         if (!Widget::alive(x)) continue;
         x->hovered_ = true;
+        x->statesChanged();
         x->filterEvent("enter");
         if (Widget::alive(x)) x->enter();
     }
@@ -1212,6 +1232,7 @@ void Window::dispatchMouse(const plat::Event& e) {
             grab_ = handler ? handler : target;
             grab_->pressed_ = true;
             grab_->update();
+            grab_->statesChanged();
             applyCursor();
         }
         if (e.button == plat::RightButton && Widget::alive(target) && epoch == app.grabEpoch_) {

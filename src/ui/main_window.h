@@ -211,6 +211,7 @@ public:
     void showSkinProblems();  // what the skin's stylesheets left out
     std::string skinFilesStamp() const;  // the skin's and default.css's times and sizes
     void checkSkinFile();     // reloads the skin when its stylesheet (or default.css) was saved
+    void updateMedia();       // the window's size and the interface size, for @media and vw / vh
     void importSkin();
     void exportSkin();
     void openSkinsFolder();

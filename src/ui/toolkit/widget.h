@@ -31,9 +31,9 @@
 //   .toggle and .toggle-mute; "false", "0" or "" set none) and addStyleClass; its states :hover :pressed
 //   :disabled :focus and whatever styleStates() adds (:checked…). computedStyle(part) is what applies to it now,
 //   kept until the skin, its states, its classes or an ancestor's style change, or (if the skin has
-//   :first-child, :nth-child()… or A + B, A ~ B) its place among its siblings or the classes and types of the
-//   siblings before it. Not the states of those siblings: `A:hover + B` is seen when B's style is next worked
-//   out for another reason.
+//   :first-child, :nth-child()… or A + B, A ~ B) its place among its siblings or the classes, types and states
+//   of the siblings before it (a sibling's hover, pressed or focus changing repaints those after it:
+//   statesChanged).
 // - Layouts are redone lazily: updateGeometry() (called by setText, setVisible, size changes…)
 //   marks the parents' layouts dirty and they run before the next frame is painted (or at once with
 //   App::doLayouts() / relayout()).
@@ -250,6 +250,9 @@ public:
     const css::Style& computedStyle(const std::string& part = "") const;
     // the names of the states it is in (the base: hover, pressed, disabled, focus; overrides add theirs)
     virtual void styleStates(std::vector<std::string>& out) const;
+    // a state of it changed (hover, pressed, focus…: the toolkit calls it for those): the siblings after it are
+    // repainted when the stylesheets use A + B or A ~ B
+    void statesChanged();
     // opaque per-widget data for the program
     std::shared_ptr<void> userData;
 

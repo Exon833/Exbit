@@ -44,6 +44,9 @@ const Color& c(const std::string& name);
 // colours, shades and fonts are read from them again. Problems found while computing are added to
 // `problems` (if given). No sheets: the program's own stylesheet as built in (builtinSheet()).
 void setStyles(std::vector<css::SheetPtr> sheets, std::vector<css::Problem>* problems = nullptr);
+// What @media rules and vw / vh are worked out against: the main window's size and the interface size. True if
+// that changed what applies (then the colours, shades and fonts are read again; the caller restyles).
+bool setMedia(const css::Media& media);
 // back to the built-in default.css (tests; also what is used before any skin is put on)
 void setSkin();
 // data/skins/default.css as it was when the program was built: what is used where it can't be read

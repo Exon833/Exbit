@@ -1654,6 +1654,34 @@ static void testListAndMenuStylesheets() {
     w.hideWindow();
 }
 
+// `A:hover + B`: a sibling's state changing restyles (and repaints) the ones after it
+static void testSiblingStates() {
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(200, 40);
+    auto* a = w.add<Button>("A");
+    auto* b = w.add<Button>("B");
+    a->setGeometry(5, 5, 60, 26);
+    b->setGeometry(80, 5, 60, 26);
+    std::vector<css::Problem> problems;
+    theme::setStyles({theme::builtinSheet(),
+                      css::parse("PushButton:hover + PushButton { background-color: #00ff00; }", "sib.css", problems)});
+    CHECK(problems.empty());
+    w.showWindow();
+    App::get().tick();
+    CHECK(b->fillColor() != Color(0, 255, 0));
+    moveTo(w, 20, 15);  // over A
+    CHECK(a->underMouse());
+    App::get().tick();
+    CHECK(b->fillColor() == Color(0, 255, 0));
+    CHECK(w.framebuffer().colorAt(100, 18) == Color(0, 255, 0));  // (B was repainted)
+    moveTo(w, 190, 35);  // off both
+    App::get().tick();
+    CHECK(b->fillColor() != Color(0, 255, 0));
+    CHECK(w.framebuffer().colorAt(100, 18) != Color(0, 255, 0));
+    theme::setSkin();
+    w.hideWindow();
+}
+
 int main() {
     App::get().initHeadless();
     util::makeDirs("build/toolkit-samples");
@@ -1665,6 +1693,7 @@ int main() {
     testFieldStylesheets();
     testBasicControlStyles();
     testRestyleRelayout();
+    testSiblingStates();
     testListAndMenuStylesheets();
     testButtonsAndClicks();
     testLineEdit();

@@ -223,6 +223,15 @@ double metricF(const std::string& name, double def) {
 
 int metric(const std::string& name, int def) { return (int)std::lround(metricF(name, def)); }
 
+bool setMedia(const css::Media& media) {
+    if (!ready) setSkin();
+    int before = engine.generation();
+    engine.setMedia(media);
+    if (engine.generation() == before) return false;
+    refresh();
+    return true;
+}
+
 const css::Engine& styles() {
     if (!ready) setSkin();
     return engine;
