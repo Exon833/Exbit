@@ -11,6 +11,7 @@
 #include "paths.h"
 #include "ui/colors.h"
 #include "ui/toolkit/dialogs.h"
+#include "ui/toolkit/style.h"
 
 namespace skin {
 
@@ -60,6 +61,8 @@ css::SheetPtr parseFile(const std::string& path, std::vector<css::Problem>& prob
     css::ParseOptions options;  // (@import and @font-face's files: next to the stylesheet)
     options.baseDir = util::dirName(path);
     options.readFile = [](const std::string& file, std::string& out) { return util::readFile(file, out); };
+    // (url() images: a PNG or SVG that can be read, else reported where it is named; kept, decoded, for drawing)
+    options.checkImage = [](const std::string& file, std::string& why) { return ui::style::imageFileOk(file, why); };
     return ok ? css::parse(text, util::baseName(path), problems, options) : nullptr;
 }
 
@@ -231,6 +234,7 @@ Skin find(const std::string& name, const std::string& user) {
 }
 
 std::vector<std::string> apply(const Skin& s) {
+    ui::style::clearImageCaches();  // (the old skin's images: the new one's are read as its stylesheets are)
     std::vector<css::Problem> problems;
     std::vector<css::SheetPtr> sheets;
     std::vector<std::pair<std::string, std::string>> files;  // (name, text) of each, for where things are
@@ -261,9 +265,12 @@ std::vector<std::string> apply(const Skin& s) {
     gWatched.clear();
     gWatched.push_back(def);
     if (!s.path.empty() && util::absolutePath(s.path) != util::absolutePath(def)) gWatched.push_back(s.path);
-    for (auto& sheet : sheets)
+    for (auto& sheet : sheets) {
         for (auto& f : css::importedFiles(sheet))
             if (std::find(gWatched.begin(), gWatched.end(), f) == gWatched.end()) gWatched.push_back(f);
+        for (auto& f : css::imageFiles(sheet))  // (its url() images: saving one shows it at once)
+            if (std::find(gWatched.begin(), gWatched.end(), f) == gWatched.end()) gWatched.push_back(f);
+    }
     theme::setStyles(std::move(sheets), &problems);
     // colour variables that aren't colours (any text is a variable's value: only its use tells)
     for (const std::string& var : theme::colorVariables()) {

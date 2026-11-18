@@ -150,6 +150,7 @@ private:
     struct Look {
         // (its boxes: kept until parts_.refresh() answers true)
         const css::Style *self = nullptr, *hover = nullptr, *selected = nullptr, *header = nullptr;
+        const css::Style *branch = nullptr, *branchOpen = nullptr;  // (::branch, :open: its -tiny-glyph)
         Color text, hoverText, selectedText, icon, iconSelected, headerText;
         int headerEdgeH = 1, folderAlpha = 90;
         Font font, headerFont;

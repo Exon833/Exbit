@@ -24,9 +24,17 @@
 // width, spaced to end with a dash at each corner; dotted: dots of the width (round from 3 px, square below),
 // one width apart. Sides with rounded corners have their dashes and dots follow the corners.
 //
-// GRADIENTS are laid on the padding box (background-origin's default) and clipped to the border box (or to
-// just under the border when it is opaque, so no background shows at its outer edge); beyond the padding box
-// they keep their end colours (no tiling).
+// GRADIENTS are laid on the background-origin box (the padding box by default) and clipped to the background-clip
+// box (the border box by default: there to just under the border when it is opaque, so no background shows at
+// its outer edge); beyond their box they keep their end colours (no tiling; background-size, -position and
+// -repeat are for images). The background colour is clipped as the last layer is.
+//
+// URL() IMAGES (style_image.h): sized by background-size against the origin box (auto: their own size, an SVG's
+// width and height or, without, the box's; a PNG's pixels times the interface size), placed by
+// background-position (on whole device pixels), tiled by background-repeat (repeat, space: whole tiles with gaps,
+// round: whole tiles stretched to fit; no-repeat), clipped to the clip box with its rounded corners. The image is
+// made once at its device size (an SVG drawn there, a PNG scaled nearest-neighbour with image-rendering:
+// pixelated, else smooth) and kept; the tiles are its pixels repeated (TileShader), not drawn one by one.
 //
 // SHADOWS: the blur is a Gaussian (standard deviation half the blur radius, as CSS) made of three box blurs
 // each way on an 8-bit mask. An outer shadow is the box grown by its spread, its corners' radii grown as CSS
@@ -40,7 +48,9 @@
 #include <cstring>
 #include <list>
 
+#include "core/util.h"
 #include "ui/toolkit/style.h"
+#include "ui/toolkit/style_image.h"
 
 namespace ui {
 namespace style {
@@ -64,9 +74,16 @@ struct BoxPaint {
     struct Layer {
         css::Style::Gradient g;
         std::shared_ptr<GradientRamp> ramp;  // made once when its stops don't depend on the box's size
+        css::Style::Background bg;           // its background-repeat, -position, -size, -origin, -clip
+        std::shared_ptr<const ImageSource> image;  // a url() image (null: a gradient)
+        bool pixelated = false;                     // (image-rendering)
+        mutable int tw = -1, th = -1;               // (the image at the size last drawn)
+        mutable std::shared_ptr<const Image> tile;
     };
     std::vector<Layer> layers;                // background-image's, the first on top
     std::vector<css::Style::Shadow> shadows;  // box-shadow's, the first on top
+    float padding[4] = {0, 0, 0, 0};          // (for content-box) top right bottom left
+    css::Style::Background::Box colorClip = css::Style::Background::BorderBox;  // the background colour's
 };
 
 namespace {
@@ -590,6 +607,101 @@ void paintGradient(Painter& p, const RoundRect& clip, const RoundRect& box,
     fillShape(p, clip, Fill{Color(), &sh});
 }
 
+// a url() image layer: in `area` (its origin box), clipped to `clip`
+void paintImage(Painter& p, const RoundRect& clip, const RoundRect& area, const BoxPaint::Layer& layer, float s) {
+    using B = css::Style::Background;
+    const ImageSource& src = *layer.image;
+    const B& bl = layer.bg;
+    float W = area.R - area.L, H = area.B - area.T;
+    if (!(W > 0) || !(H > 0)) return;
+    // its size (device px)
+    float iw = src.w * s, ih = src.h * s, ratio = src.ratio;
+    bool own = iw > 0 && ih > 0;
+    float w, h;
+    auto fit = [&](bool cover) {  // (its proportions kept: covering the area, or inside it)
+        float r = ratio > 0 ? ratio : W / H;
+        float byWidth = W / r;
+        if ((byWidth >= H) == cover) {
+            w = W;
+            h = byWidth;
+        } else {
+            h = H;
+            w = H * r;
+        }
+    };
+    if (bl.sizing == B::Cover || bl.sizing == B::Contain) {
+        fit(bl.sizing == B::Cover);
+    } else {
+        float gw = bl.width < 0 ? -1 : bl.widthPercent ? (float)bl.width * W : (float)bl.width * s;
+        float gh = bl.height < 0 ? -1 : bl.heightPercent ? (float)bl.height * H : (float)bl.height * s;
+        if (gw >= 0 && gh >= 0) {
+            w = gw;
+            h = gh;
+        } else if (gw >= 0) {
+            w = gw;
+            h = ratio > 0 ? gw / ratio : own ? ih : H;
+        } else if (gh >= 0) {
+            h = gh;
+            w = ratio > 0 ? gh * ratio : own ? iw : W;
+        } else if (own) {
+            w = iw;
+            h = ih;
+        } else if (ratio > 0) {
+            fit(false);
+        } else {
+            w = W;
+            h = H;
+        }
+    }
+    // round: as many whole tiles as fit best, stretched to fill the area
+    if (bl.repeatX == B::Round && w > 0) w = W / std::max(1.f, std::round(W / w));
+    if (bl.repeatY == B::Round && h > 0) h = H / std::max(1.f, std::round(H / h));
+    int tw = (int)std::lround(w), th = (int)std::lround(h);
+    if (tw <= 0 || th <= 0) return;
+    if (!layer.tile || layer.tw != tw || layer.th != th) {
+        layer.tile = imageTile(src, tw, th, layer.pixelated, Color(0, 0, 0, 0));
+        layer.tw = tw;
+        layer.th = th;
+    }
+    if (!layer.tile) return;
+    // where, and how often
+    auto place = [](B::Tiling rep, float L, float len, int size, double pos, double off, float sc, float& o,
+                    float& period, bool& repeat) {
+        period = (float)size;
+        repeat = rep != B::NoRepeat;
+        if (rep == B::Space) {
+            int n = (int)std::floor(len / (float)size);
+            if (n >= 2) {  // (whole tiles from edge to edge, the room left between them)
+                period = (float)size + (len - (float)n * size) / (float)(n - 1);
+                o = L;
+                return;
+            }
+            repeat = false;  // (one, or none fits: placed as no-repeat)
+        }
+        o = L + (float)pos * (len - (float)size) + (float)off * sc;
+    };
+    float ox, oy, periodX, periodY;
+    bool repeatX, repeatY;
+    place(bl.repeatX, area.L, W, tw, bl.posX, bl.offX, s, ox, periodX, repeatX);
+    place(bl.repeatY, area.T, H, th, bl.posY, bl.offY, s, oy, periodY, repeatY);
+    int x0 = (int)std::floor(ox + 0.5f), y0 = (int)std::floor(oy + 0.5f);
+    TileShader sh(*layer.tile, x0, y0, periodX, periodY, repeatX, repeatY);
+    // (one image across or down: only where it is)
+    RoundRect c = clip;
+    if (c.square()) {
+        if (!repeatX) {
+            c.L = std::max(c.L, (float)x0);
+            c.R = std::min(c.R, (float)(x0 + tw));
+        }
+        if (!repeatY) {
+            c.T = std::max(c.T, (float)y0);
+            c.B = std::min(c.B, (float)(y0 + th));
+        }
+    }
+    if (c.empty()) return;
+    fillShape(p, c, Fill{Color(), &sh});
+}
+
 // --- the shadows' masks, kept ---
 struct Mask {
     std::vector<int32_t> key;
@@ -894,12 +1006,45 @@ std::shared_ptr<const BoxPaint> boxPaint(const css::Style& s, const BoxLook& loo
     b->radius[2] = (float)std::max(0.0, r.bottom);
     b->radius[3] = (float)std::max(0.0, r.left);
     b->bg = look.bg;
-    if (s.has("background-image"))
-        for (css::Style::Gradient& g : s.gradients("background-image")) b->layers.push_back({std::move(g), nullptr});
+    if (s.has("background-image")) {
+        bool pix = pixelated(s);
+        std::vector<css::Style::Background> bgs = s.backgrounds();
+        if (!bgs.empty()) b->colorClip = bgs.back().clip;
+        for (css::Style::Background& bl : bgs) {
+            BoxPaint::Layer l;
+            if (bl.kind == css::Style::Background::GradientImage) {
+                l.g = std::move(bl.gradient);
+            } else if (bl.kind == css::Style::Background::UrlImage) {
+                l.image = imageSource(bl.url);
+                if (!l.image->ok) continue;  // (reported when the stylesheet was read: left out)
+                l.pixelated = pix;
+            } else {
+                continue;
+            }
+            l.bg = std::move(bl);
+            b->layers.push_back(std::move(l));
+        }
+    } else if (s.has("background-clip")) {  // (no image: the colour as the first value says)
+        std::string clip = s.keyword("background-clip", "");
+        std::string first = util::trim(clip.substr(0, clip.find(',')));
+        b->colorClip = first == "padding-box" ? css::Style::Background::PaddingBox
+                       : first == "content-box" ? css::Style::Background::ContentBox
+                                                : css::Style::Background::BorderBox;
+    }
     if (s.has("box-shadow")) b->shadows = s.shadows("box-shadow");
+    bool content = b->colorClip == css::Style::Background::ContentBox;
+    for (const BoxPaint::Layer& l : b->layers)
+        content = content || l.bg.origin == css::Style::Background::ContentBox || l.bg.clip == css::Style::Background::ContentBox;
+    if (content) {
+        css::Edges pe = s.edges("padding", css::Edges());
+        b->padding[0] = (float)std::max(0.0, pe.top);
+        b->padding[1] = (float)std::max(0.0, pe.right);
+        b->padding[2] = (float)std::max(0.0, pe.bottom);
+        b->padding[3] = (float)std::max(0.0, pe.left);
+    }
 
     // a plain box (the inline fast path draws it: exactly as before there was more)?
-    bool plain = b->layers.empty() && b->shadows.empty();
+    bool plain = b->layers.empty() && b->shadows.empty() && b->colorClip == css::Style::Background::BorderBox;
     for (int i = 1; i < 4; i++) plain = plain && b->radius[i] == b->radius[0];
     plain = plain && b->radius[0] == look.radius;
     // (the plain path draws every side in border-top-color, solid; or, fill only, no border at all)
@@ -928,7 +1073,7 @@ std::shared_ptr<const BoxPaint> boxPaint(const css::Style& s, const BoxLook& loo
     b->breaks.erase(std::unique(b->breaks.begin(), b->breaks.end(), [](float x, float y) { return std::fabs(x - y) < 1e-6f; }),
                     b->breaks.end());
     for (BoxPaint::Layer& l : b->layers)
-        if (sizeIndependent(l.g)) l.ramp = std::make_shared<GradientRamp>(fixStops(l.g.stops, 1, 1), l.g.repeating);
+        if (!l.image && sizeIndependent(l.g)) l.ramp = std::make_shared<GradientRamp>(fixStops(l.g.stops, 1, 1), l.g.repeating);
     return b;
 }
 
@@ -938,7 +1083,7 @@ void drawBox(Painter& p, const RectF& r, const BoxLook& look) {
     // (a repaint wholly inside it, clear of its border and corners, where only its flat background is drawn: that
     // fill alone, as below draws it there. A meter repainting in a bevelled track row, a cursor in a framed
     // timeline: no ring worked out each frame)
-    if (b.layers.empty() && b.shadows.empty()) {
+    if (b.layers.empty() && b.shadows.empty() && b.colorClip == css::Style::Background::BorderBox) {
         float most = 0;
         for (int i = 0; i < 4; i++) most = std::max(most, b.width[i] + (theme::rounded ? b.radius[i] : 0.f));
         RectF in = r.adjusted(most + 1, most + 1, -most - 1, -most - 1);  // (+1: what anti-aliasing reaches)
@@ -969,12 +1114,30 @@ void drawBox(Painter& p, const RectF& r, const BoxLook& look) {
         under[i] = !b.opaqueSide[i] || w <= 0 ? 0 : g.crisp ? w : w >= 2 ? w - 1 : w / 2;
     }
     RoundRect bgShape = o.inset(under);
-    bool coveredByImage = false;
+    using BG = css::Style::Background;
+    RoundRect content;
+    bool needContent = b.colorClip == BG::ContentBox;
+    for (const BoxPaint::Layer& l : b.layers) needContent = needContent || l.bg.origin == BG::ContentBox || l.bg.clip == BG::ContentBox;
+    if (needContent) {
+        float pw[4];
+        for (int i = 0; i < 4; i++) pw[i] = g.crisp ? std::floor(b.padding[i] * s + 0.5f) : b.padding[i] * s;
+        content = pad.inset(pw);
+    }
+    auto boxOf = [&](BG::Box which, bool clip) -> const RoundRect& {
+        return which == BG::ContentBox ? content : which == BG::PaddingBox ? pad : clip ? bgShape : o;
+    };
+    bool coveredByImage = false;  // (an opaque gradient over all of the colour's box)
     for (const BoxPaint::Layer& l : b.layers)
-        if (l.ramp && l.ramp->opaque()) coveredByImage = true;
-    if (b.bg.a && !coveredByImage) fillShape(p, bgShape, Fill{b.bg});
-    for (size_t i = b.layers.size(); i-- > 0;)
-        if (!bgShape.empty()) paintGradient(p, bgShape, pad, b.layers[i], s);
+        if (l.ramp && l.ramp->opaque() && l.bg.clip <= b.colorClip) coveredByImage = true;
+    const RoundRect& colorShape = boxOf(b.colorClip, true);
+    if (b.bg.a && !coveredByImage && !colorShape.empty()) fillShape(p, colorShape, Fill{b.bg});
+    for (size_t i = b.layers.size(); i-- > 0;) {
+        const BoxPaint::Layer& l = b.layers[i];
+        const RoundRect& clip = boxOf(l.bg.clip, true);
+        if (clip.empty()) continue;
+        if (l.image) paintImage(p, clip, boxOf(l.bg.origin, false), l, s);
+        else paintGradient(p, clip, boxOf(l.bg.origin, false), l, s);
+    }
 
     // 3. the inset shadows, over the background, inside the padding box
     for (size_t i = b.shadows.size(); i-- > 0;) {
@@ -1073,7 +1236,7 @@ void shadowsOf(Painter& p, const RectF& bounds, const std::string& key, const st
 
 std::string fontKey(const Font& f) {
     char b[64];
-    snprintf(b, sizeof b, "|%.3f|%d|", f.pixelSize(), (int)f.bold());
+    snprintf(b, sizeof b, "|%.3f|%d|%d|", f.pixelSize(), (int)f.bold(), (int)f.aliased());
     return f.family() + b;
 }
 

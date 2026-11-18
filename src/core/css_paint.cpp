@@ -1,5 +1,6 @@
-// Reading the CSS values that paint (css.h): gradients (background-image and the background shorthand),
-// box-shadow and text-shadow lists, and opacity; Style's getters for them.
+// Reading the CSS values that paint (css.h): background images (url()s and gradients: background-image and the
+// background shorthand) and the background-repeat, -position, -size, -origin and -clip lists, box-shadow and
+// text-shadow lists, and opacity; Style's getters for them.
 //
 // GRADIENTS. linear-gradient([<angle> | to <side-or-corner>,] <stops>) and radial-gradient([<shape> ||
 // <size>] [at <position>], <stops>), and their repeating- forms. Angles in deg, rad, turn, grad (or a bare
@@ -315,23 +316,219 @@ bool parseGradient(const Tokens& t, size_t b, size_t e, const Rgba* current, dou
     return ok;
 }
 
+bool startsUrl(const Token& k) { return k.type == Tok::Url || (k.type == Tok::Function && ieq(k.text, "url")); }
+
+bool urlAt(const Tokens& t, size_t b, size_t e, std::string& url) {
+    t.trim(b, e);
+    if (b >= e) return false;
+    const Token& k = t[b];
+    if (k.type == Tok::Url) {
+        if (e != b + 1) return false;
+        url = k.text;
+        return !url.empty();
+    }
+    if (k.type != Tok::Function || !ieq(k.text, "url") || k.close != e - 1) return false;
+    size_t ib = b + 1, ie = e - 1;
+    t.trim(ib, ie);
+    if (ie != ib + 1 || t[ib].type != Tok::String) return false;
+    url = t[ib].text;
+    return !url.empty();
+}
+
 bool parseImages(const Tokens& t, size_t b, size_t e, const Rgba* current, double em,
-                 std::vector<Style::Gradient>* out, std::string& why) {
+                 std::vector<Style::Background>* out, std::string& why) {
     t.trim(b, e);
     if (b >= e) {
         why = "no value";
         return false;
     }
-    if (e == b + 1 && t[b].type == Tok::Ident && ieq(t[b].text, "none")) return true;
+    if (e == b + 1 && t[b].type == Tok::Ident && ieq(t[b].text, "none")) {
+        if (out) out->emplace_back();
+        return true;
+    }
     for (auto [lb, le] : splitTop(t, b, e, Tok::Comma)) {
-        if (le == lb + 1 && t[lb].type == Tok::Ident && ieq(t[lb].text, "none")) continue;  // (a layer without one)
-        if (lb < le && (t[lb].type == Tok::Url || (t[lb].type == Tok::Function && ieq(t[lb].text, "url")))) {
-            why = "url() images are not supported (gradients are)";
+        Style::Background layer;
+        if (le == lb + 1 && t[lb].type == Tok::Ident && ieq(t[lb].text, "none")) {  // (a layer without one)
+            if (out) out->push_back(std::move(layer));
+            continue;
+        }
+        if (lb < le && startsUrl(t[lb])) {
+            if (!urlAt(t, lb, le, layer.url)) {
+                why = "'" + t.text(lb, le) + "' is not one url(\"file\")";
+                return false;
+            }
+            layer.kind = Style::Background::UrlImage;
+        } else {
+            if (!parseGradient(t, lb, le, current, em, layer.gradient, why)) return false;
+            layer.kind = Style::Background::GradientImage;
+        }
+        if (out) out->push_back(std::move(layer));
+    }
+    return true;
+}
+
+namespace {
+bool tilingOf(const Tokens& t, std::pair<size_t, size_t> r, Style::Background::Tiling& out) {
+    using B = Style::Background;
+    if (identIs(t, r, "repeat")) out = B::Repeat;
+    else if (identIs(t, r, "no-repeat")) out = B::NoRepeat;
+    else if (identIs(t, r, "space")) out = B::Space;
+    else if (identIs(t, r, "round")) out = B::Round;
+    else return false;
+    return true;
+}
+}  // namespace
+
+bool repeatValue(const Tokens& t, const std::vector<std::pair<size_t, size_t>>& c, Style::Background& out) {
+    using B = Style::Background;
+    if (c.size() == 1 && identIs(t, c[0], "repeat-x")) {
+        out.repeatX = B::Repeat;
+        out.repeatY = B::NoRepeat;
+        return true;
+    }
+    if (c.size() == 1 && identIs(t, c[0], "repeat-y")) {
+        out.repeatX = B::NoRepeat;
+        out.repeatY = B::Repeat;
+        return true;
+    }
+    if (c.empty() || c.size() > 2 || !tilingOf(t, c[0], out.repeatX)) return false;
+    if (c.size() == 1) {
+        out.repeatY = out.repeatX;
+        return true;
+    }
+    return tilingOf(t, c[1], out.repeatY);
+}
+
+bool positionValue(const Tokens& t, const std::vector<std::pair<size_t, size_t>>& c, double em, Style::Background& out) {
+    // each value: a keyword (its axis: 0 either (center), 1 x, 2 y; its fraction) or a length / percentage
+    struct V {
+        bool keyword = false;
+        int axis = 0;
+        double frac = 0, px = 0;  // (a length: px; a percentage: frac)
+        bool percent = false;
+    };
+    std::vector<V> v;
+    for (auto r : c) {
+        V x;
+        if (identIs(t, r, "center")) x = {true, 0, 0.5, 0, false};
+        else if (identIs(t, r, "left")) x = {true, 1, 0, 0, false};
+        else if (identIs(t, r, "right")) x = {true, 1, 1, 0, false};
+        else if (identIs(t, r, "top")) x = {true, 2, 0, 0, false};
+        else if (identIs(t, r, "bottom")) x = {true, 2, 1, 0, false};
+        else {
+            double l;
+            bool pct;
+            if (!lengthPercent(t, r, em, l, pct)) return false;
+            x.percent = pct;
+            x.frac = pct ? l : 0;
+            x.px = pct ? 0 : l;
+        }
+        v.push_back(x);
+    }
+    struct Axis {
+        double frac = 0.5, px = 0;
+    } X, Y;
+    auto set = [](Axis& a, const V& x) {
+        a.frac = x.frac;
+        a.px = x.px;
+    };
+    size_t n = v.size();
+    if (n == 1) {
+        if (v[0].keyword && v[0].axis == 2) set(Y, v[0]);
+        else set(X, v[0]);
+    } else if (n == 2) {
+        bool swap = (v[0].keyword && v[0].axis == 2) || (v[1].keyword && v[1].axis == 1);
+        if (swap && (!v[0].keyword || !v[1].keyword)) return false;  // (a length goes x then y)
+        const V& a = swap ? v[1] : v[0];
+        const V& b = swap ? v[0] : v[1];
+        if ((a.keyword && a.axis == 2) || (b.keyword && b.axis == 1)) return false;  // two of one axis
+        set(X, a);
+        set(Y, b);
+    } else if (n == 3 || n == 4) {
+        // keywords each with an optional offset from that edge: `right 4px bottom`, `left top 10%`
+        bool haveX = false, haveY = false;
+        for (size_t i = 0; i < n;) {
+            const V& k = v[i];
+            if (!k.keyword) return false;
+            bool offset = i + 1 < n && !v[i + 1].keyword;
+            if (offset && k.axis == 0) return false;  // (center takes no offset)
+            int axis = k.axis;
+            if (axis == 0) axis = haveX ? 2 : 1;  // (center: the axis not named yet)
+            if ((axis == 1 && haveX) || (axis == 2 && haveY)) return false;
+            (axis == 1 ? haveX : haveY) = true;
+            Axis& a = axis == 1 ? X : Y;
+            a.frac = k.frac;
+            a.px = 0;
+            if (offset) {
+                const V& o = v[i + 1];
+                double sign = k.frac >= 1 ? -1 : 1;  // (from the right / bottom: inwards)
+                if (o.percent) a.frac += sign * o.frac;
+                else a.px = sign * o.px;
+            }
+            i += offset ? 2 : 1;
+        }
+    } else {
+        return false;
+    }
+    out.posX = X.frac;
+    out.offX = X.px;
+    out.posY = Y.frac;
+    out.offY = Y.px;
+    return true;
+}
+
+bool sizeValue(const Tokens& t, const std::vector<std::pair<size_t, size_t>>& c, double em, Style::Background& out) {
+    using B = Style::Background;
+    if (c.size() == 1 && (identIs(t, c[0], "cover") || identIs(t, c[0], "contain"))) {
+        out.sizing = identIs(t, c[0], "cover") ? B::Cover : B::Contain;
+        return true;
+    }
+    if (c.empty() || c.size() > 2) return false;
+    double v[2] = {-1, -1};
+    bool pct[2] = {false, false};
+    for (size_t i = 0; i < c.size(); i++) {
+        if (identIs(t, c[i], "auto")) continue;
+        if (!lengthPercent(t, c[i], em, v[i], pct[i]) || v[i] < 0) return false;
+    }
+    out.sizing = B::Given;
+    out.width = v[0];
+    out.widthPercent = pct[0];
+    out.height = v[1];
+    out.heightPercent = pct[1];
+    return true;
+}
+
+bool boxValue(const Tokens& t, std::pair<size_t, size_t> r, Style::Background::Box& out) {
+    using B = Style::Background;
+    if (identIs(t, r, "border-box")) out = B::BorderBox;
+    else if (identIs(t, r, "padding-box")) out = B::PaddingBox;
+    else if (identIs(t, r, "content-box")) out = B::ContentBox;
+    else return false;
+    return true;
+}
+
+bool parseLayerList(const std::string& property, const Tokens& t, size_t b, size_t e, double em,
+                    std::vector<Style::Background>* out, std::string& why) {
+    t.trim(b, e);
+    if (b >= e) {
+        why = "no value";
+        return false;
+    }
+    for (auto [lb, le] : splitTop(t, b, e, Tok::Comma)) {
+        auto c = components(t, lb, le);
+        Style::Background layer;
+        bool ok = false;
+        if (c.empty()) ok = false;
+        else if (property == "background-repeat") ok = repeatValue(t, c, layer);
+        else if (property == "background-position") ok = positionValue(t, c, em, layer);
+        else if (property == "background-size") ok = sizeValue(t, c, em, layer);
+        else if (property == "background-origin") ok = c.size() == 1 && boxValue(t, c[0], layer.origin);
+        else if (property == "background-clip") ok = c.size() == 1 && boxValue(t, c[0], layer.clip);
+        if (!ok) {
+            why = lb < le ? "'" + t.text(lb, le) + "' is not a value of " + property : "an empty layer";
             return false;
         }
-        Style::Gradient g;
-        if (!parseGradient(t, lb, le, current, em, g, why)) return false;
-        if (out) out->push_back(std::move(g));
+        if (out) out->push_back(std::move(layer));
     }
     return true;
 }
@@ -413,8 +610,78 @@ std::vector<Style::Gradient> Style::gradients(const std::string& property) const
     detail::Tokens t;
     detail::tokenize(it->second, t);
     std::string why;
-    if (!detail::parseImages(t, 0, t.size(), have ? &current : nullptr, emPx_, &r, why)) r.clear();
+    std::vector<Background> layers;
+    if (!detail::parseImages(t, 0, t.size(), have ? &current : nullptr, emPx_, &layers, why)) return r;
+    for (Background& l : layers)
+        if (l.kind == Background::GradientImage) r.push_back(std::move(l.gradient));
     return r;
+}
+
+std::vector<Style::Background> Style::backgrounds() const {
+    std::vector<Background> r;
+    auto it = props_.find("background-image");
+    if (it == props_.end()) return r;
+    Rgba current;
+    bool have = currentOf(props_, current);
+    std::string why;
+    {
+        detail::Tokens t;
+        detail::tokenize(it->second, t);
+        if (!detail::parseImages(t, 0, t.size(), have ? &current : nullptr, emPx_, &r, why)) {
+            r.clear();
+            return r;
+        }
+    }
+    // the other lists, repeated to the layers' number (one that can't be read: the initial values)
+    enum Which { Repeat, Position, Size, Origin, Clip };
+    const std::pair<const char*, Which> lists[] = {{"background-repeat", Repeat},
+                                                   {"background-position", Position},
+                                                   {"background-size", Size},
+                                                   {"background-origin", Origin},
+                                                   {"background-clip", Clip}};
+    for (const auto& [name, which] : lists) {
+        auto v = props_.find(name);
+        if (v == props_.end()) continue;
+        detail::Tokens t;
+        detail::tokenize(v->second, t);
+        std::vector<Background> list;
+        if (!detail::parseLayerList(name, t, 0, t.size(), emPx_, &list, why) || list.empty()) continue;
+        for (size_t i = 0; i < r.size(); i++) {
+            const Background& from = list[i % list.size()];
+            Background& to = r[i];
+            switch (which) {
+                case Repeat:
+                    to.repeatX = from.repeatX;
+                    to.repeatY = from.repeatY;
+                    break;
+                case Position:
+                    to.posX = from.posX;
+                    to.posY = from.posY;
+                    to.offX = from.offX;
+                    to.offY = from.offY;
+                    break;
+                case Size:
+                    to.sizing = from.sizing;
+                    to.width = from.width;
+                    to.height = from.height;
+                    to.widthPercent = from.widthPercent;
+                    to.heightPercent = from.heightPercent;
+                    break;
+                case Origin: to.origin = from.origin; break;
+                case Clip: to.clip = from.clip; break;
+            }
+        }
+    }
+    return r;
+}
+
+std::string Style::url(const std::string& property) const {
+    auto it = props_.find(property);
+    if (it == props_.end()) return std::string();
+    detail::Tokens t;
+    detail::tokenize(it->second, t);
+    std::string u;
+    return detail::urlAt(t, 0, t.size(), u) ? u : std::string();
 }
 
 std::vector<Style::Shadow> Style::shadows(const std::string& property) const {

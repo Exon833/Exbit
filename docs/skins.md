@@ -27,8 +27,9 @@ is its `--skin-name` (else its file's name).
 - **Options → Skin → Edit this skin…** opens the skin's stylesheet in your text editor (the one your desktop
   opens `.css` files with). One of the program's own skins is copied into your folder first, under a name you
   choose: you edit your copy.
-- **Live:** Tiny DAW checks the skin's file and `default.css` twice a second, and puts the skin on again as soon
-  as either is saved. The status bar says "Skin … reloaded" (and how many problems it has).
+- **Live:** Tiny DAW checks the skin's file and `default.css` twice a second (and every file they `@import`, and
+  every image their `url()`s name), and puts the skin on again as soon as one is saved. The status bar says
+  "Skin … reloaded" (and how many problems it has).
 - **Problems:** like a browser, Tiny DAW leaves out what it can't read (a rule, a declaration, a value) and keeps
   the default there; nothing in a stylesheet can stop it from starting. Options → Skin → **Skin problems** lists
   what was left out, with the file, line and column: `Mine.css:12:5: unknown colour 'blu' (left out)`.
@@ -76,13 +77,16 @@ A defined part of CSS, read by Tiny DAW's own parser (`src/core/css.h`):
   font file (TrueType or OpenType) next to the skin, named in `font-family` like any installed font. The
   first local `url()` in `src` counts.
 - **Shorthands:** `padding`, `margin`, `border-width`, `border-color`, `border-radius` (1–4 values); `border`,
-  `border-top`… (width, style and colour in any order); `background` (its colour).
+  `border-top`… (width, style and colour in any order); `background` (per layer, in any order: an image (a
+  gradient or a `url()`), a repeat, a position with an optional `/ size`, one or two boxes (the origin, then the
+  clip), and on the last layer the colour: `background: url(90s/desk.png) center / cover no-repeat #008080`).
 - **Fonts:** `font-family` is a list, tried in order: the first family this computer has (or a skin's
   `@font-face`) is used, so `"Tahoma", "Liberation Sans", sans-serif` falls back as in a browser. `system-ui`,
   `sans-serif` and `serif` are the interface's own font, `monospace` the numbers font. If none of the list is
   there, its first name is asked for and the nearest look-alike drawn. `font-size`, `font-weight` (bold from 600).
-- **Inherited:** custom properties (`--name`) and the text properties (`color`, `font-family`, `font-size`,
-  `font-weight`, `font-style`, `letter-spacing`). The rest isn't.
+- **Inherited:** custom properties (`--name`), the text properties (`color`, `font-family`, `font-size`,
+  `font-weight`, `font-style`, `letter-spacing`, `font-smooth`, `-webkit-font-smoothing`) and `image-rendering`.
+  The rest isn't.
 - **Not understood (skipped and reported):** other at-rules (`@supports`, `@keyframes`, `@layer`…;
   `@charset` is ignored), units other than those above.
 - **Boxes:** a box is its `background-color`, its `background-image` over that, and its border, with
@@ -98,18 +102,90 @@ A defined part of CSS, read by Tiny DAW's own parser (`src/core/css.h`):
   Directions: an angle (`deg`, `rad`, `turn`, `grad`) or `to` a side or corner. Radial: `circle` or `ellipse`,
   a size (`closest-side`, `closest-corner`, `farthest-side`, `farthest-corner`, or lengths / percentages), `at`
   a position. Colour stops with none, one or two positions (`%` or lengths). Colours are mixed premultiplied
-  (a fade to `transparent` doesn't go grey). Not understood: conic gradients, transition hints, `url()`
-  images.
+  (a fade to `transparent` doesn't go grey). Not understood: conic gradients, transition hints.
+- **Images:** `url(file.png)`, `url("file.svg")` layers in `background-image` or `background`, mixed with
+  gradients (the first on top). The file is found from the folder of the stylesheet that names it (also through
+  a variable: `--check: url(90s/check.svg)` in a skin in `data/skins` names `data/skins/90s/check.svg`
+  wherever `var(--check)` is used). PNG (any kind) and SVG (what the program's own icons use: paths, shapes,
+  groups, transforms, fills and strokes). An SVG is drawn at the screen's pixels, so it is sharp at any
+  interface size; a PNG is drawn at its size times the interface size, pixel for pixel with
+  `image-rendering: pixelated` (or `crisp-edges`: the nearest pixel, for dithered 90s pictures), smoothly
+  scaled otherwise (`auto`). Each layer takes its value of these lists (repeated to the layers' number, as in
+  CSS):
+  - `background-repeat`: `repeat`, `no-repeat`, `space` (whole images, the room left spread between them),
+    `round` (whole images, stretched to fill), one or two (x then y), or `repeat-x`, `repeat-y`.
+  - `background-position`: one to four values: keywords (`left`, `center`, `right`, `top`, `bottom`), lengths,
+    percentages (`30% 2px`), edges with offsets (`right 4px bottom 2px`). Images are placed on whole pixels.
+  - `background-size`: `auto` (its own size; an SVG without `width` and `height`: the box's), `cover`,
+    `contain`, or one or two lengths / percentages / `auto` (one `auto`: its proportions kept).
+  - `background-origin` (what position and size are of: `padding-box`, the default, `border-box`,
+    `content-box`) and `background-clip` (where it is drawn: `border-box`, the default, `padding-box`,
+    `content-box`; rounded corners cut it too). Gradients take the origin and clip as well (not the size,
+    position or repeat: they fill their box). The background colour is clipped as the last layer is.
+  A file that is missing or isn't an image it can read is reported where the `url()` is
+  (`Mine.css:8:23: 'background': can't use img/tile.png (…): the file is missing or can't be read`), and that
+  layer is left out. Remote files (`http:`, `data:`) are not read. Each image is read once and kept at the
+  sizes it is drawn at; saving one (in any image editor) puts the skin on again.
 - **`box-shadow`**: `none`, or a list of `[inset] x y [blur [spread]] [colour]` (no colour: `currentColor`),
   the first on top. Outer shadows are drawn under the box, inset ones over its background and under its
   border; blur is soft (Gaussian-like), spread grows the corners too.
 - **`text-shadow`**: the same without `inset` and spread: labels, buttons, check boxes, group titles, the
   status bar, tabs, menus, the menu bar, lists, trees and combo boxes draw it.
 - **`opacity`** (a number or %): a widget and everything in it, drawn see-through as one.
+- **`font-smooth: never`** (or `-webkit-font-smoothing: none`): the text is drawn without anti-aliasing, each
+  pixel of a letter fully on or off (crisp, like the bitmap fonts of old desktops), each letter on a whole pixel.
+  Inherited: on `Window` (or `:root`) it is every text of the program that takes its font from the stylesheets
+  (labels, buttons, menus, lists, title bars, the timeline's texts…); `font-smooth: auto` turns it back on below.
+  Also `always` (the default) and a length (as `auto`).
 - **Properties of Tiny DAW's own** (besides the CSS ones): `stroke-width` (a line's thickness), `icon-size` (a
   drawn arrow or mark), `line-width` (separators), `baseline` (where a text's baseline is in its box; % of the
-  box), `fill-opacity` and `stroke-opacity` (curves and waveforms), and custom properties a type reads, listed
-  with it below.
+  box), `fill-opacity` and `stroke-opacity` (curves and waveforms), the glyph images below, and custom
+  properties a type reads, listed with it below.
+- **Glyph images:** every small drawing a control makes (a check mark, an arrow, a caption button's sign) can be
+  a picture instead, set on the part that draws it ([the list](#glyph-images)):
+  - `-tiny-glyph: url(file)` (or `none`: the drawn glyph). PNG or SVG, as for images above (`image-rendering`
+    too).
+  - `-tiny-glyph-size`: one or two lengths (width, height; `auto`: from its proportions). Without it: the
+    image's own size (an SVG's `width` and `height`), else as big as fits where the glyph goes.
+  - `-tiny-glyph-offset`: one or two lengths (x, y; one: both), how far it is moved from centred: a pressed
+    button's glyph 1 px down and right is `-tiny-glyph-offset: 1px` on `:pressed`.
+  - `-tiny-glyph-tint: color` draws every painted pixel of it in the part's `color` (its coverage kept: one
+    black-on-transparent picture serves every colour of every state); `none` (the default) draws it as it is.
+  The image is centred where the drawn glyph would go, on whole pixels (rounding down). Each state is its own
+  style, so `:hover`, `:pressed`, `:disabled`, `:checked`… can each have their own picture. Without
+  `-tiny-glyph` the glyph is drawn exactly as before.
+
+### Glyph images
+
+The parts that draw a glyph, and so take `-tiny-glyph` (with `-tiny-glyph-size`, `-tiny-glyph-offset`,
+`-tiny-glyph-tint`). The image is centred in the area given.
+
+| Part | The glyph | Centred in |
+| :--- | :--- | :--- |
+| `CheckBox::indicator` (`:checked`) | the check mark | the box's inside (border and padding off) |
+| `ListWidget::indicator` (`:checked`) | a row's check mark | the box's inside |
+| `TreeWidget::branch` (`:open` when expanded) | the ▸ / ▾ arrow | the indent of its level, the row's height |
+| `FileView::branch` (`:open`) | the Explorer tree's ▸ / ▾ | the indent, the row's height |
+| `ScrollBar::sub-line`, `ScrollBar::add-line` (`:vertical`, `:horizontal`) | the arrows ▴ ▾ / ◂ ▸ | the button's inside |
+| `SpinBox::up-button`, `SpinBox::down-button` | the arrows | the button's half of the column |
+| `ComboBox::arrow` | the ▾ | the arrow box's inside |
+| `Button::arrow` | the ▾ of a button with a menu | the arrow's room (split: its 12 px; else beside the text) |
+| `Menu::check` | a checked item's mark | `width` across, the item's height |
+| `Menu::arrow` | a submenu's ▸ | `width` across, the item's height |
+| `LineEdit::clear-button` | the ✕ | the button |
+| `TitleBar::minimize`, `::maximize` (`:maximized`: the restore sign), `::close` | the caption signs | the button |
+| `MessageIcon` (`.information`, `.question`, `.warning`, `.critical`) | the whole icon (circle and sign) | the icon |
+| `FileList::icon` (`:folder`) | the file dialog's folder and file signs | `width` across, the row's height |
+
+```css
+/* classic check boxes and scroll arrows from pictures (next to the skin: 90s/…) */
+CheckBox::indicator { -tiny-glyph: url(90s/check.png); image-rendering: pixelated }
+CheckBox::indicator:disabled { -tiny-glyph: url(90s/check-grey.png) }
+ScrollBar::sub-line:vertical { -tiny-glyph: url(90s/up.svg); -tiny-glyph-tint: color }
+ScrollBar::sub-line:vertical:pressed { -tiny-glyph-offset: 1px }
+TitleBar::maximize:maximized { -tiny-glyph: url(90s/restore.svg) }
+Window { font-smooth: never }
+```
 
 ## What rules match
 

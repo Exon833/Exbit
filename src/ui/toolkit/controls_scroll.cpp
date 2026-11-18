@@ -490,6 +490,7 @@ void paintLineButton(Painter& p, const Rect& r, const css::Style& st, const char
     if (r.empty()) return;
     style::box(p, r, st);
     Rect c = style::contents(r, st);
+    if (style::glyph(p, RectF(c), st)) return;
     float size = (float)st.length("icon-size", 8);
     float stroke = st.has("stroke-width") ? (float)std::max(0.0, st.length("stroke-width", 0)) : 1.5f * (size / 10.f);
     Color col = style::foreground(st);
@@ -1045,7 +1046,9 @@ void ListWidget::paint(Painter& p) {
             style::box(p, cr, ind);
             if (it.checked) {
                 Rect mark = style::contents(cr, ind);
-                style::icon(p, (float)mark.x, (float)mark.y, (float)std::min(mark.w, mark.h), "check", style::foreground(ind));
+                if (!style::glyph(p, RectF(mark), ind))
+                    style::icon(p, (float)mark.x, (float)mark.y, (float)std::min(mark.w, mark.h), "check",
+                                style::foreground(ind));
             }
             x = cr.right() + style::px(ind, "margin-right", 6);
         }
@@ -1412,8 +1415,9 @@ void TreeWidget::paint(Painter& p) {
             const css::Style& br = parts.get("branch", states, &item);
             style::Insets pad = style::insets(br, "padding");
             float size = (float)std::max(0, indent - pad.w());
-            style::icon(p, (float)(x + pad.left), c.y + (c.h - size) / 2.f, size, n->expanded ? "down" : "right",
-                        style::foreground(br));
+            if (!style::glyph(p, RectF((float)(x + pad.left), (float)c.y, size, (float)c.h), br))
+                style::icon(p, (float)(x + pad.left), c.y + (c.h - size) / 2.f, size, n->expanded ? "down" : "right",
+                            style::foreground(br));
         }
         x += indent;
         if (!n->icon.empty()) {

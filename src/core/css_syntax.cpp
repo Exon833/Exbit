@@ -23,6 +23,7 @@
 // @font-face reads its declarations as a rule's and keeps the family and the first usable file.
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <tuple>
 
@@ -610,6 +611,7 @@ struct SheetParser {
     bool seenRule = false;  // (an @import must come before any rule)
     bool missingReported = false;
     int mediaDepth = 0;  // (@media inside @media…)
+    bool inFontFace = false;  // (its src's url()s are its own: not images, not resolved here)
 
     SheetParser(const Tokens& tokens, Stylesheet& s, std::vector<Problem>& own, const ParseOptions& o,
                 std::vector<std::string>& r, int d, std::vector<Problem>& imports)
@@ -861,6 +863,15 @@ struct SheetParser {
                 return;
             }
         }
+        // url()s: each file checked, and (a sheet from a file) resolved against its folder: the value is then read
+        // from the text with those paths in
+        Tokens resolved;
+        const Tokens& t = urls(name, b, e, resolved) ? resolved : this->t;
+        if (&t == &resolved) {
+            b = 0;
+            e = resolved.size();
+            t.trim(b, e);
+        }
         Decl d;
         d.important = important;
         d.source = &sheet.name;
@@ -921,6 +932,71 @@ struct SheetParser {
         d.name = std::move(name);
         d.value = std::move(text);
         rule.decls.push_back(std::move(d));
+    }
+
+    // the url()s of a declaration's value [b, e): each a file of the sheet (Stylesheet::images), checked
+    // (ParseOptions::checkImage) when the sheet is from a file. With a baseDir, true and `out`: the value's text
+    // with each url() as url("resolved path"), tokenized.
+    bool urls(const std::string& property, size_t b, size_t e, Tokens& out) {
+        if (inFontFace) return false;
+        std::string text;
+        size_t from = b < e ? t[b].start : 0;  // (the source's bytes copied up to here)
+        bool changed = false;
+        for (size_t i = b; i < e; i++) {
+            const Token& k = t[i];
+            if (k.type != Tok::Url && !(k.type == Tok::Function && ieq(k.text, "url"))) continue;
+            size_t end = k.type == Tok::Url ? i + 1 : std::min((size_t)k.close + 1, e);
+            std::string url;
+            if (!urlAt(t, i, end, url)) {
+                i = end - 1;
+                continue;
+            }
+            if (remote(url)) {
+                problem(k.start, "'" + property + "': url(" + url + "): only files can be used (skipped)");
+                i = end - 1;
+                continue;
+            }
+            std::string path = resolvePath(options.baseDir, url);
+            if (std::find(sheet.images.begin(), sheet.images.end(), path) == sheet.images.end()) sheet.images.push_back(path);
+            if (!options.baseDir.empty() || options.checkImage) {
+                std::string why;
+                bool ok;
+                if (options.checkImage) {
+                    ok = options.checkImage(path, why);
+                } else {
+                    FILE* f = fopen(path.c_str(), "rb");
+                    ok = f != nullptr;
+                    if (f) fclose(f);
+                    if (!ok) why = "it can't be opened";
+                }
+                if (!ok)
+                    problem(k.start, "'" + property + "': can't use " + url + " (" + path + "): " +
+                                         (why.empty() ? std::string("it can't be read") : why) + " (left out when drawn)");
+            }
+            if (!options.baseDir.empty() && path != url) {
+                text.append(t.src.data() + from, k.start - from);
+                text += "url(\"";
+                for (char ch : path) {
+                    if (ch == '"' || ch == '\\') text += '\\';
+                    if (ch == '\n') {
+                        text += "\\a ";
+                        continue;
+                    }
+                    text += ch;
+                }
+                text += "\")";
+                from = t[end - 1].end;
+                changed = true;
+            }
+            i = end - 1;
+        }
+        if (!changed) return false;
+        text.append(t.src.data() + from, t[e - 1].end - from);
+        out.problems.clear();
+        // (the text outlives the tokens: kept with them)
+        out.own = std::make_shared<std::string>(std::move(text));
+        tokenize(*out.own, out);
+        return true;
     }
 
     // skip an at-rule at i: to its ';' or past its block
@@ -1299,6 +1375,8 @@ struct SheetParser {
         child->rules.clear();
         child->media.clear();
         sheet.imports.insert(sheet.imports.end(), child->imports.begin(), child->imports.end());
+        for (const std::string& img : child->images)
+            if (std::find(sheet.images.begin(), sheet.images.end(), img) == sheet.images.end()) sheet.images.push_back(img);
         sheet.fonts.insert(sheet.fonts.end(), child->fonts.begin(), child->fonts.end());
         sheet.viewport = sheet.viewport || child->viewport;
         sheet.imported.push_back(std::move(child));
@@ -1311,7 +1389,9 @@ struct SheetParser {
             return;
         }
         Rule r;
+        inFontFace = true;
         declarations(r, b, e);
+        inFontFace = false;
         FontFace face;
         std::string src;
         for (const Decl& d : r.decls) {
@@ -1509,6 +1589,8 @@ SheetPtr parse(const std::string& text, const std::string& sourceName, std::vect
 }
 
 std::vector<std::string> importedFiles(const SheetPtr& sheet) { return sheet ? sheet->imports : std::vector<std::string>(); }
+
+std::vector<std::string> imageFiles(const SheetPtr& sheet) { return sheet ? sheet->images : std::vector<std::string>(); }
 
 std::vector<FontFace> fontFaces(const SheetPtr& sheet) { return sheet ? sheet->fonts : std::vector<FontFace>(); }
 

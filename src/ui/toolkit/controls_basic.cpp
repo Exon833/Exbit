@@ -75,7 +75,7 @@ void Label::setText(const std::string& t) {
 
 // (default.css: .dimmed 8 pt, #time and #lufs in the numbers font)
 Font Label::font() const {
-    if (hasFont_) return font_;
+    if (hasFont_) return style::smoothing(font_, computedStyle());  // (setFont's, smoothed as the stylesheets say)
     return style::font(computedStyle(), theme::uiFont());
 }
 
@@ -353,14 +353,17 @@ void Button::paint(Painter& p) {
             p.restore();
         }
         p.fillRect(Rect(ar.x, 1, 1, r.h - 2), style::background(computedStyle("separator")));
-        style::icon(p, ar.x + 1 + (12 - 8) / 2.f, (r.h - 8) / 2.f, 8, "down", tc);
+        if (!style::glyph(p, RectF((float)ar.x + 1, 0, 12, (float)r.h), computedStyle("arrow")))
+            style::icon(p, ar.x + 1 + (12 - 8) / 2.f, (r.h - 8) / 2.f, 8, "down", tc);
         content.w = std::max(0, ar.x - content.x - (autoRaise ? 4 : 2));
         if (!autoRaise) content.x = std::max(content.x, 3);
     } else if (menu_ && style_ == Style::Push) {
-        style::icon(p, (float)(r.right() - 19), (r.h - 10) / 2.f, 10, "down", tc);
+        if (!style::glyph(p, RectF((float)(r.right() - 19), 0, 10, (float)r.h), computedStyle("arrow")))
+            style::icon(p, (float)(r.right() - 19), (r.h - 10) / 2.f, 10, "down", tc);
         content.w -= 10;
     } else if (menu_) {
-        style::icon(p, (float)(r.right() - 9), (float)(r.h - 9), 6, "down", tc);
+        if (!style::glyph(p, RectF((float)(r.right() - 9), (float)(r.h - 9), 6, 6), computedStyle("arrow")))
+            style::icon(p, (float)(r.right() - 9), (float)(r.h - 9), 6, "down", tc);
     }
     // icon and text
     Font f = font();
@@ -581,7 +584,8 @@ void CheckBox::paint(Painter& p) {
     style::box(p, ind, is);
     if (checked_) {
         Rect mark = style::contents(ind, is);
-        style::icon(p, (float)mark.x, (float)mark.y, (float)mark.w, "check", style::foreground(is));
+        if (!style::glyph(p, RectF(mark), is))
+            style::icon(p, (float)mark.x, (float)mark.y, (float)mark.w, "check", style::foreground(is));
     }
     if (!text_.empty()) {
         int x = pad.left + iw + gap;
