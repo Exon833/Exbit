@@ -375,12 +375,22 @@ Each entry gives the type's own properties (what it reads besides its box), its 
 - **`CheckBox`**: `color`, the font, `padding`, a box. States `:checked`, `:hover`, `:disabled`, `:focus`. Part
   `::indicator`: `width`, `height`, `margin-right` (the gap to the text), `padding`, a box; the check mark is its
   `color`.
-- **`GroupBox`**: a box starting `margin-top` down, its contents inside `padding`. State `:disabled`. Part
-  `::title`: `color`, the font, `height`, `margin`.
+- **`GroupBox`**: a box (the frame) starting `margin-top` down, its contents inside `padding`. State
+  `:disabled`. Part `::title`: `color`, the font, `height` (its row), `margin`; with a background, a border or
+  `padding`, also a box. The title is placed against the frame's top-left corner: its row starts `margin-top`
+  below the frame's top (negative: above it; default.css has `margin: -19px 4px 1px`) and `margin-left` in.
+  A title with a background, border or padding is drawn as a box shrink-wrapped around its text, over the
+  frame, so it can sit across the frame's top line; if it reaches below the frame's top border, the contents
+  start that much lower (like a fieldset's legend). Example: `GroupBox { margin-top: 7px } GroupBox::title {
+  margin-top: -7px; margin-left: 8px; padding: 0 3px; background-color: var(--window) }`.
 - **`TabWidget`**: a box. Parts `::tab` (a box; `padding`, `color`, the font) and `::tab-line` (`height`;
   `background-color`), both with `:selected`, `:hover`, `:disabled`; `::base` (the line under the tabs:
-  `height`, `background-color`).
-- **`Separator`**: `color`, `line-width`, `margin`. States `:vertical`, `:horizontal`.
+  `height`, `background-color`); `::pane` (a box under the tabs, around the pages: the current page goes
+  inside its border and `padding`; `::base` is drawn over its top).
+- **`Separator`**: `color`, `line-width`, `margin`. States `:vertical`, `:horizontal`. With a border it is a box
+  across its thickness instead of a line (`width` thick when vertical, `height` when horizontal, else as thick
+  as its borders): `Separator:vertical { border-left: 1px solid #808080; border-right: 1px solid #fff; width:
+  2px }` is an etched divider.
 - **`SplitterHandle`**: `color`, `line-width`; `width` (`:horizontal`) or `height` (`:vertical`). States
   `:hover`, `:pressed`.
 - **`StatusBar`**: `color`, the font, `padding`, a box. Parts `::separator` (the line above it: `height`,
@@ -448,7 +458,11 @@ from its style is `--layout-spacing` (rows and columns) and `--grid-spacing` (gr
   `:disabled`), `::handle` (`width`, `height`, a box; `:hover`, `:pressed`, `:disabled`; a radius of half its
   size makes it round).
 - **`ScrollBar`**: `width`, `height` (its thickness: `--scrollbar-width`). States `:horizontal`, `:vertical`. Part
-  `::thumb`: a box, `margin`, `min-height` / `min-width`; `:hover`, `:pressed`.
+  `::thumb`: a box, `margin`, `min-height` / `min-width`; `:hover`, `:pressed`. Parts `::sub-line` (the arrow
+  button at the top or left end) and `::add-line` (bottom or right): their length along the bar is `height` on
+  a vertical bar and `width` on a horizontal one (default 0: no buttons); each a box with an arrow (`color`,
+  `icon-size`, `stroke-width`), `:hover`, `:pressed`. A press steps the bar; held, it repeats. The thumb moves
+  between them.
 - **`ScrollArea`**: the type only.
 - **`ListWidget`**: a box; `width`, `height`, `min-width`, `min-height`. Parts `::item` (`height`, `padding`,
   `color`; `:selected`, `:hover`, `:alternate`, `:disabled`, `:checked`, `:checkable`, `:bold`), `::indicator`
@@ -461,7 +475,8 @@ from its style is `--layout-spacing` (rows and columns) and `--grid-spacing` (gr
   `:checkable`, `:checked`, `:section`, `:submenu`), `::separator` (`height`, `margin`), `::check` (`width`,
   `margin-left`), `::shortcut` (`margin-left`), `::arrow` (`width`, `margin-left`, `margin-right`).
 - **`FileList`** (the file window's list): a box; `width`, `height`, `min-width`, `min-height`, `--details-from`
-  (the size and date columns show when rows are wider). Parts `::header` (a box, `padding`), `::item` (`height`;
+  (the size and date columns show when rows are wider). Its header, rows and scroll bar are inside its border
+  and padding. Parts `::header` (a box, `padding`), `::item` (`height`;
   `:selected`, `:hover`, `:folder`), `::icon` (`width`, `color`), `::detail` (`padding`, `--spare`, `color`),
   `::placeholder` (`height`).
 
