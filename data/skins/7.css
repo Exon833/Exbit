@@ -94,7 +94,7 @@
     --face: linear-gradient(to bottom, #f2f2f2 0%, #ebebeb 50%, #dddddd 50%, #cfcfcf 100%);
     --face-hover: linear-gradient(to bottom, #eaf6fd 0%, #d9f0fc 50%, #bee6fd 50%, #a7d9f5 100%);
     --face-pressed: linear-gradient(to bottom, #e5f4fc 0%, #c4e5f6 50%, #98d1ef 50%, #68b3db 100%);
-    --gloss: linear-gradient(to bottom, #ffffff99 0%, #ffffff40 50%, #ffffff00 50%, #00000014 100%);
+    --gloss: linear-gradient(to bottom, #ffffffa6 0%, #ffffff4d 50%, #ffffff00 50%, #0000001a 100%);
     --select-box: linear-gradient(to bottom, #f2f8fe 0%, #d5e8fb 100%);
     --select-box-strong: linear-gradient(to bottom, #e6f1fd 0%, #c2dcfb 100%);
     --glass: linear-gradient(to bottom, #ffffffa6 0%, #ffffff66 49%, #ffffff0d 50%, #ffffff40 100%);
@@ -140,7 +140,7 @@ Button:lit {
     border-color: #2c628b;
 }
 Button:lit:hover { background-image: var(--face-hover); border-color: #3c7fb1; }
-PushButton:lit:hover { box-shadow: inset 0 0 2px 1px #ffffffb0; }
+PushButton:lit:hover { box-shadow: 0 0 4px #4aa6f080, inset 0 0 2px 1px #ffffffb0; }
 
 Button:disabled, PushButton:disabled, ToolButton:disabled {
     background-color: #f4f4f4;
@@ -150,9 +150,8 @@ Button:disabled, PushButton:disabled, ToolButton:disabled {
     box-shadow: none;
 }
 
-/* focus: a soft blue glow just inside the border (a widget draws only inside its own rectangle, so an
-   outer glow would be cut off) */
-PushButton:focus { border-color: #3c7fb1; box-shadow: inset 0 0 2px 1px #6ec0f4; }
+/* focus: a soft blue glow around the button, and a light-blue line just inside its border */
+PushButton:focus { border-color: #3c7fb1; box-shadow: 0 0 4px 1px #4aa6f0a6, inset 0 0 2px 1px #6ec0f4; }
 PushButton:focus:lit { border-color: #2c628b; }
 PushButton:focus:disabled { border-color: #adb2b5; box-shadow: none; }
 
@@ -235,7 +234,7 @@ GroupBox {
     border-radius: 4px;
     box-shadow: inset 0 1px 0 #ffffffcc;
 }
-GroupBox::title { color: #1e3a5f; }
+GroupBox::title { color: #1e3a5f; margin-top: -19px; }
 
 /* tabs: light rounded tabs, the selected one white and raised */
 TabWidget::base { height: 1px; background-color: #8d9fb5; }
@@ -260,8 +259,18 @@ TabWidget::tab:selected {
     border-color: #8d9fb5;
 }
 TabWidget::tab-line { height: 0; }
+TabWidget::pane {
+    background-color: #fbfcfe;
+    background-image: linear-gradient(to bottom, #ffffff 0%, #f3f7fc 100%);
+    border: 1px solid #8d9fb5;
+    border-top-width: 0;
+    border-radius: 0 0 3px 3px;
+    padding: 6px;
+}
 
 Separator { color: #b2c0d1; }
+/* upright dividers (the transport's): etched, a shaded line beside a white one */
+Separator:vertical { border-left: 1px solid #8ea8c6; border-right: 1px solid #ffffffb3; width: 2px; }
 SplitterHandle { color: #b9c7d8; }
 SplitterHandle:hover, SplitterHandle:pressed { color: #3c7fb1; }
 
@@ -312,7 +321,8 @@ LineEdit, SpinBox, ComboBox {
 }
 LineEdit:frameless { background-color: transparent; border-width: 0; }
 LineEdit:hover, SpinBox:hover, ComboBox:hover { border-color: #7eb4ea; }
-LineEdit:focus, SpinBox:focus, ComboBox:focus, ComboBox:open { border-color: #3d7bad; }
+LineEdit:focus, SpinBox:focus, ComboBox:focus, ComboBox:open { border-color: #3d7bad; box-shadow: 0 0 3px 1px #2f86dcb0; }
+LineEdit:frameless:focus { box-shadow: none; }  /* (the spin box or combo box around it glows) */
 LineEdit:disabled, SpinBox:disabled, ComboBox:disabled { background-color: #f4f4f4; border-color: #c9cbd0; }
 LineEdit::selection { background-color: #3399ff; color: #ffffff; }
 SpinBox:up-hover::up-button, SpinBox:down-hover::down-button {
@@ -467,9 +477,13 @@ CpuMonitor {
     color: #23384f;
     border-color: #b4c4d8;
 }
-CpuMonitor::track { background-color: #cdd7e3; }
+CpuMonitor::track { background-color: #cdd7e3; border-radius: 1px; }
+CpuMonitor::bar:ok, CpuMonitor::bar:warn, CpuMonitor::bar:hot { background-image: var(--gloss); border-radius: 1px; }
 
 /* ============================================== Timeline ============================================= */
+
+/* the timeline's frame: a thin edge around the ruler, the lanes and the master */
+ScrollArea#timeline { border: 1px solid #9fb2c9; }
 
 Ruler {
     background-color: #e8f0f9;
@@ -487,11 +501,21 @@ OverviewCaption { background-image: linear-gradient(to bottom, #f4f8fc 0%, #e4ec
 
 Clip::fade { background-color: rgba(255, 255, 255, 0.35); }
 
-/* track rows: light panels with a soft highlight along their top */
-TrackRow { border-top-color: #d6dfea; }
+/* track rows: panels in their track's colour with a glass sheen (white over the colour, lighter at the top) and
+   a bright line along their top */
+TrackRow {
+    border-top-color: #d6dfea;
+    background-image: linear-gradient(to bottom, #ffffff59 0%, #ffffff26 100%);
+    box-shadow: inset 0 1px 0 #ffffff80;
+}
+TrackRow.automation, TrackRow.take { background-image: none; box-shadow: none; }
 LaneFrame::edge { background-color: #b9c7d8; }
 LaneFrame::current { border-color: #3c7fb1; }
-LaneFrame.master { background-color: #e6eff9; }
+LaneFrame.master {
+    background-color: #e6eff9;
+    background-image: linear-gradient(to bottom, #f4f8fd 0%, #e2ecf8 100%);
+    box-shadow: inset 0 1px 0 #ffffff;
+}
 .pin-cover { background-color: #dde7f3; }
 
 PanKnob { background-color: #e4e4e4; }
@@ -507,12 +531,16 @@ SendsPanel {
 
 /* =============================================== Meters ============================================== */
 
-/* a sunken light track (the bars are flat colours: --meter-ok, --meter-warn, --meter-hot, bright on it) */
+/* a sunken light track with a thin edge; glossy bars (white over the top half of each colour, a hard stop,
+   then the colour a little deeper) */
 LevelMeter::track {
     background-color: #e3e8ee;
     background-image: linear-gradient(to bottom, #d3d9e1 0%, #eef1f5 100%);
-    box-shadow: inset 0 0 1px #4a5a6e80;
+    border: 1px solid #a9b4c2;
+    border-radius: 2px;
 }
+LevelMeter::bar:ok, LevelMeter::bar:warn, LevelMeter::bar:hot,
+LevelMeter::peak:ok, LevelMeter::peak:warn, LevelMeter::peak:hot { background-image: var(--gloss); }
 LevelMeter::number { background-color: #eef2f7; color: #23384f; }
 
 Scope { background-color: #f9fbfe; border: 1px solid #a9b8cb; border-radius: 2px; }
@@ -530,6 +558,7 @@ MeterView::track {
 MeterView::bar {
     background-color: #2fb34a;
     background-image: linear-gradient(to bottom, #c7f2cf 0%, #6fd47f 45%, #22b33b 50%, #34c74e 100%);
+    border-radius: 1px;
 }
 
 /* ============================================ MIDI editor ============================================ */
@@ -561,7 +590,8 @@ EditorRuler::corner { background-color: #e8f0f9; }
 /* ======================================== Effects and the patch panel ======================================== */
 
 CurveView { background-color: #ffffff; border: 1px solid #a9b8cb; }
-CurveView::grid { color: #b9c6d6; }  /* (its labels too: dark enough to read) */
+CurveView::grid { color: #e1e8f1; }
+CurveView::grid-label { color: #5f7189; }
 CurveView::analyzer { color: #7d9bbf; }
 CurveView::curve { color: #2a6fbe; }
 Tuner { background-color: #ffffff; }
@@ -611,6 +641,15 @@ PatchPanel::knob:hover { background-image: var(--face-hover); border-color: #3c7
 PatchPanel::mod-label { background-color: #ffffff; }
 
 /* ============================================ The Explorer ============================================ */
+
+/* the Explorer's caption: a light glass bar, as the menu bar */
+ExplorerDock::title-bar {
+    background-color: #dbe6f3;
+    background-image: linear-gradient(to bottom, #f6f9fd 0%, #e6eef7 50%, #dae5f1 50%, #e2eaf4 100%);
+    border-bottom: 1px solid #b4c4d8;
+    box-shadow: inset 0 1px 0 #ffffff;
+    color: #1e3a5f;
+}
 
 FileView { background-color: #ffffff; }
 FileView::row:selected {
