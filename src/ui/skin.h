@@ -66,8 +66,8 @@ Skin find(const std::string& name, const std::string& userDir = "");
 // registered with onApply). Returns what in the stylesheets was left out ("file:line:col: …"). The caller then
 // rebuilds / repaints what was built with them (MainWindow::restyle).
 std::vector<std::string> apply(const Skin& skin);
-// the files the skin last put on was read from: default.css, its stylesheet, and every file they @import (what to
-// watch for changes)
+// the files the skin last put on was read from: default.css, its stylesheet, every file they @import, and every
+// image their url()s name (what to watch for changes: MainWindow puts the skin on again when one is saved)
 std::vector<std::string> watchedFiles();
 // called after every apply() (e.g. the waveform tiles' cache: clear it); returns an id
 int onApply(std::function<void()> fn);

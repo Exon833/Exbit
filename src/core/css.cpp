@@ -315,7 +315,10 @@ std::vector<Problem> Engine::takeProblems() const {
 }
 
 Style Engine::computeWith(const Node& node, const Style* parent, const std::string& part) const {
-    static const char* const kInherited[] = {"color", "font-family", "font-size", "font-weight", "font-style", "letter-spacing"};
+    static const char* const kInherited[] = {"color",          "font-family", "font-size",
+                                             "font-weight",    "font-style",  "letter-spacing",
+                                             "font-smooth",    "-webkit-font-smoothing",
+                                             "image-rendering"};
     Style st;
     if (parent) {
         st.emPx_ = parent->emPx_;

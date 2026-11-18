@@ -185,6 +185,7 @@ void TitleBar::paint(Painter& p) {
         if (r[b].empty()) continue;
         const css::Style& bs = partStyle(b);
         style::box(p, r[b], bs);
+        if (style::glyph(p, RectF(r[b]), bs)) continue;
         Color c = style::foreground(bs);
         float size = (float)std::max(2.0, bs.length("icon-size", 10));
         float sw = (float)std::max(0.5, bs.length("stroke-width", 1));

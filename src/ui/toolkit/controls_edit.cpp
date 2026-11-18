@@ -76,7 +76,9 @@ LineEdit::~LineEdit() {
 }
 
 // (the program's own font, else the stylesheets')
-Font LineEdit::font() const { return hasFont_ ? font_ : style::font(computedStyle(), theme::uiFont()); }
+Font LineEdit::font() const {
+    return hasFont_ ? style::smoothing(font_, computedStyle()) : style::font(computedStyle(), theme::uiFont());
+}
 
 void LineEdit::styleStates(std::vector<std::string>& out) const {
     Widget::styleStates(out);
@@ -361,7 +363,7 @@ void LineEdit::paint(Painter& p) {
         Color xc = style::foreground(cb);
         float d = iconSize(cb, 7) / 2.f, sw = strokeWidth(cb, 10);
         float cx = cr.x + cr.w / 2.f, cy = cr.y + cr.h / 2.f;
-        if (xc.a && sw > 0) {
+        if (!style::glyph(p, RectF(cr), cb) && xc.a && sw > 0) {
             p.drawLine(PointF(cx - d, cy - d), PointF(cx + d, cy + d), xc, sw, LineCap::Round);
             p.drawLine(PointF(cx - d, cy + d), PointF(cx + d, cy - d), xc, sw, LineCap::Round);
         }
@@ -816,6 +818,7 @@ void SpinBox::paint(Painter& p) {
         p.setClip(r);
         style::box(p, inner, ps);
         p.restore();
+        if (style::glyph(p, RectF(r), ps)) return;
         float size = iconSize(ps, 8);
         arrowIcon(p, r.x + (r.w - size) / 2.f, r.y + (r.h - size) / 2.f, size, isUp, style::foreground(ps), strokeWidth(ps, size));
     };
@@ -1303,6 +1306,7 @@ void ComboBox::paint(Painter& p) {
         style::text(p, tr, AlignLeft | AlignVCenter, currentText(), f, tc, st, true);
     }
     style::box(p, ar, as);
+    if (style::glyph(p, RectF(style::contents(ar, as)), as)) return;
     float size = iconSize(as, 10);
     arrowIcon(p, (float)(ar.x + style::insets(as, "padding").left), (height() - size) / 2.f, size, false,
               style::foreground(as), strokeWidth(as, size));

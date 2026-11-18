@@ -658,3 +658,25 @@ Image renderSvgTinted(const std::string& svgText, int w, int h, Color tint) {
     Image img = renderSvg(svgText, w, h);
     return img.empty() ? img : img.tinted(tint);
 }
+
+bool svgSize(const std::string& svgText, float& w, float& h, float& ratio) {
+    w = h = ratio = 0;
+    XmlReader xr(svgText);
+    std::unique_ptr<Node> root = xr.parse();
+    if (!root) return false;
+    std::string rn = root->name;
+    size_t colon = rn.find(':');
+    if (colon != std::string::npos) rn = rn.substr(colon + 1);
+    if (rn != "svg") return false;
+    w = parseLength(root->attr("width"), 0, 0);
+    h = parseLength(root->attr("height"), 0, 0);
+    if (!std::isfinite(w) || w < 0) w = 0;
+    if (!std::isfinite(h) || h < 0) h = 0;
+    std::vector<float> vb = numbers(root->attr("viewBox"));
+    if (vb.size() == 4 && vb[2] > 0 && vb[3] > 0) ratio = vb[2] / vb[3];
+    else if (w > 0 && h > 0) ratio = w / h;
+    // one of width / height given: the other from the proportions
+    if (ratio > 0 && w > 0 && h <= 0) h = w / ratio;
+    else if (ratio > 0 && h > 0 && w <= 0) w = h * ratio;
+    return true;
+}

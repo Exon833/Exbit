@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -314,6 +315,59 @@ static void testSkinFiles() {
     skin::removeOnApply(hook);
     util::removeFile(mine);
     skin::apply(skin::find("Dark"));
+}
+
+// A skin's url() images: resolved from its folder, watched (skin::watchedFiles: MainWindow reloads the skin when
+// one is saved, as it does for its stylesheet), the new picture drawn once it is put on again; a missing one
+// reported where it is named
+static void testSkinImages() {
+    const std::string dir = TMP + "/skin-images";
+    util::makeDirs(dir + "/img");
+    const std::string css = dir + "/Images.css", png = dir + "/img/tile.png";
+    CHECK(savePng(png, Image(2, 2, Color(255, 0, 0))));
+    CHECK(util::writeFile(css, ":root { --skin-name: \"Images\" }\n"
+                               "CheckBox { background: url(img/tile.png) }\n"
+                               "CheckBox::indicator {\n    -tiny-glyph: url(img/missing.svg) }\n"));
+    skin::Skin s;
+    std::vector<std::string> problems;
+    std::string err;
+    CHECK(skin::read(css, s, problems, err) && s.name == "Images");
+    CHECK(problems.size() == 1 && problems[0].find("Images.css:4:18: '-tiny-glyph': can't use img/missing.svg") == 0);
+    problems = skin::apply(s);
+    CHECK(problems.size() == 1 && problems[0].find("Images.css:4:18:") == 0);
+    if (problems.size() != 1)
+        for (auto& p : problems) printf("  %s\n", p.c_str());
+    std::vector<std::string> watched = skin::watchedFiles();
+    auto watches = [&](const std::string& f) { return std::find(watched.begin(), watched.end(), f) != watched.end(); };
+    CHECK(watches(css) && watches(png) && watches(dir + "/img/missing.svg"));
+    // what MainWindow::checkSkinFile compares: every watched file's time and size
+    auto stamp = [&] {
+        std::string out;
+        for (const std::string& f : skin::watchedFiles())
+            out += f + "=" + std::to_string(util::fileMtime(f)) + ":" + std::to_string(util::fileSize(f)) + ";";
+        return out;
+    };
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(120, 40);
+    auto* cb = w.add<CheckBox>("Tiled");
+    cb->setGeometry(0, 0, 120, 40);
+    w.showWindow();
+    App::get().repaintAll();
+    App::get().tick();
+    CHECK(w.framebuffer().colorAt(100, 2) == Color(255, 0, 0));
+    std::string before = stamp();
+    Image blue(3, 3, Color(0, 0, 255));
+    CHECK(savePng(png, blue));  // (saved in an image editor)
+    CHECK(stamp() != before);   // (seen: the skin is put on again)
+    problems = skin::apply(s);
+    CHECK(problems.size() == 1);
+    App::get().repaintAll();
+    App::get().tick();
+    CHECK(w.framebuffer().colorAt(100, 2) == Color(0, 0, 255));
+    w.hideWindow();
+    skin::apply(skin::find("Dark"));
+    util::removeFile(css);
+    util::removeFile(png);
 }
 
 // docs/skins.md lists everything that can be styled: every style type the program sets (setStyleType), every
@@ -1586,6 +1640,7 @@ int main() {
     util::makeDirs(TMP);
     settings::setPath(TMP + "/settings.json");
     testSkinFiles();
+    testSkinImages();
     testSkinsReference();
     testColorWheel();
     testRecentColours();

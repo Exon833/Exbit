@@ -16,3 +16,7 @@ Image renderSvg(const std::string& svgText, int w, int h);
 Image renderSvgFile(const std::string& path, int w, int h);
 // The same, every painted pixel in `tint` (coverage kept): icons in the skin's colours.
 Image renderSvgTinted(const std::string& svgText, int w, int h, Color tint);
+// Its own size (px: width and height, absolute lengths; the other from the viewBox's proportions when only one is
+// given; 0: not given) and its proportions (width / height: the viewBox's, else width and height's; 0: none).
+// False if the text isn't SVG.
+bool svgSize(const std::string& svgText, float& w, float& h, float& ratio);

@@ -48,25 +48,41 @@
 //
 // CASCADE. An Engine stacks stylesheets in order (the defaults, then a skin, then more): later sheets win at
 // equal specificity. Custom properties (--name) and the text properties (color, font-family, font-size,
-// font-weight, font-style, letter-spacing) inherit from the parent node; the rest don't. var() is resolved on
-// the node it is used on (after inheritance), with cycles reported and treated as invalid (the fallback,
-// else the property's default). Shorthands are expanded when parsed: padding / margin / border-width /
-// border-style / border-color / border-radius (1–4 values), border / border-top… (width style colour, any
-// order; what is left out takes its initial value: medium, none, currentColor), background (the colour of its
-// last layer and each layer's gradient, in any order: background-color and background-image; url() images,
-// positions, sizes and repeats in it are not read).
+// font-weight, font-style, letter-spacing, font-smooth, -webkit-font-smoothing) and image-rendering inherit from
+// the parent node; the rest don't. var() is resolved on the node it is used on (after inheritance), with cycles
+// reported and treated as invalid (the fallback, else the property's default). Shorthands are expanded when
+// parsed: padding / margin / border-width / border-style / border-color / border-radius (1–4 values), border /
+// border-top… (width style colour, any order; what is left out takes its initial value: medium, none,
+// currentColor), background (per layer, in any order: an image (a gradient or a url()), a repeat, a position
+// with an optional `/ size`, one or two boxes (origin, then clip), and on the last layer the colour: into
+// background-image, -repeat, -position, -size, -origin, -clip and -color; other words in it are not read).
 //
 // PAINTING VALUES (css_paint.cpp; drawn by ui/toolkit's style::box). background-image: none, or a comma list of
-// linear-gradient() / radial-gradient() and their repeating- forms (the first on top): angles in deg, rad,
-// turn, grad, or `to` a side or a corner; a radial gradient's shape (circle / ellipse), size (closest-side,
-// closest-corner, farthest-side, farthest-corner, or a circle's length / an ellipse's two lengths or
-// percentages) and `at` position (keywords, lengths, percentages); colour stops with no, one or two positions
-// (% or lengths, before or after the colour). Style::gradients(). box-shadow: none, or a list of [inset] x y
-// [blur [spread]] [colour] (the colour: currentColor when left out); text-shadow the same without inset and
-// spread. Style::shadows(). border-style and border-top-style…: none hidden solid dashed dotted double groove
-// ridge inset outset; a side whose style is none or hidden has a width of 0 (Style::length, edges). opacity:
-// a number or a percentage (the whole node: Widget::paintTree). declaresOnNodes() tells whether a sheet sets a
-// property at all. Transition hints, conic gradients and url() images are not supported (reported).
+// url() images and linear-gradient() / radial-gradient() and their repeating- forms (the first on top): angles
+// in deg, rad, turn, grad, or `to` a side or a corner; a radial gradient's shape (circle / ellipse), size
+// (closest-side, closest-corner, farthest-side, farthest-corner, or a circle's length / an ellipse's two lengths
+// or percentages) and `at` position (keywords, lengths, percentages); colour stops with no, one or two positions
+// (% or lengths, before or after the colour). Style::gradients(), Style::backgrounds() (the layers with their
+// background-repeat (repeat-x | repeat-y | [repeat | no-repeat | space | round]{1,2}), background-position (1 to
+// 4 values: keywords, lengths, percentages; `right 4px bottom 2px`), background-size (auto | cover | contain |
+// [length | % | auto]{1,2}), background-origin and background-clip (border-box | padding-box | content-box), each
+// a comma list repeated to the layers' number as in CSS). box-shadow: none, or a list of [inset] x y [blur
+// [spread]] [colour] (the colour: currentColor when left out); text-shadow the same without inset and spread.
+// Style::shadows(). border-style and border-top-style…: none hidden solid dashed dotted double groove ridge inset
+// outset; a side whose style is none or hidden has a width of 0 (Style::length, edges). opacity: a number or a
+// percentage (the whole node: Widget::paintTree). image-rendering: auto | smooth | high-quality | pixelated |
+// crisp-edges. Tiny DAW's own: -tiny-glyph (none | url(): an image in place of a part's drawn glyph),
+// -tiny-glyph-size and -tiny-glyph-offset (one or two lengths), -tiny-glyph-tint (none | color). font-smooth
+// (auto | never | always | a length) and -webkit-font-smoothing (auto | none | antialiased |
+// subpixel-antialiased): never / none draw the node's text without anti-aliasing. declaresOnNodes() tells
+// whether a sheet sets a property at all. Transition hints and conic gradients are not supported (reported).
+//
+// URL()S. In a sheet read from a file (ParseOptions::baseDir set) every url() of a declaration (custom
+// properties' too; not @font-face's src, nor @import) is resolved against that sheet's folder when it is parsed,
+// so a value keeps naming the right file wherever it is used (var() included): Style::raw() and url() give the
+// resolved path. Each file is checked then (ParseOptions::checkImage, else: can it be opened?): one that is
+// missing or can't be read is reported at the url()'s line and column (the layer that names it is skipped when
+// drawn). Remote URLs (http:, data:…) are reported and never read. imageFiles() lists them all.
 //
 // PROBLEMS. Nothing in a stylesheet stops it loading: a rule, declaration or value that can't be read is
 // left out and reported (line, column, message), as browsers skip what they don't understand; an imported
@@ -166,6 +182,9 @@ struct ParseOptions {
     // maxDepth levels are reported and skipped.
     std::function<bool(const std::string& path, std::string& text)> readFile;
     int maxDepth = 8;
+    // checks a file a url() names (resolved): false and `why` if it can't be used (missing, not an image…). Null:
+    // the file must open. Only with a baseDir (a sheet from a file): other sheets' url()s aren't checked.
+    std::function<bool(const std::string& path, std::string& why)> checkImage;
 };
 // Parse a stylesheet; what can't be read is left out and added to `problems`. Never throws. An @import's rules
 // come where the @import is (before the sheet's own rules, as @import must come first).
@@ -174,6 +193,9 @@ SheetPtr parse(const std::string& text, const std::string& sourceName, std::vect
 // the files a sheet's @imports named, at any depth, in order (resolved paths, those that couldn't be read too:
 // what to watch for changes)
 std::vector<std::string> importedFiles(const SheetPtr& sheet);
+// the files its declarations' url()s name (background-image, -tiny-glyph, custom properties…), its imports' too,
+// once each, in order (resolved paths; those that couldn't be read too: what to watch for changes)
+std::vector<std::string> imageFiles(const SheetPtr& sheet);
 // its @font-face rules (its imports' too, whatever their media): a family name and the font file it is in
 // (resolved path)
 struct FontFace {
@@ -226,6 +248,25 @@ public:
         std::vector<ColorStop> stops;
     };
     std::vector<Gradient> gradients(const std::string& property = "background-image") const;
+    // background-image's layers (the first on top), each with its background-repeat, -position, -size, -origin
+    // and -clip (those lists repeated to the number of layers, as in CSS); `none` layers are there (kind NoImage)
+    struct Background {
+        enum Kind : uint8_t { NoImage, GradientImage, UrlImage } kind = NoImage;
+        Style::Gradient gradient;  // (GradientImage)
+        std::string url;           // (UrlImage) the file (resolved against its stylesheet's folder when that was known)
+        enum Tiling : uint8_t { Repeat, NoRepeat, Space, Round };
+        Tiling repeatX = Repeat, repeatY = Repeat;
+        // where: fraction of (the area's size - the image's size), plus px (`right 4px`: 1 and -4)
+        double posX = 0, posY = 0, offX = 0, offY = 0;
+        enum Sizing : uint8_t { Given, Cover, Contain } sizing = Given;
+        double width = -1, height = -1;               // (Given) px, or a fraction if …Percent; -1: auto
+        bool widthPercent = false, heightPercent = false;
+        enum Box : uint8_t { BorderBox, PaddingBox, ContentBox };
+        Box origin = PaddingBox, clip = BorderBox;
+    };
+    std::vector<Background> backgrounds() const;
+    // the file of a property whose value is a url() (-tiny-glyph): "" if it is none or not set
+    std::string url(const std::string& property) const;
     // box-shadow or text-shadow: each shadow, the first on top ("none" or not set: none)
     struct Shadow {
         bool inset = false;

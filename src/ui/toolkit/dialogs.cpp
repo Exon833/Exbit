@@ -251,6 +251,7 @@ public:
     void resized() override { fitStyle(); }
     void paint(Painter& p) override {
         const css::Style& st = computedStyle();
+        if (style::glyph(p, RectF(rect()), st)) return;  // (an image of the whole icon)
         Color bg = style::background(st);
         Color fg = style::foreground(st);
         // (the drawing is made for 32 px: scaled to its size, centred in it when it isn't square)

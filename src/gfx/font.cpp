@@ -1224,8 +1224,8 @@ void boxGlyph(float px, Font::Glyph& out) {
 
 float boxAdvance(float px) { return std::lround(px * 0.5f) + 2 * std::max(1.f, (float)std::lround(px * 0.08f)); }
 
-const Font::Glyph* cachedGlyph(const FontFace::Mapped& m, float px, int phase) {
-    GlyphKey k{m.font, 0, m.gid, (uint8_t)phase, (uint8_t)(m.synth ? 1 : 0)};
+const Font::Glyph* cachedGlyph(const FontFace::Mapped& m, float px, int phase, bool aliased) {
+    GlyphKey k{m.font, 0, m.gid, (uint8_t)phase, (uint8_t)((m.synth ? 1 : 0) | (aliased ? 2 : 0))};
     memcpy(&k.sizeBits, &px, 4);
     auto& c = glyphCache();
     auto it = c.find(k);
@@ -1234,6 +1234,10 @@ const Font::Glyph* cachedGlyph(const FontFace::Mapped& m, float px, int phase) {
         e.glyph.reset(new Font::Glyph);
         if (m.gid < 0) boxGlyph(px, *e.glyph);
         else if (m.font) renderGlyph(*m.font, m.gid, px, phase, m.synth, *e.glyph);
+        if (aliased) {  // (on where the shape covers half of a pixel or more: coverageCurve's value for half)
+            uint8_t half = coverageCurve()[128];
+            for (uint8_t& v : e.glyph->mask) v = v >= half ? 255 : 0;
+        }
         it = c.emplace(k, std::move(e)).first;
     }
     it->second.lastUse = ++g_useClock;
@@ -1369,11 +1373,13 @@ float Font::layout(const std::string& utf8, float startX, std::vector<Run>& out)
     out.clear();
     out.reserve(utf8.size());
     float px = size_;
+    bool aliased = aliased_;
     return walk(face(), px, utf8, [&](size_t, const FontFace::Mapped& m, float pen) {
-        float x = std::floor((startX + pen) * 4.f + 0.5f) / 4.f;
+        // (aliased: each glyph on a whole pixel, so a letter looks the same wherever it is)
+        float x = aliased ? std::floor(startX + pen + 0.5f) : std::floor((startX + pen) * 4.f + 0.5f) / 4.f;
         float ix = std::floor(x);
         int phase = (int)((x - ix) * 4.f + 0.5f) & 3;
-        const Glyph* g = cachedGlyph(m, px, phase);
+        const Glyph* g = cachedGlyph(m, px, phase, aliased);
         out.push_back(Run{g, x});
     });
 }

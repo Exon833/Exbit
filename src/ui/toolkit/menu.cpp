@@ -156,8 +156,9 @@ public:
             if (a->checkable && a->checked) {
                 const css::Style& ck = parts.get("check", states, &item);
                 float size = (float)std::max(0, style::px(ck, "width", 10));
-                style::icon(p, (float)(in.x + style::px(ck, "margin-left", 7)), in.y + (in.h - size) / 2.f, size, "check",
-                            style::foreground(ck));
+                float cx = (float)(in.x + style::px(ck, "margin-left", 7));
+                if (!style::glyph(p, RectF(cx, (float)in.y, size, (float)in.h), ck))
+                    style::icon(p, cx, in.y + (in.h - size) / 2.f, size, "check", style::foreground(ck));
             }
             style::text(p, c, AlignLeft | AlignVCenter, stripAmp(leftPart(a->text)), parts.font(item, base), tc, item);
             std::string right = !a->shortcut.empty() ? a->shortcut.text() : rightPart(a->text);
@@ -169,8 +170,9 @@ public:
             if (a->submenu) {
                 const css::Style& ar = parts.get("arrow", states, &item);
                 int aw = std::max(0, style::px(ar, "width", 10));
-                style::icon(p, (float)(in.right() - style::px(ar, "margin-right", 6) - aw), in.y + (in.h - aw) / 2.f,
-                            (float)aw, "right", style::foreground(ar));
+                float ax = (float)(in.right() - style::px(ar, "margin-right", 6) - aw);
+                if (!style::glyph(p, RectF(ax, (float)in.y, (float)aw, (float)in.h), ar))
+                    style::icon(p, ax, in.y + (in.h - aw) / 2.f, (float)aw, "right", style::foreground(ar));
             }
         }
     }

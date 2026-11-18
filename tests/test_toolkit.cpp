@@ -2709,6 +2709,266 @@ static void testWindowFrames() {
     CHECK(!w.isFramed() && !app.framesDrawn());
 }
 
+// url() images: background-image layers (tiled, sized, at 150 %), -tiny-glyph on a check box and a scroll
+// arrow (tinted, moved when pressed), and font-smooth: never (only full-on and full-off pixels); from tiny files
+// in a scratch folder
+static void testCssImages() {
+    const std::string dir = "build/css-images";
+    util::makeDirs(dir);
+    const Color canvas(0xd4, 0xd0, 0xc8);
+    // the files: a 2x2 checkerboard, a 4x2 PNG red on the left and blue on the right, an 8x8 SVG with a green 4x4
+    // square in its middle, a 7x7 black SVG check, a 3x2 red PNG arrow
+    Image checker(2, 2, Color(255, 255, 255));
+    checker.setPixel(0, 0, Color(0, 0, 0).premul());
+    checker.setPixel(1, 1, Color(0, 0, 0).premul());
+    CHECK(savePng(dir + "/checker.png", checker));
+    Image rb(4, 2, Color(255, 0, 0));
+    rb.fill(Rect(2, 0, 2, 2), Color(0, 0, 255));
+    CHECK(savePng(dir + "/rb.png", rb));
+    CHECK(util::writeFile(dir + "/sq.svg", "<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'>"
+                                           "<rect x='2' y='2' width='4' height='4' fill='#00ff00'/></svg>"));
+    CHECK(util::writeFile(dir + "/check.svg", "<svg xmlns='http://www.w3.org/2000/svg' width='7' height='7'>"
+                                              "<rect width='7' height='7' fill='#000000'/></svg>"));
+    CHECK(savePng(dir + "/arrow.png", Image(3, 2, Color(255, 0, 0))));
+    CHECK(util::writeFile(dir + "/broken.png", "\x89PNG\r\n\x1a\n not really"));
+
+    css::ParseOptions o;
+    o.baseDir = dir;
+    o.checkImage = [](const std::string& path, std::string& why) { return style::imageFileOk(path, why); };
+    std::vector<css::Problem> problems;
+    css::SheetPtr sheet = css::parse(
+        ".checker { background: url(checker.png); image-rendering: pixelated }\n"
+        ".smooth { background: url(checker.png) }\n"
+        ".svg { background: url(sq.svg) no-repeat }\n"
+        ".contain { background: url(rb.png) no-repeat center / contain }\n"
+        ".cover { background: url(rb.png) no-repeat center / cover }\n"
+        ".pos { background: url(arrow.png) no-repeat right 2px bottom 1px; background-color: #ffffff }\n"
+        ".space { background: url(arrow.png) space no-repeat; background-color: #ffffff }\n"
+        ".broken { background: url(broken.png), url(missing.png) #123456 }\n",
+        "images.css", problems, o);
+    CHECK(problems.size() == 2 && problems[0].line == 8 && problems[0].column == 23 && problems[1].column == 40);
+    if (problems.size() != 2)
+        for (const css::Problem& p : problems) printf("  %s\n", p.text().c_str());
+    css::Engine engine;
+    engine.setSheets({sheet});
+    std::vector<std::unique_ptr<css::Style>> kept;
+    auto styleOf = [&](const char* cls) -> const css::Style& {
+        css::SimpleNode n("Box");
+        n.classes.push_back(cls);
+        kept.push_back(std::make_unique<css::Style>(engine.compute(n)));
+        return *kept.back();
+    };
+    auto isOnly = [](const Image& img, const Rect& r, std::initializer_list<Color> colours) {
+        for (int y = r.y; y < r.bottom(); y++)
+            for (int x = r.x; x < r.right(); x++) {
+                bool any = false;
+                for (Color c : colours) any = any || img.colorAt(x, y) == c;
+                if (!any) return false;
+            }
+        return true;
+    };
+
+    // a 2x2 checkerboard tiled, pixel for pixel; at 150 %, pixelated: only black and white, 3 x 3 device px a tile
+    {
+        Image img(40, 30, canvas);
+        Painter p(img);
+        style::box(p, Rect(5, 5, 21, 11), styleOf("checker"));
+        bool exact = true;
+        for (int y = 0; y < 11; y++)
+            for (int x = 0; x < 21; x++) exact = exact && img.colorAt(5 + x, 5 + y) == ((x + y) % 2 ? Color(255, 255, 255) : Color(0, 0, 0));
+        CHECK(exact);
+        CHECK(img.colorAt(4, 5) == canvas && img.colorAt(26, 15) == canvas && img.colorAt(5, 16) == canvas);
+        Image big(60, 45, canvas);
+        Painter q(big, 1.5f);
+        style::box(q, Rect(4, 4, 20, 10), styleOf("checker"));
+        CHECK(isOnly(big, Rect(6, 6, 30, 15), {Color(0, 0, 0), Color(255, 255, 255)}));
+        // (each source pixel to the device pixels whose centres fall in it: a tile's columns black, white, white)
+        CHECK(big.colorAt(6, 6) == Color(0, 0, 0) && big.colorAt(7, 6) == Color(255, 255, 255) &&
+              big.colorAt(8, 6) == Color(255, 255, 255) && big.colorAt(9, 6) == Color(0, 0, 0) && big.colorAt(7, 7) == Color(0, 0, 0));
+        Image soft(60, 45, canvas);
+        Painter r(soft, 1.5f);
+        style::box(r, Rect(4, 4, 20, 10), styleOf("smooth"));  // (smooth: greys where it is scaled)
+        CHECK(!isOnly(soft, Rect(6, 6, 30, 15), {Color(0, 0, 0), Color(255, 255, 255)}));
+        // drawn again: the image made once, kept
+        int made = style::imagesMade();
+        style::box(q, Rect(4, 4, 20, 10), styleOf("checker"));
+        style::box(p, Rect(5, 5, 21, 11), styleOf("checker"));
+        CHECK(style::imagesMade() == made);
+    }
+    // an SVG layer at 150 %: drawn at device pixels (12 x 12), its square sharp at device 3…9 in the box
+    {
+        Image img(30, 30, canvas);
+        Painter p(img, 1.5f);
+        style::box(p, Rect(2, 2, 12, 12), styleOf("svg"));  // (device 3…21)
+        CHECK(isOnly(img, Rect(6, 6, 6, 6), {Color(0, 255, 0)}));
+        CHECK(img.colorAt(5, 6) == canvas && img.colorAt(6, 5) == canvas && img.colorAt(12, 11) == canvas &&
+              img.colorAt(11, 12) == canvas && img.colorAt(18, 18) == canvas);
+    }
+    // background-size: contain (20 x 10 in the middle of a 20 x 20 box) and cover (40 x 20, its middle shown)
+    {
+        Image img(60, 30, canvas);
+        Painter p(img);
+        style::box(p, Rect(0, 0, 20, 20), styleOf("contain"));
+        CHECK(rgbIs(img, 1, 6, 255, 0, 0, 8) && rgbIs(img, 18, 13, 0, 0, 255, 8));
+        CHECK(img.colorAt(10, 4) == canvas && img.colorAt(10, 15) == canvas && img.colorAt(10, 5) != canvas &&
+              img.colorAt(10, 14) != canvas);
+        style::box(p, Rect(30, 0, 20, 20), styleOf("cover"));
+        CHECK(rgbIs(img, 32, 1, 255, 0, 0, 8) && rgbIs(img, 32, 18, 255, 0, 0, 8) && rgbIs(img, 47, 10, 0, 0, 255, 8));
+        CHECK(img.colorAt(30, 0) != canvas && img.colorAt(49, 19) != canvas);
+        // right 2px bottom 1px: the 3x2 arrow at x 15…17, y 17…18 of a 20 x 20 box
+        style::box(p, Rect(0, 0, 20, 20), styleOf("pos"));
+        CHECK(isOnly(img, Rect(15, 17, 3, 2), {Color(255, 0, 0)}) && img.colorAt(14, 17) == Color(255, 255, 255) &&
+              img.colorAt(18, 18) == Color(255, 255, 255) && img.colorAt(15, 16) == Color(255, 255, 255));
+        // space: as many whole arrows as fit across 20 px (6: 18 px of them), the first and last at the edges, the
+        // 2 px left between them (at 0, 3.4, 6.8…: on whole pixels 0, 3, 7, 10, 14, 17)
+        style::box(p, Rect(30, 0, 20, 20), styleOf("space"));
+        int red = 0;
+        for (int x = 30; x < 50; x++) red += img.colorAt(x, 0) == Color(255, 0, 0);
+        CHECK(red == 18 && img.colorAt(30, 0) == Color(255, 0, 0) && img.colorAt(49, 0) == Color(255, 0, 0) &&
+              img.colorAt(36, 0) == Color(255, 255, 255) && img.colorAt(43, 0) == Color(255, 255, 255) &&
+              img.colorAt(30, 2) == Color(255, 255, 255));
+        // images that can't be drawn: left out, the colour drawn
+        style::box(p, Rect(0, 0, 10, 10), styleOf("broken"));
+        CHECK(img.colorAt(5, 5) == Color(0x12, 0x34, 0x56));
+    }
+
+    // -tiny-glyph: a check box's mark and a scroll bar's arrows from images; tinted; moved 1 px when pressed
+    {
+        theme::setSkin();
+        Window w(plat::WindowOptions{});
+        w.resizeWindow(200, 200);
+        auto* cb = w.add<CheckBox>("Glyph");
+        cb->setGeometry(10, 10, 100, 20);
+        cb->setChecked(true);
+        auto* bar = w.add<ScrollBar>(Orientation::Vertical);
+        bar->setGeometry(150, 10, 16, 150);
+        bar->setRange(0, 100);
+        bar->setPageStep(10);
+        problems.clear();
+        css::SheetPtr glyphs = css::parse(
+            "CheckBox::indicator { -tiny-glyph: url(check.svg) }\n"
+            "ScrollBar::sub-line, ScrollBar::add-line { width: 16px; height: 16px; padding: 0; border: none;"
+            " background-color: #c0c0c0; color: #00ff00; -tiny-glyph: url(arrow.png); -tiny-glyph-tint: color }\n"
+            "ScrollBar::sub-line:pressed { -tiny-glyph-offset: 1px 1px }\n",
+            "glyphs.css", problems, o);
+        CHECK(problems.empty());
+        theme::setStyles({theme::builtinSheet(), glyphs});
+        w.showWindow();
+        App::get().repaintAll();
+        App::get().tick();
+        const Image& fb = w.framebuffer();
+        // the check: 7x7 black, centred in the indicator's inside
+        const css::Style& is = cb->computedStyle("indicator");
+        int iw = style::px(is, "width", 14), ih = style::px(is, "height", 14);
+        Rect ind(10 + style::insets(cb->computedStyle(), "padding").left, 10 + (20 - ih) / 2, iw, ih);
+        Rect mark = style::contents(ind, is);
+        Rect check(mark.x + (mark.w - 7) / 2, mark.y + (mark.h - 7) / 2, 7, 7);
+        CHECK(isOnly(fb, check, {Color(0, 0, 0)}));
+        CHECK(fb.colorAt(check.x - 1, check.y + 3) != Color(0, 0, 0) && fb.colorAt(check.right(), check.y + 3) != Color(0, 0, 0));
+        // the arrows: 3x2, in the part's colour (green, not the file's red), centred in each 16 x 16 button
+        auto greenBox = [&](const Rect& r) {
+            Rect found;
+            int n = 0, red = 0;
+            for (int y = r.y; y < r.bottom(); y++)
+                for (int x = r.x; x < r.right(); x++) {
+                    Color c = fb.colorAt(x, y);
+                    red += c == Color(255, 0, 0);
+                    if (c != Color(0, 255, 0)) continue;
+                    found = n++ ? found.united(Rect(x, y, 1, 1)) : Rect(x, y, 1, 1);
+                }
+            return n == 6 && red == 0 ? found : Rect();
+        };
+        Rect up = bar->lineRect(-1), down = bar->lineRect(1);
+        CHECK(up == Rect(0, 0, 16, 16) && down == Rect(0, 134, 16, 16));
+        CHECK(greenBox(Rect(150, 10, 16, 16)) == Rect(150 + 6, 10 + 7, 3, 2));
+        CHECK(greenBox(Rect(150, 144, 16, 16)) == Rect(150 + 6, 144 + 7, 3, 2));
+        press(w, 158, 18);
+        App::get().tick();
+        CHECK(greenBox(Rect(150, 10, 16, 16)) == Rect(150 + 7, 10 + 8, 3, 2));  // (pressed: moved 1 px right and down)
+        release(w, 158, 18);
+        App::get().tick();
+        CHECK(greenBox(Rect(150, 10, 16, 16)) == Rect(150 + 6, 10 + 7, 3, 2));
+        // without -tiny-glyph: the drawn glyphs, as before
+        theme::setSkin();
+        App::get().repaintAll();
+        App::get().tick();
+        CHECK(greenBox(Rect(150, 10, 16, 16)).empty());
+        w.hideWindow();
+    }
+
+    // font-smooth: never: each pixel of the text fully on or off (and at 150 %); without it, anti-aliased
+    {
+        problems.clear();
+        css::SheetPtr text = css::parse(".aliased { font-smooth: never } .webkit { -webkit-font-smoothing: none }",
+                                        "text.css", problems);
+        engine.setSheets({text});
+        const char* words = "Aliased text, 0123 &@%";
+        for (const char* cls : {"aliased", "webkit"})
+            for (float scale : {1.f, 1.5f}) {
+                Font f = style::font(styleOf(cls), Font::ui());
+                CHECK(f.aliased());
+                Image img((int)(160 * scale), (int)(24 * scale), Color(255, 255, 255));
+                Painter p(img, scale);
+                p.drawText(RectF(2.3f, 0, 150, 24), AlignLeft | AlignVCenter, words, f, Color(0, 0, 0));
+                int black = 0;
+                bool twoTone = true;
+                for (int y = 0; y < img.height(); y++)
+                    for (int x = 0; x < img.width(); x++) {
+                        Color c = img.colorAt(x, y);
+                        black += c == Color(0, 0, 0);
+                        twoTone = twoTone && (c == Color(0, 0, 0) || c == Color(255, 255, 255));
+                    }
+                CHECK(twoTone && black > 50);
+            }
+        Font smooth = style::font(styleOf("none"), Font::ui());
+        CHECK(!smooth.aliased());
+        Image img(160, 24, Color(255, 255, 255));
+        Painter p(img);
+        p.drawText(RectF(2, 0, 150, 24), AlignLeft | AlignVCenter, words, smooth, Color(0, 0, 0));
+        CHECK(!isOnly(img, img.rect(), {Color(0, 0, 0), Color(255, 255, 255)}));
+        // a widget's text, the font inherited from its window (Label, Button, the title bar… all draw through
+        // style::font)
+        theme::setSkin();
+        problems.clear();
+        css::SheetPtr crisp = css::parse("Window { font-smooth: never; color: #000000; background-color: #ffffff }\n"
+                                         "Label { color: #000000; background-color: #ffffff }",
+                                         "crisp.css", problems);
+        theme::setStyles({theme::builtinSheet(), crisp});
+        Window w(plat::WindowOptions{});
+        w.resizeWindow(200, 40);
+        auto* label = w.add<Label>(words);
+        label->setGeometry(0, 0, 200, 40);
+        w.showWindow();
+        App::get().tick();
+        CHECK(label->font().aliased());
+        CHECK(isOnly(w.framebuffer(), Rect(0, 0, 200, 40), {Color(0, 0, 0), Color(255, 255, 255)}));
+        w.hideWindow();
+        theme::setSkin();
+    }
+
+    // timings: a 200 x 120 box tiled with the checkerboard; a scroll arrow's image
+    {
+        Image img(220, 140, canvas);
+        Painter p(img);
+        engine.setSheets({sheet});
+        const css::Style& tiled = styleOf("checker");
+        style::box(p, Rect(10, 10, 200, 120), tiled);
+        auto t0 = std::chrono::steady_clock::now();
+        const int n = 500;
+        for (int i = 0; i < n; i++) style::box(p, Rect(10, 10, 200, 120), tiled);
+        double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() / n;
+        Image big(330, 210, canvas);
+        Painter q(big, 1.5f);
+        style::box(q, Rect(10, 10, 200, 120), tiled);
+        t0 = std::chrono::steady_clock::now();
+        for (int i = 0; i < n; i++) style::box(q, Rect(10, 10, 200, 120), tiled);
+        double ms15 = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() / n;
+        printf("css images: a 200x120 tiled box %.3f ms (%.3f ms at 150 %%)\n", ms, ms15);
+        CHECK(ms < 5 && ms15 < 10);
+    }
+    style::clearImageCaches();
+}
+
 int main() {
     App::get().initHeadless();
     util::makeDirs("build/toolkit-samples");
@@ -2739,5 +2999,6 @@ int main() {
     testWindowFrames();
     gallery();
     testCssPainting();
+    testCssImages();
     TEST_MAIN_END();
 }
