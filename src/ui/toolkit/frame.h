@@ -7,9 +7,11 @@
 // It is a widget of the window (Window::titleBar(), its parent()) but not one of its children: it lies above the
 // window's rect() (at negative y, as wide as the window's inside), in the frame. Its style type is TitleBar; its
 // parts ::icon, ::title (color, font, text-align: left, center or right), ::minimize, ::maximize, ::close (each a
-// box; its glyph drawn in its color, icon-size big, stroke-width thick; width and height its size). The bar and
+// box; its glyph drawn in its color, icon-size big, stroke-width thick; width and height its size; margin the room
+// around it: vertically it is centred in what margin-top and margin-bottom leave of the bar). The bar and
 // its parts have the window's states: :active or :inactive (the keyboard focus is in the window or not) and
-// :maximized; the bar :hover and :pressed, each button its own :hover and :pressed. Its height is :root's
+// :maximized; the bar :hover and :pressed, each button its own :hover and :pressed, and :first / :last (the first
+// and the last button shown, left to right: the ends of the group). Its height is :root's
 // --title-bar-height; :root's --title-buttons (right or left) is where the buttons go (the icon on the other
 // side). A modal dialog has no minimize; a window that can't be resized no maximize. docs/skins.md.
 #pragma once
@@ -35,6 +37,9 @@ public:
     Rect partRect(Part p) const;
     Part partAt(Point p) const;
     bool hasButton(Part b) const;           // Minimize: not modal; Maximize: resizable; Close: always
+    // the buttons it has, from left to right as shown (out: up to 3); how many
+    int shownButtons(Part out[3]) const;
+    static bool buttonsLeft();              // :root's --title-buttons is left
     Part hoverPart() const { return hover_; }
     Part pressedPart() const { return down_; }
     // the window's menu (Minimize, Maximize / Restore, Close), at a screen position; menu(): the last shown

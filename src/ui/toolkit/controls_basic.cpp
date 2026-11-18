@@ -2,6 +2,7 @@
 // stylesheets (default.css: Buttons, and the Basic controls section).
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 #include "gfx/svg.h"
 #include "ui/toolkit/controls.h"
@@ -557,14 +558,16 @@ void CheckBox::styleStates(std::vector<std::string>& out) const {
 }
 
 Point CheckBox::sizeHint() const {
-    // (default.css: the 14 px box, 6 px from the text, 2 px above and below)
+    // (default.css: the 14 px box, 6 px from the text, 2 px above and below; the text's ::label box (its padding
+    // and border) around it)
     const css::Style& st = computedStyle();
     Font f = style::font(st, theme::uiFont());
     style::Insets pad = style::insets(st, "padding");
     const css::Style& ind = computedStyle("indicator");
     int iw = style::px(ind, "width", 14), ih = style::px(ind, "height", 14), gap = style::px(ind, "margin-right", 6);
-    int tw = text_.empty() ? 0 : style::textWidth(f, text_) + gap;
-    Point h(pad.w() + iw + tw, std::max(style::textHeight(f), ih) + pad.h());
+    style::Insets lab = text_.empty() ? style::Insets() : style::contentInsets(computedStyle("label"));
+    int tw = text_.empty() ? 0 : style::textWidth(f, text_) + gap + lab.w();
+    Point h(pad.w() + iw + tw, std::max(style::textHeight(f) + lab.h(), ih) + pad.h());
     Point mn = minimumSize(), mx = maximumSize();
     if (mn.x == mx.x) h.x = mn.x;
     if (mn.y == mx.y) h.y = mn.y;
@@ -575,7 +578,6 @@ void CheckBox::paint(Painter& p) {
     const css::Style& st = computedStyle();
     style::box(p, rect(), st);
     Font f = style::font(st, theme::uiFont());
-    Color tc = style::foreground(st);
     style::Insets pad = style::insets(st, "padding");
     // the box (centred over the whole height), its check mark inside its border and padding
     const css::Style& is = computedStyle("indicator");
@@ -588,10 +590,49 @@ void CheckBox::paint(Painter& p) {
             style::icon(p, (float)mark.x, (float)mark.y, (float)mark.w, "check", style::foreground(is));
     }
     if (!text_.empty()) {
+        // ::label: a box shrink-wrapped around the text (its padding and border; centred in the height), and its
+        // outline (CheckBox::label:focus { outline: 1px dotted }: a focus rectangle); the text centred in the height
+        const css::Style& ls = computedStyle("label");
+        style::Insets lab = style::contentInsets(ls);
         int x = pad.left + iw + gap;
-        Rect tr(x, 0, std::max(0, width() - x - pad.right), height());
-        style::text(p, tr, AlignLeft | AlignVCenter, text_, f, tc, st, true);
+        int avail = std::max(0, width() - x - pad.right);
+        const style::BoxLook& look = style::boxLook(ls);
+        if (look.more || !look.fillOnly || look.bg.a || ls.has("outline-style")) {
+            int bh = style::textHeight(f) + lab.h();
+            Rect lr(x, (height() - bh) / 2, std::min(avail, style::textWidth(f, text_) + lab.w()), bh);
+            style::box(p, lr, ls);
+            paintOutline(p, lr, ls);
+        }
+        Rect tr(x + lab.left, 0, std::max(0, avail - lab.w()), height());
+        style::text(p, tr, AlignLeft | AlignVCenter, text_, f, style::foreground(ls),
+                    ls.has("text-shadow") ? ls : st, true);
     }
+}
+
+// CSS's outline: a line around r, outside it (outline-offset farther out; negative: in), outline-width thick, of
+// outline-style (solid, dotted, dashed, double, groove, ridge, inset, outset: drawn as a border of that style is),
+// in outline-color (else the style's color). Square corners; nothing when the style is none (the default).
+void paintOutline(Painter& p, const Rect& r, const css::Style& s) {
+    std::string kind = s.keyword("outline-style", "none");
+    if (kind == "none" || kind == "hidden") return;
+    if (kind == "auto") kind = "solid";
+    int w = std::max(0, style::px(s, "outline-width", 3));  // (medium, as CSS's)
+    Color c = style::color(s, "outline-color", style::foreground(s));
+    if (w == 0 || c.a == 0) return;
+    int out = style::px(s, "outline-offset", 0) + w;
+    Rect o = r.adjusted(-out, -out, out, out);
+    if (o.w < 2 * w || o.h < 2 * w) return;
+    // (drawn as a box with that border alone)
+    css::Style b;
+    char colour[16];
+    std::snprintf(colour, sizeof colour, "#%02x%02x%02x%02x", c.r, c.g, c.b, c.a);
+    for (const char* side : {"top", "right", "bottom", "left"}) {
+        std::string pre = std::string("border-") + side;
+        b.props_[pre + "-width"] = std::to_string(w) + "px";
+        b.props_[pre + "-style"] = kind;
+        b.props_[pre + "-color"] = colour;
+    }
+    style::box(p, o, b);
 }
 
 bool CheckBox::mousePress(MouseEvent& e) {
@@ -968,26 +1009,70 @@ void TabWidget::styleStates(std::vector<std::string>& out) const {
         Widget::styleStates(out);
         return;
     }
-    // a tab's: under the pointer, the current one
+    // a tab's: under the pointer, the current one, the first and the last of the row
     bool enabled = isEnabled();
     if (!enabled) out.push_back("disabled");
-    if (styledTab_ >= 0 && styledTab_ == hoverTab_ && enabled) out.push_back("hover");
+    if (styledTab_ >= 0 && styledTab_ == hoverTab_ && enabled && !styleNoHover_) out.push_back("hover");
     if (styledTab_ >= 0 && styledTab_ == current_) out.push_back("selected");
+    if (styledTab_ == 0) out.push_back("first");
+    if (styledTab_ >= 0 && styledTab_ == count() - 1) out.push_back("last");
 }
 
-const css::Style& TabWidget::tabStyle(int i, const std::string& part) const {
+const css::Style& TabWidget::tabStyle(int i, const std::string& part, bool noHover) const {
     styledTab_ = i;
+    styleNoHover_ = noHover;
     const css::Style& st = computedStyle(part);
     styledTab_ = -1;
+    styleNoHover_ = false;
     return st;
 }
 
-// (default.css: the title 6 px below the top, 12 px from the sides, 6 px above a 2 px line)
-int TabWidget::barHeight() const {
-    const css::Style& st = tabStyle(-2, "tab");
-    return style::textHeight(style::font(st, theme::uiFont())) + style::insets(st, "padding").h() +
-           style::insets(st, "border-width").h();
+// Where the tabs are (out[i]: tab i's box) and the bar's height. Each tab is its title's width and height inside its
+// padding and border (in its own states), placed after the one before and its margin, its bottom margin-bottom above
+// the bar's bottom; the bar is as high as the highest tab with its margin-top and margin-bottom (as if none were
+// under the pointer: hovering doesn't move the page). A negative margin makes a tab overlap its neighbours or the
+// pane below (the selected tab is drawn last). (default.css: the title 6 px below the top, 12 px from the sides,
+// 6 px above a 2 px line; no margins)
+int TabWidget::tabGeometry(std::vector<Rect>* out) const {
+    int n = count();
+    if (n == 0) {
+        const css::Style& st = tabStyle(-2, "tab");
+        return style::textHeight(style::font(st, theme::uiFont())) + style::insets(st, "padding").h() +
+               style::insets(st, "border-width").h();
+    }
+    struct Box {
+        int w, h;
+        style::Insets m;
+    };
+    std::vector<Box> boxes((size_t)n);
+    int bar = 0;
+    for (int i = 0; i < n; ++i) {
+        auto measure = [&](bool noHover) {
+            const css::Style& st = tabStyle(i, "tab", noHover);
+            Font f = style::font(st, theme::uiFont());
+            style::Insets pad = style::insets(st, "padding"), border = style::insets(st, "border-width");
+            return Box{style::textWidth(f, titles_[(size_t)i]) + pad.w() + border.w(),
+                       style::textHeight(f) + pad.h() + border.h(), style::insets(st, "margin")};
+        };
+        Box b = measure(false);
+        boxes[(size_t)i] = b;
+        if (i == hoverTab_) b = measure(true);
+        bar = std::max(bar, b.m.top + b.h + b.m.bottom);
+    }
+    if (out) {
+        out->assign((size_t)n, Rect());
+        int x = 0;
+        for (int i = 0; i < n; ++i) {
+            const Box& b = boxes[(size_t)i];
+            x += b.m.left;
+            (*out)[(size_t)i] = Rect(x, bar - b.m.bottom - b.h, b.w, b.h);
+            x += b.w + b.m.right;
+        }
+    }
+    return bar;
 }
+
+int TabWidget::barHeight() const { return tabGeometry(nullptr); }
 
 Widget* TabWidget::addTab(std::unique_ptr<Widget> page, const std::string& title) {
     Widget* raw = page.get();
@@ -1017,22 +1102,27 @@ void TabWidget::setCurrentIndex(int i) {
 
 Rect TabWidget::tabRect(int i) const {
     if (i < 0 || i >= count()) return Rect();
-    const css::Style& st = tabStyle(-2, "tab");
-    Font f = style::font(st, theme::uiFont());
-    int extra = style::insets(st, "padding").w() + style::insets(st, "border-width").w();
-    int x = 0;
-    for (int k = 0; k < count(); ++k) {
-        int w = style::textWidth(f, titles_[k]) + extra;
-        if (k == i) return Rect(x, 0, w, barHeight());
-        x += w;
-    }
-    return Rect();
+    std::vector<Rect> r;
+    tabGeometry(&r);
+    return r[(size_t)i];
 }
 
+// (the selected tab first: it is drawn over its neighbours)
 int TabWidget::tabAt(Point p) const {
+    std::vector<Rect> r;
+    tabGeometry(&r);
+    if (current_ >= 0 && current_ < count() && r[(size_t)current_].contains(p)) return current_;
     for (int i = 0; i < count(); ++i)
-        if (tabRect(i).contains(p)) return i;
+        if (r[(size_t)i].contains(p)) return i;
     return -1;
+}
+
+// the bar and every tab (a tab may reach beyond the bar: a negative margin)
+Rect TabWidget::barArea() const {
+    std::vector<Rect> r;
+    Rect a(0, 0, width(), tabGeometry(&r));
+    for (const Rect& t : r) a = a.united(t);
+    return a;
 }
 
 // the pane: the box under the tabs, inside its margin (default.css: none, so all of the room under the tabs)
@@ -1063,14 +1153,14 @@ Point TabWidget::sizeHint() const {
         h.x = std::max(h.x, s.x);
         h.y = std::max(h.y, s.y);
     }
+    // (the row of tabs: as far as the last one reaches)
+    std::vector<Rect> r;
+    int bar = tabGeometry(&r);
     int tw = 0;
-    const css::Style& st = tabStyle(-2, "tab");
-    Font f = style::font(st, theme::uiFont());
-    int extra = style::insets(st, "padding").w() + style::insets(st, "border-width").w();
-    for (auto& t : titles_) tw += style::textWidth(f, t) + extra;
+    for (int i = 0; i < count(); ++i) tw = std::max(tw, r[(size_t)i].right() + style::px(tabStyle(i, "tab"), "margin-right"));
     Point pane = paneExtra(computedStyle("pane"));
     h.x = std::max(h.x + pane.x, tw);
-    h.y += barHeight() + pane.y;
+    h.y += bar + pane.y;
     return h;
 }
 
@@ -1096,8 +1186,11 @@ void TabWidget::paint(Painter& p) {
         int lh = std::max(0, style::px(bs, "height", 1));
         style::box(p, Rect(0, bh - lh, width(), lh), bs);
     }
-    for (int i = 0; i < count(); ++i) {
-        Rect r = tabRect(i);
+    // the tabs, the selected one last (over its neighbours, where a negative margin takes it)
+    std::vector<Rect> rects;
+    tabGeometry(&rects);
+    auto paintTab = [&](int i) {
+        Rect r = rects[(size_t)i];
         // (each style is used before the next is asked for)
         const css::Style& ts = tabStyle(i, "tab");
         style::box(p, r, ts);
@@ -1106,7 +1199,10 @@ void TabWidget::paint(Painter& p) {
         const css::Style& ls = tabStyle(i, "tab-line");
         int lh = std::max(0, style::px(ls, "height", 2));
         style::box(p, Rect(r.x, r.bottom() - lh, r.w, lh), ls);
-    }
+    };
+    for (int i = 0; i < count(); ++i)
+        if (i != current_) paintTab(i);
+    if (current_ >= 0 && current_ < count()) paintTab(current_);
 }
 
 bool TabWidget::mousePress(MouseEvent& e) {
@@ -1120,8 +1216,9 @@ bool TabWidget::mousePress(MouseEvent& e) {
 bool TabWidget::mouseMove(MouseEvent& e) {
     int i = tabAt(e.pos);
     if (i != hoverTab_) {
+        update(barArea());  // (where the tabs were, and are now: a tab's size may change with :hover)
         hoverTab_ = i;
-        update(Rect(0, 0, width(), barHeight()));
+        update(barArea());
     }
     return i >= 0;
 }

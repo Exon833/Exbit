@@ -579,6 +579,7 @@ private:
     void releaseGrab();
     void applyCursor();
     void paintBackground(Painter& p);  // its style's background (and border), under its widgets
+    void paintFrameRing(Painter& p);   // (framed) its ::frame part: a ring inside its border
     void paintFrame(Painter& p, const Rect& dirty);  // the title bar (isFramed)
     void paintContents(Painter& p, const Rect& dirty);  // its widgets (its own opacity: the native window's)
     bool blockedByModal() const;

@@ -26,7 +26,7 @@ void EffectWindow::addPresetsButton(ui::HBox* row) {
             nameLabels[i] = label;
             break;
         }
-    presetsButton = add<ui::Button>("Presets \xe2\x96\xbe");
+    presetsButton = add<ui::Button>("Presets");  // (its menu gives it the ▾)
     presetsButton->setToolTip("Save these settings as a preset, load one, or compare two settings (Keep this, then "
                               "switch between Now and Kept)");
     ui::Menu* menu = widgets::ownedMenu(presetsButton);

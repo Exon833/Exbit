@@ -3206,6 +3206,388 @@ static void testTransparency() {
     theme::setSkin();
 }
 
+// ------------------------------------------------------------------------------------------
+// What classic skins draw with (each only when a stylesheet asks: default.css draws as before): spin buttons as two
+// boxes of their own, a combo box's arrow inside its border, tabs with margins (the selected one larger, over its
+// neighbours and joined to the page), the title bar's buttons placed by their vertical margins with :first / :last,
+// a framed window's ::frame ring, a tree's dotted lines and a selection of its text only, a check box's focus
+// rectangle (outline)
+namespace {
+// a sheet over default.css (none of its rules left out)
+void classicSheet(const std::string& text) {
+    std::vector<css::Problem> problems;
+    css::SheetPtr extra = css::parse(text, "classic-gaps.css", problems);
+    CHECK(problems.empty());
+    for (auto& pr : problems) printf("  problem: %s\n", pr.message.c_str());
+    theme::setStyles({theme::builtinSheet(), extra});
+    App::get().repaintAll();
+}
+int countColour(const Image& fb, const Rect& r, Color c) {
+    int n = 0;
+    for (int y = r.y; y < r.bottom(); ++y)
+        for (int x = r.x; x < r.right(); ++x)
+            if (fb.colorAt(x, y) == c) ++n;
+    return n;
+}
+}  // namespace
+
+static void testSpinButtonBoxes() {
+    theme::setSkin();
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(200, 60);
+    auto* s = w.add<SpinBox>();
+    s->setGeometry(10, 10, 80, 24);
+    s->setRange(0, 10);
+    s->setValue(5);
+    w.showWindow();
+    App::get().tick();
+    Point hint = s->sizeHint();
+    // apart: each button its half of the column (16 px) less its margin, a red border each, a 2 px gap between
+    classicSheet("SpinBox { border: 2px solid #000000; border-radius: 0; background-color: #ffffff; }"
+                 "SpinBox::up-button, SpinBox::down-button { width: 16px; margin: 0; border: 1px solid #ff0000;"
+                 " border-radius: 0; background-color: #c0c0c0; color: #000000; }"
+                 "SpinBox::up-button { margin-bottom: 1px; } SpinBox::down-button { margin-top: 1px; }");
+    App::get().tick();
+    const Image& fb = w.framebuffer();
+    // the inside of the border: (2, 2) 76 x 20; the column x 62..77, the up half y 2..11, the down 12..21: the up
+    // button y 2..10, the down 13..21 (the spin box at (10, 10))
+    Color red(255, 0, 0), grey(192, 192, 192), white(255, 255, 255);
+    auto at = [&](int x, int y) { return fb.colorAt(10 + x, 10 + y); };
+    CHECK(at(62, 2) == red && at(77, 2) == red && at(62, 10) == red && at(77, 10) == red);  // up: its corners
+    CHECK(at(63, 3) == grey && at(76, 9) == grey);
+    CHECK(at(70, 11) == white && at(70, 12) == white);  // the gap: the spin box's own background
+    CHECK(at(62, 13) == red && at(77, 21) == red && at(63, 14) == grey && at(76, 20) == grey);  // down
+    CHECK(at(61, 5) != red && at(70, 22) == Color(0, 0, 0));  // (beside it: the field; below: the border)
+    CHECK(s->sizeHint().x == hint.x + 2);  // (the column's width as before; the border 1 px wider each side)
+    // the arrows in each box's middle (black pixels in both)
+    CHECK(countColour(fb, Rect(10 + 63, 10 + 3, 14, 7), Color(0, 0, 0)) > 0);
+    CHECK(countColour(fb, Rect(10 + 63, 10 + 14, 14, 7), Color(0, 0, 0)) > 0);
+    // a press on each half still steps it
+    click(w, 10 + 70, 10 + 6);
+    CHECK(s->value() == 6);
+    click(w, 10 + 70, 10 + 17);
+    CHECK(s->value() == 5);
+    savePng(outDir() + "/gaps-spin.png", fb);
+    w.hideWindow();
+    theme::setSkin();
+}
+
+static void testComboArrowMargin() {
+    theme::setSkin();
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(200, 60);
+    auto* c = w.add<ComboBox>();
+    c->addItem("One");
+    c->setGeometry(10, 10, 120, 24);
+    w.showWindow();
+    App::get().tick();
+    classicSheet("ComboBox { border: 2px solid #000000; border-radius: 0; background-color: #ffffff; }"
+                 "ComboBox::arrow { width: 16px; background-color: #c0c0c0; border-radius: 0; }");
+    int plain = c->sizeHint().x;
+    classicSheet("ComboBox { border: 2px solid #000000; border-radius: 0; background-color: #ffffff; }"
+                 "ComboBox::arrow { width: 16px; margin: 2px 2px 2px 0; background-color: #c0c0c0; border-radius: 0;"
+                 " color: #000000; }");
+    CHECK(c->sizeHint().x == plain + 2);  // (its margin's room too)
+    App::get().tick();
+    const Image& fb = w.framebuffer();
+    // the arrow's box: 16 px wide, 2 px in from the right, top and bottom: inside the border (x 102..117, y 2..21)
+    Color grey(192, 192, 192), black(0, 0, 0);
+    CHECK(fb.colorAt(10 + 119, 10 + 12) == black && fb.colorAt(10 + 118, 10 + 12) == black);  // the border shows
+    CHECK(fb.colorAt(10 + 110, 10 + 1) == black && fb.colorAt(10 + 110, 10 + 22) == black);
+    CHECK(fb.colorAt(10 + 102, 10 + 2) == grey && fb.colorAt(10 + 117, 10 + 21) == grey);
+    CHECK(fb.colorAt(10 + 101, 10 + 12) == Color(255, 255, 255));
+    CHECK(countColour(fb, Rect(10 + 102, 10 + 2, 16, 20), black) > 0);  // the ▾ in it
+    savePng(outDir() + "/gaps-combo.png", fb);
+    w.hideWindow();
+    theme::setSkin();
+}
+
+static void testTabMarginsAndOverlap() {
+    theme::setSkin();
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(300, 200);
+    auto* tabs = w.add<TabWidget>();
+    tabs->addTab(std::make_unique<Widget>(), "One");
+    Widget* second = tabs->addTab(std::make_unique<Widget>(), "Two");
+    tabs->addTab(std::make_unique<Widget>(), "Three");
+    tabs->setGeometry(0, 0, 300, 200);
+    w.showWindow();
+    App::get().tick();
+    // default.css: side by side from the left, all as high as the bar
+    int bh = tabs->barHeight();
+    CHECK(tabs->tabRect(0).x == 0 && tabs->tabRect(1).x == tabs->tabRect(0).right() && tabs->tabRect(1).h == bh);
+    classicSheet("TabWidget::tab { padding: 2px 6px; margin: 2px 0 1px; border: 0; border-radius: 0;"
+                 " background-color: #c0c0c0; color: #000000; }"
+                 "TabWidget::tab:hover { background-color: #c0c0c0; }"
+                 "TabWidget::tab:first { margin-left: 2px; }"
+                 "TabWidget::tab:selected { padding: 3px 8px 5px; margin: 0 -2px -1px; background-color: #ffffff; }"
+                 "TabWidget::tab-line { height: 0; }"
+                 "TabWidget::base { height: 1px; background-color: #000000; }");
+    tabs->setCurrentIndex(1);
+    App::get().tick();
+    int th = style::textHeight(Font::ui());
+    int t0 = style::textWidth(Font::ui(), "One"), t1 = style::textWidth(Font::ui(), "Two");
+    int bar = th + 7;  // (2 + th + 4 + 1, or th + 8 - 1)
+    CHECK(tabs->barHeight() == bar);
+    Rect r0 = tabs->tabRect(0), r1 = tabs->tabRect(1), r2 = tabs->tabRect(2);
+    CHECK(r0 == Rect(2, 2, t0 + 12, th + 4));
+    CHECK(r1 == Rect(r0.right() - 2, 0, t1 + 16, th + 8));  // (over its neighbours by 2 px, 1 px below the bar)
+    CHECK(r2.x == r0.right() + t1 + 12 && r2.y == 2);         // (as if it weren't larger)
+    CHECK(second->geometry().y == bar);
+    const Image& fb = w.framebuffer();
+    Color white(255, 255, 255), grey(192, 192, 192), black(0, 0, 0);
+    CHECK(fb.colorAt(r0.right() - 1, 3) == white && fb.colorAt(r0.right() - 3, 3) == grey);  // (drawn last)
+    CHECK(fb.colorAt(r2.x + 1, 3) == white && fb.colorAt(r2.x + 2, 3) == grey);
+    CHECK(fb.colorAt(r1.x + 4, bar - 1) == white && fb.colorAt(r2.x + 4, bar - 1) == black);  // joined to the page
+    CHECK(fb.colorAt(1, 3) != grey && fb.colorAt(r1.x + 4, 0) == white && fb.colorAt(r0.x + 4, 0) != grey);
+    // a click where the selected tab overlaps the first: the selected one; on the first's own part: the first
+    click(w, r0.right() - 1, 5);
+    CHECK(tabs->currentIndex() == 1);
+    click(w, r0.x + 3, 5);
+    CHECK(tabs->currentIndex() == 0);
+    App::get().tick();
+    // the first selected: the larger one now
+    CHECK(tabs->tabRect(0).y == 0 && tabs->tabRect(1).y == 2 && tabs->barHeight() == bar);
+    // hovering a tab doesn't move the page
+    moveTo(w, tabs->tabRect(2).x + 3, 5);
+    CHECK(second->geometry().y == bar);
+    savePng(outDir() + "/gaps-tabs.png", fb);
+    w.hideWindow();
+    theme::setSkin();
+}
+
+static void testTitleButtonPlaces() {
+    App& app = App::get();
+    theme::setSkin();
+    app.setFramesWhenHeadless(true);
+    plat::WindowOptions o;
+    o.title = "Placed";
+    o.w = 300;
+    o.h = 100;
+    Window w(o);
+    w.showWindow();
+    TitleBar* tb = w.titleBar();
+    CHECK(tb != nullptr);
+    if (!tb) return;
+    // default.css: centred in the bar, no :first / :last look
+    Rect plain = tb->partRect(TitleBar::Close);
+    CHECK(plain.y == 0 && plain.h == TitleBar::barHeight());
+    classicSheet(":root { --title-bar-height: 30px; } TitleBar { padding: 0; }"
+                 "TitleBar::minimize, TitleBar::maximize, TitleBar::close { width: 16px; height: 14px;"
+                 " margin: 5px 0 9px 0; }"
+                 "TitleBar::minimize:first, TitleBar::maximize:first, TitleBar::close:first { width: 20px; }"
+                 "TitleBar::minimize:last, TitleBar::maximize:last, TitleBar::close:last { width: 24px; }");
+    app.tick();
+    // vertically: centred in what the margins leave (30 - 5 - 9 = 16: 1 px above the 14)
+    Rect mn = tb->partRect(TitleBar::Minimize), mx = tb->partRect(TitleBar::Maximize), cl = tb->partRect(TitleBar::Close);
+    CHECK(mn.y == 6 && mx.y == 6 && cl.y == 6 && cl.h == 14);
+    // right: minimize first, close last
+    CHECK(mn.w == 20 && mx.w == 16 && cl.w == 24 && cl.right() == 300 && mx.right() == cl.x && mn.right() == mx.x);
+    // left: close first, minimize last
+    classicSheet(":root { --title-bar-height: 30px; --title-buttons: left; } TitleBar { padding: 0; }"
+                 "TitleBar::minimize, TitleBar::maximize, TitleBar::close { width: 16px; height: 14px; margin: 0 0 4px; }"
+                 "TitleBar::minimize:first, TitleBar::maximize:first, TitleBar::close:first { width: 20px; }"
+                 "TitleBar::minimize:last, TitleBar::maximize:last, TitleBar::close:last { width: 24px; }");
+    mn = tb->partRect(TitleBar::Minimize), cl = tb->partRect(TitleBar::Close);
+    CHECK(cl.x == 0 && cl.w == 20 && mn.w == 24 && cl.y == 6);  // ((30 - 4 - 14) / 2)
+    // a window that can't be resized: no maximize (and so minimize is the last)
+    w.setResizable(false);
+    CHECK(!tb->hasButton(TitleBar::Maximize) && tb->partRect(TitleBar::Maximize).empty());
+    CHECK(tb->partRect(TitleBar::Minimize).w == 24);
+    // a modal one that can't be resized: only close, both first and last (the later rule: 24)
+    w.setModal(true);
+    CHECK(tb->partRect(TitleBar::Close).w == 24 && tb->partRect(TitleBar::Minimize).empty());
+    TitleBar::Part shown[3];
+    CHECK(tb->shownButtons(shown) == 1 && shown[0] == TitleBar::Close);
+    w.setModal(false);
+    w.hideWindow();
+    // a message box can't be resized, so it has no maximize
+    bool sawBox = false;
+    app.singleShot(30, [&] {
+        Window* top = app.modalWindow();
+        if (!top) return;
+        sawBox = true;
+        CHECK(!top->isResizable() && top->isFramed() && top->titleBar());
+        if (top->titleBar()) CHECK(!top->titleBar()->hasButton(TitleBar::Maximize));
+        key(*top, plat::Key_Escape);
+    });
+    msg::information(&w, "Note", "Nothing to resize here.");
+    CHECK(sawBox);
+    theme::setSkin();
+    app.setFramesWhenHeadless(false);
+}
+
+static void testWindowFrameRing() {
+    App& app = App::get();
+    theme::setSkin();
+    app.setFramesWhenHeadless(true);
+    plat::WindowOptions o;
+    o.title = "Ring";
+    o.w = 200;
+    o.h = 100;
+    Window w(o);
+    w.showWindow();
+    int bar = TitleBar::barHeight();
+    CHECK(w.frameInsets().left == 1 && w.frameInsets().top == 1 + bar);
+    classicSheet("Window:framed { border: 2px solid #0000ff; background-color: #c0c0c0; }"
+                 "Window:framed::frame { border: 1px solid #ff0000; padding: 2px; background-color: #00ff00; }"
+                 "Window:framed:maximized::frame { border-width: 0; padding: 0; }");
+    app.tick();
+    Window::FrameInsets f = w.frameInsets();
+    CHECK(f.left == 5 && f.right == 5 && f.bottom == 5 && f.top == 5 + bar);
+    CHECK(w.width() == 200 && w.height() == 100 && w.contentsRect() == Rect(0, 0, 200, 100));  // (its padding as it was)
+    CHECK(w.titleBar()->geometry() == Rect(0, -bar, 200, bar));
+    const Image& fb = w.framebuffer();
+    CHECK(fb.width() == 210 && fb.height() == 110 + bar);
+    Color blue(0, 0, 255), red(255, 0, 0), green(0, 255, 0), grey(192, 192, 192);
+    int midY = 5 + bar + 50;
+    CHECK(fb.colorAt(0, midY) == blue && fb.colorAt(1, midY) == blue && fb.colorAt(2, midY) == red);
+    CHECK(fb.colorAt(3, midY) == green && fb.colorAt(4, midY) == green && fb.colorAt(5, midY) == grey);  // the inside: the Window's
+    CHECK(fb.colorAt(209, midY) == blue && fb.colorAt(207, midY) == red && fb.colorAt(205, midY) == green);
+    CHECK(fb.colorAt(100, 2) == red && fb.colorAt(100, 4) == green && fb.colorAt(100, fb.height() - 4) == green);
+    CHECK(fb.colorAt(100, fb.height() - 3) == red);
+    CHECK(near(fb.colorAt(100, 5 + bar / 2), style::background(w.titleBar()->computedStyle()), 1));  // (the bar over it)
+    savePng(outDir() + "/gaps-frame-ring.png", fb);
+    // the resize band reaches over the ring
+    CHECK(w.resizeEdgeAt(Point(-5, 50)) != 0);
+    // maximized: no ring (its own states)
+    w.setWindowMaximized(true);
+    CHECK(w.frameInsets().left == 0 && w.frameInsets().top == bar);
+    w.setWindowMaximized(false);
+    CHECK(w.frameInsets().left == 5);
+    // :active restyles the window's own background (a synthetic FocusIn repaints it)
+    // (the border's colour the same both ways: only the background changes)
+    classicSheet("Window:framed { border-color: #000000; background-color: #c0c0c0; }"
+                 "Window:framed:active { border-color: #000000; background-color: #ff00ff; }");
+    app.tick();
+    Window::FrameInsets g = w.frameInsets();
+    CHECK(w.framebuffer().colorAt(g.left + 100, g.top + 50) == Color(192, 192, 192));
+    plat::Event focus;
+    focus.type = plat::Event::FocusIn;
+    w.onEvent(nullptr, focus);
+    app.tick();
+    CHECK(w.framebuffer().colorAt(g.left + 100, g.top + 50) == Color(255, 0, 255));
+    focus.type = plat::Event::FocusOut;
+    w.onEvent(nullptr, focus);
+    app.tick();
+    CHECK(w.framebuffer().colorAt(g.left + 100, g.top + 50) == Color(192, 192, 192));
+    // a ring on :active only: the insets follow the focus
+    classicSheet("Window:framed:active::frame { padding: 3px; }");
+    app.tick();
+    CHECK(w.frameInsets().left == 1);
+    focus.type = plat::Event::FocusIn;
+    w.onEvent(nullptr, focus);
+    CHECK(w.frameInsets().left == 4 && w.width() == 200 && w.height() == 100);
+    w.hideWindow();
+    theme::setSkin();
+    app.setFramesWhenHeadless(false);
+}
+
+static void testTreeLinesAndTextSelection() {
+    theme::setSkin();
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(220, 120);
+    auto* t = w.add<TreeWidget>();
+    t->setGeometry(0, 0, 200, 100);
+    TreeWidget::Node* a = t->root()->add("A");
+    TreeWidget::Node* a1 = a->add("A1");
+    a->add("A2");
+    t->root()->add("B");
+    a->filled = true;
+    t->setExpanded(a, true);
+    w.showWindow();
+    App::get().tick();
+    CHECK(t->rowCount() == 4);
+    // default.css: no lines (the white of a classic sheet's lines' places stays the list's)
+    classicSheet("TreeWidget { background-color: #ffffff; border: 0; padding: 0; }"
+                 "TreeWidget::item { height: 16px; padding: 0; color: #000000; }"
+                 "TreeWidget::item:hover { background-color: transparent; }"
+                 "TreeWidget::item:selected { background-color: transparent; color: #000000; }"
+                 "TreeWidget::text:selected { background-color: #000080; color: #ffffff; padding: 0 2px; }"
+                 "TreeWidget::branch { width: 19px; padding: 0 5px; color: #000000;"
+                 " -tiny-tree-lines: dotted; -tiny-tree-line-color: #808080; }");
+    t->setCurrent(a1);
+    App::get().tick();
+    CHECK(t->indent == 19 && t->rowHeight == 16);
+    const Image& fb = w.framebuffer();
+    Color line(128, 128, 128), white(255, 255, 255), navy(0, 0, 128);
+    // (each level's line through x = 9 of its indent; each row's middle at y = 7 of its 16; dots where x + y is even)
+    // A1 (row 1, depth 1): its own line down (A2 follows) and across; A's passing by (B follows)
+    CHECK(fb.colorAt(28, 18) == line && fb.colorAt(28, 19) == white && fb.colorAt(28, 30) == line);
+    CHECK(fb.colorAt(31, 23) == line && fb.colorAt(30, 23) == white && fb.colorAt(37, 23) == line);
+    CHECK(fb.colorAt(9, 17) == line && fb.colorAt(9, 18) == white);
+    // A2 (row 2): the last child: its line stops at its middle
+    CHECK(fb.colorAt(28, 34) == line && fb.colorAt(28, 38) == line && fb.colorAt(28, 44) == white);
+    // B (row 3, the last): A's line comes down to its middle only
+    CHECK(fb.colorAt(9, 49) == line && fb.colorAt(9, 55) == line && fb.colorAt(9, 61) == white);
+    // the selection covers A1's text only (its padding: 2 px each side)
+    int tw = style::textWidth(Font::ui(), "A1");
+    CHECK(fb.colorAt(38, 20) == navy && fb.colorAt(38 + tw + 3, 20) == navy && fb.colorAt(38 + tw + 4, 20) == white);
+    CHECK(fb.colorAt(150, 20) == white && countColour(fb, Rect(40, 16, tw, 16), white) > 0);  // (its text white)
+    savePng(outDir() + "/gaps-tree.png", fb);
+    // the focus rectangle around the text: its outline
+    classicSheet("TreeWidget { background-color: #ffffff; } TreeWidget::item { height: 16px; padding: 0; }"
+                 "TreeWidget::item:selected { background-color: transparent; }"
+                 "TreeWidget::branch { width: 19px; padding: 0 5px; }"
+                 "TreeWidget:focus::text:selected { outline: 1px solid #ff0000; }");
+    App::get().tick();
+    CHECK(countColour(fb, Rect(0, 0, 200, 100), Color(255, 0, 0)) == 0);
+    t->setFocus();
+    App::get().tick();
+    CHECK(fb.colorAt(37, 15) == Color(255, 0, 0) && fb.colorAt(38 + tw, 32) == Color(255, 0, 0));
+    w.hideWindow();
+    theme::setSkin();
+}
+
+static void testCheckBoxFocusRectangle() {
+    theme::setSkin();
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(200, 60);
+    auto* other = w.add<Button>("Other");
+    other->setGeometry(10, 36, 60, 20);
+    auto* cb = w.add<CheckBox>("Loop");
+    cb->setGeometry(10, 10, 150, 22);
+    w.showWindow();
+    App::get().tick();
+    Point plain = cb->sizeHint();
+    classicSheet("CheckBox::label { padding: 0 1px; }"
+                 "CheckBox::label:focus { outline: 1px dotted #ff0000; }");
+    CHECK(cb->computedStyle("label").raw("outline-style").empty());
+    CHECK(cb->sizeHint().x == plain.x + 2);
+    App::get().tick();
+    const Image& fb = w.framebuffer();
+    Color red(255, 0, 0);
+    CHECK(countColour(fb, Rect(10, 10, 150, 22), red) == 0);  // (not focused: none)
+    cb->setFocus();
+    App::get().tick();
+    const css::Style& ls = cb->computedStyle("label");
+    CHECK(ls.keyword("outline-style", "") == "dotted" && style::px(ls, "outline-width") == 1);
+    // the outline: 1 px outside the label's box (the text and 1 px each side), every other pixel
+    const css::Style& is = cb->computedStyle("indicator");
+    int lx = style::px(is, "width", 14) + style::px(is, "margin-right", 6);
+    int lw = style::textWidth(style::font(cb->computedStyle(), theme::uiFont()), "Loop") + 2;
+    int lh = style::textHeight(style::font(cb->computedStyle(), theme::uiFont()));
+    int ly = (22 - lh) / 2;
+    int top = countColour(fb, Rect(10 + lx - 1, 10 + ly - 1, lw + 2, 1), red);
+    CHECK(top >= (lw + 2) / 3 && top <= (lw + 2) / 2 + 2);  // (dotted: about half of them)
+    CHECK(countColour(fb, Rect(10 + lx - 1, 10 + ly + lh, lw + 2, 1), red) >= (lw + 2) / 3);
+    CHECK(countColour(fb, Rect(10 + lx - 1, 10 + ly, 1, lh), red) >= lh / 2 - 1);
+    CHECK(countColour(fb, Rect(10 + lx, 10 + ly, lw, lh), red) == 0);  // (the inside: the text)
+    savePng(outDir() + "/gaps-check-focus.png", fb);
+    other->setFocus();
+    App::get().tick();
+    CHECK(countColour(fb, Rect(10, 10, 150, 22), red) == 0);
+    // the outline shorthand: as a border's
+    classicSheet("CheckBox::label:focus { outline: thin dashed; outline-offset: 2px; }");
+    cb->setFocus();
+    const css::Style& l2 = cb->computedStyle("label");
+    CHECK(l2.keyword("outline-style", "") == "dashed" && l2.length("outline-width", 0) == 1 &&
+          l2.raw("outline-color") == "currentcolor" && style::px(l2, "outline-offset") == 2);
+    App::get().tick();
+    w.hideWindow();
+    theme::setSkin();
+}
+
 int main() {
     App::get().initHeadless();
     util::makeDirs("build/toolkit-samples");
@@ -3238,5 +3620,12 @@ int main() {
     testCssPainting();
     testCssImages();
     testTransparency();
+    testSpinButtonBoxes();
+    testComboArrowMargin();
+    testTabMarginsAndOverlap();
+    testTitleButtonPlaces();
+    testWindowFrameRing();
+    testTreeLinesAndTextSelection();
+    testCheckBoxFocusRectangle();
     TEST_MAIN_END();
 }

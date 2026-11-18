@@ -231,7 +231,7 @@ static void testScaleAndFold() {
     CHECK(!ed.scale());
     CHECK(ed.rows().size() == 128);
     CHECK(!ed.keyBox->isEnabled() && !ed.fitButton->isEnabled() && !ed.foldActions["scale"]->enabled);
-    CHECK(ed.foldButton->text() == "Fold \xe2\x96\xbe");
+    CHECK(ed.foldButton->text() == "Fold");
     // choose D major in the toolbar: saved in the song's timing
     ed.scaleBox->setCurrentIndex(ed.scaleBox->findData("Major"));
     ed.keyBox->setCurrentIndex(2);
@@ -240,7 +240,7 @@ static void testScaleAndFold() {
     CHECK(ed.keyBox->isEnabled() && ed.fitButton->isEnabled());
     // folded to the scale: only its rows, top to bottom
     ed.setFold("scale");
-    CHECK(ed.foldButton->text() == "Folded: scale \xe2\x96\xbe");
+    CHECK(ed.foldButton->text() == "Folded: scale");
     const std::vector<int>& rows = ed.rows();
     CHECK(rows.size() == 75);  // 7 of 12 pitch classes over 0…127
     bool allIn = true;
@@ -266,7 +266,7 @@ static void testScaleAndFold() {
     // fold to the notes used
     ed.setFold("used");
     CHECK(ed.rows() == (std::vector<int>{71, 67, 64, 59}));
-    CHECK(ed.foldButton->text() == "Folded: used \xe2\x96\xbe");
+    CHECK(ed.foldButton->text() == "Folded: used");
     // the scale off: fold to the scale goes too, the "In the scale" stamps too
     ed.setFold("scale");
     ed.setStamp("In the scale: triad");
@@ -285,7 +285,7 @@ static void testStamp() {
     CHECK(std::find(stamps().begin(), stamps().end(), "Octave down") == stamps().end());
     CHECK(ed.stamped(60) == std::vector<int>{60});
     ed.setStamp("Major");
-    CHECK(ed.stampButton->text() == "Major \xe2\x96\xbe");
+    CHECK(ed.stampButton->text() == "Major");
     CHECK(ed.stamped(60) == (std::vector<int>{60, 64, 67}));
     CHECK(ed.stamped(125) == (std::vector<int>{125}));  // (beyond 127: left out)
     // a click places the whole chord, all selected, the root held
@@ -308,7 +308,7 @@ static void testStamp() {
     f.project.timing.key = 0;
     ed.syncScaleTools();
     ed.setStamp("In the scale: 7th");
-    CHECK(ed.stampButton->text() == "7th \xe2\x96\xbe");
+    CHECK(ed.stampButton->text() == "7th");
     CHECK(ed.stamped(62) == (std::vector<int>{62, 65, 69, 72}));
     ed.setStamp("In the scale: triad");
     CHECK(ed.stamped(64) == (std::vector<int>{64, 67, 71}));

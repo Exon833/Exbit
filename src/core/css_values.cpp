@@ -467,6 +467,7 @@ std::map<std::string, std::vector<std::string>> makeLonghands() {
             m["border"].push_back(side + what);
         }
     }
+    m["outline"] = {"outline-width", "outline-style", "outline-color"};  // (as one side of a border)
     m["background"] = {"background-color",    "background-image",  "background-repeat",
                        "background-position", "background-size",   "background-origin",
                        "background-clip"};
@@ -770,9 +771,9 @@ std::string expand(const std::string& name, const Tokens& t, size_t b, size_t e,
         return "";
     }
     auto comps = components(t, b, e);
-    if (name == "border" || name.compare(0, 7, "border-") == 0) {
+    if (name == "border" || name.compare(0, 7, "border-") == 0 || name == "outline") {
         bool border = name == "border" || name == "border-top" || name == "border-right" || name == "border-bottom" ||
-                      name == "border-left";
+                      name == "border-left" || name == "outline";
         if (border) {
             std::string width, style, color;
             if (comps.size() > 3) return bad();

@@ -67,7 +67,43 @@ void TitleBar::styleStates(std::vector<std::string>& out) const {
     // a button's: under the pointer (and not another one held down), held down with the pointer on it
     if (hover_ == styled_ && (down_ == NoPart || down_ == styled_)) out.push_back("hover");
     if (down_ == styled_ && hover_ == styled_) out.push_back("pressed");
+    // the first and the last of the buttons it has, as they are shown from left to right (the ends of the group)
+    if (styled_ == Minimize || styled_ == Maximize || styled_ == Close) {
+        Part shown[3];
+        int n = shownButtons(shown);
+        if (n > 0 && shown[0] == styled_) out.push_back("first");
+        if (n > 0 && shown[n - 1] == styled_) out.push_back("last");
+    }
 }
+
+bool TitleBar::buttonsLeft() {
+    if (std::optional<std::string> side = theme::styles().root().variable("--title-buttons")) {
+        std::string v = *side;
+        v.erase(std::remove_if(v.begin(), v.end(), [](char ch) { return ch == ' ' || ch == '"' || ch == '\''; }), v.end());
+        return v == "left";
+    }
+    return false;
+}
+
+// the buttons it has, from left to right as shown: minimize, maximize, close on the right (close outermost); close,
+// maximize, minimize on the left
+int TitleBar::shownButtons(Part out[3]) const {
+    bool left = buttonsLeft();
+    int n = 0;
+    for (Part b : {Minimize, Maximize, Close})
+        if (hasButton(b)) out[n++] = b;
+    if (left) std::reverse(out, out + n);
+    return n;
+}
+
+namespace {
+// where a part `h` high goes in the bar's inside (from y, c high): centred in what its margin-top and margin-bottom
+// leave of it (no margins: centred in the bar)
+int partY(int y, int c, int h, const style::Insets& m) {
+    int room = c - m.top - m.bottom - h;
+    return y + m.top + (room >= 0 ? room / 2 : -((-room + 1) / 2));
+}
+}  // namespace
 
 // out[part]: each part's rect (empty: not shown). The buttons go to the side --title-buttons names (right or
 // left), close outermost; the icon to the other side; the title fills what is between (text-align: within it,
@@ -77,12 +113,7 @@ void TitleBar::layoutParts(Rect out[6]) const {
     const css::Style& st = computedStyle();
     Rect c = style::contents(rect(), st);
     if (c.w <= 0 || c.h <= 0) return;
-    bool left = false;
-    if (std::optional<std::string> side = theme::styles().root().variable("--title-buttons")) {
-        std::string v = *side;
-        v.erase(std::remove_if(v.begin(), v.end(), [](char ch) { return ch == ' ' || ch == '"' || ch == '\''; }), v.end());
-        left = v == "left";
-    }
+    bool left = buttonsLeft();
     int lo = c.x, hi = c.right();  // what is left between the two sides
     for (Part b : {Close, Maximize, Minimize}) {
         if (!hasButton(b)) continue;
@@ -90,7 +121,7 @@ void TitleBar::layoutParts(Rect out[6]) const {
         style::Insets m = style::insets(bs, "margin");
         int w = std::max(0, style::px(bs, "width", c.h));
         int h = std::min(c.h, std::max(0, style::px(bs, "height", c.h)));
-        int y = c.y + (c.h - h) / 2;
+        int y = partY(c.y, c.h, h, m);
         if (left) {
             out[b] = Rect(lo + m.left, y, w, h);
             lo += m.left + w + m.right;
@@ -103,7 +134,7 @@ void TitleBar::layoutParts(Rect out[6]) const {
         const css::Style& is = partStyle(Icon);
         style::Insets m = style::insets(is, "margin");
         int w = std::max(0, style::px(is, "width", 16)), h = std::min(c.h, std::max(0, style::px(is, "height", w)));
-        int y = c.y + (c.h - h) / 2;
+        int y = partY(c.y, c.h, h, m);
         if (left) {
             out[Icon] = Rect(hi - m.right - w, y, w, h);
             hi -= m.left + w + m.right;

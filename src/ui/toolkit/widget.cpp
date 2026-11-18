@@ -1261,17 +1261,43 @@ void Window::clipCorners(const Rect& dev) {
 
 void Window::paintBackground(Painter& p) {
     // (the painter is clipped to what is repainted; a see-through background goes over black: nothing shows
-    // through a window). Framed: its box around the frame too (its border is the frame's edge)
+    // through a window). Framed: its box around the frame too (its border is the frame's edge), and its ::frame
+    // part's ring inside that border
     const css::Style& st = computedStyle();
     Rect r = framed_ ? outerRect() : rect();
     if (hasAlpha()) {
         // see-through: what is repainted starts transparent (the desktop shows where nothing is drawn)
         fb_.fill(p.deviceClip(), Color(0, 0, 0, 0));
         if (!paintsOwnBox_) style::box(p, r, st);
+        paintFrameRing(p);
         return;
     }
     if (style::background(st).a < 255) p.fillRect(r, Color(0, 0, 0));
     style::box(p, r, st);
+    paintFrameRing(p);
+}
+
+// (framed) the ::frame part's box, from inside the Window's border to around the title bar and the inside: drawn
+// everywhere but over the inside (whose background stays the Window's), so only its ring and what is under the
+// title bar show. Nothing when the part has nothing to draw (default.css: no ::frame)
+void Window::paintFrameRing(Painter& p) {
+    if (!framed_) return;
+    const css::Style& ring = computedStyle("frame");
+    const style::BoxLook& look = style::boxLook(ring);
+    if (!look.more && look.fillOnly && look.bg.a == 0) return;
+    Rect outer = style::inside(outerRect(), style::insets(computedStyle(), "border-width"));
+    if (outer.empty()) return;
+    Rect in = rect();
+    // the four bands around the inside (above it: the ring's top and the title bar)
+    Rect bands[4] = {Rect(outer.x, outer.y, outer.w, in.y - outer.y), Rect(outer.x, in.bottom(), outer.w, outer.bottom() - in.bottom()),
+                     Rect(outer.x, in.y, in.x - outer.x, in.h), Rect(in.right(), in.y, outer.right() - in.right(), in.h)};
+    for (const Rect& band : bands) {
+        if (band.empty()) continue;
+        p.save();
+        p.setClip(band);
+        style::box(p, outer, ring);
+        p.restore();
+    }
 }
 
 // the native window's corners cut round where the frame's are (the Window's border-*-radius): framed, not
@@ -1349,11 +1375,16 @@ bool Window::wantsFrame() const {
 Window::FrameInsets Window::computeFrameInsets() const {
     FrameInsets f;
     if (!framed_ || (native_ && native_->isFullScreen())) return f;  // (full screen: nothing around it)
+    // the Window's border, then its ::frame part's border and padding (a ring inside the border, around the title
+    // bar and the inside)
     style::Insets b = style::insets(computedStyle(), "border-width");
-    f.left = std::max(0, b.left);
-    f.right = std::max(0, b.right);
-    f.bottom = std::max(0, b.bottom);
-    f.top = std::max(0, b.top) + (titleBar_ && titleBar_->isVisible() ? TitleBar::barHeight() : 0);
+    const css::Style& ring = computedStyle("frame");
+    style::Insets rb = style::insets(ring, "border-width"), rp = style::insets(ring, "padding");
+    f.left = std::max(0, b.left) + std::max(0, rb.left + rp.left);
+    f.right = std::max(0, b.right) + std::max(0, rb.right + rp.right);
+    f.bottom = std::max(0, b.bottom) + std::max(0, rb.bottom + rp.bottom);
+    f.top = std::max(0, b.top) + std::max(0, rb.top + rp.top) +
+            (titleBar_ && titleBar_->isVisible() ? TitleBar::barHeight() : 0);
     return f;
 }
 
@@ -2111,15 +2142,21 @@ void Window::onEvent(plat::Window*, const plat::Event& physical) {
     case plat::Event::FocusIn:
     case plat::Event::FocusOut: {
         bool in = e.type == plat::Event::FocusIn;
-        // (framed: :active / :inactive; the frame's border repainted only if that changes its look)
-        Color edgeWas = framed_ ? style::boxLook(computedStyle()).edge : Color();
+        // (framed: :active / :inactive; the frame repainted only if that changes its look: the Window's style (its
+        // background, its border) or its ::frame's; its insets applied again if they change)
+        std::map<std::string, std::string> lookWas, ringWas;
+        if (framed_) {
+            lookWas = computedStyle().props_;
+            ringWas = computedStyle("frame").props_;
+        }
         active_ = in;
         app.noteActive(this, in);
         if (focus_) focus_->update();
         if (framed_) {
             statesChanged();
             if (titleBar_) titleBar_->update();
-            if (!(style::boxLook(computedStyle()).edge == edgeWas)) invalidate(outerRect());
+            if (computeFrameInsets() != frame_) applyFrameInsets(isWindowMaximized() || (native_ && native_->isFullScreen()));
+            if (computedStyle().props_ != lookWas || computedStyle("frame").props_ != ringWas) invalidate(outerRect());
         }
         if (in) activated.emit();
         break;
