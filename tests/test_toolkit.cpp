@@ -3038,6 +3038,66 @@ bool premultiplied(const Image& img) {
 }
 }  // namespace
 
+// an SVG background with preserveAspectRatio="none" stretched to background-size: 2px 100% (each tile 2 px across,
+// the box's height down); without it, the drawing keeps its proportions (centred in the tile); an SVG gradient in it
+static void testCssSvgStretch() {
+    const std::string dir = "build/css-svg-stretch";
+    util::makeDirs(dir);
+    const Color canvas(0xd4, 0xd0, 0xc8);
+    // 2 x 10 view units: black on top, white below
+    const std::string body = "viewBox='0 0 2 10'><rect width='2' height='5' fill='#000000'/>"
+                             "<rect y='5' width='2' height='5' fill='#ffffff'/></svg>";
+    CHECK(util::writeFile(dir + "/stretch.svg", "<svg xmlns='http://www.w3.org/2000/svg' preserveAspectRatio='none' " + body));
+    CHECK(util::writeFile(dir + "/keep.svg", "<svg xmlns='http://www.w3.org/2000/svg' " + body));
+    CHECK(util::writeFile(dir + "/grad.svg",
+                          "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1' preserveAspectRatio='none'>"
+                          "<linearGradient id='g' x2='0' y2='1'><stop offset='0' stop-color='#ff0000'/>"
+                          "<stop offset='1' stop-color='#0000ff'/></linearGradient>"
+                          "<rect width='1' height='1' fill='url(#g)'/></svg>"));
+    css::ParseOptions o;
+    o.baseDir = dir;
+    o.checkImage = [](const std::string& path, std::string& why) { return style::imageFileOk(path, why); };
+    std::vector<css::Problem> problems;
+    css::SheetPtr sheet = css::parse(".stretch { background: url(stretch.svg) repeat-x; background-size: 2px 100% }\n"
+                                     ".keep { background: url(keep.svg) repeat-x; background-size: 2px 100% }\n"
+                                     ".grad { background: url(grad.svg) no-repeat; background-size: 100% 100% }\n",
+                                     "stretch.css", problems, o);
+    CHECK(problems.empty());
+    css::Engine engine;
+    engine.setSheets({sheet});
+    auto styleOf = [&](const char* cls) {
+        css::SimpleNode n("Box");
+        n.classes.push_back(cls);
+        return engine.compute(n);
+    };
+    for (float scale : {1.f, 1.5f}) {
+        int W = (int)(10 * scale), H = (int)(40 * scale);
+        Image img(80, 80, canvas);
+        Painter p(img, scale);
+        css::Style s = styleOf("stretch");
+        style::box(p, Rect(0, 0, 10, 40), s);
+        bool ok = true;
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+                ok = ok && img.colorAt(x, y) == (y < H / 2 ? Color(0, 0, 0) : Color(255, 255, 255));
+        CHECK(ok);
+        // kept proportions: 2 x 10 in a 2 x 40 tile, in its middle; the canvas above and below
+        Image kept(80, 80, canvas);
+        Painter q(kept, scale);
+        css::Style k = styleOf("keep");
+        style::box(q, Rect(0, 0, 10, 40), k);
+        CHECK(kept.colorAt(1, 0) == canvas && kept.colorAt(1, H - 1) == canvas &&
+              kept.colorAt(1, H / 2 - 2) == Color(0, 0, 0) && kept.colorAt(1, H / 2 + 2) == Color(255, 255, 255));
+    }
+    // a gradient stretched to a 30 x 20 box: red at the top, blue at the bottom, the same across
+    Image g(40, 30, canvas);
+    Painter p(g);
+    css::Style gs = styleOf("grad");
+    style::box(p, Rect(0, 0, 30, 20), gs);
+    CHECK(g.colorAt(0, 0).r > 240 && g.colorAt(0, 0).b < 15 && g.colorAt(29, 19).b > 240 && g.colorAt(29, 19).r < 15 &&
+          g.pixel(0, 10) == g.pixel(29, 10) && g.colorAt(30, 10) == canvas);
+}
+
 static void testTransparency() {
     App& app = App::get();
     std::vector<css::Problem> problems;
@@ -3237,6 +3297,7 @@ int main() {
     gallery();
     testCssPainting();
     testCssImages();
+    testCssSvgStretch();
     testTransparency();
     TEST_MAIN_END();
 }

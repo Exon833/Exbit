@@ -107,7 +107,19 @@ A defined part of CSS, read by Tiny DAW's own parser (`src/core/css.h`):
   gradients (the first on top). The file is found from the folder of the stylesheet that names it (also through
   a variable: `--check: url(90s/check.svg)` in a skin in `data/skins` names `data/skins/90s/check.svg`
   wherever `var(--check)` is used). PNG (any kind) and SVG (what the program's own icons use: paths, shapes,
-  groups, transforms, fills and strokes). An SVG is drawn at the screen's pixels, so it is sharp at any
+  groups, transforms, fills and strokes, `opacity`). An SVG's `viewBox` is fitted to the size it is drawn at
+  as its `preserveAspectRatio` says: `none` stretches it each way on its own (an SVG background with
+  `preserveAspectRatio="none"` and `background-size: 2px 100%` is 2 px across and as tall as the box), the
+  alignments `xMinYMin` … `xMaxYMax` with `meet` (all of it, the default `xMidYMid meet`) or `slice` (all of the
+  area, cut); nested `<svg>` elements too. Fills and strokes can be gradients, `fill="url(#id) [fallback]"`
+  naming a `<linearGradient>` (`x1 y1 x2 y2`) or `<radialGradient>` (`cx cy r`, a focal point `fx fy`, `fr`)
+  anywhere in the file: `<stop>`s with `offset` (number or %), `stop-color` and `stop-opacity` (attributes or
+  in `style`), `gradientUnits` (`objectBoundingBox`, the default: of the shape's box; `userSpaceOnUse`:
+  lengths, % of the viewBox), `gradientTransform`, `spreadMethod` (`pad`, `reflect`, `repeat`), and
+  `href` / `xlink:href` to another gradient in the file (its stops, and the attributes this one doesn't give).
+  A gradient with one stop is its colour, with none nothing; a `url()` to anything else (a pattern, another
+  file) takes the fallback colour, else nothing. Not drawn: text, `<use>`, patterns, clip paths, masks,
+  filters. An SVG is drawn at the screen's pixels, so it is sharp at any
   interface size; a PNG is drawn at its size times the interface size, pixel for pixel with
   `image-rendering: pixelated` (or `crisp-edges`: the nearest pixel, for dithered 90s pictures), smoothly
   scaled otherwise (`auto`). Each layer takes its value of these lists (repeated to the layers' number, as in

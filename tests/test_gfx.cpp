@@ -519,6 +519,200 @@ static void testSvg() {
     CHECK(t.colorAt(5, 5) == Color(1, 2, 3));
 }
 
+// preserveAspectRatio: none stretches, the alignments and meet / slice place (the root's and a nested <svg>'s)
+static void testSvgAspect() {
+    auto svg = [](const std::string& par, const std::string& body) {
+        return "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'" +
+               (par.empty() ? std::string() : " preserveAspectRatio='" + par + "'") + ">" + body + "</svg>";
+    };
+    const std::string red = "<rect width='10' height='10' fill='#ff0000'/>";
+    auto isRed = [](const Image& img, int x, int y) { return img.colorAt(x, y) == Color(255, 0, 0); };
+    auto empty = [](const Image& img, int x, int y) { return img.pixel(x, y) == 0; };
+    // 20 x 100: as written (xMidYMid meet) the 20 x 20 square in the middle; none: all of it
+    Image meet = renderSvg(svg("", red), 20, 100);
+    CHECK(empty(meet, 10, 10) && isRed(meet, 10, 40) && isRed(meet, 10, 59) && empty(meet, 10, 60) && empty(meet, 10, 90));
+    CHECK(meet.pixel(10, 50) == renderSvg(svg("xMidYMid meet", red), 20, 100).pixel(10, 50));
+    Image none = renderSvg(svg("none", red), 20, 100);
+    bool all = true;
+    for (int y = 0; y < 100; y++)
+        for (int x = 0; x < 20; x++) all = all && isRed(none, x, y);
+    CHECK(all);
+    CHECK(isRed(renderSvg(svg(" defer none ", red), 20, 100), 0, 99));
+    Image top = renderSvg(svg("xMinYMin meet", red), 20, 100), bottom = renderSvg(svg("xMaxYMax", red), 20, 100);
+    CHECK(isRed(top, 10, 0) && isRed(top, 10, 19) && empty(top, 10, 20));
+    CHECK(empty(bottom, 10, 79) && isRed(bottom, 10, 80) && isRed(bottom, 10, 99));
+    // slice: covers it all, cut; left half red, right half blue (scaled 10 times: 2 view units across, centred)
+    const std::string halves = "<rect width='5' height='10' fill='#ff0000'/><rect x='5' width='5' height='10' fill='#0000ff'/>";
+    Image slice = renderSvg(svg("xMidYMid slice", halves), 20, 100);
+    CHECK(isRed(slice, 5, 0) && isRed(slice, 9, 99) && slice.colorAt(10, 50) == Color(0, 0, 255) &&
+          slice.colorAt(19, 0) == Color(0, 0, 255));
+    Image sliceLeft = renderSvg(svg("xMinYMid slice", halves), 20, 100);
+    CHECK(isRed(sliceLeft, 19, 50));
+    Image sliceRight = renderSvg(svg("xMaxYMax slice", halves), 20, 100);
+    CHECK(sliceRight.colorAt(0, 50) == Color(0, 0, 255));
+    // wider than tall: none stretches across
+    Image wide = renderSvg(svg("none", halves), 100, 10);
+    CHECK(isRed(wide, 49, 5) && wide.colorAt(50, 5) == Color(0, 0, 255) && isRed(wide, 0, 0));
+    // a nested <svg>: its viewBox onto its width x height
+    Image nested = renderSvg(svg("", "<svg width='10' height='5' viewBox='0 0 1 1' preserveAspectRatio='none'>"
+                                     "<rect width='1' height='1' fill='#00ff00'/></svg>"), 10, 10);
+    CHECK(nested.colorAt(0, 0) == Color(0, 255, 0) && nested.colorAt(9, 4) == Color(0, 255, 0) && nested.pixel(5, 5) == 0);
+    Image nestedMeet = renderSvg(svg("", "<svg width='10' height='5' viewBox='0 0 1 1'>"
+                                         "<rect width='1' height='1' fill='#00ff00'/></svg>"), 10, 10);
+    CHECK(nestedMeet.pixel(0, 2) == 0 && nestedMeet.colorAt(5, 2) == Color(0, 255, 0) && nestedMeet.pixel(9, 2) == 0);
+}
+
+// linearGradient / radialGradient fills and strokes: stops, units, gradientTransform, spreadMethod, href, fallbacks
+static void testSvgGradients() {
+    auto doc = [](const std::string& viewBox, const std::string& body) {
+        return "<svg xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink' viewBox='" + viewBox +
+               "'>" + body + "</svg>";
+    };
+    auto near = [](Color c, int r, int g, int b, int tol) {
+        return std::abs(c.r - r) <= tol && std::abs(c.g - g) <= tol && std::abs(c.b - b) <= tol && c.a == 255;
+    };
+    const std::string bw = "<linearGradient id='g'><stop offset='0' stop-color='#000'/><stop offset='1' stop-color='#fff'/></linearGradient>";
+    // objectBoundingBox (the default): black at the left of the box to white at its right, each row the same
+    {
+        Image img = renderSvg(doc("0 0 100 10", "<defs>" + bw + "</defs><rect width='100' height='10' fill='url(#g)'/>"), 100, 10);
+        bool rising = true, rows = true;
+        for (int x = 1; x < 100; x++) rising = rising && img.colorAt(x, 5).r >= img.colorAt(x - 1, 5).r;
+        for (int y = 0; y < 10; y++)
+            for (int x = 0; x < 100; x++) rows = rows && img.pixel(x, y) == img.pixel(x, 0);
+        CHECK(rising && rows);
+        CHECK(near(img.colorAt(0, 5), 1, 1, 1, 2) && near(img.colorAt(99, 5), 254, 254, 254, 2) &&
+              near(img.colorAt(50, 5), 129, 129, 129, 2));
+        // the box of the shape, not of the drawing: a rect on the right half
+        Image half = renderSvg(doc("0 0 100 10", bw + "<rect x='50' width='50' height='10' fill='url(#g)'/>"), 100, 10);
+        CHECK(half.pixel(25, 5) == 0 && near(half.colorAt(50, 5), 3, 3, 3, 2) && near(half.colorAt(75, 5), 130, 130, 130, 3) &&
+              near(half.colorAt(99, 5), 252, 252, 252, 2));
+        // % positions, a gradient that ends half way (pad: white after it)
+        Image pct = renderSvg(doc("0 0 100 10", "<linearGradient id='p' x1='0%' x2='50%'><stop offset='0' stop-color='#000'/>"
+                                               "<stop offset='100%' stop-color='#fff'/></linearGradient>"
+                                               "<rect width='100' height='10' fill='url(#p)'/>"), 100, 10);
+        CHECK(near(pct.colorAt(25, 5), 130, 130, 130, 3) && pct.colorAt(50, 5) == Color(255, 255, 255) &&
+              pct.colorAt(99, 5) == Color(255, 255, 255));
+    }
+    // spreadMethod: x2 at the middle; at x 60 (t 1.21) repeat starts again (dark), reflect comes back (light)
+    {
+        auto spread = [&](const char* method) {
+            return renderSvg(doc("0 0 100 10", std::string("<linearGradient id='s' x2='0.5' spreadMethod='") + method +
+                                                   "'><stop offset='0' stop-color='#000'/><stop offset='1' stop-color='#fff'/>"
+                                                   "</linearGradient><rect width='100' height='10' fill='url(#s)'/>"),
+                             100, 10);
+        };
+        Image pad = spread("pad"), repeat = spread("repeat"), reflect = spread("reflect");
+        CHECK(pad.colorAt(60, 5) == Color(255, 255, 255));
+        CHECK(near(repeat.colorAt(60, 5), 54, 54, 54, 3) && near(reflect.colorAt(60, 5), 201, 201, 201, 3));
+        CHECK(near(repeat.colorAt(25, 5), 130, 130, 130, 3) && near(reflect.colorAt(25, 5), 130, 130, 130, 3));
+    }
+    // radial (the default circle: centre .5 .5, radius .5): red in the middle, blue at the edge and beyond (pad)
+    {
+        Image img = renderSvg(doc("0 0 100 100", "<radialGradient id='r'><stop offset='0' stop-color='#f00'/>"
+                                                 "<stop offset='1' stop-color='#00f'/></radialGradient>"
+                                                 "<rect width='100' height='100' fill='url(#r)'/>"), 100, 100);
+        CHECK(near(img.colorAt(50, 50), 252, 0, 3, 3) && img.colorAt(0, 0) == Color(0, 0, 255) &&
+              near(img.colorAt(75, 50), 125, 0, 130, 4) && near(img.colorAt(50, 24), 125, 0, 130, 4));
+        CHECK(img.pixel(30, 70) == img.pixel(70, 30) && img.pixel(30, 30) == img.pixel(69, 69));  // (round)
+        // an ellipse in a wide box (objectBoundingBox): t 0.5 at a quarter of the width and of the height
+        Image wide = renderSvg(doc("0 0 200 100", "<radialGradient id='r'><stop offset='0' stop-color='#f00'/>"
+                                                  "<stop offset='1' stop-color='#00f'/></radialGradient>"
+                                                  "<rect width='200' height='100' fill='url(#r)'/>"), 200, 100);
+        CHECK(near(wide.colorAt(150, 50), 125, 0, 130, 4) && near(wide.colorAt(100, 24), 125, 0, 130, 4));
+        // a focal point at the left: red there, the colours closer together on its left than on its right
+        Image focal = renderSvg(doc("0 0 100 100", "<radialGradient id='f' fx='0.2'><stop offset='0' stop-color='#f00'/>"
+                                                   "<stop offset='1' stop-color='#00f'/></radialGradient>"
+                                                   "<rect width='100' height='100' fill='url(#f)'/>"), 100, 100);
+        CHECK(near(focal.colorAt(20, 50), 250, 0, 5, 6) && focal.colorAt(10, 50).b > focal.colorAt(30, 50).b);
+        CHECK(near(focal.colorAt(60, 50), 128, 0, 127, 6));  // (half way from the focus to the edge at the right)
+        // r = 0: the last stop's colour
+        Image zero = renderSvg(doc("0 0 10 10", "<radialGradient id='z' r='0'><stop offset='0' stop-color='#f00'/>"
+                                                "<stop offset='1' stop-color='#0f0'/></radialGradient>"
+                                                "<rect width='10' height='10' fill='url(#z)'/>"), 10, 10);
+        CHECK(zero.colorAt(5, 5) == Color(0, 255, 0));
+    }
+    // userSpaceOnUse + gradientTransform: a horizontal line turned 90° (top to bottom across the drawing); the
+    // shape's box doesn't matter
+    {
+        const std::string u = "<linearGradient id='u' gradientUnits='userSpaceOnUse' x1='0' y1='0' x2='10' y2='0' "
+                               "gradientTransform='rotate(90)'><stop offset='0' stop-color='#000'/>"
+                               "<stop offset='1' stop-color='#fff'/></linearGradient>";
+        Image img = renderSvg(doc("0 0 10 10", u + "<rect width='10' height='10' fill='url(#u)'/>"), 100, 100);
+        CHECK(img.pixel(10, 3) == img.pixel(90, 3) && near(img.colorAt(50, 0), 1, 1, 1, 2) &&
+              near(img.colorAt(50, 99), 254, 254, 254, 2) && near(img.colorAt(50, 50), 129, 129, 129, 2));
+        Image part = renderSvg(doc("0 0 10 10", u + "<rect y='5' width='10' height='5' fill='url(#u)'/>"), 100, 100);
+        CHECK(part.pixel(50, 40) == 0 && part.pixel(50, 50) == img.pixel(50, 50) && part.pixel(50, 99) == img.pixel(50, 99));
+        // % of the viewport, and a transform on the shape (the gradient goes with it)
+        Image pc = renderSvg(doc("0 0 10 10", "<linearGradient id='q' gradientUnits='userSpaceOnUse' x2='100%'>"
+                                              "<stop offset='0' stop-color='#000'/><stop offset='1' stop-color='#fff'/>"
+                                              "</linearGradient><g transform='scale(0.5)'><rect width='20' height='20' "
+                                              "fill='url(#q)'/></g>"), 100, 100);
+        CHECK(near(pc.colorAt(0, 50), 1, 1, 1, 2) && near(pc.colorAt(25, 50), 128, 128, 128, 3) &&
+              pc.colorAt(60, 50) == Color(255, 255, 255));
+    }
+    // href / xlink:href: the stops of one gradient, the direction of another; attributes of the nearest
+    {
+        const std::string base = "<linearGradient id='base' x2='1'><stop offset='0' stop-color='red'/>"
+                                 "<stop offset='1' stop-color='blue'/></linearGradient>";
+        for (const char* attr : {"href", "xlink:href"}) {
+            Image img = renderSvg(doc("0 0 10 10", base + "<linearGradient id='v' " + attr +
+                                                       "='#base' x2='0' y2='1'/><rect width='10' height='10' fill='url(#v)'/>"),
+                                  100, 100);
+            CHECK(near(img.colorAt(50, 0), 254, 0, 1, 2) && near(img.colorAt(50, 99), 1, 0, 254, 2) &&
+                  img.pixel(0, 50) == img.pixel(99, 50));
+        }
+        // a radial gradient taking a linear one's stops (not its x1… attributes)
+        Image rad = renderSvg(doc("0 0 10 10", base + "<radialGradient id='rv' href='#base'/>"
+                                                    "<rect width='10' height='10' fill='url(#rv)'/>"), 100, 100);
+        CHECK(near(rad.colorAt(50, 50), 252, 0, 3, 3) && rad.colorAt(0, 0) == Color(0, 0, 255));
+        // a loop of hrefs: no stops, nothing drawn (and no hang)
+        Image loop = renderSvg(doc("0 0 10 10", "<linearGradient id='a' href='#b'/><linearGradient id='b' href='#a'/>"
+                                                "<rect width='10' height='10' fill='url(#a)'/>"), 10, 10);
+        CHECK(loop.pixel(5, 5) == 0);
+    }
+    // stops: style="stop-color…; stop-opacity…", out of order offsets (moved up to the one before: a hard stop)
+    {
+        Image img = renderSvg(doc("0 0 100 10", "<linearGradient id='o'><stop offset='0' style='stop-color: #ff0000; stop-opacity: 0.5'/>"
+                                                "<stop offset='0.5' stop-color='#ff0000' stop-opacity='50%'/>"
+                                                "<stop offset='0.2' stop-color='#0000ff'/></linearGradient>"
+                                                "<rect width='100' height='10' fill='url(#o)'/>"), 100, 10);
+        CHECK(img.pixel(10, 5) == 0x80800000u && img.colorAt(75, 5) == Color(0, 0, 255) && img.pixel(40, 5) == 0x80800000u);
+        // one stop: its colour; fill-opacity and opacity on top
+        Image one = renderSvg(doc("0 0 10 10", "<linearGradient id='one'><stop stop-color='#00ff00'/></linearGradient>"
+                                               "<rect width='10' height='10' fill='url(#one)' fill-opacity='0.5'/>"), 10, 10);
+        CHECK(one.pixel(5, 5) == 0x80008000u);
+        Image faded = renderSvg(doc("0 0 100 10", bw + "<rect width='100' height='10' fill='url(#g)' opacity='0.5'/>"), 100, 10);
+        CHECK((faded.pixel(99, 5) >> 24) == 128 && (faded.pixel(0, 5) >> 24) == 128);
+    }
+    // fallbacks: a missing reference takes the colour after it, else draws nothing; a gradient wins over it
+    {
+        auto fill = [&](const std::string& paint) {
+            return renderSvg(doc("0 0 10 10", bw + "<pattern id='pat'/><rect width='10' height='10' fill=\"" + paint + "\"/>"), 10, 10);
+        };
+        CHECK(fill("url(#missing) #00ff00").colorAt(5, 5) == Color(0, 255, 0));
+        CHECK(fill("url(#missing)").pixel(5, 5) == 0);
+        CHECK(fill("url(#pat) lime").colorAt(5, 5) == Color(0, 255, 0));  // (patterns aren't drawn)
+        CHECK(fill("url('#g') lime").colorAt(9, 5).r > 200 && fill("url(#g) lime").colorAt(0, 5).r < 30);
+        CHECK(fill("url(other.svg#g) #0000ff").colorAt(5, 5) == Color(0, 0, 255));
+        // a box with no height (a horizontal line) and objectBoundingBox: not drawn
+        Image line = renderSvg(doc("0 0 10 10", bw + "<line x1='0' y1='5' x2='10' y2='5' stroke='url(#g)' stroke-width='2'/>"), 10, 10);
+        CHECK(line.pixel(5, 5) == 0);
+    }
+    // strokes: the gradient across the shape's box (its geometry, not its stroke), only where the stroke is
+    {
+        Image img = renderSvg(doc("0 0 100 10", bw + "<rect x='10' y='2' width='80' height='6' fill='none' stroke='url(#g)' stroke-width='2'/>"), 100, 10);
+        CHECK(img.pixel(50, 5) == 0 && img.pixel(50, 0) == 0);
+        CHECK(near(img.colorAt(12, 2), 8, 8, 8, 4) && near(img.colorAt(87, 2), 247, 247, 247, 4) &&
+              near(img.colorAt(50, 7), 128, 128, 128, 4));
+        const std::string u = "<linearGradient id='u' gradientUnits='userSpaceOnUse' x1='0' x2='100'><stop offset='0' stop-color='#f00'/>"
+                              "<stop offset='1' stop-color='#00f'/></linearGradient>";
+        Image line = renderSvg(doc("0 0 100 10", u + "<line x1='0' y1='5' x2='100' y2='5' stroke='url(#u)' stroke-width='2' "
+                                                     "stroke-opacity='0.5'/>"), 100, 10);
+        CHECK(line.pixel(50, 2) == 0 && (line.pixel(5, 5) >> 24) == 128 && line.colorAt(5, 5).r > 230 &&
+              line.colorAt(95, 5).b > 230);
+    }
+}
+
 // nearest-neighbour enlargement, to look at single pixels
 static Image zoom(const Image& src, const Rect& r, int k) {
     Image out(r.w * k, r.h * k);
@@ -650,6 +844,8 @@ int main() {
     testPainter();
     testFonts();
     testSvg();
+    testSvgAspect();
+    testSvgGradients();
     samples();
     bench();
     TEST_MAIN_END();

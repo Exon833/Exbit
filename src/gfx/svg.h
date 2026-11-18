@@ -4,7 +4,15 @@
 // stroke-width / stroke-linecap / stroke-linejoin / fill-rule / opacity / fill-opacity /
 // stroke-opacity as attributes or in style="…"; colours as #rgb, #rrggbb, rgb(), named basic
 // colours, none, currentColor; transforms matrix / translate / scale / rotate / skewX / skewY.
-// Unknown elements (metadata, sodipodi:namedview, defs…) are skipped.
+// viewBox with preserveAspectRatio (none: stretched to the size asked for, each way on its own;
+// xMin|xMid|xMax + YMin|YMid|YMax, meet or slice; default xMidYMid meet), on nested <svg> too.
+// Gradients: fill / stroke="url(#id) [fallback colour]" naming a <linearGradient> (x1 y1 x2 y2) or
+// <radialGradient> (cx cy r fx fy fr) anywhere in the file: <stop offset stop-color stop-opacity>
+// (attributes or style="…"), gradientUnits (objectBoundingBox, the default, or userSpaceOnUse:
+// lengths, % of the viewBox), gradientTransform, spreadMethod pad / reflect / repeat, and href /
+// xlink:href to another gradient (its stops and attributes, where this one has none). One stop: its
+// colour; no stops: none; a reference to something else: the fallback colour, else none.
+// Unknown elements (metadata, sodipodi:namedview, defs…) are not drawn.
 #pragma once
 #include <string>
 
