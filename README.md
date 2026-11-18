@@ -46,7 +46,8 @@ extends; that program is in the repository's history.
   chain; compare two settings of one effect (Now / Kept); link any knob to a MIDI controller's knob.
 - **Projects**: templates, recent projects, backups of what each save replaces, autosave with crash
   recovery, Ableton Live set import.
-- **Look**: skins written in CSS (Dark, Light, Midnight, OLED, High contrast, or your own): every colour,
+- **Look**: skins written in CSS (Dark, Light, Midnight, OLED, High contrast; 90s, XP and 7, evoking classic
+  desktops of those years; or your own): every colour,
   font, padding, border, corner and size of the interface, edited in your text editor and shown live; interface size
   75–200 %, a sample Explorer with search and previews, a project overview.
 

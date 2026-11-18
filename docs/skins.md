@@ -21,7 +21,8 @@ A **skin** is a stylesheet put on top of `default.css`: it changes what it names
 that only sets some variables recolours everything that uses them; a skin can also change any rule. Its name
 is its `--skin-name` (else its file's name).
 
-- The program's own skins (Dark, Light, Midnight, OLED, High contrast) are in `data/skins`. Yours are in
+- The program's own skins (Dark, Light, Midnight, OLED, High contrast, and three looks of classic desktops:
+  90s, XP and 7) are in `data/skins`: each is a readable example of what a skin can do. Yours are in
   `~/.local/share/TinyDAW/skins` (Options → Skin → Open the skins folder).
 - **Options → Skin → Edit this skin…** opens the skin's stylesheet in your text editor (the one your desktop
   opens `.css` files with). One of the program's own skins is copied into your folder first, under a name you
