@@ -36,6 +36,8 @@ int main(int argc, char** argv) {
     // Options → Interface size: everything drawn this much bigger or smaller (plugins' windows aside)
     int size = prefs::interfaceScale();
     app.setScale(size / 100.f);
+    // Options → Window frames: Tiny DAW's own (drawn as the skin says) or the window manager's
+    app.setOwnFrames(prefs::ownWindowFrames());
     int rc;
     {
         // the skin is applied by the main window, before it builds anything

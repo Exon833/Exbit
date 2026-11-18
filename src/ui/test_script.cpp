@@ -106,18 +106,28 @@ struct Runner {
     void finish() {
         done = true;
         App::get().eventFilter = nullptr;
+        App::get().systemMoves = true;
     }
-    // (script coordinates are the window's logical pixels; the platform sends device pixels)
+    // (script coordinates are the window's logical pixels, from the top-left of its inside: its own frame's title
+    // bar is at negative y; the platform sends device pixels from the native window's corner, the frame's too)
     int dev(ui::Window* w, int v) { return w->toDevice(v); }
+    int devX(ui::Window* w, int x) { return w->toDevice(x) + w->toDevice(w->frameInsets().left); }
+    int devY(ui::Window* w, int y) { return w->toDevice(y) + w->toDevice(w->frameInsets().top); }
     void mouse(ui::Window* w, plat::Event::Type type, int x, int y, int button, int buttons, int mods = 0) {
         plat::Event e;
         e.type = type;
-        e.x = dev(w, x);
-        e.y = dev(w, y);
+        e.x = devX(w, x);
+        e.y = devY(w, y);
         e.button = button;
         e.buttons = buttons;
         e.mods = mods;
         send(w, e);
+    }
+    // a drag's point (x, y of the window where it began, at `from`) as the window sees it now: a real pointer stays
+    // where it is on the screen when the drag moves or resizes the window under it
+    Point onScreen(ui::Window* w, const Rect& from, int x, int y) {
+        Rect now = w->screenGeometry();
+        return Point(x + from.x - now.x, y + from.y - now.y);
     }
     void key(ui::Window* w, const ui::KeySequence& ks, const std::string& text) {
         plat::Event e;
@@ -160,8 +170,15 @@ struct Runner {
         say("windows:");
         for (ui::Window* w : app.windows()) {
             Rect g = w->screenGeometry();
-            printf("    '%s' %s%s%s %dx%d at %d,%d\n", w->title().c_str(), w->isWindowShown() ? "shown" : "hidden",
-                   w->isModal() ? " modal" : "", w->isPopup() ? " popup" : "", g.w, g.h, g.x, g.y);
+            printf("    '%s' %s%s%s%s%s%s %dx%d at %d,%d", w->title().c_str(), w->isWindowShown() ? "shown" : "hidden",
+                   w->isModal() ? " modal" : "", w->isPopup() ? " popup" : "", w->isFramed() ? " framed" : "",
+                   w->isWindowMaximized() ? " maximized" : "", w->isWindowMinimized() ? " minimized" : "", g.w, g.h,
+                   g.x, g.y);
+            if (w->isFramed()) {
+                Rect o = w->outerScreenGeometry();
+                printf(" (with its frame %dx%d at %d,%d)", o.w, o.h, o.x, o.y);
+            }
+            printf("\n");
         }
         printf("    status: %s\n", main->status->shownText().c_str());
         printf("    title: %s, sr %d, playing %d, pos %lld, device open %d\n", main->title().c_str(), main->engine.sr,
@@ -212,6 +229,14 @@ struct Runner {
             std::istringstream(rest) >> w >> h;
             main->resizeWindow(w, h);
         } else if (what == "skin") main->chooseSkin(skin::find(rest));
+        else if (what == "frames") main->setWindowFrames(rest != "system");  // Options → Window frames
+        else if (what == "maximize" || what == "restore" || what == "minimize" || what == "raise") {
+            ui::Window* w = targetWindow();  // (the target window, as its title bar's buttons; raise: to the front)
+            if (!w) return say("no target window");
+            if (what == "minimize") w->minimizeWindow();
+            else if (what == "raise") w->raiseWindow();
+            else w->setWindowMaximized(what == "maximize");
+        }
         else if (what == "midiEditor") {
             for (auto& c : main->project.clips)
                 if (c->track && c->track->kind == Kind::Midi) {
@@ -359,13 +384,16 @@ struct Runner {
             double start = plat::now(), length = std::max(1, ms) / 1000.0;
             resumeAt = start + length + 0.1;
             auto timer = std::make_shared<int>(-1);
-            *timer = App::get().every(1, [this, w, x0, y0, x1, y1, start, length, timer] {
+            Rect from = w->screenGeometry();
+            *timer = App::get().every(1, [this, w, x0, y0, x1, y1, start, length, timer, from] {
                 if (!ui::Widget::alive(w)) return App::get().cancelTimer(*timer);
                 double f = std::min(1.0, (plat::now() - start) / length);
                 int x = (int)std::lround(x0 + (x1 - x0) * f), y = (int)std::lround(y0 + (y1 - y0) * f);
-                mouse(w, plat::Event::MouseMove, x, y, 0, plat::LeftButton);
+                Point p = onScreen(w, from, x, y);
+                mouse(w, plat::Event::MouseMove, p.x, p.y, 0, plat::LeftButton);
                 if (f >= 1) {
-                    mouse(w, plat::Event::MouseUp, x1, y1, plat::LeftButton, 0);
+                    p = onScreen(w, from, x1, y1);
+                    mouse(w, plat::Event::MouseUp, p.x, p.y, plat::LeftButton, 0);
                     App::get().cancelTimer(*timer);
                 }
             });
@@ -394,17 +422,21 @@ struct Runner {
                 in >> x1 >> y1;
                 mouse(w, plat::Event::MouseMove, x, y, 0, 0);
                 mouse(w, plat::Event::MouseDown, x, y, plat::LeftButton, plat::LeftButton);
-                for (int k = 1; k <= 8 && ui::Widget::alive(w); ++k)
-                    mouse(w, plat::Event::MouseMove, x + (x1 - x) * k / 8, y + (y1 - y) * k / 8, 0, plat::LeftButton);
-                if (ui::Widget::alive(w)) mouse(w, plat::Event::MouseUp, x1, y1, plat::LeftButton, 0);
+                Rect from = w->screenGeometry();
+                for (int k = 1; k <= 8 && ui::Widget::alive(w); ++k) {
+                    Point p = onScreen(w, from, x + (x1 - x) * k / 8, y + (y1 - y) * k / 8);
+                    mouse(w, plat::Event::MouseMove, p.x, p.y, 0, plat::LeftButton);
+                }
+                Point end = ui::Widget::alive(w) ? onScreen(w, from, x1, y1) : Point();
+                if (ui::Widget::alive(w)) mouse(w, plat::Event::MouseUp, end.x, end.y, plat::LeftButton, 0);
             } else {
                 float n = 1;
                 std::string mod;
                 in >> n >> mod;
                 plat::Event e;
                 e.type = plat::Event::Wheel;
-                e.x = dev(w, x);
-                e.y = dev(w, y);
+                e.x = devX(w, x);
+                e.y = devY(w, y);
                 e.dy = n;
                 e.mods = mod == "ctrl" ? plat::ModCtrl : mod == "shift" ? plat::ModShift : mod == "alt" ? plat::ModAlt : 0;
                 send(w, e);
@@ -503,6 +535,9 @@ void startFromEnvironment(MainWindow* window) {
         return;
     }
     runner = new Runner{window, lines};
+    // (its pointer isn't the real one: a drag of a title bar or an edge moves or resizes the window by the
+    // program, not by the window manager, which would follow the real pointer)
+    App::get().systemMoves = false;
     // (the real pointer's events dropped while it runs: Runner::isPointer)
     App::get().eventFilter = [](ui::Window*, const plat::Event& e) {
         return runner && !runner->done && Runner::isPointer(e) && &e != runner->sending;

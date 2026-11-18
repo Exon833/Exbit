@@ -350,6 +350,14 @@ made from `default.css` by `tools/skins_reference.py`.
 | `--color-wheel-size` | `200px` | the colour dialog's wheel |
 | `--color-swatch-size` | `22px` | its recent colours |
 
+### Window frames sizes
+
+| Name | Default | What it is |
+|---|---|---|
+| `--title-bar-height` | `30px` | the title bar of Tiny DAW's own window frames |
+| `--title-buttons` | `right` | where its buttons are: `right` (the icon then on the left) or `left` (the icon on the right) |
+| `--window-resize-border` | `4px` | how far in from a window's edge dragging resizes it (at least its border); reaches over what is inside |
+
 <!-- end of variables -->
 
 ## Types
@@ -401,7 +409,8 @@ Each entry gives the type's own properties (what it reads besides its box), its 
 
 ### Windows and dialogs
 
-- **`Window`**: `background-color` (and its border), under its widgets. **`ToolTip`** (a `Window`): a box,
+- **`Window`**: `background-color` (and its border), under its widgets (with its own frame, `Window:framed`:
+  under the title bar too, its border around both: [Window frames](#window-frames)). **`ToolTip`** (a `Window`): a box,
   `padding`, `color`, the font. **`DragImage`**: a box; `::image` `opacity`.
 - **`Dialog`** (classes `.message-box`, `.input-dialog`), **`ProgressDialog`**: their sizes are `:root`
   variables (below). **`ButtonBox`**: `column-gap`; its buttons' `min-width` (`ButtonBox > Button`).
@@ -409,6 +418,35 @@ Each entry gives the type's own properties (what it reads besides its box), its 
   `.warning`, `.critical`.
 - **`Canvas`**: a plain drawing area (the type only).
 - **`MessageIcon`** also reads `width` and `height` (its drawing is scaled to them).
+
+### Window frames
+
+With Options → Window frames → Tiny DAW's own (the default), every window (the main window, dialogs, effect and
+plugin windows; not menus, drop-down lists or tooltips) has a frame drawn by the program, in the skin's look,
+instead of the window manager's. With The system's, the window manager draws them as for other programs; every
+window changes at once.
+
+- **`Window:framed`**: a window with its own frame. Its border (`border`, each side's width and colour) is the
+  frame's edge, drawn around the title bar and the inside; its `background-color` (and gradients) under both.
+  States **`:active`** (the keyboard focus is in it) or **`:inactive`**, and **`:maximized`** (default.css: a 1 px
+  edge of `--frame-edge`, lighter while active, none while maximized). A window without a frame has none of these
+  states, and its border is drawn inside it, as before.
+- **`TitleBar`**: the bar across the top, above the window's inside: a box (`background-color`, gradients,
+  borders, `box-shadow`, `padding`), `--title-bar-height` high. States `:active` / `:inactive` and `:maximized`
+  (the window's), `:hover` and `:pressed` (the bar's). Its parts, each with the bar's states:
+  - **`::icon`**: the window's icon, if it has one: `width`, `height`, `margin`.
+  - **`::title`**: the window's title: `color`, the font, `text-align` (`left`, `center`: across the whole bar
+    while that clears the buttons, or `right`), `margin`; a box.
+  - **`::minimize`**, **`::maximize`** (drawn as restore while the window is maximized) and **`::close`**: each a
+    box (`width`, `height`: at most the bar's, `margin`) with its glyph drawn over it in its `color`, `icon-size`
+    big and `stroke-width` thick; each its own `:hover` and `:pressed`. A modal dialog has no minimize, a window
+    that can't be resized no maximize.
+- **Where things are:** `--title-buttons: right` puts the buttons on the right (close outermost, then maximize,
+  then minimize) and the icon on the left; `left` mirrors that. The title fills what is between.
+- **What it does:** dragging the bar moves the window (the window manager moves it, so it snaps and tiles as
+  usual); a double click maximizes or restores it; a right click shows the window's menu (Minimize, Maximize or
+  Restore, Close). Close is the window manager's ✕: unsaved changes are still asked about. Dragging within
+  `--window-resize-border` of the edge (or the border, if wider) resizes the window; corners resize both ways.
 
 ### Dialogs
 
@@ -642,6 +680,23 @@ Bigger and squarer buttons, a wider track panel, a taller ruler:
 Button { border-radius: 0; }
 PushButton { padding: 6px 18px; }
 Slider::handle { width: 12px; height: 12px; border-radius: 6px; }
+```
+
+A taller title bar with its title centred, the buttons on the left as round lights, and a red edge around the
+window while it has the focus:
+
+```css
+:root { --title-bar-height: 34px; --title-buttons: left; }
+TitleBar { background-image: linear-gradient(to bottom, #3a3d44, #2b2d31); padding: 0 6px; }
+TitleBar::title { text-align: center; font-weight: bold; }
+TitleBar::close, TitleBar::maximize, TitleBar::minimize {
+    width: 14px; height: 14px; margin: 0 4px; border-radius: 7px; icon-size: 6px;
+}
+TitleBar::close { background-color: #ff5f57; color: #4d0000; }
+TitleBar::maximize { background-color: #28c840; color: #003b00; }
+TitleBar::minimize { background-color: #febc2e; color: #5a3d00; }
+TitleBar:inactive::close, TitleBar:inactive::maximize, TitleBar:inactive::minimize { background-color: #55585f; }
+Window:framed:active { border-color: #c0392b; }
 ```
 
 Solo in green, a thicker playhead, selected clips outlined:

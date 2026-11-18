@@ -672,6 +672,26 @@ void MainWindow::buildOptionsMenu() {
         sizeActions[size] = a;
     }
     sizes->aboutToShow = [this](ui::Menu*) { offerInterfaceSizes(); };
+    // whose frames the windows have: Tiny DAW's own (a title bar and border in the skin's look) or the window
+    // manager's; every window changes at once (remembered)
+    ui::Menu* frames = menu->addMenu("&Window frames");
+    bool own = prefs.windowFrames != "system";
+    ui::Action* ownFrames = frames->addCheckable("&Tiny DAW's own", own);
+    ownFrames->group = 4;
+    ownFrames->triggered = [this] { setWindowFrames(true); };
+    ownFrames->tooltip = "Every window's title bar and border are drawn by Tiny DAW, in the skin's look (the skin "
+                         "can change them: TitleBar in docs/skins.md)";
+    ui::Action* systemFrames = frames->addCheckable("The &system's", !own);
+    systemFrames->group = 4;
+    systemFrames->triggered = [this] { setWindowFrames(false); };
+    systemFrames->tooltip = "Every window's title bar and border are the window manager's, as other programs have";
+}
+
+void MainWindow::setWindowFrames(bool own) {
+    // Options → Window frames: every window changes at once (remembered)
+    prefs.windowFrames = own ? "own" : "system";
+    prefs.save();
+    App::get().setOwnFrames(own);
 }
 
 bool MainWindow::interfaceSizeFits(int size) {

@@ -32,8 +32,10 @@
 #include "ui/skin.h"
 #include "ui/theme.h"
 #include "ui/track_render.h"
+#include "ui/toolkit/frame.h"
 #include "ui/toolkit/layout.h"
 #include "ui/toolkit/menu.h"
+#include "ui/toolkit/style.h"
 #include "ui/wine_prefixes_dialog.h"
 #include "ui/wine_setup.h"
 
@@ -1296,6 +1298,120 @@ static void testHistoryWindow() {
     CHECK(!w.isWindowShown());
 }
 
+// Tiny DAW's own window frames (forced on without a display): a program's dialog keeps its inside (its size, its
+// widgets' places, every pixel of it) with the title bar above it and the border around; clicks still land where
+// they did; every built-in skin's bar is legible (its title and buttons against the bar)
+static void testFramedDialogs() {
+    const int sr = 48000;
+    Project p;
+    auto a = p.addTrack(Kind::Audio);
+    history::History h(p, sr);
+    a->volumeDb = -3;
+    h.check(sr);
+    a->pan = 0.5;
+    h.check(sr);
+    Image plain;
+    Rect listAt;
+    int pw = 0, ph = 0;
+    {
+        HistoryWindow w(nullptr, h, [](int) {});
+        w.open();
+        CHECK(!w.isFramed());
+        App::get().doLayouts();
+        w.update();
+        App::get().tick();
+        plain = w.framebuffer();
+        listAt = w.list->geometry();
+        pw = w.width();
+        ph = w.height();
+        w.reject();
+    }
+    App::get().setFramesWhenHeadless(true);
+    util::makeDirs("build/ui-samples/frames");
+    {
+        int jumps = 0;
+        HistoryWindow w(nullptr, h, [&](int position) {
+            jumps++;
+            h.jumpTo(position, sr);
+        });
+        w.open();
+        App::get().doLayouts();
+        w.update();
+        App::get().tick();
+        Window::FrameInsets f = w.frameInsets();
+        CHECK(w.isFramed() && f.top > TitleBar::barHeight() - 1 && w.width() == pw && w.height() == ph);
+        CHECK(w.list->geometry() == listAt);
+        const Image& fb = w.framebuffer();
+        CHECK(fb.width() == pw + f.left + f.right && fb.height() == ph + f.top + f.bottom);
+        int differ = 0;
+        for (int y = 0; y < ph && fb.height() >= ph + f.top; ++y)
+            for (int x = 0; x < pw && fb.width() >= pw + f.left; ++x)
+                if (fb.pixel(x + f.left, y + f.top) != plain.pixel(x, y)) ++differ;
+        CHECK(differ == 0);
+        savePng("build/ui-samples/frames/history.png", fb);
+        // a click on a row lands on it (the platform's positions count from the frame's corner)
+        Point at = w.list->mapToWindow(Point(20, 0 * w.list->rowHeight + w.list->rowHeight / 2));
+        at = Point(at.x + f.left, at.y + f.top);
+        w.onEvent(nullptr, mouseEv(plat::Event::MouseMove, at.x, at.y, 0, 0));
+        w.onEvent(nullptr, mouseEv(plat::Event::MouseDown, at.x, at.y, plat::LeftButton, 0));
+        w.onEvent(nullptr, mouseEv(plat::Event::MouseUp, at.x, at.y, plat::LeftButton, plat::LeftButton));
+        CHECK(jumps == 1 && w.list->currentRow() == 0);
+        // its close button: the dialog's Close (rejected)
+        TitleBar* tb = w.titleBar();
+        Rect cl = tb->partRect(TitleBar::Close);
+        Point c(cl.x + cl.w / 2 + f.left, cl.y + cl.h / 2 + tb->y() + f.top);
+        w.onEvent(nullptr, mouseEv(plat::Event::MouseMove, c.x, c.y, 0, 0));
+        w.onEvent(nullptr, mouseEv(plat::Event::MouseDown, c.x, c.y, plat::LeftButton, 0));
+        w.onEvent(nullptr, mouseEv(plat::Event::MouseUp, c.x, c.y, plat::LeftButton, plat::LeftButton));
+        CHECK(!w.isWindowShown() && w.result() == Dialog::Rejected);
+    }
+    // every built-in skin: the title and the buttons' glyphs stand out from the bar, active and inactive
+    auto luminance = [](Color c) {
+        auto lin = [](int v) {
+            double s = v / 255.0;
+            return s <= 0.03928 ? s / 12.92 : std::pow((s + 0.055) / 1.055, 2.4);
+        };
+        return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
+    };
+    auto contrast = [&](Color a, Color b) {
+        double la = luminance(a), lb = luminance(b);
+        return (std::max(la, lb) + 0.05) / (std::min(la, lb) + 0.05);
+    };
+    for (const char* name : {"Dark", "Light", "Midnight", "OLED", "High contrast", "90s", "XP", "7"}) {
+        skin::Skin s = skin::find(name);
+        CHECK(s.name == name);
+        skin::apply(s);
+        App::get().repaintAll();
+        HistoryWindow w(nullptr, h, [](int) {});
+        w.open();
+        for (bool active : {false, true}) {
+            plat::Event focus;
+            focus.type = active ? plat::Event::FocusIn : plat::Event::FocusOut;
+            w.onEvent(nullptr, focus);
+            TitleBar* tb = w.titleBar();
+            Color bg = ui::style::background(tb->computedStyle());
+            CHECK(bg.a == 255);
+            Color title = ui::style::foreground(tb->computedStyle("title"));
+            Color glyph = ui::style::foreground(tb->computedStyle("close"));
+            double need = active ? 4.5 : 3.0;  // (an inactive window's title may be dimmer)
+            CHECK(contrast(title, bg) >= need && contrast(glyph, bg) >= need);
+            if (contrast(title, bg) < need || contrast(glyph, bg) < need)
+                printf("  %s (%s): the title bar's contrast %.2f / %.2f\n", name, active ? "active" : "inactive",
+                       contrast(title, bg), contrast(glyph, bg));
+            App::get().doLayouts();
+            w.update();
+            App::get().tick();
+            std::string file = name;
+            for (auto& ch : file) ch = ch == ' ' ? '-' : (char)std::tolower((unsigned char)ch);
+            savePng("build/ui-samples/frames/" + file + (active ? "-active" : "-inactive") + ".png", w.framebuffer());
+        }
+        w.reject();
+    }
+    skin::apply(skin::find("Dark"));
+    App::get().repaintAll();
+    App::get().setFramesWhenHeadless(false);
+}
+
 // the hint line: the status bar shows the first line of the tooltip under the pointer
 static void testHintLine() {
     Window w{plat::WindowOptions{}};
@@ -1490,6 +1606,7 @@ int main() {
     testHighContrast();
     testWinePrefixesDialog();
     testHistoryWindow();
+    testFramedDialogs();
     testHintLine();
     // the dialogs in another skin
     skin::apply(skin::find("Light"));

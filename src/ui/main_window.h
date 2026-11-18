@@ -200,6 +200,7 @@ public:
     bool interfaceSizeFits(int size);
     void offerInterfaceSizes();
     void setInterfaceScale(int size);
+    void setWindowFrames(bool own);  // Options → Window frames: Tiny DAW's own, or the system's
     void addMidiOptions(ui::Menu* menu); // Options: Recording offset…, MIDI input…, Computer keyboard
 
     // --- skins ---

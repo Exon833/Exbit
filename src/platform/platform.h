@@ -46,6 +46,8 @@ struct Event {
         Expose,                         // the window must be redrawn (present again)
         Close,                          // the user asked to close it (title bar ✕)
         DragEnter, DragMove, DragLeave, Drop,  // files dragged from the desktop: x, y, files (paths)
+        StateChanged,                   // the window manager maximized, restored, minimized it or made it full
+                                        // screen (isMaximized(), isMinimized(), isFullScreen() say what it is now)
     };
     Type type = None;
     int x = 0, y = 0;      // window coordinates (Move: screen coordinates)
@@ -82,7 +84,12 @@ struct WindowOptions {
     bool offscreen = false;       // mapped far outside every screen, never shown (photographing plugin windows)
     int minW = 0, minH = 0;
     std::string iconSvg;          // optional: the window's icon, as SVG text
+    bool decorated = true;        // false: the window manager draws no frame around it (no title bar, no
+                                  // border: the program draws its own, ui::Window's title bar)
 };
+
+// the edges of a window a resize drags (beginMoveResize): one, or two for a corner; none: a move
+enum Edge : int { EdgeNone = 0, EdgeLeft = 1, EdgeRight = 2, EdgeTop = 4, EdgeBottom = 8 };
 
 class Window {
 public:
@@ -104,6 +111,26 @@ public:
     virtual void setMaximized(bool on) = 0;
     virtual bool isMaximized() const = 0;
     virtual void setFullScreen(bool on) = 0;
+    virtual bool isFullScreen() const { return false; }
+    virtual void minimize() {}                           // to the taskbar (iconified)
+    virtual bool isMinimized() const { return false; }
+    // with (false) or without the window manager's frame (WindowOptions::decorated), at once
+    virtual void setDecorated(bool on) { (void)on; }
+    // The window manager moves the window (edges: EdgeNone) or resizes it by those edges, following the
+    // pointer while `button` (a MouseButton) is held, as when its own title bar or border is dragged: it
+    // snaps and tiles it. screenPos: the pointer, in screen coordinates. Call it from a press (or a move with
+    // the button held); the program gets no more events of that button. False if the window manager can't
+    // (no _NET_WM_MOVERESIZE): then the program moves or resizes it itself.
+    virtual bool beginMoveResize(int edges, Point screenPos, int button) {
+        (void)edges, (void)screenPos, (void)button;
+        return false;
+    }
+    // A window inside this one covering `area` (client coordinates), for a plugin's view to be put into
+    // (instead of nativeHandle(), when the program draws something of its own around it: its title bar):
+    // made on the first call (shown), moved and sized on the later ones; an empty area hides it (until the
+    // next call with one). Its native handle. What is embedded in it is treated as embedded in this window
+    // (XEmbed's focus); its size is the program's to keep (the plugin asks for one through its own API).
+    virtual uintptr_t embedArea(const Rect& area) { (void)area; return nativeHandle(); }
     virtual bool hasFocus() const = 0;
     virtual void setCursor(Cursor c) = 0;
     // shows `fb` (the size of the client area) on screen; only `dirty` needs updating

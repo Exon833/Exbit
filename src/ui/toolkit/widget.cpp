@@ -9,6 +9,7 @@
 #include <unordered_set>
 
 #include "ui/theme.h"
+#include "ui/toolkit/frame.h"
 #include "ui/toolkit/layout.h"
 #include "ui/toolkit/style.h"
 
@@ -554,7 +555,7 @@ void Widget::update(const Rect& area) {
     while (c->parent_) {
         if (!c->visible_) return;
         r = r.translated(c->geom_.x, c->geom_.y);
-        if (c->parent_->clipsChildren_) r = r.intersected(c->parent_->rect());
+        if (c->parent_->clipsChildren_ && !c->inFrame_) r = r.intersected(c->parent_->rect());
         if (r.empty()) return;
         c = c->parent_;
     }
@@ -856,19 +857,30 @@ Window::Window(const plat::WindowOptions& opts) : Widget(nullptr), opts_(opts) {
     scale_ = app.scale();
     hgeom_ = Rect(opts.x < 0 ? 100 : opts.x, opts.y < 0 ? 100 : opts.y, std::max(1, opts.w), std::max(1, opts.h));
     title_ = opts.title;
-    physW_ = toDevice(std::max(1, opts.w));
-    physH_ = toDevice(std::max(1, opts.h));
+    // its own frame (the title bar above the inside, the border around): the native window that much bigger
+    if (wantsFrame()) {
+        framed_ = true;
+        titleBar_ = std::make_unique<TitleBar>(this);
+        titleBar_->setParentInternal(this);
+        titleBar_->inFrame_ = true;
+        frame_ = computeFrameInsets();
+    }
+    FrameInsets d = deviceFrame();
+    physW_ = toDevice(std::max(1, opts.w)) + d.left + d.right;
+    physH_ = toDevice(std::max(1, opts.h)) + d.top + d.bottom;
     if (!app.headless()) {
         plat::WindowOptions o = opts;  // (in screen pixels)
         o.w = physW_;
         o.h = physH_;
-        if (o.x >= 0) o.x = app.toScreen(o.x);
-        if (o.y >= 0) o.y = app.toScreen(o.y);
-        o.minW = toDevice(o.minW);
-        o.minH = toDevice(o.minH);
+        if (o.x >= 0) o.x = app.toScreen(o.x) - d.left;
+        if (o.y >= 0) o.y = app.toScreen(o.y) - d.top;
+        if (o.minW > 0) o.minW = toDevice(o.minW) + d.left + d.right;
+        if (o.minH > 0) o.minH = toDevice(o.minH) + d.top + d.bottom;
+        o.decorated = !framed_;
         native_ = plat::Window::create(o, this);
     }
     setGeometry(0, 0, std::max(1, opts.w), std::max(1, opts.h));
+    placeTitleBar();
     app.addWindow(this);
 }
 
@@ -888,26 +900,30 @@ void Window::setScale(float s) {
     scale_ = s;
     resizeWindow(w, h);
     Point m = minimumSize();
-    if (native_ && (m.x > 0 || m.y > 0)) native_->setMinimumSize(toDevice(m.x), toDevice(m.y));
-    invalidate(rect());
+    if (native_ && (m.x > 0 || m.y > 0)) setNativeMinimum(m.x, m.y);
+    invalidate(outerRect());
 }
 
+// (the native window's events: in device pixels, from its top-left corner; the frame's insets taken off, so
+// positions are the inside's, the title bar's negative)
 plat::Event Window::toLogical(const plat::Event& e) const {
-    if (scale_ == 1 && App::get().scale() == 1) return e;
+    FrameInsets d = deviceFrame();
+    bool framed = d.left || d.top || d.right || d.bottom;
+    if (scale_ == 1 && App::get().scale() == 1 && !framed) return e;
     plat::Event le = e;
     auto div = [](int v, double s) { return (int)std::floor(v / s); };
     switch (e.type) {
     case plat::Event::Move:  // (screen coordinates)
-        le.x = App::get().fromScreen(e.x);
-        le.y = App::get().fromScreen(e.y);
+        le.x = App::get().fromScreen(e.x + d.left);
+        le.y = App::get().fromScreen(e.y + d.top);
         break;
     case plat::Event::Resize:
-        le.w = std::max(1, (int)std::lround(e.w / (double)scale_));
-        le.h = std::max(1, (int)std::lround(e.h / (double)scale_));
+        le.w = std::max(1, (int)std::lround((e.w - d.left - d.right) / (double)scale_));
+        le.h = std::max(1, (int)std::lround((e.h - d.top - d.bottom) / (double)scale_));
         break;
     default:
-        le.x = div(e.x, scale_);
-        le.y = div(e.y, scale_);
+        le.x = div(e.x - d.left, scale_);
+        le.y = div(e.y - d.top, scale_);
         break;
     }
     return le;
@@ -925,6 +941,7 @@ Window::~Window() {
         children_.pop_back();
         c.reset();
     }
+    titleBar_.reset();  // (its frame's: not one of the children)
     focus_ = hover_ = grab_ = nullptr;
     app.removeWindow(this);
     native_.reset();
@@ -933,17 +950,20 @@ Window::~Window() {
 void Window::setTitle(const std::string& t) {
     title_ = t;
     if (native_) native_->setTitle(t);
+    if (titleBar_) titleBar_->update();
 }
 
 void Window::showWindow() {
     App& app = App::get();
+    // (its style type is its class's by now: Dialog…; maximized or full screen, the window manager keeps its size)
+    if (framed_) applyFrameInsets(isWindowMaximized() || (native_ && native_->isFullScreen()));
     relayout();
     app.doLayouts();
     if (layout()) {
         Point m = layout()->minimumSize();
         Point mn = minimumSize();
         int mw = std::max(m.x, mn.x), mh = std::max(m.y, mn.y);
-        if (native_ && (mw > 0 || mh > 0) && !opts_.popup) native_->setMinimumSize(toDevice(mw), toDevice(mh));
+        if (native_ && (mw > 0 || mh > 0) && !opts_.popup) setNativeMinimum(mw, mh);
     }
     bool was = shown_;
     shown_ = true;
@@ -955,7 +975,7 @@ void Window::showWindow() {
         app.closeAllPopups();
     }
     if (!focus_ && opts_.dialog) focusNext(true);
-    invalidate(rect());
+    invalidate(outerRect());
     if (!was) {
         filterEvent("show");
         showEvent();
@@ -970,6 +990,8 @@ void Window::hideWindow() {
     if (native_) native_->hide();
     setHover(nullptr);
     releaseGrab();
+    edgeHover_ = 0;
+    frameDrag_ = FrameDrag();
     if (app.drag() && app.dragTarget() && isAncestorOf(app.dragTarget())) app.endDrag();
     active_ = false;
     app.noteActive(this, false);
@@ -994,21 +1016,26 @@ void Window::resizeWindow(int w, int h) {
     h = std::max(1, h);
     hgeom_.w = w;
     hgeom_.h = h;
-    physW_ = toDevice(w);
-    physH_ = toDevice(h);
+    FrameInsets d = deviceFrame();
+    physW_ = toDevice(w) + d.left + d.right;
+    physH_ = toDevice(h) + d.top + d.bottom;
     if (native_) native_->resize(physW_, physH_);
     setGeometry(0, 0, w, h);
+    placeTitleBar();
 }
 
 void Window::moveWindow(int x, int y) {
     hgeom_.x = x;
     hgeom_.y = y;
-    if (native_) native_->move(App::get().toScreen(x), App::get().toScreen(y));
+    FrameInsets d = deviceFrame();
+    if (native_) native_->move(App::get().toScreen(x) - d.left, App::get().toScreen(y) - d.top);
 }
 
 Rect Window::screenGeometry() const {
     if (native_) {
         Rect g = native_->geometry();
+        FrameInsets d = deviceFrame();
+        g = Rect(g.x + d.left, g.y + d.top, g.w - d.left - d.right, g.h - d.top - d.bottom);
         if (!g.empty()) {
             App& app = App::get();
             if (app.scale() == 1) return g;
@@ -1021,20 +1048,28 @@ Rect Window::screenGeometry() const {
 
 void Window::setMinimumWindowSize(int w, int h) {
     setMinimumSize(w, h);
-    if (native_) native_->setMinimumSize(toDevice(w), toDevice(h));
+    if (native_) setNativeMinimum(w, h);
+}
+
+void Window::setNativeMinimum(int w, int h) {
+    if (!native_) return;
+    FrameInsets d = deviceFrame();
+    native_->setMinimumSize(toDevice(w) + d.left + d.right, toDevice(h) + d.top + d.bottom);
 }
 
 void Window::centerOn(Window* other) {
     Rect area;
-    if (other && other->isWindowShown()) area = other->screenGeometry();
+    if (other && other->isWindowShown()) area = other->outerScreenGeometry();
     else area = App::get().screenAt(App::get().cursorPos());
-    int x = area.x + (area.w - width()) / 2, y = area.y + (area.h - height()) / 2;
+    // (the whole window, its frame too, centred and on the screen)
+    int ow = width() + frame_.left + frame_.right, oh = height() + frame_.top + frame_.bottom;
+    int x = area.x + (area.w - ow) / 2, y = area.y + (area.h - oh) / 2;
     Rect scr = App::get().screenAt(Point(area.x + area.w / 2, area.y + area.h / 2));
     if (!scr.empty()) {
-        x = std::max(scr.x, std::min(x, scr.right() - width()));
-        y = std::max(scr.y, std::min(y, scr.bottom() - height()));
+        x = std::max(scr.x, std::min(x, scr.right() - ow));
+        y = std::max(scr.y, std::min(y, scr.bottom() - oh));
     }
-    moveWindow(x, y);
+    moveWindow(x + frame_.left, y + frame_.top);
 }
 
 void Window::setFocusWidget(Widget* w) {
@@ -1059,54 +1094,323 @@ void Window::setFocusWidget(Widget* w) {
 
 void Window::flush() {
     if (!shown_) return;
+    // (the framebuffer is the whole native window: the frame around the inside, frame_ / deviceFrame(); its
+    // painter is moved by the frame's insets, so the inside is painted at (0, 0) as without one)
+    FrameInsets fd = deviceFrame();
+    bool framed = fd.left || fd.top || fd.right || fd.bottom;
+    Rect outer = outerRect();
     if (scale_ != 1) {
         // device pixels: the native window's size (logical × scale, give or take the rounding)
-        int fw = native_ ? std::max(1, physW_) : std::max(1, toDevice(width()));
-        int fh = native_ ? std::max(1, physH_) : std::max(1, toDevice(height()));
+        int fw = native_ ? std::max(1, physW_) : std::max(1, toDevice(width()) + fd.left + fd.right);
+        int fh = native_ ? std::max(1, physH_) : std::max(1, toDevice(height()) + fd.top + fd.bottom);
         if (fb_.width() != fw || fb_.height() != fh) {
             fb_.resize(fw, fh);
             fb_.fill(style::background(computedStyle()));
-            dirty_ = rect();
+            dirty_ = outer;
         }
         if (dirty_.empty()) return;
-        Rect d = dirty_.intersected(rect());
+        Rect d = dirty_.intersected(outer);
         dirty_ = Rect();
         if (d.empty()) return;
         Painter p(fb_, scale_);
+        if (framed) p.translate(fd.left / scale_, fd.top / scale_);
         p.setClip(d);
         paintBackground(p);
+        paintFrame(p, d);
         paintTree(p, d);
-        if (native_) native_->present(fb_, toDeviceRect(d).intersected(fb_.rect()));
+        if (native_) native_->present(fb_, toDeviceRect(d).translated(fd.left, fd.top).intersected(fb_.rect()));
         return;
     }
-    if (fb_.width() != width() || fb_.height() != height()) {
-        fb_.resize(std::max(1, width()), std::max(1, height()));
-        dirty_ = rect();
+    if (fb_.width() != outer.w || fb_.height() != outer.h) {
+        fb_.resize(std::max(1, outer.w), std::max(1, outer.h));
+        dirty_ = outer;
     }
     if (dirty_.empty()) return;
-    Rect d = dirty_.intersected(rect());
+    Rect d = dirty_.intersected(outer);
     dirty_ = Rect();
     if (d.empty()) return;
     Painter p(fb_);
+    if (framed) p.translate((float)fd.left, (float)fd.top);
     p.setClip(d);
     paintBackground(p);
+    paintFrame(p, d);
     paintTree(p, d);
-    if (native_) native_->present(fb_, d);
+    if (native_) native_->present(fb_, d.translated(fd.left, fd.top));
 }
 
 void Window::paintBackground(Painter& p) {
     // (the painter is clipped to what is repainted; a see-through background goes over black: nothing shows
-    // through a window)
+    // through a window). Framed: its box around the frame too (its border is the frame's edge)
     const css::Style& st = computedStyle();
-    if (style::background(st).a < 255) p.fillRect(rect(), Color(0, 0, 0));
-    style::box(p, rect(), st);
+    Rect r = framed_ ? outerRect() : rect();
+    if (style::background(st).a < 255) p.fillRect(r, Color(0, 0, 0));
+    style::box(p, r, st);
+}
+
+void Window::paintFrame(Painter& p, const Rect& dirty) {
+    if (!titleBar_ || !titleBar_->isVisible()) return;
+    Rect g = titleBar_->geometry();
+    if (!dirty.intersects(titleBar_->paintRect().translated(g.x, g.y))) return;
+    p.save();
+    p.translate((float)g.x, (float)g.y);
+    titleBar_->paintTree(p, dirty.translated(-g.x, -g.y));
+    p.restore();
 }
 
 void Window::invalidate(const Rect& r) {
     // (at a fractional scale a logical pixel's edge falls inside a device pixel, and anti-aliased
     // drawing reaches a little beyond its widget: one more pixel around, so nothing stale is left)
     Rect a = scale_ == 1 || scale_ == std::floor(scale_) ? r : Rect(r.x - 1, r.y - 1, r.w + 2, r.h + 2);
-    dirty_ = dirty_.united(a.intersected(rect()));
+    dirty_ = dirty_.united(a.intersected(outerRect()));
+}
+
+// ---------------------------------------------------------------------------------------------------
+// the frame (isFramed)
+
+bool Window::wantsFrame() const {
+    return !opts_.popup && !opts_.offscreen && App::get().framesDrawn();
+}
+
+Window::FrameInsets Window::computeFrameInsets() const {
+    FrameInsets f;
+    if (!framed_ || (native_ && native_->isFullScreen())) return f;  // (full screen: nothing around it)
+    style::Insets b = style::insets(computedStyle(), "border-width");
+    f.left = std::max(0, b.left);
+    f.right = std::max(0, b.right);
+    f.bottom = std::max(0, b.bottom);
+    f.top = std::max(0, b.top) + (titleBar_ && titleBar_->isVisible() ? TitleBar::barHeight() : 0);
+    return f;
+}
+
+Window::FrameInsets Window::deviceFrame() const {
+    if (scale_ == 1) return frame_;
+    FrameInsets d;
+    d.left = toDevice(frame_.left);
+    d.top = toDevice(frame_.top);
+    d.right = toDevice(frame_.right);
+    d.bottom = toDevice(frame_.bottom);
+    return d;
+}
+
+Rect Window::outerRect() const {
+    return Rect(-frame_.left, -frame_.top, width() + frame_.left + frame_.right, height() + frame_.top + frame_.bottom);
+}
+
+Rect Window::outerScreenGeometry() const {
+    // (the frame's insets are this window's logical pixels; global ones are App::scale()'s: a plugin's window, at
+    // scale 1, has a smaller frame in them when the interface is bigger)
+    Rect g = screenGeometry();
+    double k = scale_ / (double)App::get().scale();
+    auto c = [k](int v) { return k == 1 ? v : (int)std::lround(v * k); };
+    int l = c(frame_.left), t = c(frame_.top), r = c(frame_.right), b = c(frame_.bottom);
+    return Rect(g.x - l, g.y - t, g.w + l + r, g.h + t + b);
+}
+
+void Window::placeTitleBar() {
+    if (!titleBar_) return;
+    int h = TitleBar::barHeight();
+    titleBar_->setGeometry(0, -h, width(), h);
+}
+
+// the frame's insets as they should be now (on, off, the stylesheets' sizes, full screen): applied. keepOuter: the
+// native window keeps its size, the inside takes what is left (the window manager decides it: maximized, full
+// screen, or about to be restored); else the inside keeps its size, the native window grows or shrinks
+void Window::applyFrameInsets(bool keepOuter) {
+    FrameInsets n = computeFrameInsets();
+    if (n == frame_) {
+        placeTitleBar();
+        return;
+    }
+    FrameInsets old = frame_;
+    frame_ = n;
+    FrameInsets d = deviceFrame();
+    if (keepOuter) {
+        int ow = width() + old.left + old.right, oh = height() + old.top + old.bottom;
+        int w = std::max(1, ow - n.left - n.right), h = std::max(1, oh - n.top - n.bottom);
+        if (native_ && physW_ > 0 && physH_ > 0) {  // (the native size as it is: exactly)
+            w = std::max(1, (int)std::lround((physW_ - d.left - d.right) / (double)scale_));
+            h = std::max(1, (int)std::lround((physH_ - d.top - d.bottom) / (double)scale_));
+        }
+        hgeom_.w = w;
+        hgeom_.h = h;
+        setGeometry(0, 0, w, h);
+        placeTitleBar();
+    } else {
+        resizeWindow(width(), height());  // (the native window: the inside's size and the new frame)
+    }
+    Point m = minimumSize();
+    if (layout()) {
+        Point lm = layout()->minimumSize();
+        m = Point(std::max(m.x, lm.x), std::max(m.y, lm.y));
+    }
+    if (native_ && !opts_.popup) setNativeMinimum(m.x, m.y);
+    invalidate(outerRect());
+    frameChanged();
+}
+
+void Window::updateFrame() {
+    bool want = wantsFrame();
+    bool toggled = want != framed_;
+    Rect was = screenGeometry();
+    if (want != framed_) {
+        framed_ = want;
+        edgeHover_ = 0;
+        frameDrag_ = FrameDrag();
+        if (want) {
+            titleBar_ = std::make_unique<TitleBar>(this);
+            titleBar_->setParentInternal(this);
+            titleBar_->inFrame_ = true;
+        } else {
+            if (hover_ && titleBar_ && titleBar_->isAncestorOf(hover_)) setHover(nullptr);
+            if (grab_ && titleBar_ && titleBar_->isAncestorOf(grab_)) releaseGrab();
+            titleBar_.reset();
+        }
+        if (native_) native_->setDecorated(!want);
+        statesChanged();
+    }
+    if (framed_ || frame_ != FrameInsets()) {
+        bool keepOuter = isWindowMaximized() || (native_ && native_->isFullScreen());
+        applyFrameInsets(keepOuter);
+        // (turned on or off: the inside stays where it was on the screen, the frame grows or goes around it)
+        if (toggled && !keepOuter && shown_) moveWindow(was.x, was.y);
+        invalidate(outerRect());
+    }
+}
+
+void Window::styleStates(std::vector<std::string>& out) const {
+    Widget::styleStates(out);
+    if (!framed_) return;
+    out.push_back("framed");
+    out.push_back(active_ ? "active" : "inactive");
+    if (isWindowMaximized()) out.push_back("maximized");
+}
+
+bool Window::isWindowMaximized() const { return native_ ? native_->isMaximized() : maximizedHeadless_; }
+
+bool Window::isWindowMinimized() const { return native_ ? native_->isMinimized() : minimizedHeadless_; }
+
+void Window::minimizeWindow() {
+    App::get().frameAction.emit(this, "minimize");
+    if (native_) native_->minimize();
+    else minimizedHeadless_ = true;
+}
+
+void Window::setWindowMaximized(bool on) {
+    App::get().frameAction.emit(this, on ? "maximize" : "restore");
+    if (native_) native_->setMaximized(on);
+    else maximizedHeadless_ = on;
+    frameStateChanged();
+}
+
+// maximized, restored, minimized (by the frame, or the window manager: Event::StateChanged)
+void Window::frameStateChanged() {
+    edgeHover_ = 0;
+    frameDrag_ = FrameDrag();
+    if (!framed_) return;
+    applyFrameInsets(true);  // (maximized: the stylesheets may take the border off)
+    statesChanged();
+    if (titleBar_) titleBar_->update();
+    invalidate(outerRect());  // (:maximized, its border)
+    applyCursor();
+}
+
+void Window::setResizable(bool on) {
+    opts_.resizable = on;
+    if (native_) native_->setResizable(on);
+    if (titleBar_) titleBar_->update();
+}
+
+int Window::resizeEdgeAt(Point p) const {
+    if (!framed_ || !opts_.resizable || isWindowMaximized() || (native_ && native_->isFullScreen())) return 0;
+    Rect o = outerRect();
+    if (!o.contains(p)) return 0;
+    int band = std::max({theme::metric("window-resize-border", 4), frame_.left, frame_.right, frame_.bottom,
+                         frame_.top - (titleBar_ && titleBar_->isVisible() ? TitleBar::barHeight() : 0)});
+    if (band <= 0) return 0;
+    int corner = std::max(band * 3, 16);  // (how far along an edge its corner reaches)
+    bool l = p.x < o.x + band, r = p.x >= o.right() - band, t = p.y < o.y + band, b = p.y >= o.bottom() - band;
+    if (!(l || r || t || b)) return 0;
+    if (l || r) {
+        if (p.y < o.y + corner) t = true;
+        else if (p.y >= o.bottom() - corner) b = true;
+    }
+    if (t || b) {
+        if (p.x < o.x + corner) l = true;
+        else if (p.x >= o.right() - corner) r = true;
+    }
+    if (l && r) r = false;  // (a window narrower than two bands)
+    if (t && b) b = false;
+    return (l ? plat::EdgeLeft : 0) | (r ? plat::EdgeRight : 0) | (t ? plat::EdgeTop : 0) | (b ? plat::EdgeBottom : 0);
+}
+
+bool Window::beginSystemMove(Point globalPos) {
+    App& app = App::get();
+    app.frameAction.emit(this, "move");
+    if (!native_ || !app.systemMoves) return false;
+    if (!native_->beginMoveResize(plat::EdgeNone, Point(app.toScreen(globalPos.x), app.toScreen(globalPos.y)),
+                                  plat::LeftButton))
+        return false;
+    releaseGrab();  // (the window manager has the pointer: no release comes here)
+    applyCursor();
+    return true;
+}
+
+bool Window::beginSystemResize(int edges, Point globalPos) {
+    App& app = App::get();
+    app.frameAction.emit(this, "resize");
+    if (!native_ || !app.systemMoves) return false;
+    return native_->beginMoveResize(edges, Point(app.toScreen(globalPos.x), app.toScreen(globalPos.y)), plat::LeftButton);
+}
+
+// a resize by the band without the window manager's help: the inside's new geometry from where the pointer is
+void Window::resizeByHand(Point g) {
+    int edges = frameDrag_.edges;
+    Rect r = frameDrag_.geom;
+    Point d = g - frameDrag_.start;
+    Point m = minimumSize();
+    if (layout()) {
+        Point lm = layout()->minimumSize();
+        m = Point(std::max(m.x, lm.x), std::max(m.y, lm.y));
+    }
+    int minW = std::max(m.x, 1), minH = std::max(m.y, 1);
+    int x = r.x, y = r.y, w = r.w, h = r.h;
+    if (edges & plat::EdgeLeft) {
+        w = std::max(minW, r.w - d.x);
+        x = r.right() - w;
+    } else if (edges & plat::EdgeRight) {
+        w = std::max(minW, r.w + d.x);
+    }
+    if (edges & plat::EdgeTop) {
+        h = std::max(minH, r.h - d.y);
+        y = r.bottom() - h;
+    } else if (edges & plat::EdgeBottom) {
+        h = std::max(minH, r.h + d.y);
+    }
+    Point mx = maximumSize();
+    w = std::min(w, std::max(minW, mx.x));
+    h = std::min(h, std::max(minH, mx.y));
+    if (w != width() || h != height()) resizeWindow(w, h);
+    if (x != r.x || y != r.y || (edges & (plat::EdgeLeft | plat::EdgeTop))) moveWindow(x, y);
+}
+
+// where the pointer is on the screen, for moving or resizing the window by hand: the system's own pointer (an
+// event's position is the window's as it was when the event was made, and the window is moving under it), or,
+// without a display or from the test script (App::systemMoves off: its pointer is the events'), the last event's
+Point Window::framePointer() const {
+    App& app = App::get();
+    if (native_ && app.systemMoves) return app.cursorPos();
+    return app.lastCursor_;
+}
+
+Widget* Window::widgetAt(Point p) {
+    if (titleBar_ && titleBar_->isVisible() && titleBar_->geometry().contains(p)) {
+        Rect g = titleBar_->geometry();
+        Widget* w = titleBar_->childAt(p - Point(g.x, g.y));
+        return w ? w : titleBar_.get();
+    }
+    if (!rect().contains(p)) return nullptr;
+    Widget* w = childAt(p);
+    return w ? w : this;
 }
 
 bool Window::blockedByModal() const {
@@ -1127,11 +1431,23 @@ void Window::releaseGrab() {
     heldButtons_ = 0;
 }
 
+namespace {
+Cursor edgeCursor(int edges) {
+    bool l = edges & plat::EdgeLeft, r = edges & plat::EdgeRight, t = edges & plat::EdgeTop, b = edges & plat::EdgeBottom;
+    if ((t && l) || (b && r)) return Cursor::SizeFDiag;
+    if ((t && r) || (b && l)) return Cursor::SizeBDiag;
+    if (l || r) return Cursor::SizeHor;
+    return Cursor::SizeVer;
+}
+}  // namespace
+
 void Window::applyCursor() {
     Widget* w = grab_ ? grab_ : hover_;
     Cursor c = Cursor::Arrow;
     for (; w; w = w->parent_)
         if (w->cursorSet_) { c = w->cursor_; break; }
+    if (frameDrag_.edges) c = edgeCursor(frameDrag_.edges);
+    else if (edgeHover_ && !grab_) c = edgeCursor(edgeHover_);
     App& app = App::get();
     if (app.drag() && app.dragSource_ && app.dragSource_->window() == this)
         c = app.dragTarget_ && app.dragAccepted_ ? Cursor::Arrow : Cursor::Forbidden;
@@ -1166,12 +1482,7 @@ void Window::setHover(Widget* w) {
 }
 
 void Window::updateHover(Point p, const plat::Event& e) {
-    Widget* w = nullptr;
-    if (rect().contains(p)) {
-        w = childAt(p);
-        if (!w) w = this;
-    }
-    setHover(w);
+    setHover(widgetAt(p));
 }
 
 namespace {
@@ -1218,6 +1529,44 @@ void Window::dispatchMouse(const plat::Event& e) {
         app.dragFinish(app.lastCursor_, e.mods, true);
         // the source still gets its release (so it forgets its press)
     }
+    // the frame's resize band (isFramed): over the edges of what is inside, before the widgets get the pointer
+    if (framed_) {
+        if (frameDrag_.edges) {  // (a resize by hand: no _NET_WM_MOVERESIZE)
+            if (e.type == plat::Event::MouseMove && (e.buttons & plat::LeftButton)) {
+                resizeByHand(framePointer());
+                return;
+            }
+            if (e.type == plat::Event::MouseUp || e.type == plat::Event::MouseMove) {
+                frameDrag_ = FrameDrag();
+                edgeHover_ = 0;
+                applyCursor();
+                if (e.type == plat::Event::MouseUp) return;
+            }
+        }
+        if (!grab_ && !app.drag()) {
+            int edges = resizeEdgeAt(p);
+            if (e.type == plat::Event::MouseMove && e.buttons == 0) {
+                if (edges != edgeHover_) {
+                    edgeHover_ = edges;
+                    if (edges) {
+                        setHover(nullptr);
+                        app.hideToolTip();
+                    }
+                    applyCursor();
+                }
+                if (edges) return;
+            } else if (e.type == plat::Event::MouseDown && edges) {
+                app.hideToolTip();
+                if (e.button == plat::LeftButton && !beginSystemResize(edges, app.lastCursor_)) {
+                    frameDrag_.edges = edges;
+                    frameDrag_.start = framePointer();
+                    frameDrag_.geom = screenGeometry();
+                    applyCursor();
+                }
+                return;
+            }
+        }
+    }
     switch (e.type) {
     case plat::Event::MouseDown: {
         app.hideToolTip();
@@ -1225,7 +1574,7 @@ void Window::dispatchMouse(const plat::Event& e) {
         Widget* target = grab_;
         if (!target) {
             updateHover(p, e);
-            target = childAt(p);
+            target = widgetAt(p);
             if (!target) target = this;
         }
         double dct = app.headless() ? 0.4 : plat::doubleClickTime();
@@ -1351,7 +1700,7 @@ void Window::dispatchWheel(const plat::Event& e) {
     if (blockedByModal()) return;
     app.hideToolTip();
     Point p(e.x, e.y);
-    Widget* target = childAt(p);
+    Widget* target = widgetAt(p);
     if (!target) target = this;
     Rect sg = screenGeometry();
     for (Widget* w = target; w;) {
@@ -1576,32 +1925,43 @@ void Window::onEvent(plat::Window*, const plat::Event& physical) {
         app.hintLeave(this);
         break;
     case plat::Event::FocusIn:
-        active_ = true;
-        app.noteActive(this, true);
+    case plat::Event::FocusOut: {
+        bool in = e.type == plat::Event::FocusIn;
+        // (framed: :active / :inactive; the frame's border repainted only if that changes its look)
+        Color edgeWas = framed_ ? style::boxLook(computedStyle()).edge : Color();
+        active_ = in;
+        app.noteActive(this, in);
         if (focus_) focus_->update();
-        activated.emit();
+        if (framed_) {
+            statesChanged();
+            if (titleBar_) titleBar_->update();
+            if (!(style::boxLook(computedStyle()).edge == edgeWas)) invalidate(outerRect());
+        }
+        if (in) activated.emit();
         break;
-    case plat::Event::FocusOut:
-        active_ = false;
-        app.noteActive(this, false);
-        if (focus_) focus_->update();
-        break;
+    }
     case plat::Event::Resize:
         if (e.w > 0 && e.h > 0 && (e.w != width() || e.h != height())) {
             hgeom_.w = e.w;
             hgeom_.h = e.h;
             setGeometry(0, 0, e.w, e.h);
-            invalidate(rect());
+            placeTitleBar();
+            invalidate(outerRect());
         } else if (scale_ != 1 && (fb_.width() != physW_ || fb_.height() != physH_)) {
-            invalidate(rect());  // (the same logical size, another device size: a new framebuffer)
+            invalidate(outerRect());  // (the same logical size, another device size: a new framebuffer)
+        } else if (framed_ && (fb_.width() != physW_ || fb_.height() != physH_)) {
+            invalidate(outerRect());  // (the inside's size as it was, the frame's another: maximized)
         }
+        break;
+    case plat::Event::StateChanged:
+        frameStateChanged();
         break;
     case plat::Event::Move:
         hgeom_.x = e.x;
         hgeom_.y = e.y;
         break;
     case plat::Event::Expose:
-        invalidate(rect());
+        invalidate(outerRect());
         break;
     case plat::Event::Close:
         if (opts_.popup) break;
@@ -1667,6 +2027,24 @@ void App::frameTimer() {
     doLayouts();
     for (Window* w : std::vector<Window*>(windows_))
         if (std::find(windows_.begin(), windows_.end(), w) != windows_.end()) w->flush();
+}
+
+// every window's frame as the option says (one going may take others with it: its title bar's menu)
+void App::updateFrames() {
+    for (Window* w : std::vector<Window*>(windows_))
+        if (std::find(windows_.begin(), windows_.end(), w) != windows_.end()) w->updateFrame();
+}
+
+void App::setOwnFrames(bool on) {
+    if (on == ownFrames_) return;
+    ownFrames_ = on;
+    updateFrames();
+}
+
+void App::setFramesWhenHeadless(bool on) {
+    if (on == headlessFrames_) return;
+    headlessFrames_ = on;
+    updateFrames();
 }
 
 void App::initHeadless() {
@@ -1808,6 +2186,7 @@ Window* App::modalWindow() const {
 }
 
 void App::repaintAll() {
+    updateFrames();  // (the frames' sizes: the skin's)
     for (Window* w : windows_) {
         w->update();
         std::function<void(Widget*)> all = [&](Widget* x) {
@@ -1823,7 +2202,7 @@ Window* App::windowAt(Point g) const {
     Window* best = nullptr;
     for (Window* w : windows_) {
         if (!w->isWindowShown() || w == tip_.get() || w == dragPic_.get()) continue;
-        if (!w->screenGeometry().contains(g)) continue;
+        if (!w->outerScreenGeometry().contains(g)) continue;
         if (!best || w->showSerial_ > best->showSerial_) best = w;
     }
     return best;
