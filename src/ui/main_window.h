@@ -150,6 +150,7 @@ public:
     ui::Action* scopeAction = nullptr;  // Options → Master scope
     ui::Menu* skinMenu = nullptr;
     ui::Action* roundedAction = nullptr;
+    ui::Action* transparencyAction = nullptr;  // Options → Window frames → Transparency
     ui::Action* undoAction = nullptr;
     ui::Action* redoAction = nullptr;
     std::map<int, ui::Action*> sizeActions;  // Options → Interface size (%)
@@ -201,6 +202,8 @@ public:
     void offerInterfaceSizes();
     void setInterfaceScale(int size);
     void setWindowFrames(bool own);  // Options → Window frames: Tiny DAW's own, or the system's
+    void setTransparency(bool on);   // Options → Window frames → Transparency
+    void offerTransparency();        // …enabled only while a compositing manager runs
     void addMidiOptions(ui::Menu* menu); // Options: Recording offset…, MIDI input…, Computer keyboard
 
     // --- skins ---

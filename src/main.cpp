@@ -38,6 +38,8 @@ int main(int argc, char** argv) {
     app.setScale(size / 100.f);
     // Options → Window frames: Tiny DAW's own (drawn as the skin says) or the window manager's
     app.setOwnFrames(prefs::ownWindowFrames());
+    // Options → Window frames → Transparency: see-through windows while a compositing manager runs
+    app.setTransparency(prefs::transparentWindows());
     int rc;
     {
         // the skin is applied by the main window, before it builds anything

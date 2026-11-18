@@ -51,6 +51,7 @@ public:
     explicit MenuPopup(Menu* m) : menu(m) {
         setStyleType("Menu");
         setMouseTracking(true);
+        paintsOwnBox_ = true;
     }
     ~MenuPopup() override {
         if (subTimer >= 0) App::get().cancelTimer(subTimer);
@@ -125,6 +126,15 @@ public:
         for (size_t i = 0; i < rects.size(); ++i)
             if (!rects[i].empty() && rects[i].contains(p)) return (int)i;
         return -1;
+    }
+
+    // a disabled item's tooltip (Action::tooltip): why it can't be chosen now
+    std::string toolTipAt(Point p) const override {
+        int i = itemAt(p);
+        auto& acts = menu->actions();
+        if (i < 0 || i >= (int)acts.size()) return "";
+        const Action* a = acts[i].get();
+        return a->enabled || a->separator || a->section ? std::string() : a->tooltip;
     }
 
     void paint(Painter& p) override {
@@ -227,6 +237,7 @@ public:
         Menu* sm = a->submenu;
         if (sm->aboutToShow) sm->aboutToShow(sm);
         if (sm->isEmpty()) return;
+        if (sm->popup_ && !sm->popup_->isOpen() && sm->popup_->madeOpaque()) sm->popup_.reset();  // (made again)
         if (!sm->popup_) sm->popup_ = std::make_unique<MenuPopup>(sm);
         MenuPopup* c = sm->popup_.get();
         c->owner = owner;
@@ -472,6 +483,7 @@ bool Menu::contains(const Action* a) const {
 void Menu::show(Point at, const Rect* anchor, Widget* owner) {
     if (aboutToShow) aboutToShow(this);
     if (actions_.empty()) return;
+    if (popup_ && !popup_->isOpen() && popup_->madeOpaque()) popup_.reset();  // (see-through now: made again)
     if (!popup_) popup_ = std::make_unique<MenuPopup>(this);
     MenuPopup* p = popup_.get();
     if (p->isOpen()) p->closeChain();

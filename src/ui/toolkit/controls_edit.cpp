@@ -889,6 +889,7 @@ public:
     explicit ComboPopup(ComboBox* c) : combo(c) {
         setStyleType("ComboPopup");
         setMouseTracking(true);
+        paintsOwnBox_ = true;
         bar = add<ScrollBar>(Orientation::Vertical);
         bar->setVisible(false);
         bar->valueChanged.connect([this](int v) {
@@ -1256,6 +1257,7 @@ void ComboBox::hidePopup() {
 
 void ComboBox::showPopup() {
     if (count() == 0 || !isEnabled()) return;
+    if (popup_ && !popup_->isOpen() && popup_->madeOpaque()) popup_.reset();  // (see-through now: made again)
     if (!popup_) popup_ = std::make_unique<ComboPopup>(this);
     popup_->openFor();
 }

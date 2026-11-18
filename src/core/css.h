@@ -65,7 +65,8 @@
 // [blur [spread]] [colour] (the colour: currentColor when left out); text-shadow the same without inset and
 // spread. Style::shadows(). border-style and border-top-style…: none hidden solid dashed dotted double groove
 // ridge inset outset; a side whose style is none or hidden has a width of 0 (Style::length, edges). opacity:
-// a number or a percentage (the whole node: Widget::paintTree). declaresOnNodes() tells whether a sheet sets a
+// a number or a percentage (the whole node: Widget::paintTree). backdrop-filter: none or blur(<length>), only that
+// filter (Style::backdropBlur; a window's, ui/toolkit). declaresOnNodes() tells whether a sheet sets a
 // property at all. Transition hints, conic gradients and url() images are not supported (reported).
 //
 // PROBLEMS. Nothing in a stylesheet stops it loading: a rule, declaration or value that can't be read is
@@ -233,6 +234,8 @@ public:
         Rgba color;
     };
     std::vector<Shadow> shadows(const std::string& property) const;
+    // backdrop-filter: blur(<length>)'s length in px (0: none, not set, or another filter)
+    double backdropBlur() const;
     // every custom property's value (--name -> text, var() resolved)
     const std::map<std::string, std::string>& variables() const { return vars_; }
     std::optional<std::string> variable(const std::string& name) const;  // "--lane" or "lane"

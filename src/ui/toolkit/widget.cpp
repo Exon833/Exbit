@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <map>
 #include <unordered_set>
 
 #include "ui/theme.h"
@@ -466,6 +467,8 @@ std::shared_ptr<const css::Style> Widget::styleShared(const std::string& part) c
     styleStates(states);
     std::string key;
     for (auto& s : states) key += s + " ";
+    // (and its id: objectName is often set after the widget was made, when its style may have been looked up already)
+    if (!objectName.empty()) key += "#" + objectName;
     // the parent's style first (it is what this one inherits from, and changes with the parent's own states)
     std::shared_ptr<const css::Style> up = parent_ ? parent_->styleShared("") : nullptr;
     int gen = engine.generation();
@@ -649,7 +652,10 @@ void Widget::startDrag(const DragData& data, const Image* picture) {
         // (style type DragImage: its box, and ::image's opacity)
         struct Pic : Window {
             Image img;
-            explicit Pic(const plat::WindowOptions& o) : Window(o) { setStyleType("DragImage"); }
+            explicit Pic(const plat::WindowOptions& o) : Window(o) {
+                setStyleType("DragImage");
+                paintsOwnBox_ = true;
+            }
             void paint(Painter& p) override {
                 style::box(p, rect(), computedStyle());
                 float opacity = (float)computedStyle("image").number("opacity", 1);
@@ -810,7 +816,10 @@ namespace {
 // font-*); default.css: a 1 px edge and 4 px of padding)
 class TipWindow : public Window {
 public:
-    explicit TipWindow(const plat::WindowOptions& o) : Window(o) { setStyleType("ToolTip"); }
+    explicit TipWindow(const plat::WindowOptions& o) : Window(o) {
+        setStyleType("ToolTip");
+        paintsOwnBox_ = true;
+    }
     std::string text;
     // its size for that text
     Point measure(const std::string& text) const {
@@ -868,7 +877,7 @@ Window::Window(const plat::WindowOptions& opts) : Widget(nullptr), opts_(opts) {
     FrameInsets d = deviceFrame();
     physW_ = toDevice(std::max(1, opts.w)) + d.left + d.right;
     physH_ = toDevice(std::max(1, opts.h)) + d.top + d.bottom;
-    if (!app.headless()) {
+    if (!app.headless() || app.nativeWindowFactory) {
         plat::WindowOptions o = opts;  // (in screen pixels)
         o.w = physW_;
         o.h = physH_;
@@ -877,7 +886,7 @@ Window::Window(const plat::WindowOptions& opts) : Widget(nullptr), opts_(opts) {
         if (o.minW > 0) o.minW = toDevice(o.minW) + d.left + d.right;
         if (o.minH > 0) o.minH = toDevice(o.minH) + d.top + d.bottom;
         o.decorated = !framed_;
-        native_ = plat::Window::create(o, this);
+        native_ = app.headless() ? app.nativeWindowFactory(o, this) : plat::Window::create(o, this);
     }
     setGeometry(0, 0, std::max(1, opts.w), std::max(1, opts.h));
     placeTitleBar();
@@ -955,8 +964,10 @@ void Window::setTitle(const std::string& t) {
 
 void Window::showWindow() {
     App& app = App::get();
-    // (its style type is its class's by now: Dialog…; maximized or full screen, the window manager keeps its size)
+    // (its style type is its class's by now: Dialog…; maximized or full screen, the window manager keeps its size.
+    // A popup: room for its shadow while see-through)
     if (framed_) applyFrameInsets(isWindowMaximized() || (native_ && native_->isFullScreen()));
+    else if (opts_.popup) applyFrameInsets(false);
     relayout();
     app.doLayouts();
     if (layout()) {
@@ -1117,8 +1128,10 @@ void Window::flush() {
         p.setClip(d);
         paintBackground(p);
         paintFrame(p, d);
-        paintTree(p, d);
-        if (native_) native_->present(fb_, toDeviceRect(d).translated(fd.left, fd.top).intersected(fb_.rect()));
+        paintContents(p, d);
+        Rect dev = toDeviceRect(d).translated(fd.left, fd.top).intersected(fb_.rect());
+        if (framed_ && hasAlpha()) clipCorners(dev);
+        if (native_) native_->present(fb_, dev);
         return;
     }
     if (fb_.width() != outer.w || fb_.height() != outer.h) {
@@ -1134,8 +1147,116 @@ void Window::flush() {
     p.setClip(d);
     paintBackground(p);
     paintFrame(p, d);
-    paintTree(p, d);
+    paintContents(p, d);
+    if (framed_ && hasAlpha()) clipCorners(d.translated(fd.left, fd.top).intersected(fb_.rect()));
     if (native_) native_->present(fb_, d.translated(fd.left, fd.top));
+}
+
+// its widgets. Its own `opacity` is the native window's while transparency is on (the compositing manager fades
+// it: _NET_WM_WINDOW_OPACITY), so they are drawn at full opacity; else (no native window, transparency off) as
+// any widget's: in a layer over its background
+void Window::paintContents(Painter& p, const Rect& d) {
+    if (!native_) {
+        paintTree(p, d);
+        return;
+    }
+    bool own = App::get().transparency();
+    float o = own && nodeLooks().opacity ? style::boxLook(computedStyle()).opacity : 1.f;
+    if (o != opacitySent_) {
+        native_->setOpacity(o);
+        opacitySent_ = o;
+    }
+    if (own) paintSelf(p, d);
+    else paintTree(p, d);
+}
+
+bool Window::hasAlpha() const {
+    if (native_) return native_->hasAlpha();
+    const App& app = App::get();
+    return app.headless() && app.headlessAlpha_ && app.transparency_;
+}
+
+bool Window::madeOpaque() const {
+    const App& app = App::get();
+    return native_ && !native_->hasAlpha() && app.transparency() && app.transparencyAvailable();
+}
+
+Window::FrameInsets Window::nativeInsets() const {
+    FrameInsets n;
+    n.left = frame_.left + shadow_.left;
+    n.top = frame_.top + shadow_.top;
+    n.right = frame_.right + shadow_.right;
+    n.bottom = frame_.bottom + shadow_.bottom;
+    return n;
+}
+
+// (see-through popups) room around the inside for its style's outer box-shadows: as far as they reach (paintRect)
+Window::FrameInsets Window::computeShadowInsets() const {
+    FrameInsets f;
+    if (!opts_.popup || opts_.offscreen || !hasAlpha()) return f;
+    Rect pr = paintRect();
+    const int most = 128;  // (a shadow reaching farther is cut there)
+    f.left = std::min(most, std::max(0, -pr.x));
+    f.top = std::min(most, std::max(0, -pr.y));
+    f.right = std::min(most, std::max(0, pr.right() - width()));
+    f.bottom = std::min(most, std::max(0, pr.bottom() - height()));
+    return f;
+}
+
+namespace {
+// how much of each pixel of a corner square of radius r lies inside its quarter circle (0…255, 4×4 samples), the
+// top-left corner's (the others mirrored); kept per radius
+const std::vector<uint8_t>& cornerCoverage(int r) {
+    static std::map<int, std::vector<uint8_t>> cache;
+    auto it = cache.find(r);
+    if (it != cache.end()) return it->second;
+    std::vector<uint8_t> c((size_t)r * r);
+    double rr = (double)r * r;
+    for (int y = 0; y < r; y++)
+        for (int x = 0; x < r; x++) {
+            int in = 0;
+            for (int j = 0; j < 4; j++)
+                for (int i = 0; i < 4; i++) {
+                    double dx = r - (x + (i + 0.5) / 4), dy = r - (y + (j + 0.5) / 4);
+                    if (dx * dx + dy * dy <= rr) in++;
+                }
+            c[(size_t)y * r + x] = (uint8_t)((in * 255 + 8) / 16);
+        }
+    if (cache.size() > 64) cache.clear();
+    return cache.emplace(r, std::move(c)).first->second;
+}
+}  // namespace
+
+// (see-through, framed) nothing outside the rounded corners of its frame (shapeRadii_: the Window's border-*-radius,
+// as the opaque window's shape cuts them), whatever was drawn there (a title bar's square corners, a skin's shadow):
+// each pixel's alpha at most how much of it is inside, anti-aliased against the desktop. Only in `dev` (repainted)
+void Window::clipCorners(const Rect& dev) {
+    int W = fb_.width(), H = fb_.height();
+    for (int k = 0; k < 4; k++) {
+        int r = std::min({shapeRadii_[k], W / 2, H / 2});
+        if (r <= 0) continue;
+        bool right = k == 1 || k == 2, bottom = k == 2 || k == 3;
+        Rect sq(right ? W - r : 0, bottom ? H - r : 0, r, r);
+        Rect a = sq.intersected(dev);
+        if (a.empty()) continue;
+        const std::vector<uint8_t>& cov = cornerCoverage(r);
+        for (int y = a.y; y < a.bottom(); y++) {
+            int cy = bottom ? H - 1 - y : y;
+            uint32_t* row = fb_.row(y);
+            for (int x = a.x; x < a.right(); x++) {
+                int cx = right ? W - 1 - x : x;
+                uint32_t c = cov[(size_t)cy * r + cx], px = row[x], al = px >> 24;
+                if (al <= c) continue;
+                if (!c) {
+                    row[x] = 0;
+                    continue;
+                }
+                // (premultiplied: every channel scaled by c / alpha, the colour kept)
+                auto ch = [&](int sh) { return (((px >> sh) & 255u) * c + al / 2) / al; };
+                row[x] = (c << 24) | (ch(16) << 16) | (ch(8) << 8) | ch(0);
+            }
+        }
+    }
 }
 
 void Window::paintBackground(Painter& p) {
@@ -1143,23 +1264,61 @@ void Window::paintBackground(Painter& p) {
     // through a window). Framed: its box around the frame too (its border is the frame's edge)
     const css::Style& st = computedStyle();
     Rect r = framed_ ? outerRect() : rect();
+    if (hasAlpha()) {
+        // see-through: what is repainted starts transparent (the desktop shows where nothing is drawn)
+        fb_.fill(p.deviceClip(), Color(0, 0, 0, 0));
+        if (!paintsOwnBox_) style::box(p, r, st);
+        return;
+    }
     if (style::background(st).a < 255) p.fillRect(r, Color(0, 0, 0));
     style::box(p, r, st);
 }
 
 // the native window's corners cut round where the frame's are (the Window's border-*-radius): framed, not
 // maximized, Options → Rounded corners on; else square (checked on each frame paint: a skin change shows there)
+// See-through, the same radii cut the corners of where it can be clicked (a popup's: its box's, inside the room for
+// its shadow, which clicks go through), and blur behind it (backdrop-filter on it, or on its title bar) is asked.
 void Window::updateShape() {
-    if (!native_) return;
+    if (!native_) {
+        if (framed_ && hasAlpha() && theme::rounded && !isWindowMaximized()) {  // (tests: clipCorners)
+            css::Edges e = computedStyle().radii(css::Edges());
+            double v[4] = {e.top, e.right, e.bottom, e.left};
+            for (int i = 0; i < 4; i++) shapeRadii_[i] = (int)std::lround(std::max(0.0, v[i]) * scale_);
+        } else {
+            std::fill(shapeRadii_, shapeRadii_ + 4, 0);
+        }
+        return;
+    }
+    bool alpha = native_->hasAlpha();
+    bool popup = opts_.popup && alpha;
     int r[4] = {0, 0, 0, 0};
-    if (framed_ && theme::rounded && !isWindowMaximized() && !native_->isFullScreen()) {
+    if ((framed_ || popup) && theme::rounded && !isWindowMaximized() && !native_->isFullScreen()) {
         css::Edges e = computedStyle().radii(css::Edges());
         double v[4] = {e.top, e.right, e.bottom, e.left};
         for (int i = 0; i < 4; i++) r[i] = (int)std::lround(std::max(0.0, v[i]) * scale_);
     }
-    if (std::equal(r, r + 4, shapeRadii_)) return;
-    std::copy(r, r + 4, shapeRadii_);
-    native_->setCornerRadii(r[0], r[1], r[2], r[3]);
+    if (!std::equal(r, r + 4, shapeRadii_)) {
+        std::copy(r, r + 4, shapeRadii_);
+        native_->setCornerRadii(r[0], r[1], r[2], r[3]);
+    }
+    FrameInsets d = deviceFrame();
+    Rect input = popup ? Rect(d.left, d.top, toDevice(width()), toDevice(height())) : Rect();
+    if (!(input == inputSent_)) {
+        inputSent_ = input;
+        native_->setInputArea(input);
+    }
+    // the blur: all of it (the Window's backdrop-filter), or the frame's top (its TitleBar's)
+    bool on = false;
+    Rect area;
+    if (alpha) {
+        if (computedStyle().backdropBlur() > 0) {
+            on = true;
+        } else if (titleBar_ && titleBar_->isVisible() && titleBar_->computedStyle().backdropBlur() > 0) {
+            on = true;
+            area = Rect(0, 0, std::max(1, physW_), d.top);
+        }
+    }
+    native_->setBlurBehind(on, area);
 }
 
 void Window::paintFrame(Painter& p, const Rect& dirty) {
@@ -1199,17 +1358,19 @@ Window::FrameInsets Window::computeFrameInsets() const {
 }
 
 Window::FrameInsets Window::deviceFrame() const {
-    if (scale_ == 1) return frame_;
+    FrameInsets n = nativeInsets();
+    if (scale_ == 1) return n;
     FrameInsets d;
-    d.left = toDevice(frame_.left);
-    d.top = toDevice(frame_.top);
-    d.right = toDevice(frame_.right);
-    d.bottom = toDevice(frame_.bottom);
+    d.left = toDevice(n.left);
+    d.top = toDevice(n.top);
+    d.right = toDevice(n.right);
+    d.bottom = toDevice(n.bottom);
     return d;
 }
 
 Rect Window::outerRect() const {
-    return Rect(-frame_.left, -frame_.top, width() + frame_.left + frame_.right, height() + frame_.top + frame_.bottom);
+    FrameInsets n = nativeInsets();
+    return Rect(-n.left, -n.top, width() + n.left + n.right, height() + n.top + n.bottom);
 }
 
 Rect Window::outerScreenGeometry() const {
@@ -1232,13 +1393,15 @@ void Window::placeTitleBar() {
 // native window keeps its size, the inside takes what is left (the window manager decides it: maximized, full
 // screen, or about to be restored); else the inside keeps its size, the native window grows or shrinks
 void Window::applyFrameInsets(bool keepOuter) {
-    FrameInsets n = computeFrameInsets();
-    if (n == frame_) {
+    FrameInsets n = computeFrameInsets(), sh = computeShadowInsets();
+    if (n == frame_ && sh == shadow_) {
         placeTitleBar();
         return;
     }
     FrameInsets old = frame_;
+    bool shadowOnly = n == frame_;
     frame_ = n;
+    shadow_ = sh;
     FrameInsets d = deviceFrame();
     if (keepOuter) {
         int ow = width() + old.left + old.right, oh = height() + old.top + old.bottom;
@@ -1253,6 +1416,8 @@ void Window::applyFrameInsets(bool keepOuter) {
         placeTitleBar();
     } else {
         resizeWindow(width(), height());  // (the native window: the inside's size and the new frame)
+        // (a popup's shadow came or went: the inside stays where it was put)
+        if (shadowOnly && opts_.popup) moveWindow(hgeom_.x, hgeom_.y);
     }
     Point m = minimumSize();
     if (layout()) {
@@ -1285,7 +1450,7 @@ void Window::updateFrame() {
         statesChanged();
         updateShape();
     }
-    if (framed_ || frame_ != FrameInsets()) {
+    if (framed_ || frame_ != FrameInsets() || shadow_ != FrameInsets() || opts_.popup) {
         bool keepOuter = isWindowMaximized() || (native_ && native_->isFullScreen());
         applyFrameInsets(keepOuter);
         // (turned on or off: the inside stays where it was on the screen, the frame grows or goes around it)
@@ -1296,6 +1461,7 @@ void Window::updateFrame() {
 
 void Window::styleStates(std::vector<std::string>& out) const {
     Widget::styleStates(out);
+    if (hasAlpha()) out.push_back("transparent");
     if (!framed_) return;
     out.push_back("framed");
     out.push_back(active_ ? "active" : "inactive");
@@ -2017,6 +2183,8 @@ void App::init(int argc, char** argv) {
     if (inited_) return;
     inited_ = true;
     plat::init(argc, argv);
+    plat::setTransparency(transparency_);
+    plat::setCompositingListener([this] { transparencyChanged(); });
     theme::c("window");  // the default skin, until one is chosen
     startFrameTimer();
 }
@@ -2045,6 +2213,26 @@ void App::frameTimer() {
     doLayouts();
     for (Window* w : std::vector<Window*>(windows_))
         if (std::find(windows_.begin(), windows_.end(), w) != windows_.end()) w->flush();
+}
+
+void App::setTransparency(bool on) {
+    if (on == transparency_) return;
+    transparency_ = on;
+    if (!headless_) plat::setTransparency(on);  // (its listener: transparencyChanged)
+    else transparencyChanged();
+}
+
+bool App::transparencyAvailable() const { return !headless_ && plat::compositing(); }
+
+void App::setAlphaWhenHeadless(bool on) {
+    if (on == headlessAlpha_) return;
+    headlessAlpha_ = on;
+    transparencyChanged();
+}
+
+void App::transparencyChanged() {
+    repaintAll();  // (:transparent: restyled, laid out again; popups' room for their shadows, frames)
+    for (Window* w : windows_) w->invalidate(w->outerRect());
 }
 
 // every window's frame as the option says (one going may take others with it: its title bar's menu)
@@ -2364,6 +2552,7 @@ void App::showToolTip(Point g, const std::string& text, Widget* owner) {
         cancelTimer(tipTimer_);
         tipTimer_ = -1;
     }
+    if (tip_ && !tip_->isWindowShown() && tip_->madeOpaque()) tip_.reset();  // (see-through now: made again)
     if (!tip_) {
         plat::WindowOptions o;
         o.popup = true;

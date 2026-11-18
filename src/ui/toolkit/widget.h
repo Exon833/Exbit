@@ -501,10 +501,28 @@ public:
     bool beginSystemMove(Point globalPos);
     bool beginSystemResize(int edges, Point globalPos);
     // its states: the base ones, and when framed :framed, :active or :inactive (the keyboard focus is in it or
-    // not), :maximized
+    // not), :maximized; :transparent while it is see-through (hasAlpha)
     void styleStates(std::vector<std::string>& out) const override;
     // the frame's insets changed (it was turned on or off, a skin made it another size): after the inside moved
     virtual void frameChanged() {}
+
+    // --- (added) transparency (App::setTransparency): the window is see-through where what it paints is (its
+    // framebuffer is cleared to transparent where it is repainted, not filled with black; outside its frame's rounded
+    // corners nothing shows, anti-aliased against the desktop). While true its states have :transparent. A popup
+    // (menu, drop-down list, tooltip) then has room around it for its own style's outer box-shadow: its native
+    // window that much bigger (clicks there go to what is under it). Its own style's `opacity` is the native
+    // window's (_NET_WM_WINDOW_OPACITY) while App::transparency() is on, and `backdrop-filter: blur()` on it (or
+    // on its TitleBar: the frame's top) blurs what is behind it.
+    bool hasAlpha() const;
+    // what the native window has around the inside: the frame's insets and a popup's shadow's room (logical px)
+    FrameInsets nativeInsets() const;
+    // its native window was made opaque (while transparency was off, or before a compositing manager ran) though
+    // see-through ones can be made now: a popup kept between uses (a menu's) is better made again before it shows
+    bool madeOpaque() const;
+protected:
+    // the window's paint() draws its own style's box (a menu's, a tooltip's): see-through, it isn't also drawn
+    // under it (a translucent background or a shadow would be drawn twice)
+    bool paintsOwnBox_ = false;
 private:
     std::unique_ptr<plat::Window> native_;
     std::string title_;
@@ -527,7 +545,12 @@ private:
     Point lastMouse_{-1, -1};
     // the frame (isFramed)
     bool framed_ = false;
-    FrameInsets frame_;                // as applied: what the native window has around the inside
+    FrameInsets frame_;                // as applied: the frame's part of what the native window has around the inside
+    FrameInsets shadow_;               // …and a see-through popup's room for its shadow (hasAlpha)
+    FrameInsets computeShadowInsets() const;
+    float opacitySent_ = 1;            // the native window's opacity as last set
+    Rect inputSent_;                   // its input area as last set (device px; empty: all of it)
+    void clipCorners(const Rect& dev); // see-through: nothing outside the frame's rounded corners (device px)
     int shapeRadii_[4] = {-1, -1, -1, -1};  // the corner radii last given to the native window (device px)
     void updateShape();                // its corners cut round as its frame's style says (isFramed, not maximized)
     std::unique_ptr<TitleBar> titleBar_;
@@ -540,7 +563,7 @@ private:
     } frameDrag_;
     bool wantsFrame() const;
     FrameInsets computeFrameInsets() const;
-    FrameInsets deviceFrame() const;   // frame_ in device pixels
+    FrameInsets deviceFrame() const;   // nativeInsets() in device pixels
     void applyFrameInsets(bool keepOuter);
     void placeTitleBar();
     void setNativeMinimum(int w, int h);  // (logical, the inside's): the native window's, with the frame
@@ -557,6 +580,7 @@ private:
     void applyCursor();
     void paintBackground(Painter& p);  // its style's background (and border), under its widgets
     void paintFrame(Painter& p, const Rect& dirty);  // the title bar (isFramed)
+    void paintContents(Painter& p, const Rect& dirty);  // its widgets (its own opacity: the native window's)
     bool blockedByModal() const;
     void externalDrag(const plat::Event& e);
     plat::Event toLogical(const plat::Event& e) const;
@@ -621,6 +645,22 @@ public:
     std::function<std::pair<Point, int>()> pointerForDrags;
     // (the test script) called with every event a window gets (Window::onEvent), before it: true drops it
     std::function<bool(Window*, const plat::Event&)> eventFilter;
+    // (added) Options → Window frames → Transparency: windows made from now on may be see-through while a
+    // compositing manager runs (plat::setTransparency; Window::hasAlpha); off, they are opaque (the ones already
+    // see-through at once). On by default. transparencyAvailable(): a compositing manager runs (else it does
+    // nothing). Every window is restyled and repainted when either changes.
+    void setTransparency(bool on);
+    bool transparency() const { return transparency_; }
+    bool transparencyAvailable() const;
+    // (tests) windows without a display are see-through (hasAlpha) while transparency is on, as with a compositing
+    // manager: their framebuffers' alpha is what would show
+    void setAlphaWhenHeadless(bool on);
+    // (tests) without a display, windows get the native window this makes (a stub that records what is asked of it),
+    // instead of none; null: none, as usual
+    std::function<std::unique_ptr<plat::Window>(const plat::WindowOptions&, plat::WindowListener*)> nativeWindowFactory;
+    // (internal) a compositing manager started or stopped, or transparency was turned on or off: every window
+    // restyled (:transparent), its popup room and shapes again, repainted
+    void transparencyChanged();
     // (added) Options → Window frames: windows framed by the program itself (Window::isFramed: a title bar and
     // border drawn as the skin says) or by the window manager. Applied to every window at once. Frames are only
     // drawn with a display: windows without one (tests) have none, unless setFramesWhenHeadless(true).
@@ -699,6 +739,7 @@ private:
     std::string tipText_;
     bool headless_ = false, inited_ = false;
     bool ownFrames_ = true, headlessFrames_ = false;
+    bool transparency_ = true, headlessAlpha_ = false;
     double clock_ = 0;                  // headless clock
     int depth_ = 0;                     // nested loops (exec, runUntil, processEvents)
     struct Timer { int plat = -1; std::function<void()> fn; bool repeat = false; double due = 0, interval = 0; };
