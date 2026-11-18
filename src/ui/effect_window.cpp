@@ -183,11 +183,19 @@ const TunerView::TunerLook& TunerView::tunerLook() {
     l.scaleLeft = panel_style::px(scale, "margin-left", 24);
     l.scaleRight = panel_style::px(scale, "margin-right", 24);
     l.scaleTop = panel_style::px(scale, "top", 66);
-    l.tick = panel_style::fg(tparts_.get("tick"));
-    l.tickCentre = panel_style::fg(tparts_.get("tick", "centre"));
+    const css::Style& tick = tparts_.get("tick");
+    const css::Style& tickCentre = tparts_.get("tick", "centre");
+    l.tick = panel_style::fg(tick);
+    l.tickCentre = panel_style::fg(tickCentre);
+    l.tickW = std::max(0.f, panel_style::lengthF(tick, "width", 1));
+    l.tickH = std::max(0.f, panel_style::lengthF(tick, "height", 12));
+    l.tickCentreH = std::max(0.f, panel_style::lengthF(tickCentre, "height", 24));
     const css::Style& needle = tparts_.get("needle");
     l.needle = panel_style::bg(needle);
-    l.needleR = (float)needle.length("border-top-left-radius", 2);
+    l.needleR = (float)std::max(0.0, needle.length("border-top-left-radius", 2));
+    l.needleW = std::max(0.f, panel_style::lengthF(needle, "width", 4));
+    l.needleH = std::max(0.f, panel_style::lengthF(needle, "height", 30));
+    l.needleTop = panel_style::lengthF(needle, "top", -14);
     l.needleInTune = panel_style::bg(tparts_.get("needle", "in-tune"));
     const css::Style& cents = tparts_.get("cents");
     l.cents = panel_style::fg(cents);
@@ -218,15 +226,15 @@ void TunerView::paint(Painter& p) {
     p.fillRect(RectF(left, y, right - left, (float)look.scaleH), look.scale);
     for (int c = -50; c <= 50; c += 10) {
         float x = left + (right - left) * (c + 50) / 100.0f;
-        float tall = c == 0 ? 12 : 6;
-        p.fillRect(RectF(x - 0.5f, y - tall + 1, 1, tall * 2), c == 0 ? look.tickCentre : look.tick);
+        float tall = c == 0 ? look.tickCentreH : look.tickH;
+        p.fillRect(RectF(x - look.tickW / 2, y - tall / 2 + 1, look.tickW, tall), c == 0 ? look.tickCentre : look.tick);
     }
     p.drawText(RectF(left - 20, y + 8, 40, 14), AlignCenter, "−50", look.endFont, look.endLabel);
     p.drawText(RectF(right - 20, y + 8, 40, 14), AlignCenter, "+50", look.endFont, look.endLabel);
     if (heard) {
         float x = left + (right - left) * (float)std::max(0.0, std::min(1.0, fraction));
-        float r = look.needleR;  // (rounded whatever Options → Rounded corners says, as it always was)
-        RectF needle(x - 2, y - 14, 4, 30);
+        float r = theme::rounded ? look.needleR : 0.f;  // (square with Options → Rounded corners off)
+        RectF needle(x - look.needleW / 2, y + look.needleTop, look.needleW, look.needleH);
         if (r > 0.01f) p.fillRoundedRect(needle, r, inTune ? look.needleInTune : look.needle);
         else p.fillRect(needle, inTune ? look.needleInTune : look.needle);
     }

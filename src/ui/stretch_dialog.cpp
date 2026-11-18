@@ -25,7 +25,8 @@ T* nest(ui::FormLayout* form, const std::string& label, std::unique_ptr<T> layou
 
 StretchDialog::StretchDialog(ui::Window* parent, const Clip& clip, double projectBpm_, int count)
     : ui::Dialog(parent, "Stretch and pitch", 420, 240), projectBpm(projectBpm_) {
-    ui::FormLayout* form = ui::form(this, 11, 6);
+    setStyleType("StretchDialog");
+    ui::FormLayout* form = ui::styleRoom(ui::form(this, 11, 6), computedStyle());
     if (count > 1) form->addRow(add<ui::Label>("For the " + std::to_string(count) + " selected audio clips"));
     length = add<ui::SpinBox>();
     length->setRange(25, 400);
@@ -52,6 +53,7 @@ StretchDialog::StretchDialog(ui::Window* parent, const Clip& clip, double projec
     matchButton->clicked.connect([this] { match(); });
     auto row = std::make_unique<ui::HBox>();
     row->setSpacing(6);
+    ui::styleRoom(row.get(), computedStyle("row"));
     row->addWidget(bpm, 1);
     row->addWidget(matchButton);
     form->addRow("Recorded at", std::move(row));
@@ -66,6 +68,7 @@ StretchDialog::StretchDialog(ui::Window* parent, const Clip& clip, double projec
     cents->setValueSilently(std::nearbyint((clip.pitch - whole) * 100));
     auto pitchRow = std::make_unique<ui::HBox>();
     pitchRow->setSpacing(6);
+    ui::styleRoom(pitchRow.get(), computedStyle("row"));
     pitchRow->addWidget(semitones);
     pitchRow->addWidget(cents);
     form->addRow("Pitch", std::move(pitchRow));

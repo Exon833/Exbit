@@ -111,9 +111,11 @@ bool PluginChooserList::keyPress(KeyEvent& e) {
 PluginChooser::PluginChooser(Window* parent, std::vector<plug::PluginInfo> choices_, const std::string& noun_)
     : Dialog(parent, "Add " + noun_, 460, 520), choices(std::move(choices_)), noun(noun_) {
     for (auto& k : keysIn(favouritesText())) favourites.insert(k);
-    VBox* col = vbox(this, 10, 6);
+    setStyleType("PluginChooser");
+    VBox* col = styleRoom(vbox(this, 10, 6), computedStyle());
     auto row = std::make_unique<HBox>();
     row->setSpacing(6);
+    styleRoom(row.get(), computedStyle("row"));
     search = add<LineEdit>();
     search->setPlaceholder("Search " + noun + "s by name or kind (Ctrl+F)…");
     search->setClearButton(true);

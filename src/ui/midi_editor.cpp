@@ -2360,10 +2360,12 @@ void StepGrid::paint(Painter& p) {
         even.push_back(((int64_t)beat) % 2 == 0);
         t = c.second + 1e-7;
     }
-    Color pad = look.pad;  // (the pads: rounded fills of fractional rectangles, not boxes)
+    // (the pads: rounded fills of fractional rectangles, Steps::pad's colour, radius and margin: style::box once it
+    // takes a RectF)
+    Color pad = look.pad;
     Color padOdd = pad.darker(look.padDarken);
     const ui::style::Insets& pm = look.padMargin;
-    float padRadius = look.padRadius;
+    float padRadius = theme::rounded ? look.padRadius : 0.f;
     int rowsDown = (int)rows.size() * STEP_ROW_H - ed.vbar->value();
     for (size_t r = 0; r < rows.size(); ++r) {
         std::optional<int> y = yOfRow((int)r);
@@ -2371,9 +2373,10 @@ void StepGrid::paint(Painter& p) {
         ui::style::box(p, Rect(KEYS_W, *y, w, STEP_ROW_H), *look.row);
         for (size_t k = 0; k < cells.size(); ++k) {
             double x0 = ed.xOf(std::max(0.0, cells[k].first)), x1 = ed.xOf(cells[k].second);
-            p.fillRoundedRect(RectF((float)x0 + pm.left, (float)*y + pm.top, (float)std::max(1.0, x1 - x0 - pm.w()),
-                                    (float)(STEP_ROW_H - pm.h())),
-                              padRadius, even[k] ? pad : padOdd);
+            RectF cell((float)x0 + pm.left, (float)*y + pm.top, (float)std::max(1.0, x1 - x0 - pm.w()),
+                       (float)(STEP_ROW_H - pm.h()));
+            if (padRadius > 0.01f) p.fillRoundedRect(cell, padRadius, even[k] ? pad : padOdd);
+            else p.fillRect(cell, even[k] ? pad : padOdd);
         }
     }
     double lo, hi;  // shade what the clip doesn't play

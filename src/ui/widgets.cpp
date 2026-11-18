@@ -481,8 +481,9 @@ void SendsButton::showSends() {
     auto panel = std::make_unique<SendsPanel>(track, returns, [this](const TrackPtr& t, double db) { setLevel(t, db); },
                                               [this](const TrackPtr& t, bool on) { setPreFader(t, on); });
     Point size = panel->sizeHint();
-    o.w = std::max(220, size.x);
-    o.h = std::max(40, size.y);
+    const css::Style& st = panel->computedStyle();  // (SendsPanel's min-width / min-height: the popup's least size)
+    o.w = std::max(ui::style::px(st, "min-width", 220), size.x);
+    o.h = std::max(ui::style::px(st, "min-height", 40), size.y);
     o.transientFor = window() ? window()->native() : nullptr;
     popup_ = std::make_unique<ui::Window>(o);
     SendsPanel* raw = panel.get();

@@ -14,6 +14,7 @@
 #include "core/json.h"
 #include "core/util.h"
 #include "ui/toolkit/layout.h"
+#include "ui/toolkit/style.h"
 
 using namespace ui;
 
@@ -202,8 +203,9 @@ using namespace mix_export;
 
 RenderDialog::RenderDialog(Window* parent, const std::string& chosenFormat, const std::string& chosenNormalize)
     : Dialog(parent, "Render", 420, 200) {
-    FormLayout* f = form(this, 11, 6);
-    setMinimumSize(420, 0);
+    setStyleType("RenderDialog");
+    FormLayout* f = styleRoom(form(this, 11, 6), computedStyle());
+    setMinimumSize(std::max(0, style::px(computedStyle(), "min-width", 420)), 0);
     format = add<ComboBox>();
     for (auto& fm : formats()) format->addItem(fm.shown(), fm.filter);
     format->setCurrentIndexSilently(std::max(0, format->findData(chosenFormat)));

@@ -702,7 +702,8 @@ Explorer::Explorer(std::function<void(const std::string&)> addFile_, audio::Engi
     folderBox = add<ui::ComboBox>();
     folderBox->setToolTip("Folder to browse");
     folderBox->hPolicy = ui::SizePolicy::Expanding;
-    folderBox->setMinimumWidth(60);  // (long folder names give way to the buttons)
+    // (long folder names give way to the buttons: Explorer::folder's min-width)
+    folderBox->setMinimumWidth(std::max(0, ui::style::px(computedStyle("folder"), "min-width", 60)));
     folderBox->currentIndexChanged.connect([this](int) {
         if (!filling_) showFolder();
     });

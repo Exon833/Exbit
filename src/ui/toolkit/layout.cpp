@@ -10,11 +10,18 @@
 
 #include <algorithm>
 #include <climits>
+#include <cmath>
 #include <unordered_map>
+#include <vector>
 
+#include "ui/theme.h"
 #include "ui/toolkit/controls.h"
 
 namespace ui {
+
+// (the spacing of a layout made without one: default.css's :root)
+Layout::Layout() : spacing(std::max(0, theme::metric("layout-spacing", 4))) {}
+GridLayout::GridLayout() { hSpacing = vSpacing = std::max(0, theme::metric("grid-spacing", 6)); }
 
 namespace {
 const int kMax = 1 << 24;
@@ -853,6 +860,31 @@ GridLayout* grid(Widget* w, int margin, int spacing) {
     raw->owner = w;
     w->setLayout(std::move(l));
     return raw;
+}
+
+void styleRoomOf(Layout* l, const css::Style& s) {
+    if (!l) return;
+    auto whole = [](double v) { return std::max(0, (int)std::lround(v)); };
+    auto* grid = dynamic_cast<GridLayout*>(l);
+    auto before = [&] {
+        return std::vector<int>{l->margins[0], l->margins[1], l->margins[2], l->margins[3], l->spacing,
+                                grid ? grid->hSpacing : 0, grid ? grid->vSpacing : 0};
+    };
+    std::vector<int> old = before();
+    css::Edges was;
+    was.left = l->margins[0], was.top = l->margins[1], was.right = l->margins[2], was.bottom = l->margins[3];
+    css::Edges e = s.edges("padding", was);
+    l->setContentsMargins(whole(e.left), whole(e.top), whole(e.right), whole(e.bottom));
+    if (grid) {
+        grid->hSpacing = whole(s.length("column-gap", grid->hSpacing));
+        grid->vSpacing = whole(s.length("row-gap", grid->vSpacing));
+        grid->spacing = grid->vSpacing;
+    } else if (auto* b = dynamic_cast<BoxLayout*>(l)) {
+        b->spacing = whole(s.length(b->dir == Direction::Horizontal ? "column-gap" : "row-gap", b->spacing));
+    } else {
+        l->spacing = whole(s.length("row-gap", l->spacing));
+    }
+    if (before() != old) l->invalidate();
 }
 
 }  // namespace ui

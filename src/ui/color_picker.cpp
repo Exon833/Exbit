@@ -243,10 +243,11 @@ public:
     std::string hex_;
 };
 
-// a row of widgets (the grid's cells that hold several)
-Widget* row(Widget* parent, HBox*& layout) {
+// a row of widgets (the grid's cells that hold several): the room of the dialog's part (ColorPickerDialog::row,
+// ::recent)
+Widget* row(Widget* parent, HBox*& layout, const char* part = "row", int gap = 6) {
     Widget* w = parent->add<Widget>();
-    layout = hbox(w, 0, 6);
+    layout = styleRoom(hbox(w, 0, gap), parent->computedStyle(part));
     return w;
 }
 }  // namespace
@@ -254,6 +255,7 @@ Widget* row(Widget* parent, HBox*& layout) {
 ColorPickerDialog::ColorPickerDialog(Window* parent, const std::string& initial, const std::string& tone_,
                                      ColorSubject subject)
     : Dialog(parent, subjectOf(subject).title, 420, 420) {
+    setStyleType("ColorPickerDialog");
     const Subject& sub = subjectOf(subject);
     toneValues_ = {"", "light", "dark"};
     toneTips_ = {"Picked automatically for the best contrast", std::string("White ") + sub.contentTip,
@@ -268,14 +270,14 @@ ColorPickerDialog::ColorPickerDialog(Window* parent, const std::string& initial,
     brightness = add<Slider>(Orientation::Horizontal);
     brightness->setRange(0, 100);
     brightness->setToolTip("Brightness");
-    brightness->setFixedWidth(200);
+    brightness->setFixedWidth(std::max(0, style::px(computedStyle("brightness"), "width", 200)));
     hexEdit = add<LineEdit>();
     hexEdit->setMaxLength(7);
-    hexEdit->setFixedWidth(80);
+    hexEdit->setFixedWidth(std::max(0, style::px(computedStyle("hex"), "width", 80)));
     if (subject == ColorSubject::Clip) preview = add<ClipPreview>();
     else preview = add<TrackPreview>();
 
-    GridLayout* g = grid(this, 11, 6);
+    GridLayout* g = styleRoom(grid(this, 11, 6), computedStyle());
     g->addWidget(wheel, 0, 0, 3, 1);
     g->addWidget(add<Label>("Preview (contrast is\nadjusted automatically)"), 0, 1);
     g->addWidget(preview, 1, 1);
@@ -309,8 +311,7 @@ ColorPickerDialog::ColorPickerDialog(Window* parent, const std::string& initial,
 
     g->addWidget(add<Label>("Recent"), 5, 0, 1, 2);
     HBox* rl;
-    Widget* recentRow = row(this, rl);
-    rl->setSpacing(4);
+    Widget* recentRow = row(this, rl, "recent", 4);
     std::vector<std::string> recent = color_picker::loadRecent();
     for (auto& hex : recent) {
         Swatch* sw = recentRow->add<Swatch>(hex);
@@ -330,8 +331,8 @@ ColorPickerDialog::ColorPickerDialog(Window* parent, const std::string& initial,
     Button* ok = buttonRow->add<Button>("OK");
     Button* cancel = buttonRow->add<Button>("Cancel");
     ok->setDefault(true);
-    ok->setMinimumWidth(80);
-    cancel->setMinimumWidth(80);
+    dialogButton(ok);
+    dialogButton(cancel);
     ok->clicked.connect([this] { accept(); });
     cancel->clicked.connect([this] { reject(); });
     bl->addWidget(defaultButton);
