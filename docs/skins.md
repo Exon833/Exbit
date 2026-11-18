@@ -80,8 +80,27 @@ A defined part of CSS, read by Tiny DAW's own parser (`src/core/css.h`):
   `font-weight`, `font-style`, `letter-spacing`). The rest isn't.
 - **Not understood (skipped and reported):** other at-rules (`@supports`, `@keyframes`, `@layer`…;
   `@charset` is ignored), units other than those above.
-- **Boxes:** a box is drawn as its `background-color` inside its border. The border has one colour
-  (`border-top-color`), each side its own width, and the corners one radius (`border-top-left-radius`).
+- **Boxes:** a box is its `background-color`, its `background-image` over that, and its border, with
+  rounded corners: each side its own width (`border-top-width`…), colour (`border-top-color`…) and style
+  (`border-top-style`…), and each corner its own radius (`border-top-left-radius`…; one value per corner, not
+  elliptical). The sides meet on the diagonal of each corner, anti-aliased.
+- **Border styles:** `solid`, `dashed`, `dotted` (round dots from 3 px), `double` (from 3 px), `inset`, `outset`,
+  `groove`, `ridge` (lighter and darker shades of the border colour; from 2 px, four tones, so `2px outset
+  silver` is the classic raised bevel), `none` and `hidden` (the side has no width). Dashes and dots follow
+  rounded corners.
+- **Gradients** in `background-image` or `background` (the first on top, over the colour):
+  `linear-gradient()`, `radial-gradient()`, `repeating-linear-gradient()`, `repeating-radial-gradient()`.
+  Directions: an angle (`deg`, `rad`, `turn`, `grad`) or `to` a side or corner. Radial: `circle` or `ellipse`,
+  a size (`closest-side`, `closest-corner`, `farthest-side`, `farthest-corner`, or lengths / percentages), `at`
+  a position. Colour stops with none, one or two positions (`%` or lengths). Colours are mixed premultiplied
+  (a fade to `transparent` doesn't go grey). Not understood: conic gradients, transition hints, `url()`
+  images.
+- **`box-shadow`**: `none`, or a list of `[inset] x y [blur [spread]] [colour]` (no colour: `currentColor`),
+  the first on top. Outer shadows are drawn under the box, inset ones over its background and under its
+  border; blur is soft (Gaussian-like), spread grows the corners too.
+- **`text-shadow`**: the same without `inset` and spread: labels, buttons, check boxes, group titles, the
+  status bar, tabs, menus, the menu bar, lists, trees and combo boxes draw it.
+- **`opacity`** (a number or %): a widget and everything in it, drawn see-through as one.
 - **Properties of Tiny DAW's own** (besides the CSS ones): `stroke-width` (a line's thickness), `icon-size` (a
   drawn arrow or mark), `line-width` (separators), `baseline` (where a text's baseline is in its box; % of the
   box), `fill-opacity` and `stroke-opacity` (curves and waveforms), and custom properties a type reads, listed
