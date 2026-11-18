@@ -801,23 +801,40 @@ int SpinBox::partAt(Point p) const {
     return p.y < height() / 2 ? 1 : -1;
 }
 
+namespace {
+// does a spin button's style give it a margin (any side, even 0)? Then it is a box of its own (SpinBox::paint)
+bool hasMargin(const css::Style& s) {
+    return s.has("margin-top") || s.has("margin-right") || s.has("margin-bottom") || s.has("margin-left");
+}
+}  // namespace
+
 void SpinBox::paint(Painter& p) {
     const css::Style& st = computedStyle();
     style::box(p, rect(), st);
     if (!buttons_) return;
-    // the buttons: the column inside the border at the right, halved; each part's box is the inside of the border
-    // (its corners), clipped to the button; its arrow centred (:at-maximum / :at-minimum / :disabled: none)
+    // the buttons: the column inside the border at the right, halved. Without a margin, each part's box is the
+    // inside of the border (its corners), clipped to the button; with a margin (::up-button's or ::down-button's,
+    // even 0) both are boxes of their own: each its half of the column less its margin (the up button's
+    // margin-bottom and the down button's margin-top: the gap between them). Its arrow centred in it
+    // (:at-maximum / :at-minimum / :disabled: none)
     Rect inner = style::inside(rect(), style::insets(st, "border-width"));
     int bw = buttonsWidth();
     int bx = inner.right() - bw;
     int ih = inner.h;
     Rect up(bx, inner.y, bw, ih / 2), down(bx, inner.y + ih / 2, bw, ih - ih / 2);
-    auto part = [&](const Rect& r, const char* name, bool isUp) {
+    bool apart = hasMargin(computedStyle("up-button")) || hasMargin(computedStyle("down-button"));
+    auto part = [&](Rect r, const char* name, bool isUp) {
         const css::Style& ps = computedStyle(name);
-        p.save();
-        p.setClip(r);
-        style::box(p, inner, ps);
-        p.restore();
+        if (apart) {
+            r = style::inside(r, style::insets(ps, "margin"));
+            if (r.w <= 0 || r.h <= 0) return;
+            style::box(p, r, ps);
+        } else {
+            p.save();
+            p.setClip(r);
+            style::box(p, inner, ps);
+            p.restore();
+        }
         if (style::glyph(p, RectF(r), ps)) return;
         float size = iconSize(ps, 8);
         arrowIcon(p, r.x + (r.w - size) / 2.f, r.y + (r.h - size) / 2.f, size, isUp, style::foreground(ps), strokeWidth(ps, size));
@@ -1129,7 +1146,12 @@ void ComboBox::styleStates(std::vector<std::string>& out) const {
 }
 
 // the arrow's box: the right-hand ::arrow width (default.css 18 px, over the border)
-int ComboBox::arrowWidth() const { return std::max(0, style::px(computedStyle("arrow"), "width", 18)); }
+// the room the arrow's box takes at the right: its width and its margin's left and right
+int ComboBox::arrowWidth() const {
+    const css::Style& as = computedStyle("arrow");
+    style::Insets m = style::insets(as, "margin");
+    return std::max(0, std::max(0, style::px(as, "width", 18)) + m.left + m.right);
+}
 
 ComboBox::~ComboBox() {
     if (popup_ && popup_->isOpen()) App::get().closePopup(popup_.get());
@@ -1298,19 +1320,21 @@ void ComboBox::paint(Painter& p) {
     Color tc = style::foreground(st);
     Font f = style::font(st, theme::uiFont());
     int textX = around(st).left;
-    // ::arrow: its box at the right (over the border), the ▾ at its padding-left, centred in the height
+    // ::arrow: its box at the right (over the border; inside it by its margin), the ▾ at its padding-left,
+    // centred in the height
     const css::Style& as = computedStyle("arrow");
     int aw = std::max(0, style::px(as, "width", 18));
-    Rect ar(width() - aw, 0, aw, height());
+    style::Insets am = style::insets(as, "margin");
+    Rect ar(width() - am.right - aw, am.top, aw, std::max(0, height() - am.top - am.bottom));
     if (!edit_) {
         // the text from the padding's left up to the arrow's box, centred in the whole height
-        Rect tr(textX, 0, std::max(0, ar.x - textX), height());
+        Rect tr(textX, 0, std::max(0, ar.x - am.left - textX), height());
         style::text(p, tr, AlignLeft | AlignVCenter, currentText(), f, tc, st, true);
     }
     style::box(p, ar, as);
     if (style::glyph(p, RectF(style::contents(ar, as)), as)) return;
     float size = iconSize(as, 10);
-    arrowIcon(p, (float)(ar.x + style::insets(as, "padding").left), (height() - size) / 2.f, size, false,
+    arrowIcon(p, (float)(ar.x + style::insets(as, "padding").left), ar.y + (ar.h - size) / 2.f, size, false,
               style::foreground(as), strokeWidth(as, size));
 }
 

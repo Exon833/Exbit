@@ -209,6 +209,8 @@ void testEffectWindow() {
     if (!comp) return;
     auto* w = new EffectWindow(&main, comp, "Compressor — Test");
     CHECK(w->presetsButton != nullptr && w->nameLabels.size() == fx(comp)->params().size());
+    // (its menu draws its ▾: none in the text)
+    CHECK(w->presetsButton && w->presetsButton->text() == "Presets" && w->presetsButton->menu());
     bool all = true;
     for (auto* l : w->nameLabels) all = all && l;
     CHECK(all);

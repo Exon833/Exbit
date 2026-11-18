@@ -100,7 +100,7 @@ MidiEffectsDialog::MidiEffectsDialog(ui::Window* window, TrackPtr track_)
     });
     left->addWidget(list, 1);
     auto buttons = std::make_unique<ui::HBox>();
-    addButton = ui::toolButton(this, "Add \xe2\x96\xbe");
+    addButton = ui::toolButton(this, "Add");  // (its menu gives it the ▾)
     ui::Menu* menu = widgets::ownedMenu(addButton);
     for (const Kind& k : kinds()) {
         std::string name = k.name;

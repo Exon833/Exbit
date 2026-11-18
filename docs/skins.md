@@ -129,6 +129,11 @@ A defined part of CSS, read by Tiny DAW's own parser (`src/core/css.h`):
 - **`box-shadow`**: `none`, or a list of `[inset] x y [blur [spread]] [colour]` (no colour: `currentColor`),
   the first on top. Outer shadows are drawn under the box, inset ones over its background and under its
   border; blur is soft (Gaussian-like), spread grows the corners too.
+- **`outline`** (`outline-width`, `outline-style`, `outline-color`; its shorthand as one side of a border) and
+  `outline-offset`: a line around a box, outside it (`outline-offset` farther out; negative: in), drawn as a border
+  of that style is (`1px dotted` is every other pixel: a classic focus rectangle), in `outline-color` (else
+  `color`); square corners. Drawn by `CheckBox::label` and `TreeWidget::text` (so `:focus` can show a focus
+  rectangle); other boxes don't draw one.
 - **`text-shadow`**: the same without `inset` and spread: labels, buttons, check boxes, group titles, the
   status bar, tabs, menus, the menu bar, lists, trees and combo boxes draw it.
 - **`opacity`** (a number or %): a widget and everything in it, drawn see-through as one.
@@ -167,7 +172,7 @@ The parts that draw a glyph, and so take `-tiny-glyph` (with `-tiny-glyph-size`,
 | `TreeWidget::branch` (`:open` when expanded) | the ▸ / ▾ arrow | the indent of its level, the row's height |
 | `FileView::branch` (`:open`) | the Explorer tree's ▸ / ▾ | the indent, the row's height |
 | `ScrollBar::sub-line`, `ScrollBar::add-line` (`:vertical`, `:horizontal`) | the arrows ▴ ▾ / ◂ ▸ | the button's inside |
-| `SpinBox::up-button`, `SpinBox::down-button` | the arrows | the button's half of the column |
+| `SpinBox::up-button`, `SpinBox::down-button` | the arrows | the button's half of the column (with a margin: its own box) |
 | `ComboBox::arrow` | the ▾ | the arrow box's inside |
 | `Button::arrow` | the ▾ of a button with a menu | the arrow's room (split: its 12 px; else beside the text) |
 | `Menu::check` | a checked item's mark | `width` across, the item's height |
@@ -459,7 +464,9 @@ Each entry gives the type's own properties (what it reads besides its box), its 
   0.45 when disabled).
 - **`CheckBox`**: `color`, the font, `padding`, a box. States `:checked`, `:hover`, `:disabled`, `:focus`. Part
   `::indicator`: `width`, `height`, `margin-right` (the gap to the text), `padding`, a box; the check mark is its
-  `color`.
+  `color`. Part `::label`: a box shrink-wrapped around the text (its `padding` and border add to the check box's
+  size; centred in its height), `color`, `text-shadow`, and an `outline`: `CheckBox::label:focus { outline: 1px
+  dotted; padding: 0 1px }` is the classic dotted focus rectangle around the text.
 - **`GroupBox`**: a box (the frame) starting `margin-top` down, its contents inside `padding`. State
   `:disabled`. Part `::title`: `color`, the font, `height` (its row), `margin`; with a background, a border or
   `padding`, also a box. The title is placed against the frame's top-left corner: its row starts `margin-top`
@@ -472,6 +479,14 @@ Each entry gives the type's own properties (what it reads besides its box), its 
   `background-color`), both with `:selected`, `:hover`, `:disabled`; `::base` (the line under the tabs:
   `height`, `background-color`); `::pane` (a box under the tabs, around the pages: the current page goes
   inside its border and `padding`; `::base` is drawn over its top).
+  Tabs take `margin`: they are placed in a row from the left, each after the one before and its margin; their
+  bottoms are `margin-bottom` above the bar's bottom, and the bar is as high as the highest tab with its
+  `margin-top` and `margin-bottom` (as if no tab were under the pointer, so hovering never moves the page). Each tab
+  is its own `padding` and border around its title, so tabs can differ in size: the selected one larger, with a
+  negative margin over its neighbours and over the pane (it is drawn last, and takes clicks there). States
+  `:first` and `:last` are the row's ends. A classic row: `TabWidget::tab { margin: 2px 0 1px } TabWidget::tab:first
+  { margin-left: 2px } TabWidget::tab:selected { padding: 3px 8px 5px; margin: 0 -2px -1px }`: the selected tab
+  2 px wider each side and 2 px taller, its bottom over the line under the tabs (joined to its page).
 - **`Separator`**: `color`, `line-width`, `margin`. States `:vertical`, `:horizontal`. With a border it is a box
   across its thickness instead of a line (`width` thick when vertical, `height` when horizontal, else as thick
   as its borders): `Separator:vertical { border-left: 1px solid #808080; border-right: 1px solid #fff; width:
@@ -490,6 +505,13 @@ Each entry gives the type's own properties (what it reads besides its box), its 
   `padding`, `color`, the font. **`DragImage`**: a box; `::image` `opacity`.
 - **`Dialog`** (classes `.message-box`, `.input-dialog`), **`ProgressDialog`**: their sizes are `:root`
   variables (below). **`ButtonBox`**: `column-gap`; its buttons' `min-width` (`ButtonBox > Button`).
+- **`Dialog.message-box`**: a message box. Part `::buttons`: the band its buttons are in, across the whole width
+  below the sign and the text (a box: `background-color`, borders…); its buttons inside its border and `padding`.
+  A side its `padding` doesn't set is the message box's own size (`--message-box-spacing` above,
+  `--message-box-margin` at the sides and below), so unstyled it changes nothing. `Dialog.message-box {
+  background-color: #fff } Dialog.message-box::buttons { background-color: #f0f0f0; border-top: 1px solid #dfdfdf;
+  padding: 11px 10px }` is a white message with a grey strip of buttons. A message box can't be resized (no
+  maximize button).
 - **`MessageIcon`**: `background-color` (the circle), `color` (the sign). Classes `.information`, `.question`,
   `.warning`, `.critical`.
 - **`Canvas`**: a plain drawing area (the type only).
@@ -507,6 +529,13 @@ window changes at once.
   States **`:active`** (the keyboard focus is in it) or **`:inactive`**, and **`:maximized`** (default.css: a 1 px
   edge of `--frame-edge`, lighter while active, none while maximized). A window without a frame has none of these
   states, and its border is drawn inside it, as before.
+  Part **`::frame`** (`Window:framed::frame`, with the window's states): a ring inside that border, around the title
+  bar and the inside: its border and `padding` count in the frame's size (the inside keeps its size; the resize band
+  reaches over it), its box (`background-color`, borders, gradients) drawn around the inside (never over it: the
+  inside's background stays the Window's), under the title bar. `Window`'s own `padding` (a dialog's margins) is
+  untouched. A classic frame, two tones a side and a face-coloured gap: `Window:framed { border: 2px outset
+  #c0c0c0 } Window:framed::frame { padding: 2px } Window:framed:maximized::frame { padding: 0 }`. A focus change
+  repaints the frame (and the window's background) whenever `:active` changes its look, and applies new sizes.
   Its corners' radii (`border-top-left-radius`…) also cut the window itself round, so the desktop shows past a
   rounded corner (not while maximized, or with Options → Rounded corners off).
 - **`TitleBar`**: the bar across the top, above the window's inside: a box (`background-color`, gradients,
@@ -518,7 +547,11 @@ window changes at once.
   - **`::minimize`**, **`::maximize`** (drawn as restore while the window is maximized) and **`::close`**: each a
     box (`width`, `height`: at most the bar's, `margin`) with its glyph drawn over it in its `color`, `icon-size`
     big and `stroke-width` thick; each its own `:hover` and `:pressed`. A modal dialog has no minimize, a window
-    that can't be resized no maximize.
+    that can't be resized (a message box…) no maximize. Vertically a button (and the icon) is centred in what its
+    `margin-top` and `margin-bottom` leave of the bar (`margin: 3px 0 1px` puts it 1 px below the middle); its
+    `margin-left` and `margin-right` are the room beside it. States **`:first`** and **`:last`**: the first and the
+    last of the buttons it has, as shown left to right (the rounded ends of a joined group; one button alone is
+    both).
 - **Where things are:** `--title-buttons: right` puts the buttons on the right (close outermost, then maximize,
   then minimize) and the icon on the left; `left` mirrors that. The title fills what is between.
 - **What it does:** dragging the bar moves the window (the window manager moves it, so it snaps and tiles as
@@ -561,9 +594,13 @@ from its style is `--layout-spacing` (rows and columns) and `--grid-spacing` (gr
   `:focus` (its field has the focus), `:hover`, `:disabled`, `:pressed`, `:up-hover`, `:down-hover`,
   `:up-pressed`, `:down-pressed`, `:at-maximum`, `:at-minimum`. Parts `::up-button` and `::down-button`: a box
   over the inside of its border, the arrow's `color`, `icon-size`, `stroke-width`; `width` (the buttons' column,
-  from `::up-button`).
+  from `::up-button`). With a `margin` on either (even `margin: 0`), each button is a box of its own
+  instead: its half of the column less its margin (the up button's `margin-bottom` and the down button's
+  `margin-top` make a gap between them), so each can have its own border (classic bevelled spin buttons with a line
+  between them); its arrow centred in it.
 - **`ComboBox`**: a box; `padding`. States `:hover`, `:focus`, `:disabled`, `:pressed`, `:open`, `:editable`. Part
-  `::arrow`: `width`, `padding-left`, a box, `color`, `icon-size`, `stroke-width`.
+  `::arrow`: `width`, `margin` (the room around it: `margin: 2px 2px 2px 0` puts it inside a 2 px
+  border, its ▾ centred in its height; the text and the field stop at its margin), `padding-left`, a box, `color`, `icon-size`, `stroke-width`.
 - **`ComboPopup`** (a combo box's list): a box, `padding`. Parts `::item` (a box, `padding`, `color`, the font;
   `:hover` and `:selected` for the highlighted row, `:disabled`) and `::separator` (`height`, `margin`, a box,
   `stroke-width`).
@@ -589,6 +626,15 @@ from its style is `--layout-spacing` (rows and columns) and `--grid-spacing` (gr
   `height`, `margin`).
 - **`TreeWidget`**: as `ListWidget`. `::item` states `:selected`, `:hover`, `:disabled`, `:open`,
   `:has-children`, `:bold`; `::branch` (`width`: each level's indent; `padding`, `color`); `::icon`.
+  Lines joining the rows: `-tiny-tree-lines: dotted` (or `solid`; `none`, the default) on `TreeWidget::branch`, in
+  `-tiny-tree-line-color` (else the branch's `color`): from each row's branch across to its text, up to the row
+  above, down to its next sibling, and its ancestors' lines passing by on the left (to their next siblings); 1 px,
+  through the middle pixel (rounding down) of each level's room for the arrow (`width` less `padding`) and of the
+  row's height; dotted ones are every other pixel, the dots fixed to the rows as they scroll. Part `::text`: a box
+  shrink-wrapped around the text (its `padding` and border; the row's height), with the row's states: a selection
+  covering the text only is `TreeWidget::item:selected { background-color: transparent }
+  TreeWidget::text:selected { background-color: #000080; color: #fff; padding: 0 2px }`; its `outline` is a focus
+  rectangle (`TreeWidget:focus::text:selected { outline: 1px dotted }`).
 - **`MenuBar`**: a box. Part `::item`: `padding`, `color`; `:hover`, `:open`, `:disabled`.
 - **`Menu`**: a box, `padding`, `min-width`. Parts `::item` (`padding`, `color`, the font; `:hover`, `:disabled`,
   `:checkable`, `:checked`, `:section`, `:submenu`), `::separator` (`height`, `margin`), `::check` (`width`,

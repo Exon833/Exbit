@@ -12,6 +12,7 @@
 #include <string>
 #include <cctype>
 #include <cstring>
+#include <functional>
 #include <set>
 
 #include "audio/engine.h"
@@ -33,6 +34,7 @@
 #include "ui/skin.h"
 #include "ui/theme.h"
 #include "ui/track_render.h"
+#include "ui/toolkit/dialogs.h"
 #include "ui/toolkit/frame.h"
 #include "ui/toolkit/layout.h"
 #include "ui/toolkit/menu.h"
@@ -1634,6 +1636,93 @@ void testLoopRecording() {
     CHECK(!d.loopTakes->isChecked());
 }
 
+// A message box's parts: its buttons in a band across the whole width (Dialog.message-box::buttons: a box, its
+// padding the room around them; unstyled, where they always were), and no maximize (it can't be resized); a message
+// box in every built-in skin, with Tiny DAW's own frames
+static void testMessageBoxParts() {
+    App& app = App::get();
+    struct Seen {
+        bool shown = false, resizable = true, maximize = true;
+        int w = 0, h = 0;
+        Rect band, buttons;
+        Color line, strip, above;
+    };
+    std::function<ButtonBox*(Widget*)> findBox = [&](Widget* w) -> ButtonBox* {
+        for (auto& c : w->children()) {
+            if (auto* b = dynamic_cast<ButtonBox*>(c.get())) return b;
+            if (ButtonBox* b = findBox(c.get())) return b;
+        }
+        return nullptr;
+    };
+    auto show = [&](Seen& s, const std::string& file) {
+        app.singleShot(30, [&, file] {
+            Window* top = app.modalWindow();
+            if (!top) return;
+            s.shown = true;
+            app.doLayouts();
+            top->update();
+            app.tick();
+            s.resizable = top->isResizable();
+            s.maximize = top->titleBar() && top->titleBar()->hasButton(TitleBar::Maximize);
+            s.w = top->width();
+            s.h = top->height();
+            if (ButtonBox* bb = findBox(top)) {
+                s.buttons = bb->geometry();
+                if (bb->parent()) s.band = bb->parent()->geometry();
+            }
+            Window::FrameInsets f = top->frameInsets();
+            const Image& fb = top->framebuffer();
+            if (!s.band.empty()) {
+                s.line = fb.colorAt(f.left + 2, f.top + s.band.y);
+                s.strip = fb.colorAt(f.left + 2, f.top + s.band.y + 2);
+                s.above = fb.colorAt(f.left + 2, f.top + s.band.y - 2);
+            }
+            if (!file.empty()) savePng("build/ui-samples/frames/" + file + ".png", fb);
+            if (auto* d = dynamic_cast<Dialog*>(top)) d->reject();
+        });
+        msg::question(nullptr, "Unsaved changes", "Save the changes to the current project?",
+                      msg::Save | msg::Discard | msg::Cancel);
+    };
+    util::makeDirs("build/ui-samples/frames");
+    // default.css: the band is the dialog's width; the buttons 14 px from its sides and bottom, 14 below the text
+    Seen plain;
+    show(plain, "");
+    CHECK(plain.shown && !plain.resizable);
+    CHECK(plain.band.x == 0 && plain.band.w == plain.w && plain.band.bottom() == plain.h);
+    CHECK(plain.buttons == Rect(14, 14, plain.w - 28, plain.buttons.h) && plain.band.h == 14 + plain.buttons.h + 14);
+    // a classic sheet: a white upper part and a grey strip with a line along its top
+    std::vector<css::Problem> problems;
+    theme::setStyles({theme::builtinSheet(),
+                      css::parse("Dialog.message-box { background-color: #ffffff; }"
+                                 "Dialog.message-box::buttons { background-color: #f0f0f0; border-top: 1px solid #dfdfdf;"
+                                 " padding: 10px 11px 12px 13px; }",
+                                 "message-box.css", problems)});
+    CHECK(problems.empty());
+    Seen styled;
+    show(styled, "");
+    CHECK(styled.shown && styled.band.x == 0 && styled.band.w == styled.w && styled.band.bottom() == styled.h);
+    CHECK(styled.buttons == Rect(13, 11, styled.w - 24, styled.buttons.h) &&
+          styled.band.h == 11 + styled.buttons.h + 12);
+    CHECK(styled.line == Color(0xdf, 0xdf, 0xdf) && styled.strip == Color(0xf0, 0xf0, 0xf0) &&
+          styled.above == Color(255, 255, 255));
+    // every built-in skin, framed: no maximize; the band's background is the skin's (default: none: the window's)
+    app.setFramesWhenHeadless(true);
+    for (const char* name : {"Dark", "Light", "Midnight", "OLED", "High contrast", "90s", "XP", "7"}) {
+        skin::Skin sk = skin::find(name);
+        CHECK(sk.name == name);
+        skin::apply(sk);
+        app.repaintAll();
+        std::string file = name;
+        for (auto& ch : file) ch = ch == ' ' ? '-' : (char)std::tolower((unsigned char)ch);
+        Seen s;
+        show(s, "message-box-" + file);
+        CHECK(s.shown && !s.resizable && !s.maximize && s.band.w == s.w && s.buttons.w > 0);
+    }
+    skin::apply(skin::find("Dark"));
+    app.repaintAll();
+    app.setFramesWhenHeadless(false);
+}
+
 int main() {
     App::get().initHeadless();
     util::makeDirs(OUT);
@@ -1662,6 +1751,7 @@ int main() {
     testWinePrefixesDialog();
     testHistoryWindow();
     testFramedDialogs();
+    testMessageBoxParts();
     testHintLine();
     // the dialogs in another skin
     skin::apply(skin::find("Light"));

@@ -1145,7 +1145,7 @@ Color MidiEditor::color() const {
 // --- ghost notes ---
 
 ui::Button* MidiEditor::buildGhostsButton() {
-    ghostsButton = ui::toolButton(this, "Ghosts \xe2\x96\xbe", nullptr,
+    ghostsButton = ui::toolButton(this, "Ghosts", nullptr,  // (its menu gives it the ▾)
                                   "Show other clips' notes, faint, behind this clip's (as they play), to write against "
                                   "them. Right-click one to edit its clip");
     ui::Menu* menu = widgets::ownedMenu(ghostsButton);
@@ -1228,7 +1228,7 @@ void MidiEditor::editOther(const ClipPtr& other) {
 // --- the chord stamp ---
 
 ui::Button* MidiEditor::buildStampButton() {
-    stampButton = ui::toolButton(this, "Stamp \xe2\x96\xbe", nullptr,
+    stampButton = ui::toolButton(this, "Stamp", nullptr,  // (its menu gives it the ▾)
                                  "Stamp: a click places a whole chord, rooted on the key clicked (Off: one note). "
                                  "\"In the scale\" chords use the song's scale (choose one under Scale)");
     ui::Menu* menu = widgets::ownedMenu(stampButton);
@@ -1256,7 +1256,7 @@ void MidiEditor::syncStamp() {
     if (startsWith(stamp, "In the scale") && !onScale) stamp = "Off";  // (the scale went: nothing to build those from)
     checkOnly(stampActions, stamp);
     std::string shown = startsWith(stamp, "In the scale: ") ? stamp.substr(14) : stamp;
-    stampButton->setText(stamp == "Off" ? "Stamp \xe2\x96\xbe" : shown + " \xe2\x96\xbe");
+    stampButton->setText(stamp == "Off" ? "Stamp" : shown);
 }
 
 std::vector<int> MidiEditor::stamped(int root) const {
@@ -1297,7 +1297,7 @@ void MidiEditor::buildScaleTools(ui::HBox* tools) {
         box->currentIndexChanged.connect([this](int) { scaleChosen(); });
         tools->addWidget(box);
     }
-    foldButton = ui::toolButton(this, "Fold \xe2\x96\xbe", nullptr,
+    foldButton = ui::toolButton(this, "Fold", nullptr,  // (its menu gives it the ▾)
                                 "Show only some rows: the scale's notes (every row is a right one), or the pitches the "
                                 "clip uses (drums)");
     ui::Menu* menu = widgets::ownedMenu(foldButton);
@@ -1326,8 +1326,7 @@ void MidiEditor::syncScaleTools() {
     foldActions["scale"]->enabled = on;
     if (fold == "scale" && !on) fold = "off";  // (no scale any more: nothing to fold to)
     checkOnly(foldActions, fold);
-    foldButton->setText(fold == "off" ? "Fold \xe2\x96\xbe" : fold == "scale" ? "Folded: scale \xe2\x96\xbe"
-                                                                               : "Folded: used \xe2\x96\xbe");
+    foldButton->setText(fold == "off" ? "Fold" : fold == "scale" ? "Folded: scale" : "Folded: used");
     foldButton->updateGeometry();
 }
 
