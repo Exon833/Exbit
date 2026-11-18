@@ -1058,3 +1058,394 @@ void Painter::drawTextBlock(const RectF& box, int align, const std::string& text
         y += ls;
     }
 }
+
+// ================================================================================================
+// Device-pixel fills, masks and layers; gradients; blur (added for style::box: borders, shadows, gradients)
+
+namespace {
+
+// the bounds of polygons, clipped: false if nothing of them is inside `clip`; the accumulator is begun on
+// `reg` with their edges in it
+bool accumulatePolys(const std::vector<std::vector<PointF>>& polys, const Rect& clip, Rect& reg) {
+    float bx0 = 1e30f, by0 = 1e30f, bx1 = -1e30f, by1 = -1e30f;
+    for (const auto& q : polys)
+        for (PointF pt : q) {
+            if (!std::isfinite(pt.x) || !std::isfinite(pt.y)) return false;
+            bx0 = std::min(bx0, pt.x);
+            by0 = std::min(by0, pt.y);
+            bx1 = std::max(bx1, pt.x);
+            by1 = std::max(by1, pt.y);
+        }
+    if (bx0 > bx1) return false;
+    bx0 = std::max(bx0, -1e7f);
+    by0 = std::max(by0, -1e7f);
+    bx1 = std::min(bx1, 1e7f);
+    by1 = std::min(by1, 1e7f);
+    Rect bounds((int)std::floor(bx0), (int)std::floor(by0), 0, 0);
+    bounds.w = (int)std::ceil(bx1) - bounds.x + 1;
+    bounds.h = (int)std::ceil(by1) - bounds.y + 1;
+    reg = bounds.intersected(clip);
+    if (reg.empty()) return false;
+    raster::Accumulator& acc = accumulator();
+    acc.begin(reg.w, reg.h);
+    float ox = (float)reg.x, oy = (float)reg.y;
+    for (const auto& q : polys) {
+        size_t n = q.size();
+        if (n < 2) continue;
+        for (size_t i = 0; i < n; i++) {
+            PointF a = q[i], b = q[(i + 1) % n];
+            acc.line(a.x - ox, a.y - oy, b.x - ox, b.y - oy);
+        }
+    }
+    return true;
+}
+
+}  // namespace
+
+void Painter::fillDevice(const std::vector<std::vector<PointF>>& polys, Color c, bool evenOdd) {
+    std::vector<Path::Poly> p(polys.size());
+    for (size_t i = 0; i < polys.size(); i++) {
+        p[i].pts = polys[i];
+        p[i].closed = true;
+    }
+    rasterize(p, c, evenOdd);
+}
+
+void Painter::fillDevice(const std::vector<std::vector<PointF>>& polys, const Shader& shader, bool evenOdd) {
+    rasterizeShaded(polys, shader, evenOdd);
+}
+
+void Painter::rasterizeShaded(const std::vector<std::vector<PointF>>& polys, const Shader& shader, bool evenOdd) {
+    uint32_t op = opacity_ < 1.f ? (uint32_t)std::lround(opacity_ * 255) : 255;
+    if (!op || polys.empty()) return;
+    Rect reg;
+    if (!accumulatePolys(polys, clip_, reg)) return;
+    raster::Accumulator& acc = accumulator();
+    static std::vector<uint32_t> buf;  // (drawing is on one thread, as the accumulator)
+    if ((int)buf.size() < reg.w) buf.resize((size_t)reg.w);
+    for (int y = 0; y < reg.h; y++) {
+        uint32_t* row = img_->row(reg.y + y) + reg.x;
+        acc.readRow(y, evenOdd, [&](int x, int n, const uint8_t* cov, int solid) {
+            shader.shade(reg.x + x, reg.y + y, n, buf.data());
+            uint32_t* q = row + x;
+            for (int i = 0; i < n; i++) {
+                uint32_t k = cov ? cov[i] : (uint32_t)solid;
+                if (op < 255) k = (k * op + 127) / 255;
+                uint32_t s = buf[(size_t)i];
+                if (k < 255) s = mul8(s, k);
+                if ((s >> 24) == 255) q[i] = s;
+                else if (s) q[i] = over(s, q[i]);
+            }
+        });
+    }
+}
+
+namespace {
+// the rows and columns of a fractional rectangle, clipped: each pixel's coverage is its row's times its column's
+template <class Span>
+void rectSpans(const RectF& r, const Rect& clip, Span&& span) {
+    if (!(r.w > 0) || !(r.h > 0) || !std::isfinite(r.x) || !std::isfinite(r.y)) return;
+    float x0 = std::max(r.x, -1e7f), y0 = std::max(r.y, -1e7f), x1 = std::min(r.right(), 1e7f), y1 = std::min(r.bottom(), 1e7f);
+    Rect b((int)std::floor(x0), (int)std::floor(y0), 0, 0);
+    b.w = (int)std::ceil(x1) - b.x;
+    b.h = (int)std::ceil(y1) - b.y;
+    Rect d = b.intersected(clip);
+    if (d.empty()) return;
+    // the partly covered first and last columns (one column: both edges in it)
+    int xa = (int)std::floor(x0), xb = (int)std::ceil(x1) - 1;
+    float covA = xa == xb ? x1 - x0 : (float)(xa + 1) - x0, covB = xa == xb ? covA : x1 - (float)xb;
+    for (int y = d.y; y < d.bottom(); y++) {
+        float cy = std::min((float)(y + 1), y1) - std::max((float)y, y0);
+        if (cy <= 0) continue;
+        uint32_t ky = (uint32_t)std::lround(std::min(1.f, cy) * 255);
+        if (!ky) continue;
+        span(y, d.x, d.w, ky, [&](int x) -> uint32_t {
+            float c = x == xa ? covA : x == xb ? covB : 1.f;
+            return (uint32_t)std::lround(std::min(1.f, c) * 255);
+        }, xa, xb);
+    }
+}
+}  // namespace
+
+void Painter::fillDeviceRect(const RectF& r, Color c) {
+    uint32_t p = premulWith(c, opacity_);
+    if (!(p >> 24)) return;
+    rectSpans(r, clip_, [&](int y, int x, int n, uint32_t ky, auto&& colCov, int xa, int xb) {
+        uint32_t* q = img_->row(y);
+        uint32_t full = ky == 255 ? p : mul8(p, ky);
+        bool opaque = (full >> 24) == 255;
+        for (int i = x; i < x + n; i++) {
+            uint32_t s = full;
+            if (i == xa || i == xb) {
+                uint32_t k = colCov(i);
+                if (k < 255) s = mul8(full, k);
+            } else if (opaque) {
+                // (the inside of a row: one colour)
+                int e = std::min(x + n, xb);
+                std::fill(q + i, q + e, full);
+                i = e - 1;
+                continue;
+            }
+            if ((s >> 24) == 255) q[i] = s;
+            else if (s) q[i] = over(s, q[i]);
+        }
+    });
+}
+
+void Painter::fillDeviceRect(const RectF& r, const Shader& shader) {
+    uint32_t op = opacity_ < 1.f ? (uint32_t)std::lround(opacity_ * 255) : 255;
+    if (!op) return;
+    static std::vector<uint32_t> buf;
+    rectSpans(r, clip_, [&](int y, int x, int n, uint32_t ky, auto&& colCov, int xa, int xb) {
+        if ((int)buf.size() < n) buf.resize((size_t)n);
+        shader.shade(x, y, n, buf.data());
+        uint32_t* q = img_->row(y);
+        uint32_t k0 = op == 255 ? ky : (ky * op + 127) / 255;
+        for (int i = 0; i < n; i++) {
+            int xi = x + i;
+            uint32_t k = k0;
+            if (xi == xa || xi == xb) k = (k * colCov(xi) + 127) / 255;
+            uint32_t s = buf[(size_t)i];
+            if (k < 255) s = mul8(s, k);
+            if ((s >> 24) == 255) q[xi] = s;
+            else if (s) q[xi] = over(s, q[xi]);
+        }
+    });
+}
+
+void Painter::blendMask(int x, int y, int w, int h, const uint8_t* mask, Color c) {
+    uint32_t p = premulWith(c, opacity_);
+    if (!(p >> 24) || w <= 0 || h <= 0) return;
+    Rect d = Rect(x, y, w, h).intersected(clip_);
+    if (d.empty()) return;
+    for (int row = d.y; row < d.bottom(); row++) {
+        const uint8_t* m = mask + (size_t)(row - y) * w + (d.x - x);
+        uint32_t* q = img_->row(row) + d.x;
+        for (int i = 0; i < d.w; i++) {
+            uint32_t k = m[i];
+            if (!k) continue;
+            q[i] = over(k == 255 ? p : mul8(p, k), q[i]);
+        }
+    }
+}
+
+void Painter::blendLayer(const Image& layer, int x, int y, float opacity) {
+    if (layer.empty()) return;
+    uint32_t op = (uint32_t)std::lround(std::clamp(opacity * opacity_, 0.f, 1.f) * 255);
+    if (!op) return;
+    Rect d = Rect(x, y, layer.width(), layer.height()).intersected(clip_);
+    if (d.empty()) return;
+    for (int row = d.y; row < d.bottom(); row++) {
+        const uint32_t* s = layer.row(row - y) + (d.x - x);
+        uint32_t* q = img_->row(row) + d.x;
+        for (int i = 0; i < d.w; i++) {
+            uint32_t p = s[i];
+            if (!p) continue;
+            if (op < 255) p = mul8(p, op);
+            q[i] = (p >> 24) == 255 ? p : over(p, q[i]);
+        }
+    }
+}
+
+void coverageMask(const std::vector<std::vector<PointF>>& polys, const Rect& area, std::vector<uint8_t>& mask,
+                  bool evenOdd) {
+    mask.assign((size_t)std::max(0, area.w) * std::max(0, area.h), 0);
+    if (area.empty()) return;
+    Rect reg;
+    if (!accumulatePolys(polys, area, reg)) return;
+    raster::Accumulator& acc = accumulator();
+    for (int y = 0; y < reg.h; y++) {
+        uint8_t* m = mask.data() + (size_t)(reg.y - area.y + y) * area.w + (reg.x - area.x);
+        acc.readRow(y, evenOdd, [&](int x, int n, const uint8_t* cov, int solid) {
+            if (cov) std::copy(cov, cov + n, m + x);
+            else std::fill_n(m + x, n, (uint8_t)solid);
+        });
+    }
+}
+
+// --- gradients ---
+
+GradientRamp::GradientRamp(const std::vector<GradientStop>& stops, bool repeating) : repeating_(repeating) {
+    if (stops.empty()) return;
+    auto premulF = [](Color c, float* out) {  // premultiplied, 0..255 floats
+        float a = c.a / 255.f;
+        out[0] = c.r * a;
+        out[1] = c.g * a;
+        out[2] = c.b * a;
+        out[3] = (float)c.a;
+    };
+    auto pack = [](const float* v) {
+        auto ch = [](float x) { return (uint32_t)std::clamp((int)std::lround(x), 0, 255); };
+        uint32_t A = ch(v[3]);
+        uint32_t R = std::min(ch(v[0]), A), G = std::min(ch(v[1]), A), B = std::min(ch(v[2]), A);
+        return A << 24 | R << 16 | G << 8 | B;
+    };
+    for (const GradientStop& s : stops) opaque_ = opaque_ && s.color.a == 255;
+    float f[4];
+    premulF(stops.front().color, f);
+    first_ = pack(f);
+    premulF(stops.back().color, f);
+    last_ = pack(f);
+    t0_ = stops.front().pos;
+    float span = stops.back().pos - t0_;
+    lut_.resize(kSize);
+    if (!(span > 1e-6f)) {
+        // all at one place: before it the first colour, after it the last; repeating: their average
+        k_ = 1e6f;
+        if (repeating) {
+            float sum[4] = {0, 0, 0, 0};
+            for (const GradientStop& s : stops) {
+                premulF(s.color, f);
+                for (int i = 0; i < 4; i++) sum[i] += f[i] / stops.size();
+            }
+            first_ = last_ = pack(sum);
+            repeating_ = false;
+        }
+        std::fill(lut_.begin(), lut_.end(), last_);
+        return;
+    }
+    k_ = 1.f / span;
+    size_t j = 0;
+    for (int i = 0; i < kSize; i++) {
+        float t = t0_ + (i + 0.5f) / kSize * span;
+        while (j + 2 < stops.size() && stops[j + 1].pos <= t) j++;
+        const GradientStop& a = stops[j];
+        const GradientStop& b = stops[std::min(j + 1, stops.size() - 1)];
+        float len = b.pos - a.pos;
+        float u = len > 1e-9f ? std::clamp((t - a.pos) / len, 0.f, 1.f) : 1.f;
+        float fa[4], fb[4], v[4];
+        premulF(a.color, fa);
+        premulF(b.color, fb);
+        for (int c = 0; c < 4; c++) v[c] = fa[c] + (fb[c] - fa[c]) * u;
+        lut_[(size_t)i] = pack(v);
+    }
+    // steps between neighbouring entries (hard stops): kept as sums too, to average over a pixel
+    auto step = [](uint32_t a, uint32_t b) {
+        int d = 0;
+        for (int sh = 0; sh < 32; sh += 8) d = std::max(d, std::abs((int)((a >> sh) & 255) - (int)((b >> sh) & 255)));
+        return d;
+    };
+    for (int i = 1; i < kSize && !sharp_; i++) sharp_ = step(lut_[(size_t)i - 1], lut_[(size_t)i]) > 6;
+    if (repeating_ && !sharp_) sharp_ = step(lut_.front(), lut_.back()) > 6;  // (where it starts again)
+    if (sharp_) {
+        sum_.assign(4 * (kSize + 1), 0.f);
+        for (int i = 0; i < kSize; i++)
+            for (int c = 0; c < 4; c++)
+                sum_[(size_t)4 * (i + 1) + c] = sum_[(size_t)4 * i + c] + (float)((lut_[(size_t)i] >> (8 * c)) & 255);
+    }
+}
+
+void GradientRamp::integral(float u, float out[4]) const {
+    // the entries' sum from 0 to u (in entries; beyond the ends: the end colours, or the stops over again)
+    const float* total = &sum_[4 * (size_t)kSize];
+    float whole = 0;
+    if (repeating_) {
+        whole = std::floor(u / kSize);
+        u -= whole * kSize;
+    } else if (u < 0 || u >= kSize) {
+        uint32_t e = u < 0 ? first_ : last_;
+        float extra = u < 0 ? u : u - kSize;
+        for (int c = 0; c < 4; c++) out[c] = (u < 0 ? 0 : total[c]) + extra * (float)((e >> (8 * c)) & 255);
+        return;
+    }
+    int i = std::min((int)u, kSize - 1);
+    float f = u - (float)i;
+    uint32_t p = lut_[(size_t)i];
+    for (int c = 0; c < 4; c++) out[c] = whole * total[c] + sum_[(size_t)4 * i + c] + f * (float)((p >> (8 * c)) & 255);
+}
+
+uint32_t GradientRamp::average(float t, float width) const {
+    float w = width * k_ * kSize;  // (in entries)
+    if (!sharp_ || !(w > 1.f) || !(t == t)) return at(t);
+    float u = (t - t0_) * k_ * kSize;
+    float a[4], b[4];
+    integral(u - w / 2, a);
+    integral(u + w / 2, b);
+    uint32_t ch[4];
+    for (int c = 0; c < 4; c++) ch[c] = (uint32_t)std::clamp((int)std::lround((b[c] - a[c]) / w), 0, 255);
+    uint32_t A = ch[3];
+    return A << 24 | std::min(ch[2], A) << 16 | std::min(ch[1], A) << 8 | std::min(ch[0], A);
+}
+
+LinearGradientShader::LinearGradientShader(PointF p0, PointF p1, const GradientRamp& ramp) : ramp_(ramp) {
+    float dx = p1.x - p0.x, dy = p1.y - p0.y, l2 = dx * dx + dy * dy;
+    if (l2 < 1e-12f) l2 = 1e-12f;
+    a_ = dx / l2;
+    b_ = dy / l2;
+    // (nearly vertical or horizontal: exactly, so a row is one colour)
+    if (std::fabs(a_) < 1e-7f * std::fabs(b_)) a_ = 0;
+    if (std::fabs(b_) < 1e-7f * std::fabs(a_)) b_ = 0;
+    c_ = -(p0.x * a_ + p0.y * b_);
+    foot_ = std::sqrt(a_ * a_ + b_ * b_);
+}
+
+void LinearGradientShader::shade(int x, int y, int n, uint32_t* out) const {
+    float t = a_ * (x + 0.5f) + b_ * (y + 0.5f) + c_;
+    bool sharp = ramp_.sharp();
+    if (a_ == 0) {  // (vertical: one colour along the row)
+        std::fill_n(out, n, sharp ? ramp_.average(t, foot_) : ramp_.at(t));
+        return;
+    }
+    if (sharp)
+        for (int i = 0; i < n; i++) out[i] = ramp_.average(t + a_ * i, foot_);
+    else
+        for (int i = 0; i < n; i++) out[i] = ramp_.at(t + a_ * i);
+}
+
+RadialGradientShader::RadialGradientShader(PointF centre, float rx, float ry, const GradientRamp& ramp)
+    : ramp_(ramp), cx_(centre.x), cy_(centre.y), kx_(1.f / std::max(rx, 1e-3f)), ky_(1.f / std::max(ry, 1e-3f)) {}
+
+void RadialGradientShader::shade(int x, int y, int n, uint32_t* out) const {
+    float v = (y + 0.5f - cy_) * ky_, v2 = v * v;
+    float u0 = (x + 0.5f - cx_) * kx_;
+    if (!ramp_.sharp()) {
+        for (int i = 0; i < n; i++) {
+            float u = u0 + i * kx_;
+            out[i] = ramp_.at(std::sqrt(u * u + v2));
+        }
+        return;
+    }
+    // (hard stops: averaged over the pixel's width across the rings, |grad t|)
+    float vk = v * ky_;
+    for (int i = 0; i < n; i++) {
+        float u = u0 + i * kx_, t = std::sqrt(u * u + v2);
+        float g = t > 1e-6f ? std::sqrt((u * kx_) * (u * kx_) + vk * vk) / t : std::max(kx_, ky_);
+        out[i] = ramp_.average(t, g);
+    }
+}
+
+// --- blur ---
+
+void blurMask(uint8_t* mask, int w, int h, float sigma) {
+    if (!(sigma >= 0.3f) || w <= 0 || h <= 0) return;
+    // three boxes whose sizes add up to the Gaussian's variance
+    const int n = 3;
+    float wIdeal = std::sqrt(12 * sigma * sigma / n + 1);
+    int wl = (int)std::floor(wIdeal);
+    if (wl % 2 == 0) wl--;
+    int wu = wl + 2;
+    float mIdeal = (12 * sigma * sigma - n * wl * wl - 4 * n * wl - 3 * n) / (-4.f * wl - 4);
+    int m = (int)std::lround(mIdeal);
+    int radius[n];
+    for (int i = 0; i < n; i++) radius[i] = ((i < m ? wl : wu) - 1) / 2;
+    std::vector<float> a((size_t)w * h), line((size_t)std::max(w, h)), out((size_t)std::max(w, h));
+    for (size_t i = 0; i < a.size(); i++) a[i] = mask[i];
+    // one box along a line of `len` values `stride` apart, what is beyond its ends being its end values
+    auto box = [&](float* p, int len, size_t stride, int r) {
+        if (r <= 0) return;
+        for (int i = 0; i < len; i++) line[(size_t)i] = p[(size_t)i * stride];
+        auto at = [&](int i) { return line[(size_t)std::clamp(i, 0, len - 1)]; };
+        float inv = 1.f / (2 * r + 1), sum = 0;
+        for (int i = -r; i <= r; i++) sum += at(i);
+        for (int i = 0; i < len; i++) {
+            out[(size_t)i] = sum * inv;
+            sum += at(i + r + 1) - at(i - r);
+        }
+        for (int i = 0; i < len; i++) p[(size_t)i * stride] = out[(size_t)i];
+    };
+    for (int pass = 0; pass < n; pass++) {
+        for (int y = 0; y < h; y++) box(a.data() + (size_t)y * w, w, 1, radius[pass]);
+        for (int x = 0; x < w; x++) box(a.data() + x, h, (size_t)w, radius[pass]);
+    }
+    for (size_t i = 0; i < a.size(); i++) mask[i] = (uint8_t)std::clamp((int)std::lround(a[i]), 0, 255);
+}

@@ -544,7 +544,7 @@ void testShorthands() {
     CHECK(b2.length("border-top-width", 0) == 3);  // (medium)
     CHECK(b2.raw("border-top-color") == "currentcolor");
     Style b3 = s.engine.compute(SimpleNode("B3"));
-    CHECK(same(b3.edges("border-width", Edges{}), 1, 2, 1, 2));
+    CHECK(same(b3.edges("border-width", Edges{}), 0, 2, 0, 2));  // (a side whose style is none has no width)
     CHECK(b3.raw("border-top-style") == "none" && b3.raw("border-right-style") == "solid");
     CHECK(b3.raw("border-top-color") == "red" && b3.raw("border-right-color") == "green" &&
           b3.raw("border-bottom-color") == "blue" && b3.raw("border-left-color") == "green");
@@ -1455,6 +1455,205 @@ void testFuzzMore() {
     exercise("A" + isDeep + " { color: red }");
 }
 
+// what paints: gradients (every form), box-shadow and text-shadow lists, border styles (alone, per side and in
+// the border shorthands), opacity, all through var() too; bad values left out and reported where they are
+void testPaintValues() {
+    using G = Style::Gradient;
+    auto near = [](double a, double b) { return std::fabs(a - b) < 1e-9; };
+    Sheet s(
+        ":root { --a: red; --g: linear-gradient(to right, var(--a), blue); --sh: 1px 2px 3px green; --t: 45deg }\n"  // 1
+        "L1 { background-image: linear-gradient(red, blue) }\n"                                                       // 2
+        "L2 { background-image: linear-gradient(90deg, red 10%, lime 20px, blue) }\n"                                 // 3
+        "L3 { background-image: linear-gradient(0.25turn, red, blue), linear-gradient(1.5708rad, red, blue) }\n"     // 4
+        "L4 { background-image: linear-gradient(100grad, red 0 50%, blue 50% 100%); }\n"                            // 5
+        "L5 { background-image: linear-gradient(to left top, red, blue) }\n"                                         // 6
+        "L6 { background-image: linear-gradient(to bottom, red, blue); background-image: linear-gradient(0, red, blue) }\n"  // 7
+        "L7 { background-image: repeating-linear-gradient(-45deg, red, red 5px, white 5px, white 10px) }\n"         // 8
+        "L8 { background-image: linear-gradient(10% red, 90% blue) }\n"                                             // 9
+        "R1 { background-image: radial-gradient(red, blue) }\n"                                                       // 10
+        "R2 { background-image: radial-gradient(circle closest-side at left top, red, blue) }\n"                     // 11
+        "R3 { background-image: radial-gradient(farthest-side ellipse at 30% 10px, red, blue) }\n"                   // 12
+        "R4 { background-image: radial-gradient(20px at bottom right, red, blue) }\n"                                // 13
+        "R5 { background-image: radial-gradient(40% 2em, red, blue); font-size: 10px }\n"                            // 14
+        "R6 { background-image: repeating-radial-gradient(circle at top, red 0 4px, blue 4px 8px) }\n"              // 15
+        "R7 { background-image: radial-gradient(closest-corner, red, blue), none }\n"                                // 16
+        "B1 { background: linear-gradient(red, blue) #123456 }\n"                                                    // 17
+        "B2 { background: #102030 radial-gradient(red, blue) }\n"                                                    // 18
+        "B3 { background: linear-gradient(red, blue), url(x.png) no-repeat green }\n"                                // 19
+        "B4 { background: blue }\n"                                                                                   // 20
+        "V1 { background-image: var(--g) }\n"                                                                         // 21
+        "V2 { background: var(--g) var(--a) }\n"                                                                      // 22
+        "V3 { background-image: linear-gradient(var(--t), var(--a) 0%, blue) }\n"                                    // 23
+        "S1 { box-shadow: 2px 3px }\n"                                                                                // 24
+        "S2 { box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5), 0 0 0 1px white, 1px 1px 4px 2px blue inset }\n"      // 25
+        "S3 { box-shadow: red 1px 2px 3px 4px; color: #00ff00 }\n"                                                   // 26
+        "S4 { box-shadow: 1px 1px; color: #00ff00 }\n"                                                               // 27
+        "S5 { box-shadow: none; text-shadow: 1px 1px 2px black, 0 0 1em blue; font-size: 10px }\n"                  // 28
+        "S6 { box-shadow: var(--sh); text-shadow: var(--sh) }\n"                                                     // 29
+        "O1 { opacity: 0.5 } O2 { opacity: 25% } O3 { opacity: var(--o, 0.75) }\n"                                   // 30
+        "Y1 { border-style: inset outset; border-top-style: double }\n"                                              // 31
+        "Y2 { border: 2px groove #808080; border-left: 3px ridge red; border-bottom: dotted }\n"                     // 32
+        "Y3 { border-top: 1px dashed blue; border-right-style: hidden; border-right-width: 4px }\n"                  // 33
+        "Y4 { border-width: 2px; border-style: none }\n"                                                             // 34
+        "Y5 { border: var(--w, 2px) outset var(--a) }\n"                                                             // 35
+        "X { background-image: linear-gradient(red) }\n"                                                             // 36
+        "X { background-image: linear-gradient(to middle, red, blue) }\n"                                            // 37
+        "X { background-image: radial-gradient(circle 10% , red, blue) }\n"                                          // 38
+        "X { background-image: url(a.png) }\n"                                                                       // 39
+        "X { background-image: linear-gradient(red, 50%, blue) }\n"                                                  // 40
+        "X { background: linear-gradient(red, nope) blue }\n"                                                        // 41
+        "X { box-shadow: 1px }\n"                                                                                     // 42
+        "X { box-shadow: 1px 1px -2px red }\n"                                                                       // 43
+        "X { text-shadow: inset 1px 1px red }\n"                                                                     // 44
+        "X { text-shadow: 1px 1px 1px 1px red }\n"                                                                   // 45
+        "X { opacity: big }\n"                                                                                        // 46
+        "X { border-left-style: wavy }\n"                                                                             // 47
+        "X { border-style: solid wavy }\n"                                                                            // 48
+        "X { background-image: radial-gradient(circle 10px 20px, red, blue) }\n"                                    // 49
+        "X { background-image: linear-gradient(45deg 10px, red, blue) }\n"                                           // 50
+        "X { box-shadow: 1px 2px red 3px }\n"                                                                         // 51
+        "Z1 { background-image: var(--nothing, linear-gradient(red, nope)) }\n");                                    // 52
+    auto at = [&](const std::string& what, int line, int col) {
+        for (const Problem& p : s.problems)
+            if (p.line == line && p.message.find(what) != std::string::npos) return p.column == col;
+        return false;
+    };
+    CHECK(at("a gradient needs two colour stops", 36, 5));
+    CHECK(at("is not a side", 37, 5));
+    CHECK(at("a circle's size is one length", 38, 5));
+    CHECK(at("url() images are not supported", 39, 5));
+    CHECK(at("transition hints", 40, 5));
+    CHECK(at("bad value for 'background'", 41, 5));
+    CHECK(at("needs its x and y offsets", 42, 5));
+    CHECK(at("blur can't be negative", 43, 5));
+    CHECK(at("is not part of a shadow", 44, 5));
+    CHECK(at("at most 3 lengths", 45, 5));
+    CHECK(at("bad value for 'opacity'", 46, 5));
+    CHECK(at("bad value for 'border-left-style'", 47, 5));
+    CHECK(at("bad value for 'border-style'", 48, 5));
+    CHECK(at("a circle's size is one length", 49, 5));
+    CHECK(at("is not a colour or a position", 50, 5));
+    CHECK(at("is not part of a shadow", 51, 5));
+    CHECK(s.problems.size() == 16);
+    for (const Problem& p : s.problems) CHECK(p.line >= 36 && p.line <= 51);
+    CHECK(!s.engine.compute(SimpleNode("X")).has("background-image") && !s.engine.compute(SimpleNode("X")).has("box-shadow"));
+
+    auto grads = [&](const char* type) { return s.engine.compute(SimpleNode(type)).gradients(); };
+    auto stopIs = [&](const Style::ColorStop& st, Rgba c, double pos, bool px) {
+        return st.color == c && near(st.position, pos) && st.px == px;
+    };
+    std::vector<G> g = grads("L1");
+    CHECK(g.size() == 1 && g[0].kind == G::Linear && !g[0].repeating && g[0].angle == 180 && !g[0].toCorner);
+    CHECK(g.size() == 1 && g[0].stops.size() == 2 && stopIs(g[0].stops[0], rgba(255, 0, 0), -1, false) &&
+          stopIs(g[0].stops[1], rgba(0, 0, 255), -1, false));
+    g = grads("L2");
+    CHECK(g.size() == 1 && g[0].angle == 90 && g[0].stops.size() == 3);
+    CHECK(g.size() == 1 && stopIs(g[0].stops[0], rgba(255, 0, 0), 0.1, false) && stopIs(g[0].stops[1], rgba(0, 255, 0), 20, true));
+    g = grads("L3");
+    CHECK(g.size() == 2 && near(g[0].angle, 90) && std::fabs(g[1].angle - 90) < 0.01);
+    g = grads("L4");
+    CHECK(g.size() == 1 && near(g[0].angle, 90) && g[0].stops.size() == 4);  // (two-position stops: two each)
+    CHECK(g.size() == 1 && stopIs(g[0].stops[0], rgba(255, 0, 0), 0, true) && stopIs(g[0].stops[1], rgba(255, 0, 0), 0.5, false) &&
+          stopIs(g[0].stops[2], rgba(0, 0, 255), 0.5, false) && stopIs(g[0].stops[3], rgba(0, 0, 255), 1, false));
+    g = grads("L5");
+    CHECK(g.size() == 1 && g[0].toCorner && g[0].cornerX == -1 && g[0].cornerY == -1);
+    g = grads("L6");
+    CHECK(g.size() == 1 && g[0].angle == 0);  // (the later declaration)
+    g = grads("L7");
+    CHECK(g.size() == 1 && g[0].repeating && near(g[0].angle, 315) && g[0].stops.size() == 4 && g[0].stops[3].px);
+    g = grads("L8");  // (a position before its colour)
+    CHECK(g.size() == 1 && stopIs(g[0].stops[0], rgba(255, 0, 0), 0.1, false) && stopIs(g[0].stops[1], rgba(0, 0, 255), 0.9, false));
+    g = grads("R1");
+    CHECK(g.size() == 1 && g[0].kind == G::Radial && !g[0].circle && g[0].size == G::FarthestCorner && g[0].centerX == 0.5 &&
+          g[0].centerY == 0.5);
+    g = grads("R2");
+    CHECK(g.size() == 1 && g[0].circle && g[0].size == G::ClosestSide && g[0].centerX == 0 && g[0].centerY == 0 &&
+          !g[0].centerXPx && !g[0].centerYPx);
+    g = grads("R3");
+    CHECK(g.size() == 1 && !g[0].circle && g[0].size == G::FarthestSide && near(g[0].centerX, 0.3) && !g[0].centerXPx &&
+          g[0].centerY == 10 && g[0].centerYPx);
+    g = grads("R4");
+    CHECK(g.size() == 1 && g[0].circle && g[0].size == G::Explicit && g[0].radiusX == 20 && g[0].radiusY == 20 &&
+          g[0].centerX == 1 && g[0].centerY == 1);
+    g = grads("R5");
+    CHECK(g.size() == 1 && !g[0].circle && g[0].size == G::Explicit && near(g[0].radiusX, 0.4) && g[0].radiusXPercent &&
+          g[0].radiusY == 20 && !g[0].radiusYPercent);
+    g = grads("R6");
+    CHECK(g.size() == 1 && g[0].repeating && g[0].circle && g[0].centerX == 0.5 && g[0].centerY == 0 && g[0].stops.size() == 4);
+    g = grads("R7");
+    CHECK(g.size() == 1 && g[0].size == G::ClosestCorner);  // (a `none` layer is no gradient)
+    Style b1 = s.engine.compute(SimpleNode("B1"));
+    CHECK(b1.color("background-color", Rgba{}) == rgba(0x12, 0x34, 0x56) && b1.gradients().size() == 1);
+    Style b2 = s.engine.compute(SimpleNode("B2"));
+    CHECK(b2.color("background-color", Rgba{}) == rgba(0x10, 0x20, 0x30) && b2.gradients().size() == 1 &&
+          b2.gradients()[0].kind == G::Radial);
+    Style b3 = s.engine.compute(SimpleNode("B3"));  // (the url() layer: none; the colour from the last layer)
+    CHECK(b3.raw("background-image") == "linear-gradient(red, blue), none" && b3.gradients().size() == 1 &&
+          b3.color("background-color", Rgba{}) == rgba(0, 128, 0));
+    Style b4 = s.engine.compute(SimpleNode("B4"));
+    CHECK(b4.raw("background-image") == "none" && b4.gradients().empty());
+    g = grads("V1");
+    CHECK(g.size() == 1 && g[0].angle == 90 && g[0].stops.size() == 2 && g[0].stops[0].color == rgba(255, 0, 0));
+    Style v2 = s.engine.compute(SimpleNode("V2"));
+    CHECK(v2.gradients().size() == 1 && v2.color("background-color", Rgba{}) == rgba(255, 0, 0));
+    g = grads("V3");
+    CHECK(g.size() == 1 && g[0].angle == 45 && g[0].stops[0].position == 0);
+    CHECK(grads("Z1").empty() && anyProblem(s.engine.takeProblems(), "after var()"));
+
+    auto shadows = [&](const char* type, const char* prop) { return s.engine.compute(SimpleNode(type)).shadows(prop); };
+    std::vector<Style::Shadow> sh = shadows("S1", "box-shadow");
+    CHECK(sh.size() == 1 && !sh[0].inset && sh[0].x == 2 && sh[0].y == 3 && sh[0].blur == 0 && sh[0].spread == 0 &&
+          sh[0].color == rgba(0, 0, 0));
+    sh = shadows("S2", "box-shadow");
+    CHECK(sh.size() == 3 && sh[0].inset && sh[0].y == 1 && sh[0].blur == 2 && sh[0].color == rgba(0, 0, 0, 128));
+    CHECK(sh.size() == 3 && !sh[1].inset && sh[1].spread == 1 && sh[1].color == rgba(255, 255, 255));
+    CHECK(sh.size() == 3 && sh[2].inset && sh[2].blur == 4 && sh[2].spread == 2 && sh[2].color == rgba(0, 0, 255));
+    sh = shadows("S3", "box-shadow");
+    CHECK(sh.size() == 1 && sh[0].color == rgba(255, 0, 0) && sh[0].spread == 4);
+    sh = shadows("S4", "box-shadow");
+    CHECK(sh.size() == 1 && sh[0].color == rgba(0, 255, 0));  // (currentColor)
+    CHECK(shadows("S5", "box-shadow").empty());
+    sh = shadows("S5", "text-shadow");
+    CHECK(sh.size() == 2 && sh[0].blur == 2 && sh[1].blur == 10 && sh[1].color == rgba(0, 0, 255));  // (1em: 10px)
+    sh = shadows("S6", "box-shadow");
+    CHECK(sh.size() == 1 && sh[0].x == 1 && sh[0].y == 2 && sh[0].blur == 3 && sh[0].color == rgba(0, 128, 0));
+    CHECK(shadows("S6", "text-shadow").size() == 1);
+    CHECK(shadows("L1", "box-shadow").empty());
+
+    CHECK(near(s.engine.compute(SimpleNode("O1")).number("opacity", 1), 0.5));
+    CHECK(near(s.engine.compute(SimpleNode("O2")).number("opacity", 1), 0.25));
+    CHECK(near(s.engine.compute(SimpleNode("O3")).number("opacity", 1), 0.75));
+
+    Style y1 = s.engine.compute(SimpleNode("Y1"));
+    CHECK(y1.keyword("border-top-style", "") == "double" && y1.keyword("border-right-style", "") == "outset" &&
+          y1.keyword("border-bottom-style", "") == "inset" && y1.keyword("border-left-style", "") == "outset");
+    Style y2 = s.engine.compute(SimpleNode("Y2"));
+    CHECK(y2.keyword("border-top-style", "") == "groove" && y2.keyword("border-left-style", "") == "ridge" &&
+          y2.length("border-left-width", 0) == 3 && y2.color("border-left-color", Rgba{}) == rgba(255, 0, 0));
+    CHECK(y2.keyword("border-bottom-style", "") == "dotted" && y2.length("border-bottom-width", 0) == 3);  // (medium)
+    Style y3 = s.engine.compute(SimpleNode("Y3"));
+    CHECK(y3.keyword("border-top-style", "") == "dashed" && y3.length("border-right-width", 9) == 0);  // (hidden: none)
+    Style y4 = s.engine.compute(SimpleNode("Y4"));
+    CHECK(y4.edges("border-width", Edges{9, 9, 9, 9}).top == 0 && y4.edges("border-width", Edges{9, 9, 9, 9}).left == 0);
+    Style y5 = s.engine.compute(SimpleNode("Y5"));
+    CHECK(y5.keyword("border-left-style", "") == "outset" && y5.length("border-left-width", 0) == 2 &&
+          y5.color("border-left-color", Rgba{}) == rgba(255, 0, 0));
+    // the value helpers directly: every angle unit, every keyword position
+    using namespace css::detail;
+    auto angle = [](const char* text) {
+        Tokens t;
+        tokenize(text, t);
+        G gr;
+        std::string why;
+        return parseGradient(t, 0, t.size(), nullptr, 12, gr, why) ? gr.angle : -1.0;
+    };
+    CHECK(near(angle("linear-gradient(0.5turn, red, blue)"), 180) && near(angle("linear-gradient(200grad, red, blue)"), 180));
+    CHECK(std::fabs(angle("linear-gradient(3.14159265rad, red, blue)") - 180) < 1e-5 && near(angle("linear-gradient(-90deg, red, blue)"), 270));
+    CHECK(near(angle("linear-gradient(to top, red, blue)"), 0) && near(angle("linear-gradient(to left, red, blue)"), 270));
+    CHECK(angle("linear-gradient(1px, red, blue)") == -1 && angle("linear-gradient(red, blue") == -1);
+    CHECK(angle("linear-gradient(currentColor, blue)") == -1);  // (no currentColor here)
+}
+
 // random and cut-short stylesheets: never a crash, never an exception, and quick
 void testFuzz() {
     const std::string corpus =
@@ -1616,6 +1815,7 @@ int main() {
     testUnits();
     testImport();
     testFontFace();
+    testPaintValues();
     testFuzz();
     testFuzzMore();
     testSpeed();

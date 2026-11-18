@@ -148,10 +148,13 @@ void Label::paint(Painter& p) {
     Font f = font();
     Color c = color();
     bool multi = text_.find('\n') != std::string::npos;
+    const std::vector<css::Style::Shadow>& shadows = style::boxLook(st).textShadows;  // (text-shadow)
     if (multi || wrap_) {
+        if (!shadows.empty()) style::textBlockShadows(p, RectF(r), align_, text_, f, shadows, wrap_);
         p.drawTextBlock(RectF(r), align_, text_, f, c, wrap_);
         return;
     }
+    if (!shadows.empty()) style::textShadows(p, RectF(r), align_, text_, f, shadows, elide_);
     p.drawText(RectF(r), align_, text_, f, c, elide_);
     if (underline) {  // (default.css: a link's)
         float tw = std::min((float)r.w, f.width(text_));
@@ -399,13 +402,13 @@ void Button::paint(Painter& p) {
         int x = content.x + std::max(0, (content.w - total) / 2);
         drawIcon((float)x, std::round(content.y + (content.h - iconPx_) / 2.f));
         Rect tr(x + iconPx_ + 4, r.y, std::max(0, content.right() - (x + iconPx_ + 4)), r.h);
-        style::text(p, tr, AlignLeft | AlignVCenter, text_, f, tc, true);
+        style::text(p, tr, AlignLeft | AlignVCenter, text_, f, tc, st, true);
         return;
     }
     if (!text_.empty()) {
         // (centred over the whole height, as the padding is symmetric)
         Rect tr(content.x - 2, r.y, content.w + 4, r.h);
-        style::text(p, tr, AlignCenter, text_, f, tc, true);
+        style::text(p, tr, AlignCenter, text_, f, tc, st, true);
     }
 }
 
@@ -583,7 +586,7 @@ void CheckBox::paint(Painter& p) {
     if (!text_.empty()) {
         int x = pad.left + iw + gap;
         Rect tr(x, 0, std::max(0, width() - x - pad.right), height());
-        style::text(p, tr, AlignLeft | AlignVCenter, text_, f, tc, true);
+        style::text(p, tr, AlignLeft | AlignVCenter, text_, f, tc, st, true);
     }
 }
 
@@ -660,7 +663,7 @@ void GroupBox::paint(Painter& p) {
         const css::Style& ts = computedStyle("title");
         style::Insets m = style::insets(ts, "margin");
         style::text(p, Rect(m.left, m.top, width() - m.w(), style::px(ts, "height", 18)), AlignLeft | AlignVCenter, title_,
-                    style::font(ts, theme::uiFont()), style::foreground(ts), true);
+                    style::font(ts, theme::uiFont()), style::foreground(ts), ts, true);
     }
 }
 
@@ -869,11 +872,11 @@ void StatusBar::paint(Painter& p) {
     int pw = permanentW();
     std::string shown = shownText();
     if (!shown.empty())
-        style::text(p, Rect(content.x, line, content.w - pw, height() - line), AlignLeft | AlignVCenter, shown, f, tc, true);
+        style::text(p, Rect(content.x, line, content.w - pw, height() - line), AlignLeft | AlignVCenter, shown, f, tc, st, true);
     if (pw) {
         const css::Style& ps = computedStyle("permanent");
         style::text(p, Rect(width() - pw, line, pw - style::insets(ps, "padding").right, height() - line),
-                    AlignRight | AlignVCenter, permanent_, style::font(ps, theme::uiFont()), style::foreground(ps));
+                    AlignRight | AlignVCenter, permanent_, style::font(ps, theme::uiFont()), style::foreground(ps), ps);
     }
 }
 
@@ -1006,7 +1009,7 @@ void TabWidget::paint(Painter& p) {
         const css::Style& ts = tabStyle(i, "tab");
         style::box(p, r, ts);
         style::text(p, style::contents(r, ts), AlignCenter, titles_[i], style::font(ts, theme::uiFont()),
-                    style::foreground(ts));
+                    style::foreground(ts), ts);
         const css::Style& ls = tabStyle(i, "tab-line");
         int lh = std::max(0, style::px(ls, "height", 2));
         style::box(p, Rect(r.x, r.bottom() - lh, r.w, lh), ls);

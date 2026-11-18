@@ -467,7 +467,7 @@ std::map<std::string, std::vector<std::string>> makeLonghands() {
             m["border"].push_back(side + what);
         }
     }
-    m["background"] = {"background-color"};
+    m["background"] = {"background-color", "background-image"};
     return m;
 }
 const std::map<std::string, std::vector<std::string>>& longhandTable() {
@@ -676,13 +676,31 @@ std::string expand(const std::string& name, const Tokens& t, size_t b, size_t e,
     }
     auto bad = [&]() { return "a bad value for '" + name + "': '" + (whole.size() > 60 ? whole.substr(0, 57) + "..." : whole) + "'"; };
     if (name == "background") {
+        // each layer's image (a gradient; "none" without one), the colour from the last layer; what else a
+        // layer may say (url() images, positions, sizes, repeat…) is not read
         auto layers = splitTop(t, b, e, Tok::Comma);
-        auto [lb, le] = layers.back();
-        std::string color = "transparent";
-        for (auto [cb, ce] : components(t, lb, le))
-            if (isKind(t, cb, ce, Kind::Color)) color = t.text(cb, ce);
+        std::string color = "transparent", images;
+        bool anyImage = false;
+        for (size_t li = 0; li < layers.size(); li++) {
+            auto [lb, le] = layers[li];
+            std::string image;
+            for (auto [cb, ce] : components(t, lb, le)) {
+                if (isGradientFunction(t[cb])) {
+                    std::string why;
+                    Rgba dummy;
+                    if (!image.empty()) return bad();
+                    if (!parseImages(t, cb, ce, &dummy, 12, nullptr, why)) return "a bad value for 'background': " + why;
+                    image = t.text(cb, ce);
+                    anyImage = true;
+                } else if (li + 1 == layers.size() && isKind(t, cb, ce, Kind::Color)) {
+                    color = t.text(cb, ce);
+                }
+            }
+            images += (li ? ", " : "") + (image.empty() ? std::string("none") : image);
+        }
         out.emplace_back("background", whole);
         out.emplace_back("background-color", color);
+        out.emplace_back("background-image", anyImage ? images : std::string("none"));
         return "";
     }
     auto comps = components(t, b, e);
@@ -743,6 +761,20 @@ std::string checkValue(const std::string& p, const Tokens& t, size_t b, size_t e
         return p.size() >= n && p.compare(p.size() - n, n, s) == 0;
     };
     auto starts = [&](const char* s) { return p.compare(0, strlen(s), s) == 0; };
+    if (p == "background-image") {
+        std::string why;
+        Rgba dummy;
+        return parseImages(t, b, e, &dummy, 12, nullptr, why) ? "" : "a bad value for 'background-image': " + why;
+    }
+    if (p == "box-shadow" || p == "text-shadow") {
+        std::string why;
+        Rgba dummy;
+        return parseShadows(t, b, e, p == "box-shadow", &dummy, 12, nullptr, why) ? "" : "a bad value for '" + p + "': " + why;
+    }
+    if (p == "opacity") {
+        double v;
+        return evalNumber(t, b, e, v) ? "" : bad();
+    }
     if (p == "color" || ends("-color")) {
         if (isKind(t, b, e, Kind::Color)) return "";
         if (e == b + 1 && t[b].type == Tok::Ident) return "unknown colour '" + whole + "'";
@@ -816,6 +848,11 @@ double Style::length(const std::string& property, double def, double percentOf) 
     size_t n = property.size();
     if (n > 6 && property.compare(n - 6, 6, "-width") == 0 &&
         (property.compare(0, 7, "border-") == 0 || property.compare(0, 8, "outline-") == 0)) {
+        // (a border whose style is none or hidden has no width, as in CSS)
+        if (property.compare(0, 7, "border-") == 0) {
+            auto st = props_.find(property.substr(0, n - 6) + "-style");
+            if (st != props_.end() && (detail::ieq(st->second, "none") || detail::ieq(st->second, "hidden"))) return 0;
+        }
         if (detail::ieq(v, "thin")) return 1;
         if (detail::ieq(v, "medium")) return 3;
         if (detail::ieq(v, "thick")) return 5;

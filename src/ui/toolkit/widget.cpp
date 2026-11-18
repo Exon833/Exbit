@@ -541,6 +541,38 @@ void Widget::update(const Rect& area) {
 
 void Widget::paintTree(Painter& p, const Rect& dirty) {
     if (!visible_ || deleted_) return;
+    // its opacity: only looked up while some rule of the stylesheets sets one for widgets (else this costs an
+    // int compare); kept with its computed style (style::boxLook)
+    static int generation = -1;
+    static bool anyOpacity = false;
+    const css::Engine& engine = theme::styles();
+    if (engine.generation() != generation) {
+        generation = engine.generation();
+        anyOpacity = css::declaresOnNodes(engine, "opacity");
+    }
+    float opacity = anyOpacity ? style::boxLook(computedStyle()).opacity : 1.f;
+    if (opacity >= 1.f) {
+        paintSelf(p, dirty);
+        return;
+    }
+    if (opacity <= 0.f) return;
+    // into a layer (device pixels: the part of the dirty area it may draw on), put on at once
+    float s = p.scale();
+    PointF t = p.translation();
+    Rect lim = clipsChildren_ ? dirty.intersected(rect()) : dirty;
+    if (lim.empty()) return;
+    int x0 = (int)std::floor((lim.x + t.x) * s), y0 = (int)std::floor((lim.y + t.y) * s);
+    int x1 = (int)std::ceil((lim.right() + t.x) * s), y1 = (int)std::ceil((lim.bottom() + t.y) * s);
+    Rect dev = Rect(x0, y0, x1 - x0, y1 - y0).intersected(p.deviceClip());
+    if (dev.empty()) return;
+    Image layer(dev.w, dev.h);
+    Painter lp(layer, s);
+    lp.translate(t.x - dev.x / s, t.y - dev.y / s);
+    paintSelf(lp, dirty);
+    p.blendLayer(layer, dev.x, dev.y, opacity);
+}
+
+void Widget::paintSelf(Painter& p, const Rect& dirty) {
     Rect area = dirty.intersected(rect());
     if (area.empty() && clipsChildren_) return;
     p.save();
