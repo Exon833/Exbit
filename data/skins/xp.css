@@ -137,9 +137,8 @@
     --xp-blue-face-pressed: linear-gradient(135deg, #6e8ee6 0%, #8aa5ec 35%, #a3b9f3 60%, #b3c7f6 100%);
 }
 
-/* (the original drew its 8 pt text without smoothing, each pixel of a letter on or off, from hinted letters;
-   drawn so here, without hinting, thin strokes such as an apostrophe fall between pixels and vanish: the text
-   is smoothed) */
+/* (the original drew its 8 pt text without smoothing, from hinted letters; drawn so here, the unhinted letters
+   come out uneven (a zero gets a bump on each side, like a bar across it): the text is smoothed) */
 
 /* =============================================================================================
    Buttons: a white-to-beige face, a dark blue edge with rounded corners; an orange ring under the
@@ -273,6 +272,9 @@ ToolTip {
 /* check boxes: a 13 px box with a dark blue edge and a light diagonal face; the green check mark; an orange
    ring under the mouse; darker while pressed */
 CheckBox { padding: 1px 0; }
+/* the focused check box: a dotted rectangle around its text */
+CheckBox::label { padding: 0 1px; }
+CheckBox::label:focus { outline: 1px dotted #000000; }
 CheckBox::indicator {
     width: 13px;
     height: 13px;
@@ -335,9 +337,10 @@ GroupBox::title {
 GroupBox:disabled::title { color: var(--disabled-text); }
 TabWidget GroupBox::title { background-color: #fafafa; }
 
-/* tabs: light tabs with a blue-grey edge and rounded tops, sitting two pixels lower than the chosen one;
-   the chosen one white, with an orange line and a gold one along its top and no line under it; the tab
-   under the mouse gets the orange top too. The pane: white fading to beige, a grey edge and a soft shadow */
+/* tabs: light tabs with a blue-grey edge and rounded tops, a pixel apart, the row 2 px in from the pane's
+   edge; the chosen one white, 2 px wider each side and 2 px taller, over its neighbours and over the line
+   under the tabs, with an orange line and two gold ones along its top; the tab under the mouse gets the
+   orange top too. The pane: white fading to beige, a grey edge and a soft shadow */
 TabWidget::base { height: 1px; background-color: var(--xp-tab-edge); }
 TabWidget::pane {
     background-color: #f8f8f6;
@@ -349,35 +352,32 @@ TabWidget::pane {
     padding: 8px;
 }
 TabWidget::tab {
-    /* (the top two pixels: the window's face, the tab's lines drawn inside them) */
     background-color: #f4f4f0;
     background-image: linear-gradient(to bottom, #ffffff 0%, #fafaf9 26%, #f0f0ea 95%, #ecebe5 100%);
-    background-clip: padding-box;
-    border: 0 solid transparent;
-    border-top-width: 2px;
-    border-bottom: 1px solid var(--xp-tab-edge);
-    border-radius: 5px 5px 0 0;
-    box-shadow: inset 0 1px 0 var(--xp-tab-edge-light), inset 1px 0 0 var(--xp-tab-edge-light),
-                inset -1px 0 0 var(--xp-tab-edge-light);
+    border: 1px solid var(--xp-tab-edge-light);
+    border-bottom-width: 0;
+    border-radius: 3px 3px 0 0;
+    box-shadow: none;
     color: #000000;
-    padding: 2px 6px 3px;
+    margin: 2px 1px 1px 0;
+    padding: 1px 6px 2px;
 }
+TabWidget::tab:first { margin-left: 2px; }
 TabWidget::tab:hover {
-    box-shadow: inset 0 1px 0 var(--xp-tab-orange), inset 0 3px 0 var(--xp-tab-gold),
-                inset 1px 0 0 var(--xp-tab-edge-light), inset -1px 0 0 var(--xp-tab-edge-light);
+    border-top-color: var(--xp-tab-orange);
+    box-shadow: inset 0 2px 0 var(--xp-tab-gold);
 }
 TabWidget::tab:selected {
     background-color: #fcfcfe;
     background-image: none;
-    border-top: 1px solid var(--xp-tab-orange);
-    border-left: 1px solid var(--xp-tab-edge);
-    border-right: 1px solid var(--xp-tab-edge);
-    border-bottom: 1px solid #fcfcfe;
-    border-radius: 3px 3px 0 0;
+    border-color: var(--xp-tab-orange) var(--xp-tab-edge) transparent var(--xp-tab-edge);
+    border-bottom-width: 0;
     box-shadow: inset 0 2px 0 var(--xp-tab-gold);
     color: #000000;
-    padding: 2px 5px 4px;
+    margin: 0 -1px 0 -2px;
+    padding: 1px 8px 5px;
 }
+TabWidget::tab:selected:first { margin-left: 0; }
 TabWidget::tab:disabled { color: var(--disabled-text); }
 TabWidget::tab-line { height: 0; }
 TabWidget::tab-line:selected { background-color: transparent; }
@@ -392,11 +392,13 @@ Separator:horizontal { border-top: 1px solid #aca899; border-bottom: 1px solid #
 SplitterHandle { color: #c4c0ac; }
 SplitterHandle:hover, SplitterHandle:pressed { color: var(--highlight); }
 
-/* message boxes' signs */
-MessageIcon { background-color: #316ac5; color: #ffffff; }
-MessageIcon.question { background-color: #316ac5; }
-MessageIcon.warning { background-color: #f2c230; color: #000000; }
-MessageIcon.critical { background-color: #d9412c; color: #ffffff; }
+/* message boxes' signs: the era's 32 px signs (this skin's own drawings): a word balloon with an i or a ?, a
+   yellow triangle with a !, a red ball with a cross */
+MessageIcon { width: 32px; height: 32px; background-color: #316ac5; color: #ffffff; }
+MessageIcon.information { -tiny-glyph: url(xp/msg-information.svg); }
+MessageIcon.question { -tiny-glyph: url(xp/msg-question.svg); }
+MessageIcon.warning { -tiny-glyph: url(xp/msg-warning.svg); }
+MessageIcon.critical { -tiny-glyph: url(xp/msg-critical.svg); }
 
 /* progress: a white track with a grey edge and rounded ends; green blocks of 8 px with white gaps */
 ProgressBar {
@@ -471,6 +473,7 @@ SpinBox::up-button, SpinBox::down-button {
     border-radius: 2px;
     color: #4d6185;
     width: 16px;
+    margin: 0;   /* (each its own rounded button, one over the other) */
 }
 SpinBox::up-button { -tiny-glyph: url(xp/spin-up.svg); -tiny-glyph-tint: color; }
 SpinBox::down-button { -tiny-glyph: url(xp/spin-down.svg); -tiny-glyph-tint: color; }
@@ -609,6 +612,11 @@ ListWidget::item:selected, TreeWidget::item:selected, FileList::item:selected, F
     background-color: #316ac5;
     color: #ffffff;
 }
+/* the tree: dotted grey lines joining the rows; the chosen row's text alone in the highlight */
+TreeWidget::branch { -tiny-tree-lines: dotted; -tiny-tree-line-color: #a0a0a0; }
+TreeWidget::item:selected { background-color: transparent; color: #000000; }
+TreeWidget::text:selected { background-color: #316ac5; color: #ffffff; padding: 0 2px; }
+TreeWidget:focus::text:selected { outline: 1px dotted #000000; }
 /* the tree's expanders: small boxes with a plus or a minus */
 TreeWidget::branch { -tiny-glyph: url(xp/tree-plus.svg); }
 TreeWidget::branch:open { -tiny-glyph: url(xp/tree-minus.svg); }
@@ -1002,7 +1010,7 @@ TitleBar {
         #0043cf 27px, #0043cf 28px);
     border-top: 1px solid #0058ee;
     border-radius: 4px 4px 0 0;
-    padding: 1px 2px 0 3px;   /* (the buttons 5 px from the top, as the original) */
+    padding: 0 2px 0 3px;
 }
 TitleBar:inactive {
     /* (the original's pale inactive bar, a little deeper: its own pale title had too little contrast) */
@@ -1023,7 +1031,6 @@ TitleBar::title {
     font-weight: bold;
     text-align: left;
     margin-left: 0;
-    padding-bottom: 2px;   /* (its letters a pixel higher than the middle, as the original's) */
     text-shadow: 1px 1px #0a1883;
 }
 TitleBar:inactive::title { color: #ffffff; text-shadow: none; }
@@ -1036,7 +1043,7 @@ TitleBar::minimize:pressed, TitleBar::maximize:pressed, TitleBar::close:pressed 
 TitleBar::minimize, TitleBar::maximize, TitleBar::close {
     width: 21px;
     height: 21px;
-    margin: 0 0 0 2px;
+    margin: 2px 0 0 2px;   /* (5 px from the top, as the original's) */
     color: #ffffff;
     border: 1px solid #ffffff;
     border-radius: 3px;
