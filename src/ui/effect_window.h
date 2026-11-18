@@ -90,6 +90,7 @@ protected:
     struct Look {  // (kept: the meters repaint every REFRESH_MS)
         const css::Style* track = nullptr;
         Color text, bar;
+        const css::Style* barStyle = nullptr;  // (more than a colour: drawn as a box)
         int rowH = 20, labelW = 110, labelPad = 6, trackH = 12, valueW = 80, valuePad = 6;
         Font font;
     };

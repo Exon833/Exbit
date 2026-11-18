@@ -133,7 +133,8 @@ const MeterView::Look& MeterView::look() const {
     l.labelPad = panel_style::px(label, "padding-right", 6);
     l.track = &parts_.get("track");
     l.trackH = panel_style::px(*l.track, "height", 12);
-    l.bar = panel_style::bg(parts_.get("bar"));
+    l.barStyle = &parts_.get("bar");
+    l.bar = panel_style::bg(*l.barStyle);
     const css::Style& value = parts_.get("value");
     l.valueW = panel_style::px(value, "width", 80);
     l.valuePad = panel_style::px(value, "padding-left", 6);
@@ -154,7 +155,7 @@ void MeterView::paint(Painter& p) {
         Rect bar(labelW, (int)i * rowH + trackY, std::max(0, width() - labelW - look.valueW), look.trackH);
         ui::style::box(p, bar, *look.track);
         float fraction = (float)std::max(0.0, std::min(1.0, m.fraction));
-        p.fillRect(RectF((float)bar.x, (float)bar.y, bar.w * fraction, (float)bar.h), look.bar);
+        panel_style::fillPart(p, RectF((float)bar.x, (float)bar.y, bar.w * fraction, (float)bar.h), look.barStyle, look.bar);
         p.drawText(RectF((float)(bar.right() + look.valuePad), (float)y, (float)(look.valueW - look.valuePad), (float)textH),
                    AlignVCenter | AlignLeft, m.text, font, look.text);
     }

@@ -66,6 +66,18 @@ private:
 
 // shorthands for what is read from a kept style
 inline Color bg(const css::Style& s) { return ui::style::background(s); }
+// A part that is mostly a flat fill drawn every frame (a meter's bar): filled flat when its style is only a colour
+// (fast), else drawn as the box its style describes (a gradient, a border, a shadow, rounded corners).
+inline void fillPart(Painter& p, const RectF& r, const css::Style* s, Color flat) {
+    if (s) {
+        const ui::style::BoxLook& b = ui::style::boxLook(*s);
+        if (b.more || !b.fillOnly || b.radius > 0) {
+            ui::style::box(p, r, *s);
+            return;
+        }
+    }
+    p.fillRect(r, flat);
+}
 inline Color fg(const css::Style& s) { return ui::style::color(s, "color"); }
 inline Color color(const css::Style& s, const char* property, Color def = Color(0, 0, 0, 0)) {
     return ui::style::color(s, property, def);

@@ -95,7 +95,10 @@ const CpuMonitor::Look& CpuMonitor::look() {
     l.track = &track;
     l.barH = std::max(0, panel_style::px(track, "height", 3));
     const char* states[] = {"ok", "warn", "hot"};
-    for (int i = 0; i < 3; ++i) l.bar[i] = panel_style::bg(parts_.get("bar", states[i]));
+    for (int i = 0; i < 3; ++i) {
+        l.barStyle[i] = &parts_.get("bar", states[i]);
+        l.bar[i] = panel_style::bg(*l.barStyle[i]);
+    }
     look_ = l;
     return look_;
 }
@@ -125,5 +128,5 @@ void CpuMonitor::paint(Painter& p) {
     const char* state = cpu_monitor::loadState(current);
     int range = state[0] == 'h' ? 2 : state[0] == 'w' ? 1 : 0;
     ui::style::box(p, bar, *look.track);
-    p.fillRect(Rect(bar.x, bar.y, barW, bar.h), look.bar[range]);
+    panel_style::fillPart(p, RectF(Rect(bar.x, bar.y, barW, bar.h)), look.barStyle[range], look.bar[range]);
 }

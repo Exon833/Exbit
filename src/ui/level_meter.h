@@ -76,6 +76,8 @@ private:
     struct Look {
         const css::Style *track = nullptr, *number = nullptr, *clipped = nullptr;  // (boxes: style::box)
         Color bar[3], peak[3], numberText, clippedText;  // [ok, warn, hot]
+        const css::Style* barStyle[3] = {nullptr, nullptr, nullptr};   // (more than a colour: drawn as boxes)
+        const css::Style* peakStyle[3] = {nullptr, nullptr, nullptr};
         int peakW = 2, gap = level_meter::GAP;
         Font font, clippedFont;
     };

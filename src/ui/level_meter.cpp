@@ -178,8 +178,10 @@ const LevelMeter::Look& LevelMeter::look() const {
     l.track = &parts_.get("track");
     const char* ranges[] = {"ok", "warn", "hot"};
     for (int i = 0; i < 3; ++i) {
-        l.bar[i] = panel_style::bg(parts_.get("bar", ranges[i]));
-        l.peak[i] = panel_style::bg(parts_.get("peak", ranges[i]));
+        l.barStyle[i] = &parts_.get("bar", ranges[i]);
+        l.peakStyle[i] = &parts_.get("peak", ranges[i]);
+        l.bar[i] = panel_style::bg(*l.barStyle[i]);
+        l.peak[i] = panel_style::bg(*l.peakStyle[i]);
     }
     l.peakW = std::max(1, panel_style::px(parts_.get("peak", "ok"), "width", 2));
     l.gap = std::max(0, theme::metric("meter-gap", level_meter::GAP));
@@ -210,13 +212,14 @@ void LevelMeter::paint(Painter& p) {
         Part parts[] = {{std::min(barW, warnW), 0, 0}, {std::min(barW, hotW), warnW, 1}, {barW, hotW, 2}};
         for (auto& part : parts)
             if (part.right > part.left)
-                p.fillRect(Rect(part.left, y, part.right - part.left, thickness), look.bar[part.range]);
+                panel_style::fillPart(p, RectF(Rect(part.left, y, part.right - part.left, thickness)), look.barStyle[part.range],
+                                      look.bar[part.range]);
         double held = k < held_.size() ? held_[k] : 0.0;
         if (held > 0) {  // the held peak: a thin line in its level's colour (red at full scale, wherever drawn)
             double heldDb = dsp::gainToDb(held);
             int x = std::min(w - look.peakW, (int)(w * level_meter::dbFraction(heldDb)));
             int range = heldDb >= level_meter::HOT_DB ? 2 : heldDb >= level_meter::WARN_DB ? 1 : 0;
-            p.fillRect(Rect(x, y, look.peakW, thickness), look.peak[range]);
+            panel_style::fillPart(p, RectF(Rect(x, y, look.peakW, thickness)), look.peakStyle[range], look.peak[range]);
         }
     }
     if (w < width()) {  // the loudest since Play; red once it clipped
