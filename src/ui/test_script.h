@@ -7,8 +7,13 @@
 //   TINYDAW_SCRIPT=<file>           runs the script's commands, one per line ('#' comments):
 //
 //     wait <ms>                       frames <n>
-//     target main | top | <part of a window title>   (the window that clicks and shots go to;
-//                                     top: the newest popup, else modal, else newest shown window)
+//     target main | top | tooltip | <part of a window title>   (the window that clicks and shots go to;
+//                                     top: the newest popup, else modal, else newest shown window (never
+//                                     the tooltip); tooltip: the tooltip shown now, e.g. after
+//                                     `move <x> <y>` onto a widget that has one and `wait 1000`; keys
+//                                     then go to the active window)
+//     (while the script runs, the real pointer's events are dropped: its moves, presses, wheel,
+//     entering and leaving don't disturb what the script hovers, so a tooltip stays shown)
 //     move <x> <y>                    click <x> <y> [left|right|double]   drag <x0> <y0> <x1> <y1>
 //     wheel <x> <y> <notches> [ctrl|shift|alt]
 //     key <keys>   e.g. key Ctrl+S, key Space, key Escape (to the window with the keyboard)
@@ -18,7 +23,8 @@
 //                                     open <path>, new, midiEditor (of the first MIDI clip), fx <track #>|master,
 //                                     addEffect <track #|master> <plugin path> (loads it, places it, wires it in),
 //                                     instrument <track #> builtin|<plugin>, editInstrument <track #>, explorer on|off, volume <dB>, seek <s>,
-//                                     menu <index> (opens the menu bar's menu), resize <w> <h>, skin <name>,
+//                                     menu <index> (opens the menu bar's menu under its title, as a click),
+//                                     resize <w> <h>, skin <name>,
 //                                     action <Menu/Entry[/Entry]> (a menu entry by its path, e.g. Edit/Undo),
 //                                     undo, redo, autosave (now, and wait), recover open|discard|later (the
 //                                     start's question, answered), template <name>, saveTemplate <name>,

@@ -208,18 +208,21 @@ CheckBox:hover::indicator { border-color: var(--accent); }
 CheckBox:checked::indicator { background-color: var(--accent); border-color: var(--accent); }
 CheckBox:disabled::indicator { background-color: var(--disabled); border-color: var(--disabled); }
 
-/* Group boxes: the box starts margin-top down, its controls inside its padding; ::title above it. */
+/* Group boxes: the box (the frame) starts margin-top down, its controls inside its padding. ::title is placed
+   against the frame: margin-top below its top (-19px: in the 20 px above it), margin-left in; height is its row
+   (the text centred in it). With a background, border or padding it is a box around its text, over the frame. */
 GroupBox {
     background-color: var(--panel);
     border-radius: 3px;
     margin-top: 20px;
     padding: 8px 6px 6px;
 }
-GroupBox::title { color: var(--window-text); height: 18px; margin: 1px 4px; }
+GroupBox::title { color: var(--window-text); height: 18px; margin: -19px 4px 1px; }
 GroupBox:disabled::title { color: var(--disabled-text); }
 
 /* Separators (:vertical, as in tool bars, or :horizontal): a line of `color`, line-width thick, with margin
-   around it. */
+   around it. With a border, a box instead (an etched line: each side its colour), width (vertical) or height
+   (horizontal) thick. */
 Separator { color: var(--line); line-width: 1px; }
 Separator:vertical { margin: 6px 3px; }
 
@@ -236,7 +239,8 @@ StatusBar::separator { height: 1px; background-color: var(--line); }
 StatusBar::permanent { padding: 0 6px; }
 
 /* Tabs. ::tab is each tab (:selected, :hover: the one under the pointer, :disabled), ::tab-line a line along
-   its bottom (the selected tab's), ::base the line under all the tabs. */
+   its bottom (the selected tab's), ::base the line under all the tabs, ::pane a box under the tabs around the
+   page (inside its margin; the page inside its border and padding; here none). */
 TabWidget::base { height: 1px; background-color: var(--line); }
 TabWidget::tab { padding: 6px 12px 8px; color: var(--hint-text); }
 TabWidget::tab:hover { background-color: var(--hover); }
@@ -383,7 +387,9 @@ Slider::handle:disabled { background-color: var(--disabled-text); }
 
 /* Scroll bars: :horizontal / :vertical; width / height: the size it asks for (across it: --scrollbar-width).
    ::thumb (:hover and :pressed are its own: under the mouse, dragged): margin around it in the bar, its
-   shortest length min-height (vertical) or min-width (horizontal). */
+   shortest length min-height (vertical) or min-width (horizontal). ::sub-line and ::add-line, the arrow buttons
+   at its ends (:hover, :pressed): height (vertical) or width (horizontal) long, here 0 (none); a box with an arrow
+   (color, icon-size, stroke-width); held, they step it. The thumb moves between them. */
 ScrollBar { background-color: var(--window); width: var(--scrollbar-width); height: 40px; }
 ScrollBar:horizontal { width: 40px; height: var(--scrollbar-width); }
 ScrollBar::thumb { background-color: var(--handle); margin: 2px; border-radius: 3px; min-width: 24px; min-height: 24px; }
@@ -446,10 +452,10 @@ Menu::check:disabled { color: var(--disabled-text); }
 Menu::shortcut { margin-left: 24px; }
 Menu::arrow { width: 10px; margin-right: 6px; margin-left: 4px; }
 
-/* The file dialog's list of folders and files: --details-from (the size and date columns show when its rows are
-   wider). ::header, the column titles (padding around each), ::item (each row: height; :selected :hover :folder),
-   ::icon (the glyph: width, colour), ::detail (the size and date: padding; --spare, room beyond the widest
-   value), ::placeholder ("(empty)": height). */
+/* The file dialog's list of folders and files (inside its border and padding: the header, then the rows):
+   --details-from (the size and date columns show when its rows are wider). ::header, the column titles (padding
+   around each), ::item (each row: height; :selected :hover :folder), ::icon (the glyph: width, colour), ::detail
+   (the size and date: padding; --spare, room beyond the widest value), ::placeholder ("(empty)": height). */
 FileList { background-color: var(--base); width: 420px; height: 300px; min-width: 120px; min-height: 80px; --details-from: 360px; }
 FileList::header {
     background-color: var(--window);

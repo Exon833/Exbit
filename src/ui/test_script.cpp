@@ -61,24 +61,51 @@ struct Runner {
     ui::Window* targetWindow() {
         if (target == "main") return main;
         if (target == "top") return topWindow();
+        if (target == "tooltip") {  // (the tooltip shown now: the script's pointer rested on a widget with one)
+            ui::Window* tip = App::get().toolTipWindow();
+            return tip && tip->isWindowShown() ? tip : nullptr;
+        }
         for (ui::Window* w : App::get().windows())
-            if (w->isWindowShown() && w->title().find(target) != std::string::npos) return w;
+            if (w->isWindowShown() && w != App::get().toolTipWindow() && w->title().find(target) != std::string::npos)
+                return w;
         return nullptr;
     }
     ui::Window* keyWindow() {
         App& app = App::get();
         if (!app.popups().empty()) return app.popups().back();
         if (ui::Window* m = app.modalWindow()) return m;
-        if (target != "main") {
+        if (target != "main" && target != "tooltip") {
             if (ui::Window* t = targetWindow()) return t;
         }
         if (ui::Window* a = app.activeWindow()) return a;
         return main;
     }
 
+    const plat::Event* sending = nullptr;  // the event send() is giving a window now (else a real one)
     void send(ui::Window* w, plat::Event e) {
         e.time = plat::now();
+        const plat::Event* outer = sending;  // (a dialog's nested loop may run the next lines meanwhile)
+        sending = &e;
         w->onEvent(w->native(), e);
+        sending = outer;
+    }
+    // While the script runs, the real pointer's events (moves, presses, the wheel, entering and leaving a
+    // window) are dropped: the script's pointer is the only one, so what it hovers stays hovered (a tooltip
+    // stays shown) wherever the real pointer is
+    static bool isPointer(const plat::Event& e) {
+        switch (e.type) {
+        case plat::Event::MouseDown:
+        case plat::Event::MouseUp:
+        case plat::Event::MouseMove:
+        case plat::Event::Wheel:
+        case plat::Event::Enter:
+        case plat::Event::Leave: return true;
+        default: return false;
+        }
+    }
+    void finish() {
+        done = true;
+        App::get().eventFilter = nullptr;
     }
     // (script coordinates are the window's logical pixels; the platform sends device pixels)
     int dev(ui::Window* w, int v) { return w->toDevice(v); }
@@ -292,8 +319,8 @@ struct Runner {
             int i = atoi(rest.c_str());
             auto& menus = main->menuBar->menus();
             if (i < 0 || i >= (int)menus.size()) return say("no such menu");
-            // (below the bar, as a click on its title would open it)
-            menus[i]->popup(main->menuBar->mapToGlobal(Point(0, main->menuBar->height())), main->menuBar);
+            // (under its title, as a click on the title opens it)
+            main->menuBar->openMenu(i);
         } else {
             say("unknown call: " + what);
         }
@@ -412,7 +439,7 @@ struct Runner {
         } else if (cmd == "print") {
             print();
         } else if (cmd == "quit") {
-            done = true;
+            finish();
             main->askBeforeClosing = false;
             App::get().closeAllPopups();
             // (modal dialogs first: their nested loops must end before the program can)
@@ -438,7 +465,7 @@ struct Runner {
         // run commands until one asks to wait; each runs posted (it may open a modal dialog, whose
         // nested loop keeps this timer going)
         if (next >= lines.size()) {
-            done = true;
+            finish();
             say("end of script");
             return;
         }
@@ -476,6 +503,10 @@ void startFromEnvironment(MainWindow* window) {
         return;
     }
     runner = new Runner{window, lines};
+    // (the real pointer's events dropped while it runs: Runner::isPointer)
+    App::get().eventFilter = [](ui::Window*, const plat::Event& e) {
+        return runner && !runner->done && Runner::isPointer(e) && &e != runner->sending;
+    };
     runner->timer = App::get().every(10, [] { runner->tick(); });
     runner->frame = App::get().onFrame([] {
         if (runner->framesLeft > 0) --runner->framesLeft;

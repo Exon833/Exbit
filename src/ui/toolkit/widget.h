@@ -546,6 +546,8 @@ public:
     void followPointerDrag(const DragData& d);
     // (tests) where the pointer is and which MouseButtons are held, instead of asking the system
     std::function<std::pair<Point, int>()> pointerForDrags;
+    // (the test script) called with every event a window gets (Window::onEvent), before it: true drops it
+    std::function<bool(Window*, const plat::Event&)> eventFilter;
     void endDrag();
     // tooltips
     void showToolTip(Point globalPos, const std::string& text, Widget* owner);

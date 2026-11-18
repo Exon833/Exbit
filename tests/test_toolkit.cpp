@@ -2235,6 +2235,170 @@ static void testSeeThroughBorder() {
     w.hideWindow();
 }
 
+// what skins of classic desktops draw controls with (over default.css, whose look they leave alone): a group box's
+// title as a box across its frame's line, an etched separator, a scroll bar's arrow buttons (a click steps it, held
+// they repeat), the file list's header inside its border, the tab widget's pane; setSkin() brings all back
+static void testClassicControlParts() {
+    theme::setSkin();
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(400, 300);
+    auto* gb = w.add<GroupBox>("Group");
+    gb->setGeometry(10, 10, 180, 100);
+    auto* sep = w.add<Separator>(Orientation::Vertical);
+    sep->setGeometry(200, 10, 8, 60);
+    auto* hsep = w.add<Separator>(Orientation::Horizontal);
+    hsep->setGeometry(220, 10, 60, 8);
+    auto* bar = w.add<ScrollBar>(Orientation::Vertical);
+    bar->setGeometry(300, 10, 16, 150);
+    bar->setRange(0, 100);
+    bar->setPageStep(10);
+    bar->setSingleStep(7);
+    auto* hbar = w.add<ScrollBar>(Orientation::Horizontal);
+    hbar->setGeometry(10, 270, 200, 16);
+    hbar->setRange(0, 100);
+    hbar->setPageStep(10);
+    hbar->setSingleStep(5);
+    auto* tabs = w.add<TabWidget>();
+    Widget* page = tabs->addTab(std::make_unique<Widget>(), "One");
+    tabs->setGeometry(10, 130, 180, 120);
+    int bh = tabs->barHeight();
+    w.showWindow();
+    App::get().tick();
+    const Image& fb = w.framebuffer();
+    // default.css: as before
+    CHECK(gb->contentsRect() == Rect(6, 28, 168, 66));
+    CHECK(fb.colorAt(10 + 2, 10 + 10) == theme::c("window"));  // (the title is no box: the window beside its text)
+    CHECK(sep->sizeHint().x == 7 && hsep->sizeHint().y == 1);
+    CHECK(bar->lineRect(-1).empty() && bar->lineRect(1).empty() && bar->trackRect() == bar->rect());
+    CHECK(hbar->lineRect(-1).empty() && hbar->trackRect() == hbar->rect());
+    CHECK(page->geometry() == Rect(0, bh, 180, 120 - bh));
+    Point tabsHint = tabs->sizeHint(), gbMin = gb->minimumSizeHint();
+
+    std::vector<css::Problem> problems;
+    css::SheetPtr extra = css::parse(
+        "GroupBox { margin-top: 7px; background-color: transparent; border: 2px solid #0000ff; border-radius: 0; }\n"
+        "GroupBox::title { margin-top: -7px; margin-left: 8px; background-color: #00ff00; padding: 0 3px; }\n"
+        "Separator:vertical { border-left: 1px solid #808080; border-right: 1px solid #ffffff; width: 2px; }\n"
+        "Separator:horizontal { border-top: 1px solid #808080; border-bottom: 1px solid #ffffff; height: 2px; }\n"
+        "ScrollBar::sub-line, ScrollBar::add-line { width: 16px; height: 16px; background-color: #c0c0c0; "
+        "color: #000000; }\n"
+        "ScrollBar::sub-line:pressed { background-color: #ff00ff; }\n"
+        "TabWidget::pane { border: 2px solid #ff0000; padding: 3px; background-color: #ffff00; }\n",
+        "classic.css", problems);
+    CHECK(problems.empty());
+    theme::setStyles({theme::builtinSheet(), extra});
+    App::get().repaintAll();
+    App::get().tick();
+    // the group box: the frame 7 px down, the title's box (green) across its 2 px line, 8 px in; the contents below
+    // the title (it reaches 12 px below the frame's top: 10 below its border), then the padding
+    int th = (int)std::ceil(Font::ui().ascent() + Font::ui().descent());
+    int titleW = (int)std::ceil(Font::ui().width("Group")) + 6;
+    CHECK(fb.colorAt(14, 17) == Color(0, 0, 255) && fb.colorAt(14, 18) == Color(0, 0, 255));      // the frame's line
+    CHECK(fb.colorAt(19, 17) == Color(0, 255, 0) && fb.colorAt(19, 18) == Color(0, 255, 0));      // the title over it
+    CHECK(fb.colorAt(18 + titleW - 1, 17) == Color(0, 255, 0));
+    CHECK(fb.colorAt(18 + titleW + 2, 17) == Color(0, 0, 255));                                   // the line again
+    CHECK(fb.colorAt(19, 10 + (18 - th) / 2 - 1) == theme::c("window"));                          // above the title
+    CHECK(gb->contentsRect() == Rect(8, 27, 164, 65));
+    CHECK(gb->minimumSizeHint().y == 7 + 4 + 14 + 10 && gbMin.y == 20 + 14);
+    // the etched separators: two colours across them
+    CHECK(sep->sizeHint().x == 2 + 6 && hsep->sizeHint().y == 2);
+    CHECK(fb.colorAt(203, 40) == Color::fromHex("#808080") && fb.colorAt(204, 40) == Color(255, 255, 255));
+    CHECK(fb.colorAt(202, 40) == theme::c("window") && fb.colorAt(205, 40) == theme::c("window"));
+    CHECK(fb.colorAt(250, 13) == Color::fromHex("#808080") && fb.colorAt(250, 14) == Color(255, 255, 255));
+    // the scroll bars' arrow buttons: 16 px at each end, an arrow in them, the track between
+    CHECK(bar->lineRect(-1) == Rect(0, 0, 16, 16) && bar->lineRect(1) == Rect(0, 134, 16, 16));
+    CHECK(bar->trackRect() == Rect(0, 16, 16, 118));
+    CHECK(bar->handleRect().y >= 16 && bar->handleRect().bottom() <= 134);
+    CHECK(hbar->lineRect(-1) == Rect(0, 0, 16, 16) && hbar->lineRect(1) == Rect(184, 0, 16, 16));
+    CHECK(hbar->trackRect() == Rect(16, 0, 168, 16));
+    auto dark = [&](int x0, int y0) {
+        int n = 0;
+        for (int y = y0; y < y0 + 16; ++y)
+            for (int x = x0; x < x0 + 16; ++x)
+                if (fb.colorAt(x, y).r < 100) ++n;
+        return n;
+    };
+    CHECK(fb.colorAt(301, 11) == Color::fromHex("#c0c0c0") && dark(300, 10) > 2 && dark(300, 144) > 2);
+    CHECK(dark(10, 270) > 2 && dark(194, 270) > 2);
+    // a click steps it by the single step; held, it repeats (after 300 ms, every 100 ms)
+    click(w, 308, 152);
+    CHECK(bar->value() == 7);
+    click(w, 308, 18);
+    CHECK(bar->value() == 0);
+    click(w, 308, 18);
+    CHECK(bar->value() == 0);  // (at its least)
+    press(w, 308, 152);
+    CHECK(bar->value() == 7);
+    App::get().advanceTimers(0.35);
+    CHECK(bar->value() == 14);
+    App::get().advanceTimers(0.11);
+    CHECK(bar->value() == 21);
+    moveTo(w, 308, 80, plat::LeftButton);  // (off the button: it waits)
+    App::get().advanceTimers(0.11);
+    CHECK(bar->value() == 21);
+    release(w, 308, 80);
+    App::get().advanceTimers(0.5);
+    CHECK(bar->value() == 21);
+    press(w, 308, 18);  // held: :pressed
+    App::get().tick();
+    CHECK(fb.colorAt(301, 11) == Color(255, 0, 255));
+    release(w, 308, 18);
+    App::get().tick();
+    CHECK(bar->value() == 14 && fb.colorAt(301, 11) == Color::fromHex("#c0c0c0"));
+    click(w, 10 + 192, 278);
+    CHECK(hbar->value() == 5);
+    // the thumb moves in the track: dragged to its end, the bar is at its most
+    Rect hr = bar->handleRect();
+    press(w, 308, 10 + hr.y + hr.h / 2);
+    moveTo(w, 308, 300, plat::LeftButton);
+    release(w, 308, 300);
+    CHECK(bar->value() == 100 && bar->handleRect().bottom() <= 134);
+    // the tab widget's pane: a box under the tabs around the page, the page inside its border and padding
+    CHECK(page->geometry() == Rect(5, bh + 5, 170, 120 - bh - 10));
+    CHECK(tabs->sizeHint() == Point(std::max(tabsHint.x, 10), tabsHint.y + 10));
+    CHECK(fb.colorAt(10, 130 + bh + 20) == Color(255, 0, 0) && fb.colorAt(11, 130 + bh) == Color(255, 0, 0));
+    CHECK(fb.colorAt(13, 130 + bh + 20) == Color(255, 255, 0));
+    CHECK(fb.colorAt(10 + 175, 130 + 3) == theme::c("window"));  // (the tab bar: no pane there)
+    // the file list's header inside the list's border
+    std::string dir = "build/toolkit-samples/files-classic";
+    util::makeDirs(dir);
+    theme::setStyles({theme::builtinSheet(), extra,
+                      css::parse("FileList { border: 3px solid #ff0000; }\n"
+                                 "FileList::header { background-color: #00ff00; }\n",
+                                 "classic-list.css", problems)});
+    CHECK(problems.empty());
+    Color edge, header, right;
+    bool found = false;
+    App::get().singleShot(30, [&] {
+        Window* top = App::get().modalWindow();
+        if (!top) return;
+        if (Widget* list = findWidget(top, [](Widget* x) { return x->isType("FileList"); })) {
+            found = true;
+            App::get().tick();
+            const Image& tfb = top->framebuffer();
+            Point at = list->mapToWindow(Point(list->width() / 2, 1));
+            edge = tfb.colorAt(at.x, at.y);
+            at = list->mapToWindow(Point(list->width() / 2, 3 + 2));
+            header = tfb.colorAt(at.x, at.y);
+            at = list->mapToWindow(Point(list->width() - 2, list->height() / 2));
+            right = tfb.colorAt(at.x, at.y);
+        }
+        key(*top, plat::Key_Escape);
+    });
+    CHECK(files::openFile(&w, "Classic files", util::absolutePath(dir), "All files (*)").empty());
+    CHECK(found && edge == Color(255, 0, 0) && header == Color(0, 255, 0) && right == Color(255, 0, 0));
+    // back to default.css
+    theme::setSkin();
+    App::get().repaintAll();  // (as the program does on a skin change)
+    App::get().tick();
+    CHECK(gb->contentsRect() == Rect(6, 28, 168, 66) && gb->minimumSizeHint() == gbMin);
+    CHECK(fb.colorAt(10 + 2, 10 + 10) == theme::c("window"));
+    CHECK(sep->sizeHint().x == 7 && hsep->sizeHint().y == 1);
+    CHECK(bar->lineRect(-1).empty() && bar->lineRect(1).empty() && bar->trackRect() == bar->rect());
+    CHECK(page->geometry() == Rect(0, bh, 180, 120 - bh) && tabs->sizeHint() == tabsHint);
+    w.hideWindow();
+}
+
 int main() {
     App::get().initHeadless();
     util::makeDirs("build/toolkit-samples");
@@ -2249,6 +2413,7 @@ int main() {
     testSiblingStates();
     testShadowOverflow();
     testSeeThroughBorder();
+    testClassicControlParts();
     testListAndMenuStylesheets();
     testButtonsAndClicks();
     testLineEdit();

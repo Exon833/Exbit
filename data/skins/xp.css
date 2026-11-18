@@ -489,12 +489,12 @@ Menu::item:hover { background-color: #316ac5; color: #ffffff; }
 Menu::separator { background-color: #aca899; margin: 3px 2px; }
 Menu::check:hover { color: #ffffff; }
 
-FileList::header {  /* (drawn across the list's whole top, its edge included: the same edge on its sides) */
+FileList::header {  /* (inside the list's edge: a line under it) */
     background-color: #ebeadb;
     background-image: linear-gradient(to bottom, #ffffff 0%, #f6f5ef 70%, #ebeadb 100%);
     color: #000000;
     border-style: solid;
-    border-width: 1px 1px 2px 1px;
+    border-width: 0 0 2px 0;
     border-color: #7f9db9 #7f9db9 #d6d2c2 #7f9db9;
 }
 FileView::header {
