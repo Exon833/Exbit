@@ -28,8 +28,12 @@
 //                                     action <Menu/Entry[/Entry]> (a menu entry by its path, e.g. Edit/Undo),
 //                                     undo, redo, autosave (now, and wait), recover open|discard|later (the
 //                                     start's question, answered), template <name>, saveTemplate <name>,
-//                                     crashPlugins (every Windows plugin's Wine host killed, as a crash)
-//   (positions are in the window's logical pixels, whatever the interface size)
+//                                     crashPlugins (every Windows plugin's Wine host killed, as a crash),
+//                                     frames own|system (Options → Window frames), maximize, restore,
+//                                     minimize, raise (the target window, as its title bar's buttons; to the front)
+//   (positions are in the window's logical pixels, whatever the interface size, from the top-left of its
+//   inside: its own frame's title bar is at negative y. Dragging a title bar or a window's edge moves or
+//   resizes it by the program, not the window manager: the script's pointer isn't the real one)
 //     print                           what is open, the status bar, tracks and clips (stdout)
 //     quit                            closes the program without asking; close: as the title bar's ✕;
 //     closewin                        closes the target window (as its ✕)

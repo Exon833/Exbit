@@ -806,3 +806,56 @@ Tuner::hz, Tuner::end-label { color: #404040; }
 /* A plugin's own window when its plugin stopped; Edit → History's undone changes */
 EditorWindow::stopped { background-color: #c0c0c0; }
 HistoryWindow::undone { color: #808080; }
+
+/* ============================================================================================================
+   Window frames (Options → Window frames → Tiny DAW's own): the classic 2 px raised bevel around the window, a
+   short caption a pixel in from it: navy fading to a lighter blue with the title in white bold on the left
+   (inactive: grey fading to a lighter grey, the title light grey), and small square raised buttons, silver with black
+   glyphs, the close button a little apart. No hover (the era had none); pressed: sunken.
+   ============================================================================================================ */
+:root { --title-bar-height: 22px; }
+/* the bevel: white and light grey top-left (outset), black and grey bottom-right (a ridge of near black) */
+Window:framed, Window:framed:active, Window:framed:inactive {
+    border-width: 2px;
+    border-style: outset ridge ridge outset;
+    border-color: #dfdfdf #2c2c2c #2c2c2c #dfdfdf;
+}
+Window:framed:maximized { border-width: 0; }
+/* the caption: a silver pixel around it (the face between it and the bevel) */
+TitleBar {
+    background-color: #0e78c8;  /* (the gradient's colour by the buttons: where it can't be drawn) */
+    background-image: linear-gradient(to right, #000080, #1084d0);
+    border: 1px solid #c0c0c0;
+    padding: 0 2px;
+}
+TitleBar:maximized { border-width: 0 0 1px 0; }
+TitleBar:inactive {
+    background-color: #808080;
+    background-image: linear-gradient(to right, #808080, #b5b5b5);
+}
+TitleBar::icon { width: 16px; height: 16px; margin: 0 3px 0 0; }
+TitleBar::title { color: #ffffff; font-weight: bold; text-align: left; margin-left: 1px; }
+TitleBar:inactive::title { color: #e4e4e4; }
+/* the buttons: 16 × 14 raised bevels, the glyphs black and bold */
+TitleBar::minimize, TitleBar::maximize, TitleBar::close,
+TitleBar:inactive::minimize, TitleBar:inactive::maximize, TitleBar:inactive::close,
+TitleBar::minimize:hover, TitleBar::maximize:hover, TitleBar::close:hover {
+    width: 16px;
+    height: 14px;
+    margin: 0;
+    background-color: #c0c0c0;
+    background-image: none;
+    color: #000000;
+    border: 1px solid;
+    border-color: var(--raised-edge);
+    border-radius: 0;
+    box-shadow: var(--raised-inner);
+}
+TitleBar::minimize { icon-size: 6px; stroke-width: 2px; }
+TitleBar::maximize { icon-size: 8px; stroke-width: 1px; }
+TitleBar::close { icon-size: 7px; stroke-width: 2px; margin-left: 2px; }
+TitleBar::minimize:pressed, TitleBar::maximize:pressed, TitleBar::close:pressed {
+    background-color: #c0c0c0;
+    border-color: var(--pressed-edge);
+    box-shadow: var(--pressed-inner);
+}

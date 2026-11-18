@@ -17,6 +17,8 @@ const std::vector<int>& refreshRates();
 const std::vector<int>& interfaceSizes();
 // the interface size chosen (%, one of interfaceSizes()), read before the program's window exists
 int interfaceScale();
+// Options → Window frames: Tiny DAW's own (true) or the system's, read before the program's window exists
+bool ownWindowFrames();
 }  // namespace prefs
 
 struct Preferences {
@@ -60,6 +62,7 @@ struct Preferences {
     bool reloadCrashedPlugins = false;      // a Windows plugin whose Wine host crashed is started afresh by itself
     std::string ghostNotes = "all";         // the MIDI editor shows other clips' notes: "all" tracks, this "track", or "off"
     bool statusHints = true;                // Options → Hints in the status bar: the first line of the tooltip under the pointer
+    std::string windowFrames = "own";       // Options → Window frames: "own" (drawn by Tiny DAW, as the skin says) or "system"
 
     std::vector<std::string> vst2List() const;
     void setVst2List(const std::vector<std::string>& folders);

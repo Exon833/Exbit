@@ -60,13 +60,37 @@ EditorWindow::~EditorWindow() {
     }
 }
 
+// The window the plugin's view goes into: a window of its own inside ours, below the title bar (our own frame,
+// Window::isFramed) or filling it (the window manager's), where the inside is. (Offscreen, for photographs: ours
+// itself, never framed.)
+uintptr_t EditorWindow::pluginParent() {
+    if (!native()) return 0;
+    if (invisible) return native()->nativeHandle();
+    embedded_ = true;
+    return native()->embedArea(pluginArea());
+}
+
+Rect EditorWindow::pluginArea() const {
+    FrameInsets f = frameInsets();  // (scale 1: logical pixels are the native window's)
+    return Rect(f.left, f.top, width(), height());
+}
+
+void EditorWindow::placePlugin() {
+    if (embedded_ && native() && !stoppedShown_) native()->embedArea(pluginArea());
+}
+
+void EditorWindow::frameChanged() {
+    ui::Window::frameChanged();
+    placePlugin();
+}
+
 bool EditorWindow::attach() {
     auto instance = aload(slot->instance);
     if (!instance || !native()) return false;
     int w = 0, h = 0;
     try {
         if (!instance->hasEditor()) return false;
-        if (!instance->openEditor(native()->nativeHandle(), native()->nativeDisplay(), 1.0, w, h)) return false;
+        if (!instance->openEditor(pluginParent(), native()->nativeDisplay(), 1.0, w, h)) return false;
         resizable = instance->editorResizable();
     } catch (const std::exception&) {
         return false;
@@ -82,13 +106,14 @@ void EditorWindow::fit(int width, int height) {
     if (resizable) {
         setMinimumWindowSize(1, 1);
         setMaximumSize(1 << 24, 1 << 24);
-        if (native()) native()->setResizable(true);
+        setResizable(true);
     } else {
         setMinimumWindowSize(w, h);
         setMaximumSize(w, h);
-        if (native()) native()->setResizable(false);
+        setResizable(false);
     }
     resizeWindow(w, h);
+    placePlugin();
     fitting = false;
 }
 
@@ -136,6 +161,7 @@ void EditorWindow::idle() {
 void EditorWindow::showStopped() {
     if (stoppedShown_) return;
     stoppedShown_ = true;
+    if (embedded_ && native()) native()->embedArea(Rect());  // (the plugin's view went: what is said here shows)
     const css::Style& st = computedStyle("stopped");
     setBackground(ui::style::background(st));
     auto* lay = ui::vbox(this, ui::style::px(st, "padding-top", 16), ui::style::px(st, "row-gap", 10));
@@ -172,6 +198,7 @@ void EditorWindow::onEvent(plat::Window* w, const plat::Event& e) {
 // (30 sizes in a row held the main thread ~0.5 s)
 void EditorWindow::resized() {
     ui::Window::resized();
+    placePlugin();  // (its window: the inside's size, below the title bar)
     if (!resizable || fitting || closing_) return;
     sizeChanged_ = true;
 }
@@ -182,16 +209,21 @@ Point EditorWindow::position() const {
 }
 
 void EditorWindow::place(ui::Window* main, std::optional<Point> last) {
-    Rect frame = screenGeometry();
-    int fw = std::max(frame.w, width()), fh = std::max(frame.h, height());
-    if (!last) {
+    // (the whole window on the screen: its own frame too, when it has one; `last` is the inside's place)
+    Rect inside = screenGeometry(), frame = outerScreenGeometry();
+    Point f(inside.x - frame.x, inside.y - frame.y);  // (the frame's left and top, in global coordinates)
+    int fw = std::max(frame.w, width()), fh = std::max(frame.h, height());  // (as before: never less than its own size)
+    Point at;
+    if (last) {
+        at = Point(last->x - f.x, last->y - f.y);
+    } else {
         Rect centre = main ? main->screenGeometry() : ui::App::get().screenAt(ui::App::get().cursorPos());
-        last = Point(centre.x + (centre.w - fw) / 2, centre.y + (centre.h - fh) / 3);
+        at = Point(centre.x + (centre.w - fw) / 2, centre.y + (centre.h - fh) / 3);
     }
-    Rect area = ui::App::get().screenAt(Point(last->x + fw / 2, last->y + 16));
-    int x = std::max(area.x, std::min(last->x, area.right() - fw));
-    int y = std::max(area.y, std::min(last->y, area.bottom() - fh));
-    moveWindow(x, y);
+    Rect area = ui::App::get().screenAt(Point(at.x + fw / 2, at.y + 16));
+    int x = std::max(area.x, std::min(at.x, area.right() - fw));
+    int y = std::max(area.y, std::min(at.y, area.bottom() - fh));
+    moveWindow(x + f.x, y + f.y);
 }
 
 void EditorWindow::close() {

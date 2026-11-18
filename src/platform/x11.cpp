@@ -62,6 +62,7 @@ constexpr plat::Event::Type EvFocusOut = plat::Event::FocusOut;
 #include <X11/Xcursor/Xcursor.h>
 #include <X11/cursorfont.h>
 #include <X11/extensions/XShm.h>
+#include <X11/extensions/shape.h>
 #include <X11/extensions/Xrandr.h>
 #include <X11/keysym.h>
 #undef min  // Xlibint.h's
@@ -83,7 +84,7 @@ struct Atoms {
         NET_WORKAREA, NET_CURRENT_DESKTOP, NET_WM_USER_TIME, CLIPBOARD, TARGETS, TEXT, TEXT_PLAIN_UTF8,
         INCR, TINYDAW_SEL, XdndAware, XdndEnter, XdndPosition, XdndStatus, XdndLeave, XdndDrop,
         XdndFinished, XdndSelection, XdndTypeList, XdndActionCopy, URI_LIST, MOTIF_WM_HINTS, CLIPBOARD_MANAGER,
-        SAVE_TARGETS, XEMBED;
+        SAVE_TARGETS, XEMBED, NET_WM_MOVERESIZE, STATE_HIDDEN, NET_SUPPORTED;
 };
 
 struct Timer {
@@ -566,6 +567,13 @@ public:
     void setMaximized(bool on) override;
     bool isMaximized() const override { return maximized_; }
     void setFullScreen(bool on) override;
+    bool isFullScreen() const override { return fullscreen_; }
+    void minimize() override;
+    bool isMinimized() const override { return minimized_; }
+    void setDecorated(bool on) override;
+    void setCornerRadii(int tl, int tr, int br, int bl) override;
+    bool beginMoveResize(int edges, Point screenPos, int button) override;
+    uintptr_t embedArea(const Rect& area) override;
     bool hasFocus() const override { return focus_; }
     void setCursor(Cursor c) override;
     void present(const Image& fb, const Rect& dirty) override;
@@ -591,8 +599,14 @@ private:
     int minW_ = 0, minH_ = 0;
     bool resizable_ = true;
     bool visible_ = false, mapped_ = false, shownOnce_ = false, moved_ = false;
-    bool focus_ = false, maximized_ = false, fullscreen_ = false;
+    bool focus_ = false, maximized_ = false, fullscreen_ = false, minimized_ = false;
+    int radii_[4] = {0, 0, 0, 0};  // setCornerRadii (device pixels)
+    bool shaped_ = false;          // a shape is set on the window
+    void applyShape();
     bool focusOnMap_ = false;
+    XWin embed_ = 0;              // embedArea(): the window plugins' views go into (0: none, they go into win_)
+    Rect embedRect_;
+    bool embedShown_ = false;
     bool grabbed_ = false;
     bool kbdGrabbed_ = false;     // a popup that takes the keys (menus): keyboard grab, see MapNotify
     XWin embedFocus_ = 0;         // an embedded window (XEmbed) that asked for the keys: see handleClientMessage
@@ -631,8 +645,9 @@ private:
     }
     void applySizeHints();
     void setNetState(Atom a1, Atom a2, bool on);
-    void readNetState();
+    void readNetState(bool tell = false);
     void readFrameExtents();
+    void setMotifDecorations(bool on);
     void updatePosition();
     bool ensureImage(int w, int h);
     void freeImage();
@@ -755,6 +770,7 @@ XWindow::XWindow(const WindowOptions& o, WindowListener* l) : listener_(l), opts
     if (o.transientFor) {
         XSetTransientForHint(d, win_, (XWin)o.transientFor->nativeHandle());
     }
+    if (!o.decorated && !o.popup && !o.offscreen) setMotifDecorations(false);
     if (o.offscreen && s.compositeOpcode && !s.xwayland) compositeRedirectWindow(win_);
     if (o.acceptsFiles) {
         long version = 5;
@@ -804,10 +820,11 @@ XWindow::~XWindow() {
         freeImage();
         if (ic_) XDestroyIC(ic_);
         if (gc_) XFreeGC(s.dpy, gc_);
-        XDestroyWindow(s.dpy, win_);
+        XDestroyWindow(s.dpy, win_);  // (and embed_, inside it)
         XFlush(s.dpy);
     }
     s.windows.erase(win_);
+    if (embed_) s.windows.erase(embed_);
 }
 
 void XWindow::applySizeHints() {
@@ -930,6 +947,8 @@ void XWindow::raise() {
     if (opts_.popup || opts_.offscreen) {
         if (opts_.popup && opts_.takesFocus && mapped_ && !kbdGrabbed_)
             kbdGrabbed_ = XGrabKeyboard(s.dpy, win_, False, GrabModeAsync, GrabModeAsync, CurrentTime) == GrabSuccess;
+    } else if (visible_ && !mapped_ && minimized_) {
+        XMapRaised(s.dpy, win_);  // (minimized: mapped again, the window manager shows it again, ICCCM 4.1.4)
     } else if (mapped_) {
         XEvent ev{};
         ev.xclient.type = ClientMessage;
@@ -975,7 +994,8 @@ void XWindow::setNetState(Atom a1, Atom a2, bool on) {
 
 void XWindow::setMaximized(bool on) {
     setNetState(S().a.STATE_MAX_V, S().a.STATE_MAX_H, on);
-    maximized_ = on;
+    // (shown: as the window manager says, once it did it: StateChanged; it may refuse, or there may be none)
+    if (!mapped_) maximized_ = on;
 }
 
 void XWindow::setFullScreen(bool on) {
@@ -983,17 +1003,156 @@ void XWindow::setFullScreen(bool on) {
     fullscreen_ = on;
 }
 
-void XWindow::readNetState() {
+// (tell: a StateChanged event when maximized, full screen or minimized changed: emitted last)
+void XWindow::readNetState(bool tell) {
     State& s = S();
     std::vector<long> st = readLongs(win_, s.a.NET_WM_STATE, XA_ATOM);
-    bool v = false, h = false, f = false;
+    bool v = false, h = false, f = false, hidden = false;
     for (long a : st) {
         if (a == (long)s.a.STATE_MAX_V) v = true;
         if (a == (long)s.a.STATE_MAX_H) h = true;
         if (a == (long)s.a.STATE_FULLSCREEN) f = true;
+        if (a == (long)s.a.STATE_HIDDEN) hidden = true;
     }
+    bool changed = maximized_ != (v && h) || fullscreen_ != f || minimized_ != hidden;
     maximized_ = v && h;
     fullscreen_ = f;
+    minimized_ = hidden;
+    if (tell && changed) {
+        Event e;
+        e.type = Event::StateChanged;
+        emit(e);
+    }
+}
+
+// _MOTIF_WM_HINTS: with (on) or without the window manager's decorations (its title bar and border).
+// Five CARDINALs: flags, functions, decorations, input mode, status; flags 2: the decorations are given
+void XWindow::setMotifDecorations(bool on) {
+    State& s = S();
+    long hints[5] = {2, 0, on ? 1 : 0, 0, 0};
+    XChangeProperty(s.dpy, win_, s.a.MOTIF_WM_HINTS, s.a.MOTIF_WM_HINTS, 32, PropModeReplace, (unsigned char*)hints, 5);
+}
+
+void XWindow::setDecorated(bool on) {
+    if (opts_.popup || opts_.offscreen || opts_.decorated == on) return;
+    opts_.decorated = on;
+    setMotifDecorations(on);
+    XFlush(S().dpy);
+}
+
+void XWindow::setCornerRadii(int tl, int tr, int br, int bl) {
+    int r[4] = {std::max(0, tl), std::max(0, tr), std::max(0, br), std::max(0, bl)};
+    if (opts_.popup || opts_.offscreen || std::equal(r, r + 4, radii_)) return;
+    std::copy(r, r + 4, radii_);
+    applyShape();
+}
+
+// the window's bounding shape: the rectangle, less what lies outside each corner's quarter circle (rows of
+// rectangles; X shapes are 1-bit, so the anti-aliased edge drawn inside stays)
+void XWindow::applyShape() {
+    State& s = S();
+    int w = w_, h = h_;
+    bool any = radii_[0] || radii_[1] || radii_[2] || radii_[3];
+    if (!any || w <= 0 || h <= 0) {
+        if (shaped_) XShapeCombineMask(s.dpy, win_, ShapeBounding, 0, 0, 0 /*None*/, ShapeSet);
+        shaped_ = false;
+        XFlush(s.dpy);
+        return;
+    }
+    auto inset = [](int r, int row) {  // how far in from the side the inside starts on this row of a corner
+        double d = r - row - 0.5;
+        return (int)std::lround(r - std::sqrt(std::max(0.0, (double)r * r - d * d)));
+    };
+    int top = std::min(h / 2, std::max(radii_[0], radii_[1]));
+    int bottom = std::min(h - top, std::max(radii_[2], radii_[3]));
+    std::vector<XRectangle> rects;
+    for (int y = 0; y < top; y++) {
+        int l = y < radii_[0] ? inset(std::min(radii_[0], w / 2), y) : 0;
+        int r = y < radii_[1] ? inset(std::min(radii_[1], w / 2), y) : 0;
+        if (w - l - r > 0) rects.push_back({(short)l, (short)y, (unsigned short)(w - l - r), 1});
+    }
+    if (h - top - bottom > 0) rects.push_back({0, (short)top, (unsigned short)w, (unsigned short)(h - top - bottom)});
+    for (int i = 0; i < bottom; i++) {
+        int y = h - 1 - i;
+        int l = i < radii_[3] ? inset(std::min(radii_[3], w / 2), i) : 0;
+        int r = i < radii_[2] ? inset(std::min(radii_[2], w / 2), i) : 0;
+        if (w - l - r > 0) rects.push_back({(short)l, (short)y, (unsigned short)(w - l - r), 1});
+    }
+    XShapeCombineRectangles(s.dpy, win_, ShapeBounding, 0, 0, rects.data(), (int)rects.size(), ShapeSet, YXBanded);
+    shaped_ = true;
+    XFlush(s.dpy);
+}
+
+void XWindow::minimize() {
+    State& s = S();
+    if (opts_.popup || opts_.offscreen) return;
+    XIconifyWindow(s.dpy, win_, s.screen);
+    XFlush(s.dpy);
+}
+
+// _NET_WM_MOVERESIZE (if the window manager has it, _NET_SUPPORTED): the pointer's implicit grab (from the
+// press) is let go first, so the window manager can take the pointer
+bool XWindow::beginMoveResize(int edges, Point screenPos, int button) {
+    State& s = S();
+    if (!mapped_ || opts_.popup || opts_.offscreen) return false;
+    std::vector<long> supported = readLongs(s.root, s.a.NET_SUPPORTED, XA_ATOM);
+    if (std::find(supported.begin(), supported.end(), (long)s.a.NET_WM_MOVERESIZE) == supported.end()) return false;
+    long direction = 8;  // _NET_WM_MOVERESIZE_MOVE
+    bool l = edges & EdgeLeft, r = edges & EdgeRight, t = edges & EdgeTop, b = edges & EdgeBottom;
+    if (t && l) direction = 0;       // _NET_WM_MOVERESIZE_SIZE_TOPLEFT
+    else if (t && r) direction = 2;  // …TOPRIGHT
+    else if (b && r) direction = 4;  // …BOTTOMRIGHT
+    else if (b && l) direction = 6;  // …BOTTOMLEFT
+    else if (t) direction = 1;
+    else if (r) direction = 3;
+    else if (b) direction = 5;
+    else if (l) direction = 7;
+    if (grabbed_) grabPointer(false);
+    XUngrabPointer(s.dpy, CurrentTime);
+    XEvent ev{};
+    ev.xclient.type = ClientMessage;
+    ev.xclient.window = win_;
+    ev.xclient.message_type = s.a.NET_WM_MOVERESIZE;
+    ev.xclient.format = 32;
+    ev.xclient.data.l[0] = screenPos.x;
+    ev.xclient.data.l[1] = screenPos.y;
+    ev.xclient.data.l[2] = direction;
+    ev.xclient.data.l[3] = button == RightButton ? 3 : button == MiddleButton ? 2 : 1;
+    ev.xclient.data.l[4] = 1;  // (from an application)
+    XSendEvent(s.dpy, s.root, False, SubstructureRedirectMask | SubstructureNotifyMask, &ev);
+    XFlush(s.dpy);
+    return true;
+}
+
+uintptr_t XWindow::embedArea(const Rect& area) {
+    State& s = S();
+    if (area.empty()) {  // (hidden: what was in it went, and the window says something of its own there)
+        if (embed_ && embedShown_) XUnmapWindow(s.dpy, embed_);
+        embedShown_ = false;
+        XFlush(s.dpy);
+        return (uintptr_t)embed_;
+    }
+    Rect r = area;
+    if (embed_ && !embedShown_) {
+        XMapWindow(s.dpy, embed_);
+        embedShown_ = true;
+    }
+    if (!embed_) {
+        XSetWindowAttributes a{};
+        a.background_pixel = BlackPixel(s.dpy, s.screen);  // (where the plugin's view doesn't reach)
+        a.border_pixel = 0;
+        a.colormap = s.cmap;
+        embed_ = XCreateWindow(s.dpy, win_, r.x, r.y, (unsigned)r.w, (unsigned)r.h, 0, s.depth, InputOutput, s.visual,
+                               CWBackPixel | CWBorderPixel | CWColormap, &a);
+        s.windows[embed_] = this;  // (XEmbed's messages to it, the embedder of what is inside: handleClientMessage)
+        XMapWindow(s.dpy, embed_);
+        embedShown_ = true;
+    } else if (!(r == embedRect_)) {
+        XMoveResizeWindow(s.dpy, embed_, r.x, r.y, (unsigned)r.w, (unsigned)r.h);
+    }
+    embedRect_ = r;
+    XFlush(s.dpy);
+    return (uintptr_t)embed_;
 }
 
 void XWindow::readFrameExtents() {
@@ -1334,11 +1493,11 @@ bool XWindow::fetchDndFiles() {
 // active any more (XEMBED_WINDOW_DEACTIVATE: Wine's plugin then knows it lost the keys).
 constexpr long XEMBED_WINDOW_DEACTIVATE = 2, XEMBED_REQUEST_FOCUS = 3;
 
-// the window embedded in ours (the topmost of our children; 0: none)
+// the window embedded in ours (the topmost of our children, or of embed_'s when there is one; 0: none)
 XWin XWindow::embedded() {
     XWin root = 0, parent = 0, *children = nullptr, top = 0;
     unsigned count = 0;
-    if (XQueryTree(S().dpy, win_, &root, &parent, &children, &count) && children) {
+    if (XQueryTree(S().dpy, embed_ ? embed_ : win_, &root, &parent, &children, &count) && children) {
         if (count) top = children[count - 1];
         XFree(children);
     }
@@ -1523,6 +1682,8 @@ void XWindow::handleKey(XKeyEvent& k, bool press) {
 
 void XWindow::handle(XEvent& ev) {
     State& s = S();
+    // (embed_ selects no events: what comes for it is XEmbed's messages from what is inside it)
+    if (ev.xany.window != win_ && ev.type != ClientMessage) return;
     switch (ev.type) {
         case Expose:
             if (std::find(s.pendingExpose.begin(), s.pendingExpose.end(), win_) == s.pendingExpose.end())
@@ -1534,6 +1695,7 @@ void XWindow::handle(XEvent& ev) {
             w_ = c.width;
             h_ = c.height;
             bool sized = w_ != reportedW_ || h_ != reportedH_;
+            if (sized && shaped_) applyShape();  // (its corners follow the new size)
             reportedW_ = w_;
             reportedH_ = h_;
             int ox = x_, oy = y_;
@@ -1593,7 +1755,7 @@ void XWindow::handle(XEvent& ev) {
             updatePosition();
             break;
         case PropertyNotify:
-            if (ev.xproperty.atom == s.a.NET_WM_STATE) readNetState();
+            if (ev.xproperty.atom == s.a.NET_WM_STATE) readNetState(true);
             else if (ev.xproperty.atom == s.a.NET_FRAME_EXTENTS) readFrameExtents();
             break;
         case ClientMessage:
@@ -2083,7 +2245,8 @@ void init(int argc, char** argv) {
         "_NET_CURRENT_DESKTOP", "_NET_WM_USER_TIME", "CLIPBOARD", "TARGETS", "TEXT", "text/plain;charset=utf-8",
         "INCR", "TINYDAW_SELECTION", "XdndAware", "XdndEnter", "XdndPosition", "XdndStatus", "XdndLeave", "XdndDrop",
         "XdndFinished", "XdndSelection", "XdndTypeList", "XdndActionCopy", "text/uri-list", "_MOTIF_WM_HINTS",
-        "CLIPBOARD_MANAGER", "SAVE_TARGETS", "_XEMBED"};
+        "CLIPBOARD_MANAGER", "SAVE_TARGETS", "_XEMBED", "_NET_WM_MOVERESIZE", "_NET_WM_STATE_HIDDEN",
+        "_NET_SUPPORTED"};
     const int count = (int)(sizeof names / sizeof names[0]);
     static_assert(sizeof(Atoms) == sizeof(Atom) * (sizeof names / sizeof names[0]), "atom names and Atoms differ");
     XInternAtoms(s.dpy, (char**)names, count, False, (Atom*)&s.a);

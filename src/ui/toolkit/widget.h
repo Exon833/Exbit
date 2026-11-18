@@ -123,6 +123,7 @@ struct DragEvent {
 
 class Window;
 class Menu;
+class TitleBar;
 
 enum class FocusPolicy { None, Click, Tab, Strong };
 enum class SizePolicy { Fixed, Preferred, Expanding };
@@ -315,6 +316,8 @@ public:
     bool deleted_ = false;
     bool layoutDirty_ = false;
     static bool alive(const Widget* w);  // not destroyed yet (dispatch safety)
+    // (a window's title bar: drawn in its frame, outside the window's rect, so not clipped to it)
+    bool inFrame() const { return inFrame_; }
 
 private:
     void paintSelf(Painter& p, const Rect& dirty);  // (paintTree, without the opacity)
@@ -325,6 +328,7 @@ private:
     Point minSize_{0, 0}, maxSize_{1 << 24, 1 << 24};
     bool visible_ = true, enabled_ = true, tracking_ = false, acceptDrops_ = false, clipsChildren_ = true;
     bool hasBackground_ = false;
+    bool inFrame_ = false;
     Color background_;
     Cursor cursor_ = Cursor::Arrow;
     bool cursorSet_ = false;           // (else the parent's cursor shows)
@@ -457,6 +461,50 @@ public:
     const Rect& dirtyRect() const { return dirty_; }
     int showSerial_ = 0;               // (internal) order in which windows were shown
     int focusReason = 0;               // while focusIn() runs: 0 other, 1 mouse click, 2 Tab key
+
+    // --- (added) its own frame (App::ownFrames): a title bar (TitleBar, frame.h) above its widgets and its
+    // stylesheets' border (Window:framed { border: … }) around both, drawn by the program instead of the window
+    // manager's. Its widgets don't see it: rect(), width(), height(), contentsRect(), resizeWindow(),
+    // screenGeometry() and moveWindow() are all its inside's, below the title bar; the frame is outside rect(),
+    // in this widget's coordinates (the title bar at negative y). Popups and offscreen windows have none; nor do
+    // windows without a display (tests), unless App::setFramesWhenHeadless.
+    struct FrameInsets {
+        int left = 0, top = 0, right = 0, bottom = 0;  // logical px: its border, and the title bar in top
+        bool operator==(const FrameInsets& o) const {
+            return left == o.left && top == o.top && right == o.right && bottom == o.bottom;
+        }
+        bool operator!=(const FrameInsets& o) const { return !(*this == o); }
+    };
+    bool isFramed() const { return framed_; }
+    TitleBar* titleBar() const { return titleBar_.get(); }
+    FrameInsets frameInsets() const { return frame_; }
+    // the whole native window in this widget's coordinates: rect() with the frame around it
+    Rect outerRect() const;
+    // the same on the screen (global logical coordinates)
+    Rect outerScreenGeometry() const;
+    // frame or none, as App::ownFrames says (and the window is one that can have one), and its sizes from the
+    // stylesheets again (App::repaintAll, after a skin change): its inside keeps its size
+    void updateFrame();
+    // the frame's buttons and menu (and the platform's: the window manager's own do the same)
+    void minimizeWindow();                 // to the taskbar
+    void setWindowMaximized(bool on);      // as big as the screen allows, or back
+    bool isWindowMaximized() const;
+    bool isWindowMinimized() const;
+    void setResizable(bool on);            // can its edges be dragged (WindowOptions::resizable; also: maximize)
+    bool isResizable() const { return opts_.resizable; }
+    // the frame's edges under p (this widget's coordinates): plat::Edge flags (a side, or two for a corner) where
+    // a press resizes it; 0 elsewhere, always when it isn't framed, can't be resized, or is maximized. The band is
+    // :root's --window-resize-border wide (at least the border), reaching over the edges of what is inside.
+    int resizeEdgeAt(Point p) const;
+    // the window manager moves it (or resizes it by those edges) as the pointer goes, from a press at globalPos
+    // (_NET_WM_MOVERESIZE); false when it can't (none, no display, App::systemMoves off): the caller moves it.
+    bool beginSystemMove(Point globalPos);
+    bool beginSystemResize(int edges, Point globalPos);
+    // its states: the base ones, and when framed :framed, :active or :inactive (the keyboard focus is in it or
+    // not), :maximized
+    void styleStates(std::vector<std::string>& out) const override;
+    // the frame's insets changed (it was turned on or off, a skin made it another size): after the inside moved
+    virtual void frameChanged() {}
 private:
     std::unique_ptr<plat::Window> native_;
     std::string title_;
@@ -477,13 +525,38 @@ private:
     int physW_ = 0, physH_ = 0;        // the native client size (device pixels)
     Rect hgeom_;                       // (headless: where it would be on the screen)
     Point lastMouse_{-1, -1};
+    // the frame (isFramed)
+    bool framed_ = false;
+    FrameInsets frame_;                // as applied: what the native window has around the inside
+    int shapeRadii_[4] = {-1, -1, -1, -1};  // the corner radii last given to the native window (device px)
+    void updateShape();                // its corners cut round as its frame's style says (isFramed, not maximized)
+    std::unique_ptr<TitleBar> titleBar_;
+    bool maximizedHeadless_ = false, minimizedHeadless_ = false;  // (no native window: what was asked)
+    int edgeHover_ = 0;                // the resize band's edges under the pointer (plat::Edge flags)
+    struct FrameDrag {
+        int edges = 0;                 // a resize the program does itself (no _NET_WM_MOVERESIZE)
+        Point start;                   // the pointer then (global)
+        Rect geom;                     // the inside's screen geometry then
+    } frameDrag_;
+    bool wantsFrame() const;
+    FrameInsets computeFrameInsets() const;
+    FrameInsets deviceFrame() const;   // frame_ in device pixels
+    void applyFrameInsets(bool keepOuter);
+    void placeTitleBar();
+    void setNativeMinimum(int w, int h);  // (logical, the inside's): the native window's, with the frame
+    void resizeByHand(Point globalPos);
+    Point framePointer() const;        // the pointer on the screen, while moving or resizing by hand
+    void frameStateChanged();          // maximized / restored / minimized: states, frame, title bar
+    Widget* widgetAt(Point p);         // the widget under p (this widget's coordinates), the title bar too
     friend class App;
     friend class Widget;
+    friend class TitleBar;
     void updateHover(Point p, const plat::Event& e);
     void setHover(Widget* w);
     void releaseGrab();
     void applyCursor();
     void paintBackground(Painter& p);  // its style's background (and border), under its widgets
+    void paintFrame(Painter& p, const Rect& dirty);  // the title bar (isFramed)
     bool blockedByModal() const;
     void externalDrag(const plat::Event& e);
     plat::Event toLogical(const plat::Event& e) const;
@@ -548,6 +621,20 @@ public:
     std::function<std::pair<Point, int>()> pointerForDrags;
     // (the test script) called with every event a window gets (Window::onEvent), before it: true drops it
     std::function<bool(Window*, const plat::Event&)> eventFilter;
+    // (added) Options → Window frames: windows framed by the program itself (Window::isFramed: a title bar and
+    // border drawn as the skin says) or by the window manager. Applied to every window at once. Frames are only
+    // drawn with a display: windows without one (tests) have none, unless setFramesWhenHeadless(true).
+    void setOwnFrames(bool on);
+    bool ownFrames() const { return ownFrames_; }
+    bool framesDrawn() const { return ownFrames_ && (!headless_ || headlessFrames_); }
+    void setFramesWhenHeadless(bool on);  // (tests: frames on without a display; every window at once)
+    void updateFrames();                  // every window's frame as the option and the skin say (Window::updateFrame)
+    // what the frames asked of the window system (Window::minimizeWindow…): "minimize", "maximize", "restore",
+    // "move", "resize"; also without a display, where nothing else happens (tests)
+    Signal<Window*, std::string> frameAction;
+    // false: frames move and resize windows themselves, never through the window manager (the test script, whose
+    // pointer isn't the real one the window manager would follow)
+    bool systemMoves = true;
     void endDrag();
     // tooltips
     void showToolTip(Point globalPos, const std::string& text, Widget* owner);
@@ -611,6 +698,7 @@ private:
     Widget* tipOwner_ = nullptr;
     std::string tipText_;
     bool headless_ = false, inited_ = false;
+    bool ownFrames_ = true, headlessFrames_ = false;
     double clock_ = 0;                  // headless clock
     int depth_ = 0;                     // nested loops (exec, runUntil, processEvents)
     struct Timer { int plat = -1; std::function<void()> fn; bool repeat = false; double due = 0, interval = 0; };

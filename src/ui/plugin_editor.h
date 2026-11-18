@@ -1,6 +1,7 @@
-// A plugin's own window (plugin_editor.py): an ordinary top-level window whose native (X11) window
-// the plugin's view is embedded in (plug::Plugin::openEditor). Several can be open at once and
-// nothing waits for them: the program keeps running as usual.
+// A plugin's own window (plugin_editor.py): an ordinary top-level window; the plugin's view is embedded
+// (plug::Plugin::openEditor) in a native window of its own inside it, where the window's inside is: below the
+// title bar of the program's own frame (Window::isFramed), or all of it (plat::Window::embedArea). Several can
+// be open at once and nothing waits for them: the program keeps running as usual.
 //
 // The plugin decides the size (it may change it, e.g. when its own window grows a panel); plugins
 // that allow it can be resized by dragging the window's edge. The window stays above the main
@@ -44,6 +45,7 @@ public:
     void place(ui::Window* main, std::optional<Point> last = {});
     void close() override;
     void resized() override;
+    void frameChanged() override;  // (the plugin's window follows the inside: below the title bar)
     // files dragged onto a Windows plugin's window go to it (its Wine host drops them on the window
     // under that point); a Linux plugin's view takes its drops itself (XDND)
     void dragEnter(ui::DragEvent& e) override;
@@ -70,6 +72,10 @@ private:
     int frameId_ = -1;
     bool closing_ = false;
     bool stoppedShown_ = false;
+    bool embedded_ = false;     // (the plugin's view is in a window of its own inside ours: pluginParent)
+    uintptr_t pluginParent();   // the native window the plugin's view goes into
+    Rect pluginArea() const;    // where that is in the native window (the inside, below our title bar)
+    void placePlugin();         // that window to the inside's place and size again
     bool sizeChanged_ = false;  // (resized by the user: the plugin is told in idle())
     static plat::WindowOptions options(ui::Window* parent, const std::string& title, bool invisible);
 };

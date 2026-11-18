@@ -12,6 +12,7 @@
 #include "ui/theme.h"
 #include "ui/toolkit/controls.h"
 #include "ui/toolkit/dialogs.h"
+#include "ui/toolkit/frame.h"
 #include "ui/toolkit/layout.h"
 #include "ui/toolkit/menu.h"
 #include "ui/toolkit/style.h"
@@ -2399,6 +2400,315 @@ static void testClassicControlParts() {
     w.hideWindow();
 }
 
+// ------------------------------------------------------------------------------------------
+// Tiny DAW's own window frames (App::ownFrames), forced on without a display: the title bar above the inside,
+// the border around both; what the inside sees doesn't change; the buttons, a double click, the menu, dragging
+// the bar and the edges; :active / :inactive; the stylesheets' sizes and colours; the option turned off
+namespace {
+// a point of the window (the inside's coordinates: the title bar's negative) as the platform gives it: from the
+// native window's corner, the frame's insets too
+Point native(Window& w, Point p) {
+    Window::FrameInsets f = w.frameInsets();
+    return Point(p.x + f.left, p.y + f.top);
+}
+Point partCentre(Window& w, TitleBar::Part part) {
+    TitleBar* tb = w.titleBar();
+    Rect r = tb->partRect(part);
+    return Point(r.x + r.w / 2 + tb->x(), r.y + r.h / 2 + tb->y());
+}
+void clickAt(Window& w, Point inside, int button = plat::LeftButton) {
+    Point n = native(w, inside);
+    click(w, n.x, n.y, button);
+}
+}  // namespace
+
+static void testWindowFrames() {
+    App& app = App::get();
+    std::vector<std::string> actions;
+    int conn = app.frameAction.connect([&](Window*, std::string what) { actions.push_back(what); });
+    {
+        // headless windows have no frame unless asked for
+        Window plain(plat::WindowOptions{});
+        CHECK(!plain.isFramed() && !plain.titleBar() && plain.frameInsets() == Window::FrameInsets());
+        CHECK(plain.outerRect() == plain.rect() && !plain.hasState("framed"));
+    }
+    app.setFramesWhenHeadless(true);
+    CHECK(app.framesDrawn());
+
+    // --- the layout: the inside is the size asked for; the title bar above it, the border around both ---
+    plat::WindowOptions o;
+    o.title = "Framed window";
+    o.w = 400;
+    o.h = 300;
+    Window w(o);
+    CHECK(w.isFramed() && w.titleBar() && w.titleBar()->parent() == &w && w.titleBar()->window() == &w);
+    CHECK(w.width() == 400 && w.height() == 300 && w.contentsRect() == Rect(0, 0, 400, 300));
+    int bar = TitleBar::barHeight();
+    CHECK(bar == 30);
+    Window::FrameInsets f = w.frameInsets();
+    CHECK(f.left == 1 && f.right == 1 && f.bottom == 1 && f.top == 1 + bar);
+    CHECK(w.outerRect() == Rect(-1, -1 - bar, 402, 302 + bar));
+    CHECK(w.titleBar()->geometry() == Rect(0, -bar, 400, bar));
+    CHECK(w.hasState("framed") && !w.hasState("maximized"));
+    // what is inside is laid out in the inside, as without a frame
+    auto* v = vbox(&w, 0, 0);
+    auto* top = w.add<Button>("Top");
+    v->addWidget(top);
+    v->addStretch();
+    w.showWindow();
+    app.doLayouts();
+    CHECK(top->x() == 0 && top->y() == 0 && top->width() == 400);
+    CHECK(w.childAt(Point(5, 5)) == top);
+    app.tick();
+    const Image& fb = w.framebuffer();
+    CHECK(fb.width() == 402 && fb.height() == 302 + bar);
+    // the border (inactive: --frame-edge), the bar's background, the window's below it
+    Color edge = style::color(w.computedStyle(), "border-top-color");
+    CHECK(near(fb.colorAt(0, 100), edge, 1) && near(fb.colorAt(401, 100), edge, 1) && near(fb.colorAt(200, 0), edge, 1));
+    CHECK(near(fb.colorAt(200, fb.height() - 1), edge, 1));
+    Color barBg = style::background(w.titleBar()->computedStyle());
+    CHECK(near(fb.colorAt(200, 1 + bar / 2), barBg, 1));
+    savePng(outDir() + "/frame-inactive.png", fb);
+    // the parts: the title on the left, the buttons on the right (close outermost)
+    TitleBar* tb = w.titleBar();
+    Rect cl = tb->partRect(TitleBar::Close), mx = tb->partRect(TitleBar::Maximize), mn = tb->partRect(TitleBar::Minimize);
+    CHECK(!cl.empty() && !mx.empty() && !mn.empty() && tb->partRect(TitleBar::Icon).empty());
+    CHECK(cl.right() == 400 && mx.right() == cl.x && mn.right() == mx.x && cl.w == 46 && cl.h == bar);
+    CHECK(tb->partRect(TitleBar::Title).x == 10 && tb->partRect(TitleBar::Title).right() <= mn.x);
+    CHECK(tb->partAt(Point(cl.x + 3, 10)) == TitleBar::Close && tb->partAt(Point(50, 10)) == TitleBar::Title);
+    CHECK(tb->toolTipAt(Point(cl.x + 3, 10)) == "Close" && tb->toolTipAt(Point(mx.x + 3, 10)) == "Maximize");
+
+    // --- :active / :inactive: the focus in the window or not ---
+    CHECK(tb->hasState("inactive") && !tb->hasState("active") && w.hasState("inactive"));
+    plat::Event focus;
+    focus.type = plat::Event::FocusIn;
+    w.onEvent(nullptr, focus);
+    CHECK(tb->hasState("active") && !tb->hasState("inactive") && w.hasState("active"));
+    app.tick();
+    Color activeBg = style::background(tb->computedStyle());
+    CHECK(!near(activeBg, barBg, 2));  // (default.css: a darker bar while active)
+    CHECK(near(w.framebuffer().colorAt(200, 1 + bar / 2), activeBg, 1));
+    Color activeEdge = style::color(w.computedStyle(), "border-top-color");
+    CHECK(!near(activeEdge, edge, 2) && near(w.framebuffer().colorAt(0, 100), activeEdge, 1));
+    savePng(outDir() + "/frame-active.png", w.framebuffer());
+    // a button's :hover
+    Point closeAt = partCentre(w, TitleBar::Close);
+    Point n = native(w, closeAt);
+    moveTo(w, n.x, n.y);
+    CHECK(tb->hoverPart() == TitleBar::Close && w.hoverWidget() == tb);
+    app.tick();
+    CHECK(near(w.framebuffer().colorAt(n.x - 15, n.y - 8), Color(0xc4, 0x2b, 0x1c), 1));  // (default.css: red)
+    savePng(outDir() + "/frame-close-hover.png", w.framebuffer());
+    moveTo(w, native(w, Point(200, 150)).x, native(w, Point(200, 150)).y);
+    CHECK(tb->hoverPart() == TitleBar::NoPart);
+
+    // --- the buttons ---
+    actions.clear();
+    clickAt(w, partCentre(w, TitleBar::Minimize));
+    CHECK(actions.size() == 1 && actions[0] == "minimize" && w.isWindowMinimized());
+    actions.clear();
+    clickAt(w, partCentre(w, TitleBar::Maximize));
+    CHECK(actions.size() == 1 && actions[0] == "maximize" && w.isWindowMaximized());
+    CHECK(w.hasState("maximized") && tb->hasState("maximized"));
+    // maximized: no border (default.css), the inside takes the room; no resize band; the button restores
+    CHECK(w.frameInsets().left == 0 && w.frameInsets().top == bar && w.width() == 402 && w.height() == 302);
+    CHECK(tb->toolTipAt(tb->partRect(TitleBar::Maximize).center()) == "Restore");
+    CHECK(w.resizeEdgeAt(Point(0, 100)) == 0);
+    app.tick();
+    savePng(outDir() + "/frame-maximized.png", w.framebuffer());
+    clickAt(w, partCentre(w, TitleBar::Maximize));
+    CHECK(actions.size() == 2 && actions[1] == "restore" && !w.isWindowMaximized() && w.frameInsets() == f);
+    w.resizeWindow(400, 300);
+    // a double click on the bar maximizes, another restores
+    actions.clear();
+    Point t = native(w, Point(150, -bar / 2));
+    doubleClick(w, t.x, t.y);
+    CHECK(w.isWindowMaximized() && actions.size() == 1 && actions[0] == "maximize");
+    gTime += 1;
+    doubleClick(w, t.x, t.y);
+    CHECK(!w.isWindowMaximized());
+    w.resizeWindow(400, 300);
+    // close: as the window manager's ✕ (closeRequested asks first)
+    int asked = 0;
+    bool allow = false;
+    w.closeRequested = [&] {
+        ++asked;
+        return allow;
+    };
+    clickAt(w, partCentre(w, TitleBar::Close));
+    CHECK(asked == 1 && w.isWindowShown());
+    allow = true;
+    clickAt(w, partCentre(w, TitleBar::Close));
+    CHECK(asked == 2 && !w.isWindowShown());
+    w.showWindow();
+    // a press on a button let go elsewhere does nothing
+    Point mxAt = native(w, partCentre(w, TitleBar::Maximize));
+    press(w, mxAt.x, mxAt.y);
+    CHECK(tb->pressedPart() == TitleBar::Maximize);
+    release(w, mxAt.x - 200, mxAt.y);
+    CHECK(!w.isWindowMaximized() && tb->pressedPart() == TitleBar::NoPart);
+
+    // --- the window's menu: right click on the bar ---
+    clickAt(w, Point(120, -bar / 2), plat::RightButton);
+    CHECK(tb->menu() && tb->menu()->isOpen() && tb->menu()->actions().size() == 4);
+    if (tb->menu() && tb->menu()->actions().size() == 4) {
+        CHECK(tb->menu()->actions()[0]->text == "Minimize" && tb->menu()->actions()[1]->text == "Maximize" &&
+              tb->menu()->actions()[3]->text == "Close");
+        Menu::activate(tb->menu()->actions()[1].get());
+        tb->menu()->close();
+        app.advanceTimers(0.01);
+        CHECK(w.isWindowMaximized());
+        w.setWindowMaximized(false);
+    }
+    app.closeAllPopups();
+    w.resizeWindow(400, 300);
+
+    // --- dragging the bar moves the window (without a window manager: by the program) ---
+    w.moveWindow(300, 200);
+    actions.clear();
+    Point g0 = native(w, Point(150, -bar / 2));
+    press(w, g0.x, g0.y);
+    w.onEvent(nullptr, mouseEv(plat::Event::MouseMove, g0.x + 2, g0.y + 1, 0, plat::LeftButton));
+    CHECK(w.screenGeometry().x == 300 && actions.empty());  // (not yet: a click may still be meant)
+    w.onEvent(nullptr, mouseEv(plat::Event::MouseMove, g0.x + 30, g0.y + 20, 0, plat::LeftButton));
+    // (the pointer's place is the window's: the window moved under it, so the next one is from the new place)
+    CHECK(actions.size() == 1 && actions[0] == "move" && w.screenGeometry().x == 330 && w.screenGeometry().y == 220);
+    release(w, g0.x, g0.y);
+
+    // --- the resize band: around the edges, over what is inside; corners resize both ways ---
+    Rect out = w.outerRect();
+    CHECK(w.resizeEdgeAt(Point(out.x, 150)) == plat::EdgeLeft);
+    CHECK(w.resizeEdgeAt(Point(2, 150)) == plat::EdgeLeft);           // (over the inside's edge)
+    CHECK(w.resizeEdgeAt(Point(3, 150)) == 0);
+    CHECK(w.resizeEdgeAt(Point(out.right() - 1, 150)) == plat::EdgeRight);
+    CHECK(w.resizeEdgeAt(Point(200, out.bottom() - 1)) == plat::EdgeBottom);
+    CHECK(w.resizeEdgeAt(Point(200, out.y)) == plat::EdgeTop);         // (the top of the title bar)
+    CHECK(w.resizeEdgeAt(Point(200, -bar / 2)) == 0);                  // (the title bar itself: a move)
+    CHECK(w.resizeEdgeAt(Point(200, 150)) == 0);
+    CHECK(w.resizeEdgeAt(Point(out.x, out.y)) == (plat::EdgeLeft | plat::EdgeTop));
+    CHECK(w.resizeEdgeAt(Point(out.x + 5, out.y)) == (plat::EdgeLeft | plat::EdgeTop));  // (along the corner)
+    CHECK(w.resizeEdgeAt(Point(out.right() - 1, out.bottom() - 10)) == (plat::EdgeRight | plat::EdgeBottom));
+    CHECK(w.resizeEdgeAt(Point(out.right() - 1, -bar)) == (plat::EdgeRight | plat::EdgeTop));
+    CHECK(w.resizeEdgeAt(Point(out.x - 1, 150)) == 0);                 // (outside)
+    // its cursor, and a drag of the right edge (by the program, without a window manager)
+    Point e0 = native(w, Point(out.right() - 1, 150));
+    moveTo(w, e0.x, e0.y);
+    CHECK(w.hoverWidget() == nullptr);
+    actions.clear();
+    press(w, e0.x, e0.y);
+    w.onEvent(nullptr, mouseEv(plat::Event::MouseMove, e0.x + 50, e0.y + 40, 0, plat::LeftButton));
+    CHECK(actions.size() == 1 && actions[0] == "resize" && w.width() == 450 && w.height() == 300);
+    // (the pointer's place counts from the window, which kept its place: the right edge only widens it)
+    release(w, e0.x + 50, e0.y + 40);
+    CHECK(w.width() == 450 && top->width() == 450);
+    // the left edge: wider, and moved left as much
+    Rect before = w.screenGeometry();
+    Point l0 = native(w, Point(out.x, 150));
+    press(w, l0.x, l0.y);
+    w.onEvent(nullptr, mouseEv(plat::Event::MouseMove, l0.x - 20, l0.y, 0, plat::LeftButton));
+    release(w, l0.x - 20, l0.y);
+    CHECK(w.width() == 470 && w.screenGeometry().x == before.x - 20 && w.screenGeometry().right() == before.right());
+    // a window that can't be resized: no band, no maximize
+    w.setResizable(false);
+    CHECK(w.resizeEdgeAt(Point(out.x, 150)) == 0 && !tb->hasButton(TitleBar::Maximize));
+    CHECK(tb->partRect(TitleBar::Maximize).empty() && tb->partRect(TitleBar::Minimize).right() == tb->partRect(TitleBar::Close).x);
+    Point t2 = native(w, Point(150, -bar / 2));
+    gTime += 1;
+    doubleClick(w, t2.x, t2.y);
+    CHECK(!w.isWindowMaximized());
+    w.setResizable(true);
+    w.resizeWindow(400, 300);
+
+    // --- dialogs: the size asked for is the inside's; a modal one has no minimize ---
+    {
+        Dialog d(&w, "Framed dialog", 300, 200);
+        CHECK(d.isFramed() && d.width() == 300 && d.height() == 200);
+        auto* dv = vbox(&d, 10, 6);
+        auto* field = d.add<LineEdit>();
+        dv->addWidget(field);
+        dv->addStretch();
+        d.adjustSize();
+        Point hint = d.layout()->sizeHint();
+        CHECK(d.width() == std::max({hint.x, d.layout()->minimumSize().x, 120}));
+        d.resizeWindow(300, 200);
+        d.showWindow();
+        app.doLayouts();
+        CHECK(field->x() == 10 && field->y() == 10 && field->width() == 280);
+        app.tick();
+        CHECK(d.framebuffer().width() == 302 && d.framebuffer().height() == 202 + bar);
+        CHECK(d.titleBar()->hasButton(TitleBar::Minimize));
+        d.setModal(true);
+        CHECK(!d.titleBar()->hasButton(TitleBar::Minimize) && d.titleBar()->hasButton(TitleBar::Close));
+        d.update();
+        app.tick();
+        savePng(outDir() + "/frame-dialog.png", d.framebuffer());
+        d.setModal(false);
+        d.hideWindow();
+    }
+    // popups have none
+    {
+        PopupWindow pop;
+        CHECK(!pop.isFramed() && pop.frameInsets() == Window::FrameInsets());
+    }
+
+    // --- the stylesheets: the bar's height and colours, the border, where the buttons are ---
+    std::vector<css::Problem> problems;
+    theme::setStyles({theme::builtinSheet(),
+                      css::parse(":root { --title-bar-height: 40px; --title-buttons: left; }"
+                                 "Window:framed { border: 3px solid #0000ff; }"
+                                 "TitleBar, TitleBar:inactive { background-color: #ff0000; padding: 0; }"
+                                 "TitleBar::title, TitleBar:inactive::title { color: #00ff00; text-align: center; }"
+                                 "TitleBar::close { width: 30px; }",
+                                 "frames.css", problems)});
+    CHECK(problems.empty());
+    app.repaintAll();
+    app.tick();
+    CHECK(TitleBar::barHeight() == 40 && w.frameInsets().top == 43 && w.frameInsets().left == 3);
+    CHECK(w.width() == 400 && w.height() == 300 && tb->geometry() == Rect(0, -40, 400, 40));  // (the inside kept)
+    CHECK(w.framebuffer().width() == 406 && w.framebuffer().height() == 346);
+    CHECK(near(w.framebuffer().colorAt(1, 100), Color(0, 0, 255), 1));
+    cl = tb->partRect(TitleBar::Close);
+    CHECK(cl.x == 0 && cl.w == 30 && tb->partRect(TitleBar::Maximize).x == 30);  // (left: close outermost)
+    CHECK(near(w.framebuffer().colorAt(3 + 200, 3 + 3), Color(255, 0, 0), 1));
+    // the title's green, centred
+    int greenLeft = 1000, greenRight = -1;
+    for (int x = 0; x < w.framebuffer().width(); ++x)
+        for (int y = 3; y < 43; ++y) {
+            Color c = w.framebuffer().colorAt(x, y);
+            if (c.g > 150 && c.r < 100 && c.b < 100) {
+                greenLeft = std::min(greenLeft, x);
+                greenRight = std::max(greenRight, x);
+            }
+        }
+    CHECK(greenRight > greenLeft && std::abs((greenLeft + greenRight) / 2 - (3 + 200)) <= 3);
+    savePng(outDir() + "/frame-styled.png", w.framebuffer());
+    theme::setSkin();
+    app.repaintAll();
+    app.tick();
+    CHECK(w.frameInsets() == f && w.width() == 400 && w.height() == 300);
+
+    // --- Options → Window frames → The system's: no frame (the inside keeps its size), and back ---
+    app.setOwnFrames(false);
+    CHECK(!w.isFramed() && !w.titleBar() && w.frameInsets() == Window::FrameInsets() && !w.hasState("framed"));
+    CHECK(w.width() == 400 && w.height() == 300 && top->width() == 400);
+    app.tick();
+    CHECK(w.framebuffer().width() == 400 && w.framebuffer().height() == 300);
+    CHECK(w.resizeEdgeAt(Point(0, 150)) == 0);
+    {
+        Window later(o);  // (made while they are off: none)
+        CHECK(!later.isFramed());
+    }
+    app.setOwnFrames(true);
+    CHECK(w.isFramed() && w.titleBar() && w.frameInsets() == f && w.width() == 400 && w.height() == 300);
+    app.tick();
+    CHECK(w.framebuffer().width() == 402 && w.framebuffer().height() == 302 + bar);
+
+    w.hideWindow();
+    app.frameAction.disconnect(conn);
+    app.setFramesWhenHeadless(false);
+    CHECK(!w.isFramed() && !app.framesDrawn());
+}
+
 int main() {
     App::get().initHeadless();
     util::makeDirs("build/toolkit-samples");
@@ -2426,6 +2736,7 @@ int main() {
     testDialogs();
     testFileDialog();
     testFileDialogAndMessageIconStyles();
+    testWindowFrames();
     gallery();
     testCssPainting();
     TEST_MAIN_END();
