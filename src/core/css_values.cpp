@@ -329,12 +329,14 @@ uint8_t unitOf(const std::string& unit) {
 struct Quantity {
     double v = 0;
     bool length = false;  // else a number
+    double pct = 0;       // (Calc::percentKept) the percentages of a length, a fraction: calc(100% - 8px) is 1, v -8
 };
 
 struct Calc {
     const Tokens& t;
     const LenCtx& ctx;
     bool percentIsNumber;  // number(): 50% is 0.5
+    bool percentKept = false;  // a length's percentages kept apart (Quantity::pct), worked out where it is used
 
     void ws(size_t& i, size_t e) const {
         while (i < e && t[i].type == Tok::Whitespace) i++;
@@ -347,6 +349,7 @@ struct Calc {
             q = {k.num, false};
         } else if (k.type == Tok::Percentage) {
             if (percentIsNumber) q = {k.num / 100, false};
+            else if (percentKept) q = {0, true, k.num / 100};
             else if (ctx.percent) q = {k.num * ctx.percentOf / 100, true};
             else return false;
         } else if (k.type == Tok::Dimension) {
@@ -379,10 +382,11 @@ struct Calc {
             if (!term(j, e, r, depth)) return false;
             if (op == '*') {
                 if (q.length && r.length) return false;
-                q = {q.v * r.v, q.length || r.length};
+                q = {q.v * r.v, q.length || r.length, q.pct * r.v + q.v * r.pct};  // (a number's pct is 0)
             } else {
                 if (r.length || r.v == 0) return false;
                 q.v /= r.v;
+                q.pct /= r.v;
             }
             i = j;
         }
@@ -400,6 +404,7 @@ struct Calc {
             if (!product(j, e, r, depth)) return false;
             if (r.length != q.length) return false;
             q.v = op == '+' ? q.v + r.v : q.v - r.v;
+            q.pct = op == '+' ? q.pct + r.pct : q.pct - r.pct;
             i = j;
         }
     }
@@ -411,7 +416,7 @@ struct Calc {
         if (k.type == Tok::LParen) return false;  // (a bare parenthesis isn't a value; calc() is)
         size_t i = b;
         if (!term(i, e, q, 0) || i != e) return false;
-        return std::isfinite(q.v);
+        return std::isfinite(q.v) && std::isfinite(q.pct);
     }
 };
 
@@ -467,7 +472,10 @@ std::map<std::string, std::vector<std::string>> makeLonghands() {
             m["border"].push_back(side + what);
         }
     }
-    m["background"] = {"background-color", "background-image"};
+    m["outline"] = {"outline-width", "outline-style", "outline-color"};  // (as one side of a border)
+    m["background"] = {"background-color",    "background-image",  "background-repeat",
+                       "background-position", "background-size",   "background-origin",
+                       "background-clip"};
     return m;
 }
 const std::map<std::string, std::vector<std::string>>& longhandTable() {
@@ -512,6 +520,19 @@ bool evalLength(const Tokens& t, size_t b, size_t e, const LenCtx& ctx, double& 
     Quantity q;
     if (!Calc{t, ctx, false}.whole(b, e, q) || !q.length) return false;
     px = q.v;
+    return true;
+}
+
+bool evalLengthPercent(const Tokens& t, size_t b, size_t e, const LenCtx& ctx, double& px, double& frac) {
+    t.trim(b, e);
+    px = frac = 0;
+    if (e == b + 1 && t[b].type == Tok::Number && t[b].num == 0) return true;
+    Quantity q;
+    Calc c{t, ctx, false};
+    c.percentKept = true;
+    if (!c.whole(b, e, q) || !q.length) return false;
+    px = q.v;
+    frac = q.pct;
     return true;
 }
 
@@ -660,7 +681,7 @@ const std::vector<std::string>& longhands(const std::string& shorthand) {
 
 bool isInherited(const std::string& p) {
     return p == "color" || p == "font-family" || p == "font-size" || p == "font-weight" || p == "font-style" ||
-           p == "letter-spacing";
+           p == "letter-spacing" || p == "font-smooth" || p == "-webkit-font-smoothing" || p == "image-rendering";
 }
 
 std::string expand(const std::string& name, const Tokens& t, size_t b, size_t e,
@@ -676,37 +697,110 @@ std::string expand(const std::string& name, const Tokens& t, size_t b, size_t e,
     }
     auto bad = [&]() { return "a bad value for '" + name + "': '" + (whole.size() > 60 ? whole.substr(0, 57) + "..." : whole) + "'"; };
     if (name == "background") {
-        // each layer's image (a gradient; "none" without one), the colour from the last layer; what else a
-        // layer may say (url() images, positions, sizes, repeat…) is not read
+        // each layer: its image (a gradient or a url(); "none" without one), its repeat, its position with an
+        // optional `/ size`, its boxes (origin, then clip; one: both), in any order; the colour from the last
+        // layer. The attachment (scroll, fixed, local) is not read; any other word makes it a bad value (reported).
         auto layers = splitTop(t, b, e, Tok::Comma);
-        std::string color = "transparent", images;
+        std::string color = "transparent";
+        std::string lists[6];  // image, repeat, position, size, origin, clip
         bool anyImage = false;
+        auto isPositionPart = [&](size_t cb, size_t ce) {
+            if (ce == cb + 1 && t[cb].type == Tok::Ident) {
+                std::string w = lower(t[cb].text);
+                return w == "left" || w == "right" || w == "top" || w == "bottom" || w == "center";
+            }
+            LenCtx ctx;
+            double px;
+            return evalLength(t, cb, ce, ctx, px);
+        };
         for (size_t li = 0; li < layers.size(); li++) {
             auto [lb, le] = layers[li];
-            std::string image;
-            for (auto [cb, ce] : components(t, lb, le)) {
-                if (isGradientFunction(t[cb])) {
-                    std::string why;
-                    Rgba dummy;
+            std::string image, repeat, position, size, origin, clip;
+            auto comps = components(t, lb, le);
+            for (size_t k = 0; k < comps.size(); k++) {
+                auto [cb, ce] = comps[k];
+                std::string why;
+                Rgba dummy;
+                Style::Background layer;
+                if (isGradientFunction(t[cb]) || startsUrl(t[cb])) {
                     if (!image.empty()) return bad();
                     if (!parseImages(t, cb, ce, &dummy, 12, nullptr, why)) return "a bad value for 'background': " + why;
                     image = t.text(cb, ce);
                     anyImage = true;
+                } else if (ce == cb + 1 && t[cb].type == Tok::Ident && repeatValue(t, {comps[k]}, layer)) {
+                    if (!repeat.empty()) return bad();
+                    size_t n = k + 1 < comps.size() && repeatValue(t, {comps[k], comps[k + 1]}, layer) ? 2 : 1;
+                    repeat = t.text(cb, comps[k + n - 1].second);
+                    k += n - 1;
+                } else if (ce == cb + 1 && t[cb].type == Tok::Ident && boxValue(t, comps[k], layer.origin)) {
+                    if (origin.empty()) origin = clip = t.text(cb, ce);
+                    else if (clip == origin) clip = t.text(cb, ce);
+                    else return bad();
+                } else if (isPositionPart(cb, ce)) {
+                    if (!position.empty()) return bad();
+                    size_t j = k;
+                    while (j < comps.size() && j - k < 4 && isPositionPart(comps[j].first, comps[j].second)) j++;
+                    std::vector<std::pair<size_t, size_t>> pc(comps.begin() + (long)k, comps.begin() + (long)j);
+                    if (!positionValue(t, pc, 12, layer)) return "a bad value for 'background': '" + t.text(cb, comps[j - 1].second) + "' is not a position";
+                    position = t.text(cb, comps[j - 1].second);
+                    k = j - 1;
+                    // `/ size` after it
+                    if (k + 1 < comps.size() && t[comps[k + 1].first].type == Tok::Delim && t[comps[k + 1].first].delim == '/') {
+                        size_t s0 = k + 2, s1 = s0;
+                        while (s1 < comps.size() && s1 - s0 < 2) {
+                            auto [xb, xe] = comps[s1];
+                            bool word = xe == xb + 1 && t[xb].type == Tok::Ident &&
+                                        (ieq(t[xb].text, "auto") || ieq(t[xb].text, "cover") || ieq(t[xb].text, "contain"));
+                            double px;
+                            LenCtx ctx;
+                            ctx.percentOf = 100;
+                            if (!word && !evalLength(t, xb, xe, ctx, px)) break;
+                            s1++;
+                        }
+                        std::vector<std::pair<size_t, size_t>> sc(comps.begin() + (long)s0, comps.begin() + (long)s1);
+                        if (sc.empty() || !sizeValue(t, sc, 12, layer)) return "a bad value for 'background': a bad size after '/'";
+                        size = t.text(comps[s0].first, comps[s1 - 1].second);
+                        k = s1 - 1;
+                    }
+                } else if (t[cb].type == Tok::Delim && t[cb].delim == '/') {
+                    return "a bad value for 'background': '/' (a size) must follow a position";
                 } else if (li + 1 == layers.size() && isKind(t, cb, ce, Kind::Color)) {
                     color = t.text(cb, ce);
+                } else if (ce == cb + 1 && t[cb].type == Tok::Ident && ieq(t[cb].text, "none")) {
+                    if (!image.empty()) return bad();
+                    image = "none";  // (a layer without an image)
+                } else if (ce == cb + 1 && t[cb].type == Tok::Ident &&
+                           (ieq(t[cb].text, "scroll") || ieq(t[cb].text, "fixed") || ieq(t[cb].text, "local"))) {
+                    // (background-attachment: nothing scrolls under a box here; not read)
+                } else {
+                    return "a bad value for 'background': '" + t.text(cb, ce) + "' is not an image, a repeat, a " +
+                           "position, a box" + (li + 1 == layers.size() ? " or a colour" : " (the colour goes in the last layer)");
                 }
             }
-            images += (li ? ", " : "") + (image.empty() ? std::string("none") : image);
+            auto add = [&](std::string& list, const std::string& v, const char* def) {
+                list += (li ? ", " : "") + (v.empty() ? std::string(def) : v);
+            };
+            add(lists[0], image, "none");
+            add(lists[1], repeat, "repeat");
+            add(lists[2], position, "0% 0%");
+            add(lists[3], size, "auto");
+            add(lists[4], origin, "padding-box");
+            add(lists[5], clip, "border-box");
         }
         out.emplace_back("background", whole);
         out.emplace_back("background-color", color);
-        out.emplace_back("background-image", anyImage ? images : std::string("none"));
+        out.emplace_back("background-image", anyImage ? lists[0] : std::string("none"));
+        out.emplace_back("background-repeat", lists[1]);
+        out.emplace_back("background-position", lists[2]);
+        out.emplace_back("background-size", lists[3]);
+        out.emplace_back("background-origin", lists[4]);
+        out.emplace_back("background-clip", lists[5]);
         return "";
     }
     auto comps = components(t, b, e);
-    if (name == "border" || name.compare(0, 7, "border-") == 0) {
+    if (name == "border" || name.compare(0, 7, "border-") == 0 || name == "outline") {
         bool border = name == "border" || name == "border-top" || name == "border-right" || name == "border-bottom" ||
-                      name == "border-left";
+                      name == "border-left" || name == "outline";
         if (border) {
             std::string width, style, color;
             if (comps.size() > 3) return bad();
@@ -766,6 +860,42 @@ std::string checkValue(const std::string& p, const Tokens& t, size_t b, size_t e
         Rgba dummy;
         return parseImages(t, b, e, &dummy, 12, nullptr, why) ? "" : "a bad value for 'background-image': " + why;
     }
+    if (p == "background-repeat" || p == "background-position" || p == "background-size" || p == "background-origin" ||
+        p == "background-clip") {
+        std::string why;
+        return parseLayerList(p, t, b, e, 12, nullptr, why) ? "" : "a bad value for '" + p + "': " + why;
+    }
+    auto oneOf = [&](std::initializer_list<const char*> words) {
+        if (e != b + 1 || t[b].type != Tok::Ident) return false;
+        for (const char* w : words)
+            if (ieq(t[b].text, w)) return true;
+        return false;
+    };
+    if (p == "image-rendering")
+        return oneOf({"auto", "smooth", "high-quality", "pixelated", "crisp-edges", "optimizespeed", "optimizequality"}) ? "" : bad();
+    if (p == "font-smooth") {
+        LenCtx ctx;
+        double px;
+        return oneOf({"auto", "never", "always"}) || evalLength(t, b, e, ctx, px) ? "" : bad();
+    }
+    if (p == "-webkit-font-smoothing") return oneOf({"auto", "none", "antialiased", "subpixel-antialiased"}) ? "" : bad();
+    if (p == "-tiny-glyph") {
+        std::string u;
+        return oneOf({"none"}) || urlAt(t, b, e, u) ? "" : "a bad value for '-tiny-glyph': '" + whole + "' (none or url(\"file\"))";
+    }
+    if (p == "-tiny-glyph-tint") return oneOf({"none", "color"}) ? "" : bad();
+    if (p == "-tiny-glyph-size" || p == "-tiny-glyph-offset") {
+        auto c = components(t, b, e);
+        if (c.empty() || c.size() > 2) return bad();
+        for (auto [cb, ce] : c) {
+            LenCtx ctx;
+            ctx.percent = false;
+            double px;
+            bool autoWord = p == "-tiny-glyph-size" && ce == cb + 1 && t[cb].type == Tok::Ident && ieq(t[cb].text, "auto");
+            if (!autoWord && (!evalLength(t, cb, ce, ctx, px) || (p == "-tiny-glyph-size" && px < 0))) return bad();
+        }
+        return "";
+    }
     if (p == "box-shadow" || p == "text-shadow") {
         std::string why;
         Rgba dummy;
@@ -774,6 +904,10 @@ std::string checkValue(const std::string& p, const Tokens& t, size_t b, size_t e
     if (p == "opacity") {
         double v;
         return evalNumber(t, b, e, v) ? "" : bad();
+    }
+    if (p == "backdrop-filter") {
+        std::string why;
+        return parseBackdropBlur(t, b, e, 12, nullptr, why) ? "" : "a bad value for 'backdrop-filter': " + why;
     }
     if (p == "color" || ends("-color")) {
         if (isKind(t, b, e, Kind::Color)) return "";

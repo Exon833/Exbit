@@ -6,11 +6,14 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <string>
 #include <cctype>
 #include <cstring>
+#include <filesystem>
+#include <functional>
 #include <set>
 
 #include "audio/engine.h"
@@ -32,6 +35,7 @@
 #include "ui/skin.h"
 #include "ui/theme.h"
 #include "ui/track_render.h"
+#include "ui/toolkit/dialogs.h"
 #include "ui/toolkit/frame.h"
 #include "ui/toolkit/layout.h"
 #include "ui/toolkit/menu.h"
@@ -314,6 +318,241 @@ static void testSkinFiles() {
     skin::removeOnApply(hook);
     util::removeFile(mine);
     skin::apply(skin::find("Dark"));
+}
+
+// A skin copied (Edit this skin…, Import skin…, Export this skin…) with the files its stylesheet uses (url() images,
+// @font-face fonts, @imports at any depth): each copy of each of the program's own skins put on without a problem,
+// its files in its own folder beside it; a different file there never overwritten; copies of copies not nested
+static void testSkinCopies() {
+    namespace fs = std::filesystem;
+    const std::string mineDir = TMP + "/copies", outDir = TMP + "/exported";
+    std::error_code ec;
+    fs::remove_all(mineDir, ec);
+    fs::remove_all(outDir, ec);
+    skin::setBuiltinDir("data/skins");
+    skin::setUserDir(mineDir);
+    auto colours = [] {
+        std::vector<std::string> v;
+        for (auto& info : theme::colors()) v.push_back(theme::c(info.name).hex());
+        v.push_back(theme::fonts().ui + " " + theme::fonts().mono + " " + std::to_string(theme::fonts().uiPx));
+        return v;
+    };
+    // every file the skin's stylesheet uses: is it in `folder` (and there)?
+    auto filesIn = [](const std::string& css, const std::string& folder, size_t& count) {
+        std::vector<css::Problem> problems;
+        css::ParseOptions o;
+        o.baseDir = util::dirName(css);
+        o.readFile = [](const std::string& f, std::string& t) { return util::readFile(f, t); };
+        std::string text;
+        util::readFile(css, text);
+        css::SheetPtr sheet = css::parse(text, util::baseName(css), problems, o);
+        std::vector<std::string> all = css::imageFiles(sheet);
+        for (auto& f : css::fontFaces(sheet)) all.push_back(f.file);
+        for (auto& f : css::importedFiles(sheet)) all.push_back(f);
+        count = all.size();
+        bool ok = true;
+        for (auto& f : all) {
+            bool in = util::startsWith(f, folder + "/") && util::fileExists(f);
+            if (!in) printf("  %s: %s is not in %s\n", css.c_str(), f.c_str(), folder.c_str());
+            ok = ok && in;
+        }
+        return ok;
+    };
+    auto read = [](const std::string& path) {
+        skin::Skin s;
+        std::vector<std::string> problems;
+        std::string err;
+        CHECK(skin::read(path, s, problems, err));
+        return s;
+    };
+    auto applied = [](const skin::Skin& s) {
+        std::vector<std::string> problems = skin::apply(s);
+        for (auto& p : problems) printf("  %s: %s\n", s.name.c_str(), p.c_str());
+        return problems.empty();
+    };
+    int withFiles = 0;
+    for (const skin::Skin& original : skin::library()) {
+        if (!original.builtin) continue;
+        CHECK(applied(original));
+        std::vector<std::string> want = colours();
+        size_t used = 0, n = 0;
+        filesIn(original.path, util::dirName(original.path), used);
+        withFiles += used > 0;
+        // Edit this skin…: a copy of yours, its files in "<name> copy/"
+        std::string err, name = original.name + " copy";
+        std::string path = skin::makeCopy(original, name, err);
+        CHECK(path == mineDir + "/" + skin::fileName(name) && err.empty());
+        skin::Skin copy = read(path);
+        CHECK(copy.name == name && !copy.builtin);
+        CHECK(applied(copy));
+        CHECK(colours() == want);
+        std::string folder = mineDir + "/" + skin::safeName(name);
+        CHECK(filesIn(path, folder, n) && n == used);
+        CHECK(util::isDir(folder) == (used > 0));
+        // Import skin…: the stylesheet of the program's own, into your folder under its name
+        skin::Skin imported;
+        std::vector<std::string> problems;
+        CHECK(skin::importFrom(original.path, imported, problems, err) && problems.empty());
+        CHECK(imported.path == mineDir + "/" + skin::fileName(original.name) && !imported.builtin);
+        CHECK(applied(imported));
+        CHECK(colours() == want);
+        CHECK(filesIn(imported.path, mineDir + "/" + skin::safeName(original.name), n) && n == used);
+        // (again: asked before it is replaced; no: nothing done)
+        int asked = 0;
+        CHECK(!skin::importFrom(original.path, imported, problems, err, [&](const std::string& s) {
+            asked++;
+            return s != original.name;
+        }));
+        CHECK(asked == 1 && err.empty());
+        // Export this skin…: the stylesheet where asked, its files in the folder beside it
+        std::string out = outDir + "/" + skin::fileName(original.name);
+        CHECK(skin::exportTo(original, out, err));
+        CHECK(filesIn(out, outDir + "/" + skin::safeName(original.name), n) && n == used);
+        CHECK(applied(read(out)));
+        CHECK(colours() == want);
+        // the export of your copy, imported (from where it was exported) under the copy's name: as good
+        std::string out2 = outDir + "/sent/" + skin::fileName(name);
+        CHECK(skin::exportTo(copy, out2, err));
+        CHECK(filesIn(out2, outDir + "/sent/" + skin::safeName(name), n) && n == used);
+        CHECK(skin::importFrom(out2, imported, problems, err, [](const std::string&) { return true; }));
+        CHECK(problems.empty() && imported.path == path);
+        CHECK(filesIn(path, folder, n) && n == used);  // (the same files: the same folder)
+        CHECK(applied(imported));
+        CHECK(colours() == want);
+    }
+    CHECK(withFiles == 3);  // (90s, XP, 7)
+
+    // a different file in the copy's folder is never overwritten: the copy's files go to "<name> (2)/"
+    {
+        skin::Skin xp = skin::find("XP");
+        std::string err, folder = mineDir + "/XP copy", mine = folder + "/xp/check.svg", text;
+        CHECK(util::fileExists(mine));
+        CHECK(util::writeFile(mine, "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"9\" height=\"9\"/>"));
+        std::string path = skin::makeCopy(xp, "XP copy", err);
+        CHECK(path == mineDir + "/XP copy.css");
+        CHECK(util::readFile(mine, text) && text.find("width=\"9\"") != std::string::npos);  // (yours, as it was)
+        size_t n = 0;
+        CHECK(filesIn(path, mineDir + "/XP copy (2)", n) && n > 30);
+        CHECK(applied(read(path)));
+        // a copy of your copy: its files in its own folder, not one more folder down
+        path = skin::makeCopy(read(path), "XP again", err);
+        CHECK(filesIn(path, mineDir + "/XP again", n) && n > 30);
+        CHECK(util::fileExists(mineDir + "/XP again/xp/check.svg") && util::fileExists(mineDir + "/XP again/fonts/tahoma.ttf"));
+        // (a font's licence goes with it: the text files beside it)
+        CHECK(util::fileExists(mineDir + "/XP again/fonts/Tahoma-LGPL-2.1.txt") && util::fileExists(mineDir + "/XP again/fonts/README.md"));
+        CHECK(!util::fileExists(mineDir + "/XP again/fonts/selawk.ttf"));  // (not the fonts it doesn't use)
+        CHECK(applied(read(path)));
+    }
+
+    // a stylesheet of yours that @imports (url() and "string"), uses files above its folder and by their whole
+    // path, names url()s in custom properties and @font-face, and quotes oddly: all copied, all found
+    {
+        std::string src = TMP + "/odd-skin", font;
+        fs::remove_all(src, ec);
+        util::makeDirs(src + "/sheet/parts");
+        util::makeDirs(src + "/shared");
+        CHECK(savePng(src + "/shared/a.png", Image(2, 2, Color(255, 0, 0))));
+        CHECK(savePng(src + "/sheet/parts/b \"q\".png", Image(2, 2, Color(0, 255, 0))));
+        CHECK(savePng(src + "/c.png", Image(2, 2, Color(0, 0, 255))));
+        CHECK(util::readFile("data/skins/fonts/tahoma.ttf", font));
+        CHECK(util::writeFile(src + "/shared/face.ttf", font));
+        CHECK(util::writeFile(src + "/sheet/parts/more.css",
+                              "@import url(\"../../shared/last.css\");\n"
+                              "Button { background-image: url('b \\\"q\\\".png'), url(../../shared/a.png); }\n"));
+        CHECK(util::writeFile(src + "/shared/last.css", "Slider { background: url(a.png) no-repeat; }\n"));
+        CHECK(util::writeFile(src + "/sheet/Odd.css",
+                              "@import \"parts/more.css\";\n"
+                              "@font-face { font-family: \"Odd Face\"; src: url(../shared/face.ttf) format(\"truetype\"); }\n"
+                              "/* url(not/a/file.png) in a comment */\n"
+                              ":root { --skin-name: \"Odd\"; --pic: url(" + util::absolutePath(src) + "/c.png); font-family: \"Odd Face\"; }\n"
+                              "CheckBox { background-image: var(--pic); }\n"));
+        skin::Skin odd = read(src + "/sheet/Odd.css");
+        CHECK(applied(odd));
+        std::string err;
+        std::string path = skin::makeCopy(odd, "Odd copy", err);
+        size_t n = 0;
+        CHECK(filesIn(path, mineDir + "/Odd copy", n) && n == 6);  // (3 images, a font, 2 imports)
+        skin::Skin copy = read(path);
+        CHECK(applied(copy));
+        CHECK(theme::fonts().ui == "Odd Face");
+        std::string text;
+        CHECK(util::readFile(path, text) && text.find("url(not/a/file.png) in a comment") != std::string::npos);
+        // (moving the original away: the copy has all it needs)
+        fs::rename(src, src + "-moved", ec);
+        CHECK(!ec && applied(copy));
+        CHECK(theme::styles().compute(css::SimpleNode("CheckBox")).backgrounds().size() == 1);
+        fs::rename(src + "-moved", src, ec);
+    }
+
+    // rewriteUrls: only the files named change; the rest of the text as it was
+    {
+        std::string text = "@import 'a.css'; /* url(x) */ X { b: url( x ); c: url(\"y\") \"url(z)\"; --d: URL(x) }";
+        std::string got = css::rewriteUrls(text, [](const std::string& u) { return u == "x" ? std::string("n \"1\"") : u == "a.css" ? "b.css" : ""; });
+        CHECK(got == "@import \"b.css\"; /* url(x) */ X { b: url(\"n \\\"1\\\"\"); c: url(\"y\") \"url(z)\"; --d: url(\"n \\\"1\\\"\") }");
+        if (got != "@import \"b.css\"; /* url(x) */ X { b: url(\"n \\\"1\\\"\"); c: url(\"y\") \"url(z)\"; --d: url(\"n \\\"1\\\"\") }")
+            printf("  rewriteUrls: %s\n", got.c_str());
+        CHECK(css::rewriteUrls(text, nullptr) == text);
+        CHECK(css::resolveUrl("/a/b", "../c.png") == "/a/c.png" && css::resolveUrl("/a", "http://x/y.png").empty());
+    }
+
+    fs::remove_all(mineDir, ec);
+    fs::remove_all(outDir, ec);
+    fs::remove_all(TMP + "/odd-skin", ec);
+    skin::setUserDir(TMP + "/skins");
+    skin::apply(skin::find("Dark"));
+}
+
+// A skin's url() images: resolved from its folder, watched (skin::watchedFiles: MainWindow reloads the skin when
+// one is saved, as it does for its stylesheet), the new picture drawn once it is put on again; a missing one
+// reported where it is named
+static void testSkinImages() {
+    const std::string dir = TMP + "/skin-images";
+    util::makeDirs(dir + "/img");
+    const std::string css = dir + "/Images.css", png = dir + "/img/tile.png";
+    CHECK(savePng(png, Image(2, 2, Color(255, 0, 0))));
+    CHECK(util::writeFile(css, ":root { --skin-name: \"Images\" }\n"
+                               "CheckBox { background: url(img/tile.png) }\n"
+                               "CheckBox::indicator {\n    -tiny-glyph: url(img/missing.svg) }\n"));
+    skin::Skin s;
+    std::vector<std::string> problems;
+    std::string err;
+    CHECK(skin::read(css, s, problems, err) && s.name == "Images");
+    CHECK(problems.size() == 1 && problems[0].find("Images.css:4:18: '-tiny-glyph': can't use img/missing.svg") == 0);
+    problems = skin::apply(s);
+    CHECK(problems.size() == 1 && problems[0].find("Images.css:4:18:") == 0);
+    if (problems.size() != 1)
+        for (auto& p : problems) printf("  %s\n", p.c_str());
+    std::vector<std::string> watched = skin::watchedFiles();
+    auto watches = [&](const std::string& f) { return std::find(watched.begin(), watched.end(), f) != watched.end(); };
+    CHECK(watches(css) && watches(png) && watches(dir + "/img/missing.svg"));
+    // what MainWindow::checkSkinFile compares: every watched file's time and size
+    auto stamp = [&] {
+        std::string out;
+        for (const std::string& f : skin::watchedFiles())
+            out += f + "=" + std::to_string(util::fileMtime(f)) + ":" + std::to_string(util::fileSize(f)) + ";";
+        return out;
+    };
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(120, 40);
+    auto* cb = w.add<CheckBox>("Tiled");
+    cb->setGeometry(0, 0, 120, 40);
+    w.showWindow();
+    App::get().repaintAll();
+    App::get().tick();
+    CHECK(w.framebuffer().colorAt(100, 2) == Color(255, 0, 0));
+    std::string before = stamp();
+    Image blue(3, 3, Color(0, 0, 255));
+    CHECK(savePng(png, blue));  // (saved in an image editor)
+    CHECK(stamp() != before);   // (seen: the skin is put on again)
+    problems = skin::apply(s);
+    CHECK(problems.size() == 1);
+    App::get().repaintAll();
+    App::get().tick();
+    CHECK(w.framebuffer().colorAt(100, 2) == Color(0, 0, 255));
+    w.hideWindow();
+    skin::apply(skin::find("Dark"));
+    util::removeFile(css);
+    util::removeFile(png);
 }
 
 // docs/skins.md lists everything that can be styled: every style type the program sets (setStyleType), every
@@ -1580,12 +1819,101 @@ void testLoopRecording() {
     CHECK(!d.loopTakes->isChecked());
 }
 
+// A message box's parts: its buttons in a band across the whole width (Dialog.message-box::buttons: a box, its
+// padding the room around them; unstyled, where they always were), and no maximize (it can't be resized); a message
+// box in every built-in skin, with Tiny DAW's own frames
+static void testMessageBoxParts() {
+    App& app = App::get();
+    struct Seen {
+        bool shown = false, resizable = true, maximize = true;
+        int w = 0, h = 0;
+        Rect band, buttons;
+        Color line, strip, above;
+    };
+    std::function<ButtonBox*(Widget*)> findBox = [&](Widget* w) -> ButtonBox* {
+        for (auto& c : w->children()) {
+            if (auto* b = dynamic_cast<ButtonBox*>(c.get())) return b;
+            if (ButtonBox* b = findBox(c.get())) return b;
+        }
+        return nullptr;
+    };
+    auto show = [&](Seen& s, const std::string& file) {
+        app.singleShot(30, [&, file] {
+            Window* top = app.modalWindow();
+            if (!top) return;
+            s.shown = true;
+            app.doLayouts();
+            top->update();
+            app.tick();
+            s.resizable = top->isResizable();
+            s.maximize = top->titleBar() && top->titleBar()->hasButton(TitleBar::Maximize);
+            s.w = top->width();
+            s.h = top->height();
+            if (ButtonBox* bb = findBox(top)) {
+                s.buttons = bb->geometry();
+                if (bb->parent()) s.band = bb->parent()->geometry();
+            }
+            Window::FrameInsets f = top->frameInsets();
+            const Image& fb = top->framebuffer();
+            if (!s.band.empty()) {
+                s.line = fb.colorAt(f.left + 2, f.top + s.band.y);
+                s.strip = fb.colorAt(f.left + 2, f.top + s.band.y + 2);
+                s.above = fb.colorAt(f.left + 2, f.top + s.band.y - 2);
+            }
+            if (!file.empty()) savePng("build/ui-samples/frames/" + file + ".png", fb);
+            if (auto* d = dynamic_cast<Dialog*>(top)) d->reject();
+        });
+        msg::question(nullptr, "Unsaved changes", "Save the changes to the current project?",
+                      msg::Save | msg::Discard | msg::Cancel);
+    };
+    util::makeDirs("build/ui-samples/frames");
+    // default.css: the band is the dialog's width; the buttons 14 px from its sides and bottom, 14 below the text
+    Seen plain;
+    show(plain, "");
+    CHECK(plain.shown && !plain.resizable);
+    CHECK(plain.band.x == 0 && plain.band.w == plain.w && plain.band.bottom() == plain.h);
+    CHECK(plain.buttons == Rect(14, 14, plain.w - 28, plain.buttons.h) && plain.band.h == 14 + plain.buttons.h + 14);
+    // a classic sheet: a white upper part and a grey strip with a line along its top
+    std::vector<css::Problem> problems;
+    theme::setStyles({theme::builtinSheet(),
+                      css::parse("Dialog.message-box { background-color: #ffffff; }"
+                                 "Dialog.message-box::buttons { background-color: #f0f0f0; border-top: 1px solid #dfdfdf;"
+                                 " padding: 10px 11px 12px 13px; }",
+                                 "message-box.css", problems)});
+    CHECK(problems.empty());
+    Seen styled;
+    show(styled, "");
+    CHECK(styled.shown && styled.band.x == 0 && styled.band.w == styled.w && styled.band.bottom() == styled.h);
+    CHECK(styled.buttons == Rect(13, 11, styled.w - 24, styled.buttons.h) &&
+          styled.band.h == 11 + styled.buttons.h + 12);
+    CHECK(styled.line == Color(0xdf, 0xdf, 0xdf) && styled.strip == Color(0xf0, 0xf0, 0xf0) &&
+          styled.above == Color(255, 255, 255));
+    // every built-in skin, framed: no maximize; the band's background is the skin's (default: none: the window's)
+    app.setFramesWhenHeadless(true);
+    for (const char* name : {"Dark", "Light", "Midnight", "OLED", "High contrast", "90s", "XP", "7"}) {
+        skin::Skin sk = skin::find(name);
+        CHECK(sk.name == name);
+        skin::apply(sk);
+        app.repaintAll();
+        std::string file = name;
+        for (auto& ch : file) ch = ch == ' ' ? '-' : (char)std::tolower((unsigned char)ch);
+        Seen s;
+        show(s, "message-box-" + file);
+        CHECK(s.shown && !s.resizable && !s.maximize && s.band.w == s.w && s.buttons.w > 0);
+    }
+    skin::apply(skin::find("Dark"));
+    app.repaintAll();
+    app.setFramesWhenHeadless(false);
+}
+
 int main() {
     App::get().initHeadless();
     util::makeDirs(OUT);
     util::makeDirs(TMP);
     settings::setPath(TMP + "/settings.json");
     testSkinFiles();
+    testSkinImages();
+    testSkinCopies();
     testSkinsReference();
     testColorWheel();
     testRecentColours();
@@ -1607,6 +1935,7 @@ int main() {
     testWinePrefixesDialog();
     testHistoryWindow();
     testFramedDialogs();
+    testMessageBoxParts();
     testHintLine();
     // the dialogs in another skin
     skin::apply(skin::find("Light"));

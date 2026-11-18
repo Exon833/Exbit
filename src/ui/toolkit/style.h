@@ -108,12 +108,14 @@ inline float radius(const css::Style& s) {
 // drawn here inline; anything more (per-side colours or styles, four radii, gradients, shadows: BoxPaint) is
 // worked out once too and drawn by drawBox (style_box.cpp).
 struct BoxPaint;
+struct GlyphPaint;
 struct BoxLook {
     Color bg, edge;
     Insets border;
     float radius = 0;  // (before Options → Rounded corners)
     bool fillOnly = true;  // no border to draw (none, transparent, or of the background's colour)
     std::shared_ptr<const BoxPaint> more;  // null: a plain box
+    std::shared_ptr<const GlyphPaint> glyph;  // -tiny-glyph's image (null: none, or it can't be read): style::glyph
     std::vector<css::Style::Shadow> textShadows;  // text-shadow (the first on top): style::text
     float opacity = 1;  // the node's whole opacity (Widget::paintTree), 0..1
     Insets overflow;    // how far its outer box-shadows reach beyond it (Widget::paintRect)
@@ -124,6 +126,14 @@ void drawBox(Painter& p, const RectF& r, const BoxLook& look);
 // (tests, timings) how many shadow masks were made (not found kept), and forgetting the kept ones
 int shadowMasksMade();
 void clearBoxCaches();
+// -tiny-glyph's image and how it is drawn (null: no -tiny-glyph, or its file can't be used) (style_image.cpp)
+std::shared_ptr<const GlyphPaint> glyphPaint(const css::Style& s);
+// Can a stylesheet's url() file be drawn (a PNG or an SVG that can be read)? Else `why` (skin.cpp: the
+// stylesheets' ParseOptions::checkImage). The file is kept, decoded, for drawing.
+bool imageFileOk(const std::string& path, std::string& why);
+// (tests, timings) how many images were made at a size (not found kept); forgetting the kept files and images
+int imagesMade();
+void clearImageCaches();
 inline const BoxLook& boxLook(const css::Style& s) {
     if (!s.memo_.value) {
         auto look = std::make_shared<BoxLook>();
@@ -133,6 +143,7 @@ inline const BoxLook& boxLook(const css::Style& s) {
         look->radius = (float)std::max(0.0, s.length("border-top-left-radius", 0));
         look->fillOnly = (look->border.w() == 0 && look->border.h() == 0) || look->edge.a == 0 || look->edge == look->bg;
         look->more = boxPaint(s, *look);
+        if (s.has("-tiny-glyph")) look->glyph = glyphPaint(s);
         if (s.has("text-shadow")) look->textShadows = s.shadows("text-shadow");
         if (s.has("opacity")) look->opacity = (float)std::clamp(s.number("opacity", 1), 0.0, 1.0);
         if (s.has("box-shadow"))
@@ -189,16 +200,36 @@ inline void box(Painter& p, const RectF& r, const css::Style& s) {
     fillF(r.adjusted((float)b.border.left, (float)b.border.top, (float)-b.border.right, (float)-b.border.bottom), b.bg,
           std::max(0.f, rad - (float)most));
 }
+// A glyph the stylesheets may replace with an image: a check mark, an arrow, a caption button's sign… Every
+// control draws its glyphs through this first: with -tiny-glyph: url(file) on the part `s` (an SVG drawn at the
+// device's scale, a PNG at its size times the interface size: image-rendering pixelated / crisp-edges keeps its
+// pixels, else smooth), it is drawn centred in `area` (its top-left on a whole device pixel, rounding down), as
+// big as -tiny-glyph-size (one or two lengths; else its own size; else as big as fits in `area`), moved by
+// -tiny-glyph-offset (x [y]), every painted pixel in the part's `color` with -tiny-glyph-tint: color; and true
+// is returned. False (nothing drawn): the control draws its own glyph, exactly as without stylesheets' images.
+bool glyph(Painter& p, const RectF& area, const css::Style& s);
+
+// does the style say its text is drawn without anti-aliasing (font-smooth: never, -webkit-font-smoothing: none)?
+inline bool aliasedText(const css::Style& s) {
+    return s.keyword("font-smooth", "") == "never" || s.keyword("-webkit-font-smoothing", "") == "none";
+}
+// `f` as the style says it is smoothed (only when it says: inherited, as the font properties)
+inline Font smoothing(const Font& f, const css::Style& s) {
+    if (!s.has("font-smooth") && !s.has("-webkit-font-smoothing")) return f;
+    bool a = aliasedText(s);
+    return a == f.aliased() ? f : f.withAliased(a);
+}
+
 // the font it is drawn in: `def` (the control's own) with what the stylesheets change of it: font-family (the
 // first of its list this computer has, theme::pickFamily; system-ui and sans-serif: the interface font,
-// monospace: the numbers font), font-size, font-weight
+// monospace: the numbers font), font-size, font-weight, font-smooth
 inline Font font(const css::Style& s, const Font& def) {
     Font f = def;
     std::vector<std::string> families = s.list("font-family");
     if (!families.empty()) {
         std::string picked = theme::pickFamily(families);
         std::string family = picked.empty() ? Font::ui().family() : picked == "monospace" ? Font::mono().family() : picked;
-        if (family != f.family()) f = Font(family, f.pixelSize(), f.bold());
+        if (family != f.family()) f = Font(family, f.pixelSize(), f.bold()).withAliased(f.aliased());
     }
     if (s.has("font-size")) {
         float size = (float)s.fontSizePx(f.pixelSize());
@@ -212,7 +243,7 @@ inline Font font(const css::Style& s, const Font& def) {
         else if (!bold) bold = f.bold();
         if (bold != f.bold()) f = f.withBold(bold);
     }
-    return f;
+    return smoothing(f, s);
 }
 
 inline int textHeight(const Font& f) { return (int)std::ceil(f.ascent() + f.descent()); }

@@ -1144,4 +1144,14 @@ TitleBar::minimize:pressed, TitleBar::maximize:pressed { background-color: var(-
 TitleBar::close:hover { background-color: #c42b1c; color: #ffffff; }
 TitleBar::close:pressed { background-color: #a52317; color: #ffffff; }
 
+/* See-through windows (Options → Window frames → Transparency, while the desktop composites windows): every window
+   then has the state :transparent (Window:transparent, Menu:transparent…). What its style leaves see-through shows
+   the desktop: a translucent background-color, outside the frame's border-radius. A menu, drop-down list or
+   tooltip gets room around it for its outer box-shadow (clicks there go to what is under it). backdrop-filter:
+   blur(<length>) on a Window (or its TitleBar: the frame's top) asks the desktop to blur what is behind it (KWin;
+   the strength is the desktop's own). opacity on a Window fades the whole window. Without :transparent the
+   windows are opaque: a see-through background goes over black, the frame's corners are cut. (No rule here sets a
+   box-shadow on widgets: that would make every widget look its style up as it is made; the XP and 7 skins give
+   their menus, drop-down lists and tooltips a shadow, e.g. Menu:transparent { box-shadow: 0 3px 10px #0000005a }.) */
+
 /* (end of Window frames) */

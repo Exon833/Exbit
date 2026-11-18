@@ -111,8 +111,8 @@ struct Runner {
     // (script coordinates are the window's logical pixels, from the top-left of its inside: its own frame's title
     // bar is at negative y; the platform sends device pixels from the native window's corner, the frame's too)
     int dev(ui::Window* w, int v) { return w->toDevice(v); }
-    int devX(ui::Window* w, int x) { return w->toDevice(x) + w->toDevice(w->frameInsets().left); }
-    int devY(ui::Window* w, int y) { return w->toDevice(y) + w->toDevice(w->frameInsets().top); }
+    int devX(ui::Window* w, int x) { return w->toDevice(x) + w->toDevice(w->nativeInsets().left); }
+    int devY(ui::Window* w, int y) { return w->toDevice(y) + w->toDevice(w->nativeInsets().top); }
     void mouse(ui::Window* w, plat::Event::Type type, int x, int y, int button, int buttons, int mods = 0) {
         plat::Event e;
         e.type = type;
@@ -170,10 +170,10 @@ struct Runner {
         say("windows:");
         for (ui::Window* w : app.windows()) {
             Rect g = w->screenGeometry();
-            printf("    '%s' %s%s%s%s%s%s %dx%d at %d,%d", w->title().c_str(), w->isWindowShown() ? "shown" : "hidden",
+            printf("    '%s' %s%s%s%s%s%s%s %dx%d at %d,%d", w->title().c_str(), w->isWindowShown() ? "shown" : "hidden",
                    w->isModal() ? " modal" : "", w->isPopup() ? " popup" : "", w->isFramed() ? " framed" : "",
-                   w->isWindowMaximized() ? " maximized" : "", w->isWindowMinimized() ? " minimized" : "", g.w, g.h,
-                   g.x, g.y);
+                   w->isWindowMaximized() ? " maximized" : "", w->isWindowMinimized() ? " minimized" : "",
+                   w->hasAlpha() ? " transparent" : "", g.w, g.h, g.x, g.y);
             if (w->isFramed()) {
                 Rect o = w->outerScreenGeometry();
                 printf(" (with its frame %dx%d at %d,%d)", o.w, o.h, o.x, o.y);

@@ -319,8 +319,12 @@ public:
             int iw = std::max(0, style::px(icon, "width", 14));
             Color gc = style::foreground(icon);
             float gx = (float)(c.x + style::px(icon, "margin-left")), gy = c.y + (c.h - iw) / 2.f;
-            if (e.dir) drawFolderGlyph(p, gx, gy, iw / 14.f, gc);
-            else drawFileGlyph(p, gx, gy, iw / 14.f, gc);
+            if (style::glyph(p, RectF(gx, (float)c.y, (float)iw, (float)c.h), icon)) {
+            } else if (e.dir) {
+                drawFolderGlyph(p, gx, gy, iw / 14.f, gc);
+            } else {
+                drawFileGlyph(p, gx, gy, iw / 14.f, gc);
+            }
             int tx = (int)gx + iw + style::px(icon, "margin-right", 6);
             Rect nameBox = style::contents(Rect(x0, y, nameW, rowH), item);
             style::text(p, Rect(tx, c.y, nameBox.right() - tx, c.h), AlignLeft | AlignVCenter, e.name,

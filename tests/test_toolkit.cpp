@@ -1,6 +1,7 @@
 // The GUI toolkit, headless: widget trees, layouts, events through the windows' dispatch paths,
 // painting into images (pixel checks), text editing, spin boxes, shortcuts, menus, dialogs,
 // deleteLater safety. Also writes a gallery of the controls as PNGs to build/toolkit-samples/.
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <memory>
@@ -2709,6 +2710,1045 @@ static void testWindowFrames() {
     CHECK(!w.isFramed() && !app.framesDrawn());
 }
 
+// url() images: background-image layers (tiled, sized, at 150 %), -tiny-glyph on a check box and a scroll
+// arrow (tinted, moved when pressed), and font-smooth: never (only full-on and full-off pixels); from tiny files
+// in a scratch folder
+static void testCssImages() {
+    const std::string dir = "build/css-images";
+    util::makeDirs(dir);
+    const Color canvas(0xd4, 0xd0, 0xc8);
+    // the files: a 2x2 checkerboard, a 4x2 PNG red on the left and blue on the right, an 8x8 SVG with a green 4x4
+    // square in its middle, a 7x7 black SVG check, a 3x2 red PNG arrow
+    Image checker(2, 2, Color(255, 255, 255));
+    checker.setPixel(0, 0, Color(0, 0, 0).premul());
+    checker.setPixel(1, 1, Color(0, 0, 0).premul());
+    CHECK(savePng(dir + "/checker.png", checker));
+    Image rb(4, 2, Color(255, 0, 0));
+    rb.fill(Rect(2, 0, 2, 2), Color(0, 0, 255));
+    CHECK(savePng(dir + "/rb.png", rb));
+    CHECK(util::writeFile(dir + "/sq.svg", "<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'>"
+                                           "<rect x='2' y='2' width='4' height='4' fill='#00ff00'/></svg>"));
+    CHECK(util::writeFile(dir + "/check.svg", "<svg xmlns='http://www.w3.org/2000/svg' width='7' height='7'>"
+                                              "<rect width='7' height='7' fill='#000000'/></svg>"));
+    CHECK(savePng(dir + "/arrow.png", Image(3, 2, Color(255, 0, 0))));
+    CHECK(util::writeFile(dir + "/broken.png", "\x89PNG\r\n\x1a\n not really"));
+
+    css::ParseOptions o;
+    o.baseDir = dir;
+    o.checkImage = [](const std::string& path, std::string& why) { return style::imageFileOk(path, why); };
+    std::vector<css::Problem> problems;
+    css::SheetPtr sheet = css::parse(
+        ".checker { background: url(checker.png); image-rendering: pixelated }\n"
+        ".smooth { background: url(checker.png) }\n"
+        ".svg { background: url(sq.svg) no-repeat }\n"
+        ".contain { background: url(rb.png) no-repeat center / contain }\n"
+        ".cover { background: url(rb.png) no-repeat center / cover }\n"
+        ".pos { background: url(arrow.png) no-repeat right 2px bottom 1px; background-color: #ffffff }\n"
+        ".space { background: url(arrow.png) space no-repeat; background-color: #ffffff }\n"
+        ".broken { background: url(broken.png), url(missing.png) #123456 }\n",
+        "images.css", problems, o);
+    CHECK(problems.size() == 2 && problems[0].line == 8 && problems[0].column == 23 && problems[1].column == 40);
+    if (problems.size() != 2)
+        for (const css::Problem& p : problems) printf("  %s\n", p.text().c_str());
+    css::Engine engine;
+    engine.setSheets({sheet});
+    std::vector<std::unique_ptr<css::Style>> kept;
+    auto styleOf = [&](const char* cls) -> const css::Style& {
+        css::SimpleNode n("Box");
+        n.classes.push_back(cls);
+        kept.push_back(std::make_unique<css::Style>(engine.compute(n)));
+        return *kept.back();
+    };
+    auto isOnly = [](const Image& img, const Rect& r, std::initializer_list<Color> colours) {
+        for (int y = r.y; y < r.bottom(); y++)
+            for (int x = r.x; x < r.right(); x++) {
+                bool any = false;
+                for (Color c : colours) any = any || img.colorAt(x, y) == c;
+                if (!any) return false;
+            }
+        return true;
+    };
+
+    // a 2x2 checkerboard tiled, pixel for pixel; at 150 %, pixelated: only black and white, 3 x 3 device px a tile
+    {
+        Image img(40, 30, canvas);
+        Painter p(img);
+        style::box(p, Rect(5, 5, 21, 11), styleOf("checker"));
+        bool exact = true;
+        for (int y = 0; y < 11; y++)
+            for (int x = 0; x < 21; x++) exact = exact && img.colorAt(5 + x, 5 + y) == ((x + y) % 2 ? Color(255, 255, 255) : Color(0, 0, 0));
+        CHECK(exact);
+        CHECK(img.colorAt(4, 5) == canvas && img.colorAt(26, 15) == canvas && img.colorAt(5, 16) == canvas);
+        Image big(60, 45, canvas);
+        Painter q(big, 1.5f);
+        style::box(q, Rect(4, 4, 20, 10), styleOf("checker"));
+        CHECK(isOnly(big, Rect(6, 6, 30, 15), {Color(0, 0, 0), Color(255, 255, 255)}));
+        // (each source pixel to the device pixels whose centres fall in it: a tile's columns black, white, white)
+        CHECK(big.colorAt(6, 6) == Color(0, 0, 0) && big.colorAt(7, 6) == Color(255, 255, 255) &&
+              big.colorAt(8, 6) == Color(255, 255, 255) && big.colorAt(9, 6) == Color(0, 0, 0) && big.colorAt(7, 7) == Color(0, 0, 0));
+        Image soft(60, 45, canvas);
+        Painter r(soft, 1.5f);
+        style::box(r, Rect(4, 4, 20, 10), styleOf("smooth"));  // (smooth: greys where it is scaled)
+        CHECK(!isOnly(soft, Rect(6, 6, 30, 15), {Color(0, 0, 0), Color(255, 255, 255)}));
+        // drawn again: the image made once, kept
+        int made = style::imagesMade();
+        style::box(q, Rect(4, 4, 20, 10), styleOf("checker"));
+        style::box(p, Rect(5, 5, 21, 11), styleOf("checker"));
+        CHECK(style::imagesMade() == made);
+    }
+    // an SVG layer at 150 %: drawn at device pixels (12 x 12), its square sharp at device 3…9 in the box
+    {
+        Image img(30, 30, canvas);
+        Painter p(img, 1.5f);
+        style::box(p, Rect(2, 2, 12, 12), styleOf("svg"));  // (device 3…21)
+        CHECK(isOnly(img, Rect(6, 6, 6, 6), {Color(0, 255, 0)}));
+        CHECK(img.colorAt(5, 6) == canvas && img.colorAt(6, 5) == canvas && img.colorAt(12, 11) == canvas &&
+              img.colorAt(11, 12) == canvas && img.colorAt(18, 18) == canvas);
+    }
+    // background-size: contain (20 x 10 in the middle of a 20 x 20 box) and cover (40 x 20, its middle shown)
+    {
+        Image img(60, 30, canvas);
+        Painter p(img);
+        style::box(p, Rect(0, 0, 20, 20), styleOf("contain"));
+        CHECK(rgbIs(img, 1, 6, 255, 0, 0, 8) && rgbIs(img, 18, 13, 0, 0, 255, 8));
+        CHECK(img.colorAt(10, 4) == canvas && img.colorAt(10, 15) == canvas && img.colorAt(10, 5) != canvas &&
+              img.colorAt(10, 14) != canvas);
+        style::box(p, Rect(30, 0, 20, 20), styleOf("cover"));
+        CHECK(rgbIs(img, 32, 1, 255, 0, 0, 8) && rgbIs(img, 32, 18, 255, 0, 0, 8) && rgbIs(img, 47, 10, 0, 0, 255, 8));
+        CHECK(img.colorAt(30, 0) != canvas && img.colorAt(49, 19) != canvas);
+        // right 2px bottom 1px: the 3x2 arrow at x 15…17, y 17…18 of a 20 x 20 box
+        style::box(p, Rect(0, 0, 20, 20), styleOf("pos"));
+        CHECK(isOnly(img, Rect(15, 17, 3, 2), {Color(255, 0, 0)}) && img.colorAt(14, 17) == Color(255, 255, 255) &&
+              img.colorAt(18, 18) == Color(255, 255, 255) && img.colorAt(15, 16) == Color(255, 255, 255));
+        // space: as many whole arrows as fit across 20 px (6: 18 px of them), the first and last at the edges, the
+        // 2 px left between them (at 0, 3.4, 6.8…: on whole pixels 0, 3, 7, 10, 14, 17)
+        style::box(p, Rect(30, 0, 20, 20), styleOf("space"));
+        int red = 0;
+        for (int x = 30; x < 50; x++) red += img.colorAt(x, 0) == Color(255, 0, 0);
+        CHECK(red == 18 && img.colorAt(30, 0) == Color(255, 0, 0) && img.colorAt(49, 0) == Color(255, 0, 0) &&
+              img.colorAt(36, 0) == Color(255, 255, 255) && img.colorAt(43, 0) == Color(255, 255, 255) &&
+              img.colorAt(30, 2) == Color(255, 255, 255));
+        // images that can't be drawn: left out, the colour drawn
+        style::box(p, Rect(0, 0, 10, 10), styleOf("broken"));
+        CHECK(img.colorAt(5, 5) == Color(0x12, 0x34, 0x56));
+    }
+
+    // -tiny-glyph: a check box's mark and a scroll bar's arrows from images; tinted; moved 1 px when pressed
+    {
+        theme::setSkin();
+        Window w(plat::WindowOptions{});
+        w.resizeWindow(200, 200);
+        auto* cb = w.add<CheckBox>("Glyph");
+        cb->setGeometry(10, 10, 100, 20);
+        cb->setChecked(true);
+        auto* bar = w.add<ScrollBar>(Orientation::Vertical);
+        bar->setGeometry(150, 10, 16, 150);
+        bar->setRange(0, 100);
+        bar->setPageStep(10);
+        problems.clear();
+        css::SheetPtr glyphs = css::parse(
+            "CheckBox::indicator { -tiny-glyph: url(check.svg) }\n"
+            "ScrollBar::sub-line, ScrollBar::add-line { width: 16px; height: 16px; padding: 0; border: none;"
+            " background-color: #c0c0c0; color: #00ff00; -tiny-glyph: url(arrow.png); -tiny-glyph-tint: color }\n"
+            "ScrollBar::sub-line:pressed { -tiny-glyph-offset: 1px 1px }\n",
+            "glyphs.css", problems, o);
+        CHECK(problems.empty());
+        theme::setStyles({theme::builtinSheet(), glyphs});
+        w.showWindow();
+        App::get().repaintAll();
+        App::get().tick();
+        const Image& fb = w.framebuffer();
+        // the check: 7x7 black, centred in the indicator's inside
+        const css::Style& is = cb->computedStyle("indicator");
+        int iw = style::px(is, "width", 14), ih = style::px(is, "height", 14);
+        Rect ind(10 + style::insets(cb->computedStyle(), "padding").left, 10 + (20 - ih) / 2, iw, ih);
+        Rect mark = style::contents(ind, is);
+        Rect check(mark.x + (mark.w - 7) / 2, mark.y + (mark.h - 7) / 2, 7, 7);
+        CHECK(isOnly(fb, check, {Color(0, 0, 0)}));
+        CHECK(fb.colorAt(check.x - 1, check.y + 3) != Color(0, 0, 0) && fb.colorAt(check.right(), check.y + 3) != Color(0, 0, 0));
+        // the arrows: 3x2, in the part's colour (green, not the file's red), centred in each 16 x 16 button
+        auto greenBox = [&](const Rect& r) {
+            Rect found;
+            int n = 0, red = 0;
+            for (int y = r.y; y < r.bottom(); y++)
+                for (int x = r.x; x < r.right(); x++) {
+                    Color c = fb.colorAt(x, y);
+                    red += c == Color(255, 0, 0);
+                    if (c != Color(0, 255, 0)) continue;
+                    found = n++ ? found.united(Rect(x, y, 1, 1)) : Rect(x, y, 1, 1);
+                }
+            return n == 6 && red == 0 ? found : Rect();
+        };
+        Rect up = bar->lineRect(-1), down = bar->lineRect(1);
+        CHECK(up == Rect(0, 0, 16, 16) && down == Rect(0, 134, 16, 16));
+        CHECK(greenBox(Rect(150, 10, 16, 16)) == Rect(150 + 6, 10 + 7, 3, 2));
+        CHECK(greenBox(Rect(150, 144, 16, 16)) == Rect(150 + 6, 144 + 7, 3, 2));
+        press(w, 158, 18);
+        App::get().tick();
+        CHECK(greenBox(Rect(150, 10, 16, 16)) == Rect(150 + 7, 10 + 8, 3, 2));  // (pressed: moved 1 px right and down)
+        release(w, 158, 18);
+        App::get().tick();
+        CHECK(greenBox(Rect(150, 10, 16, 16)) == Rect(150 + 6, 10 + 7, 3, 2));
+        // without -tiny-glyph: the drawn glyphs, as before
+        theme::setSkin();
+        App::get().repaintAll();
+        App::get().tick();
+        CHECK(greenBox(Rect(150, 10, 16, 16)).empty());
+        w.hideWindow();
+    }
+
+    // font-smooth: never: each pixel of the text fully on or off (and at 150 %); without it, anti-aliased
+    {
+        problems.clear();
+        css::SheetPtr text = css::parse(".aliased { font-smooth: never } .webkit { -webkit-font-smoothing: none }",
+                                        "text.css", problems);
+        engine.setSheets({text});
+        const char* words = "Aliased text, 0123 &@%";
+        for (const char* cls : {"aliased", "webkit"})
+            for (float scale : {1.f, 1.5f}) {
+                Font f = style::font(styleOf(cls), Font::ui());
+                CHECK(f.aliased());
+                Image img((int)(160 * scale), (int)(24 * scale), Color(255, 255, 255));
+                Painter p(img, scale);
+                p.drawText(RectF(2.3f, 0, 150, 24), AlignLeft | AlignVCenter, words, f, Color(0, 0, 0));
+                int black = 0;
+                bool twoTone = true;
+                for (int y = 0; y < img.height(); y++)
+                    for (int x = 0; x < img.width(); x++) {
+                        Color c = img.colorAt(x, y);
+                        black += c == Color(0, 0, 0);
+                        twoTone = twoTone && (c == Color(0, 0, 0) || c == Color(255, 255, 255));
+                    }
+                CHECK(twoTone && black > 50);
+            }
+        Font smooth = style::font(styleOf("none"), Font::ui());
+        CHECK(!smooth.aliased());
+        Image img(160, 24, Color(255, 255, 255));
+        Painter p(img);
+        p.drawText(RectF(2, 0, 150, 24), AlignLeft | AlignVCenter, words, smooth, Color(0, 0, 0));
+        CHECK(!isOnly(img, img.rect(), {Color(0, 0, 0), Color(255, 255, 255)}));
+        // a widget's text, the font inherited from its window (Label, Button, the title bar… all draw through
+        // style::font)
+        theme::setSkin();
+        problems.clear();
+        css::SheetPtr crisp = css::parse("Window { font-smooth: never; color: #000000; background-color: #ffffff }\n"
+                                         "Label { color: #000000; background-color: #ffffff }",
+                                         "crisp.css", problems);
+        theme::setStyles({theme::builtinSheet(), crisp});
+        Window w(plat::WindowOptions{});
+        w.resizeWindow(200, 40);
+        auto* label = w.add<Label>(words);
+        label->setGeometry(0, 0, 200, 40);
+        w.showWindow();
+        App::get().tick();
+        CHECK(label->font().aliased());
+        CHECK(isOnly(w.framebuffer(), Rect(0, 0, 200, 40), {Color(0, 0, 0), Color(255, 255, 255)}));
+        w.hideWindow();
+        theme::setSkin();
+        // the interface font's size in px is kept exactly (the 90s skin's 11.5px: not 8.63pt, 11.5067px)
+        for (auto& size : std::vector<std::pair<const char*, double>>{{"11.5px", 11.5}, {"11px", 11}, {"10pt", 40.0 / 3},
+                                                                      {"9pt", 12}, {"13.3px", 13.3}}) {
+            problems.clear();
+            css::SheetPtr sized = css::parse(std::string(":root { font-size: ") + size.first + " }", "size.css", problems);
+            theme::setStyles({theme::builtinSheet(), sized});
+            // (px as given: exactly; pt: as the engine works them out, to its last bits)
+            bool givenPx = std::string(size.first).find("px") != std::string::npos;
+            CHECK(givenPx ? theme::fonts().uiPx == size.second : std::fabs(theme::fonts().uiPx - size.second) < 1e-12);
+            CHECK(Font::ui().pixelSize() == (float)size.second && Font::mono().pixelSize() == (float)size.second);
+            CHECK(std::fabs(theme::fonts().uiSize - size.second * 0.75) < 1e-9);
+            if (std::fabs(theme::fonts().uiPx - size.second) > 1e-12 || Font::ui().pixelSize() != (float)size.second)
+                printf("  font-size %s: %.6f px (theme), %.6f px (Font::ui)\n", size.first, theme::fonts().uiPx,
+                       Font::ui().pixelSize());
+        }
+        CHECK(theme::fonts().uiSize == 9.975);  // (13.3px)
+        theme::setSkin();
+        CHECK(Font::ui().pixelSize() == 12.f);
+    }
+
+    // timings: a 200 x 120 box tiled with the checkerboard; a scroll arrow's image
+    {
+        Image img(220, 140, canvas);
+        Painter p(img);
+        engine.setSheets({sheet});
+        const css::Style& tiled = styleOf("checker");
+        style::box(p, Rect(10, 10, 200, 120), tiled);
+        auto t0 = std::chrono::steady_clock::now();
+        const int n = 500;
+        for (int i = 0; i < n; i++) style::box(p, Rect(10, 10, 200, 120), tiled);
+        double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() / n;
+        Image big(330, 210, canvas);
+        Painter q(big, 1.5f);
+        style::box(q, Rect(10, 10, 200, 120), tiled);
+        t0 = std::chrono::steady_clock::now();
+        for (int i = 0; i < n; i++) style::box(q, Rect(10, 10, 200, 120), tiled);
+        double ms15 = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() / n;
+        printf("css images: a 200x120 tiled box %.3f ms (%.3f ms at 150 %%)\n", ms, ms15);
+        CHECK(ms < 5 && ms15 < 10);
+    }
+    style::clearImageCaches();
+}
+
+// ------------------------------------------------------------------------------------------
+// transparency (App::setTransparency): see-through windows, headless (setAlphaWhenHeadless: the framebuffer as a
+// compositing manager would show it), and native windows' requests through a stub (App::nativeWindowFactory)
+namespace {
+struct StubNative : plat::Window {
+    static std::vector<StubNative*>& all() {
+        static std::vector<StubNative*> v;
+        return v;
+    }
+    plat::WindowOptions opts;
+    Rect geom;
+    bool shown = false, alpha = true, blur = false;
+    float opacity = 1;
+    Rect input, blurArea;
+    int radii[4] = {0, 0, 0, 0};
+    int opacityCalls = 0;
+    explicit StubNative(const plat::WindowOptions& o) : opts(o), geom(std::max(0, o.x), std::max(0, o.y), o.w, o.h) {
+        all().push_back(this);
+    }
+    ~StubNative() override { all().erase(std::find(all().begin(), all().end(), this)); }
+    void show() override { shown = true; }
+    void hide() override { shown = false; }
+    bool isVisible() const override { return shown; }
+    void setTitle(const std::string&) override {}
+    void resize(int w, int h) override { geom.w = w, geom.h = h; }
+    void move(int x, int y) override { geom.x = x, geom.y = y; }
+    void setMinimumSize(int, int) override {}
+    void setResizable(bool) override {}
+    Rect geometry() const override { return geom; }
+    Rect frameGeometry() const override { return geom; }
+    void raise() override {}
+    void setMaximized(bool) override {}
+    bool isMaximized() const override { return false; }
+    void setFullScreen(bool) override {}
+    bool hasFocus() const override { return false; }
+    void setCursor(plat::Cursor) override {}
+    void present(const Image&, const Rect&) override {}
+    void grabPointer(bool) override {}
+    uintptr_t nativeHandle() const override { return 0; }
+    void* nativeDisplay() const override { return nullptr; }
+    bool capture(Image&) override { return false; }
+    // (as the platform: see-through only while transparency is on)
+    bool hasAlpha() const override { return alpha && App::get().transparency(); }
+    void setInputArea(const Rect& r) override { input = r; }
+    void setOpacity(float o) override {
+        opacity = o;
+        opacityCalls++;
+    }
+    void setBlurBehind(bool on, const Rect& r) override {
+        blur = on;
+        blurArea = r;
+    }
+    void setCornerRadii(int tl, int tr, int br, int bl) override {
+        radii[0] = tl, radii[1] = tr, radii[2] = br, radii[3] = bl;
+    }
+};
+StubNative* stubOf(Window& w) { return dynamic_cast<StubNative*>(w.native()); }
+// every pixel a valid premultiplied colour (no channel above its alpha): what composites correctly
+bool premultiplied(const Image& img) {
+    for (int y = 0; y < img.height(); y++)
+        for (int x = 0; x < img.width(); x++) {
+            uint32_t p = img.pixel(x, y), a = p >> 24;
+            if (((p >> 16) & 255) > a || ((p >> 8) & 255) > a || (p & 255) > a) return false;
+        }
+    return true;
+}
+}  // namespace
+
+// an SVG background with preserveAspectRatio="none" stretched to background-size: 2px 100% (each tile 2 px across,
+// the box's height down); without it, the drawing keeps its proportions (centred in the tile); an SVG gradient in it
+static void testCssSvgStretch() {
+    const std::string dir = "build/css-svg-stretch";
+    util::makeDirs(dir);
+    const Color canvas(0xd4, 0xd0, 0xc8);
+    // 2 x 10 view units: black on top, white below
+    const std::string body = "viewBox='0 0 2 10'><rect width='2' height='5' fill='#000000'/>"
+                             "<rect y='5' width='2' height='5' fill='#ffffff'/></svg>";
+    CHECK(util::writeFile(dir + "/stretch.svg", "<svg xmlns='http://www.w3.org/2000/svg' preserveAspectRatio='none' " + body));
+    CHECK(util::writeFile(dir + "/keep.svg", "<svg xmlns='http://www.w3.org/2000/svg' " + body));
+    CHECK(util::writeFile(dir + "/grad.svg",
+                          "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1' preserveAspectRatio='none'>"
+                          "<linearGradient id='g' x2='0' y2='1'><stop offset='0' stop-color='#ff0000'/>"
+                          "<stop offset='1' stop-color='#0000ff'/></linearGradient>"
+                          "<rect width='1' height='1' fill='url(#g)'/></svg>"));
+    css::ParseOptions o;
+    o.baseDir = dir;
+    o.checkImage = [](const std::string& path, std::string& why) { return style::imageFileOk(path, why); };
+    std::vector<css::Problem> problems;
+    css::SheetPtr sheet = css::parse(".stretch { background: url(stretch.svg) repeat-x; background-size: 2px 100% }\n"
+                                     ".keep { background: url(keep.svg) repeat-x; background-size: 2px 100% }\n"
+                                     ".grad { background: url(grad.svg) no-repeat; background-size: 100% 100% }\n",
+                                     "stretch.css", problems, o);
+    CHECK(problems.empty());
+    css::Engine engine;
+    engine.setSheets({sheet});
+    auto styleOf = [&](const char* cls) {
+        css::SimpleNode n("Box");
+        n.classes.push_back(cls);
+        return engine.compute(n);
+    };
+    for (float scale : {1.f, 1.5f}) {
+        int W = (int)(10 * scale), H = (int)(40 * scale);
+        Image img(80, 80, canvas);
+        Painter p(img, scale);
+        css::Style s = styleOf("stretch");
+        style::box(p, Rect(0, 0, 10, 40), s);
+        bool ok = true;
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+                ok = ok && img.colorAt(x, y) == (y < H / 2 ? Color(0, 0, 0) : Color(255, 255, 255));
+        CHECK(ok);
+        // kept proportions: 2 x 10 in a 2 x 40 tile, in its middle; the canvas above and below
+        Image kept(80, 80, canvas);
+        Painter q(kept, scale);
+        css::Style k = styleOf("keep");
+        style::box(q, Rect(0, 0, 10, 40), k);
+        CHECK(kept.colorAt(1, 0) == canvas && kept.colorAt(1, H - 1) == canvas &&
+              kept.colorAt(1, H / 2 - 2) == Color(0, 0, 0) && kept.colorAt(1, H / 2 + 2) == Color(255, 255, 255));
+    }
+    // a gradient stretched to a 30 x 20 box: red at the top, blue at the bottom, the same across
+    Image g(40, 30, canvas);
+    Painter p(g);
+    css::Style gs = styleOf("grad");
+    style::box(p, Rect(0, 0, 30, 20), gs);
+    CHECK(g.colorAt(0, 0).r > 240 && g.colorAt(0, 0).b < 15 && g.colorAt(29, 19).b > 240 && g.colorAt(29, 19).r < 15 &&
+          g.pixel(0, 10) == g.pixel(29, 10) && g.colorAt(30, 10) == canvas);
+}
+
+// calc() of a percentage and a length, worked out against the box where it is drawn (and its px scaled with the
+// interface): background-size, background-position, gradient colour stops, a radial gradient's centre and size;
+// written out and through var()
+static void testCssCalcMixed() {
+    const std::string dir = "build/css-calc";
+    util::makeDirs(dir);
+    const Color canvas(0xd4, 0xd0, 0xc8), red(255, 0, 0), white(255, 255, 255), blue(0, 0, 255);
+    CHECK(savePng(dir + "/red.png", Image(2, 2, red)));
+    css::ParseOptions o;
+    o.baseDir = dir;
+    o.checkImage = [](const std::string& path, std::string& why) { return style::imageFileOk(path, why); };
+    std::vector<css::Problem> problems;
+    css::SheetPtr sheet = css::parse(
+        ":root { --w: calc(100% - 8px); --at: calc(100% - 3px) calc(100% - 2px); --edge: calc(100% - 1px);"
+        " --size: calc(100% - 8px) calc(50% + 1px); }\n"
+        "Box { background-color: #ffffff; }\n"
+        ".size { background: url(red.png) no-repeat 0 0 / calc(100% - 8px) calc(50% + 1px) #ffffff }\n"
+        ".size-var { background-image: url(red.png); background-repeat: no-repeat; background-size: var(--size) }\n"
+        ".width-var { background: url(red.png) no-repeat 0 0 / var(--w) 100% #ffffff }\n"
+        ".pos { background: url(red.png) no-repeat calc(100% - 3px) calc(100% - 2px) / 2px 2px #ffffff }\n"
+        ".pos-var { background: url(red.png) no-repeat var(--at) / 2px 2px #ffffff }\n"
+        ".pos-edge { background: url(red.png) no-repeat right calc(10% + 1px) top 0 / 2px 2px #ffffff }\n"
+        ".stops { background: linear-gradient(to right, #ff0000 calc(100% - 1px), #0000ff calc(100% - 1px)) }\n"
+        ".stops-var { background-image: linear-gradient(to right, #ff0000 var(--edge), #0000ff var(--edge)) }\n"
+        ".radial { background: radial-gradient(ellipse calc(50% - 6px) calc(50% + 0px) at calc(100% - 4px) 50%,"
+        " #ff0000 99%, #ffffff 99%) }\n",
+        "calc.css", problems, o);
+    CHECK(problems.empty());
+    for (const css::Problem& p : problems) printf("  %s\n", p.text().c_str());
+    css::Engine engine;
+    engine.setSheets({sheet});
+    engine.checkVarUses();
+    CHECK(engine.takeProblems().empty());
+    auto styleOf = [&](const char* cls) {
+        css::SimpleNode n("Box");
+        n.classes.push_back(cls);
+        return engine.compute(n);
+    };
+    // where a colour is in the box drawn at (0, 0), 20 x 10 logical px, at `scale`: its device px
+    auto draw = [&](const char* cls, float scale) {
+        Image img(40, 30, canvas);
+        Painter p(img, scale);
+        css::Style s = styleOf(cls);
+        style::box(p, Rect(0, 0, 20, 10), s);
+        return img;
+    };
+    auto isRect = [](const Image& img, const Rect& r, Color in, Color out, int W, int H) {
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+                if (img.colorAt(x, y) != (r.contains(Point(x, y)) ? in : out)) return false;
+        return true;
+    };
+    CHECK(engine.takeProblems().empty());
+    for (float scale : {1.f, 1.5f}) {
+        int W = (int)(20 * scale), H = (int)(10 * scale);
+        int px8 = (int)(8 * scale), px2 = (int)std::lround(2 * scale);
+        // calc(100% - 8px) x calc(50% + 1px): 12 x 6 at 100 %
+        Rect size(0, 0, W - px8, (int)std::lround(H * 0.5 + scale));
+        CHECK(isRect(draw("size", scale), size, red, white, W, H));
+        CHECK(isRect(draw("size-var", scale), size, red, white, W, H));
+        CHECK(isRect(draw("width-var", scale), Rect(0, 0, W - px8, H), red, white, W, H));
+        // at calc(100% - 3px) calc(100% - 2px): of (the box - the image), less 3 and 2 px
+        Rect at((int)std::lround(W - px2 - 3 * scale), (int)std::lround(H - px2 - 2 * scale), px2, px2);
+        CHECK(isRect(draw("pos", scale), at, red, white, W, H));
+        CHECK(isRect(draw("pos-var", scale), at, red, white, W, H));
+        // right calc(10% + 1px): 90 % of (the box - the image), less 1 px
+        Rect edge((int)std::lround((W - px2) * 0.9 - scale), 0, px2, px2);
+        CHECK(isRect(draw("pos-edge", scale), edge, red, white, W, H));
+        // a hard stop 1 px before the right edge: red up to there, the last px blue
+        for (const char* cls : {"stops", "stops-var"}) {
+            Image img = draw(cls, scale);
+            int last = W - (int)std::lround(scale);
+            CHECK(img.colorAt(0, 1) == red && img.colorAt(last - 1, 1) == red && img.colorAt(W - 1, 1) == blue &&
+                  img.colorAt(W, 1) == canvas);
+        }
+    }
+    // the ellipse: centred 4 px from the right edge, 4 px across (50% - 6px of 20) and 5 px down from the middle
+    Image r = draw("radial", 1);
+    CHECK(r.colorAt(16, 5) == red && r.colorAt(13, 5) == red && r.colorAt(11, 5) == white && r.colorAt(16, 1) == red &&
+          r.colorAt(5, 5) == white);
+    CHECK(engine.takeProblems().empty());
+}
+
+static void testTransparency() {
+    App& app = App::get();
+    std::vector<css::Problem> problems;
+    // backdrop-filter: none or blur(<length>) only (others reported and left out)
+    css::parse("A { backdrop-filter: blur(1em); } B { backdrop-filter: none; } C { backdrop-filter: blur(); }",
+               "blur.css", problems);
+    CHECK(problems.empty());
+    css::parse("D { backdrop-filter: brightness(2); } E { backdrop-filter: blur(-3px); } F { backdrop-filter: blur(4px) "
+               "blur(2px); }",
+               "blur2.css", problems);
+    CHECK(problems.size() == 3);
+    problems.clear();
+    {
+        theme::setStyles({theme::builtinSheet(), css::parse("Label#b { backdrop-filter: blur(1.5em); font-size: 10px; }",
+                                                            "blur3.css", problems)});
+        Window w(plat::WindowOptions{});
+        auto* l = w.add<Label>("x");
+        l->objectName = "b";
+        CHECK(std::abs(l->computedStyle().backdropBlur() - 15) < 1e-9 && w.computedStyle().backdropBlur() == 0);
+    }
+    // --- headless, see-through: a framed window with rounded corners, a half see-through blue background and a
+    // square red title bar (cut round all the same) ---
+    theme::setStyles({theme::builtinSheet(),
+                      css::parse("Window:framed:transparent { border: 0; border-radius: 10px; "
+                                 "background-color: rgb(0 0 255 / 50%); } TitleBar, TitleBar:inactive { background-color: #ff0000; "
+                                 "border-radius: 0; } Label { color: #ffffff; }",
+                                 "glass.css", problems)});
+    CHECK(problems.empty());
+    app.setFramesWhenHeadless(true);
+    app.setAlphaWhenHeadless(true);
+    {
+        plat::WindowOptions o;
+        o.w = 200;
+        o.h = 120;
+        Window w(o);
+        auto* text = w.add<Label>("Glass text");
+        text->setGeometry(10, 40, 120, 20);
+        w.showWindow();
+        app.tick();
+        CHECK(w.isFramed() && w.hasAlpha() && w.hasState("transparent"));
+        const Image& fb = w.framebuffer();
+        int bar = TitleBar::barHeight();
+        CHECK(fb.width() == 200 && fb.height() == 120 + bar);
+        // outside the rounded corners: nothing (the red title bar's square corner taken off), every corner
+        CHECK(fb.pixel(0, 0) == 0 && fb.pixel(1, 1) == 0 && fb.pixel(199, 0) == 0 && fb.pixel(0, fb.height() - 1) == 0 &&
+              fb.pixel(199, fb.height() - 1) == 0);
+        // on the arc: anti-aliased (some pixels partly covered, the red kept red)
+        int partial = 0;
+        for (int y = 0; y < 10; y++)
+            for (int x = 0; x < 10; x++) {
+                uint32_t a = fb.pixel(x, y) >> 24;
+                if (a > 0 && a < 255) {
+                    partial++;
+                    CHECK(fb.colorAt(x, y).r > 240 && fb.colorAt(x, y).g < 10);
+                }
+            }
+        CHECK(partial >= 5);
+        // the title bar opaque red; the inside the half see-through blue (cleared, not over black)
+        CHECK((fb.pixel(100, bar / 2) >> 24) == 255 && fb.colorAt(100, bar / 2) == Color(255, 0, 0));
+        uint32_t in = fb.pixel(180, bar + 100);
+        CHECK(std::abs((int)(in >> 24) - 128) <= 1 && fb.colorAt(180, bar + 100).b > 250 && fb.colorAt(180, bar + 100).r < 5);
+        // the text on it: grayscale anti-aliased, composited (premultiplied, some of it more opaque than the glass)
+        CHECK(premultiplied(fb));
+        int brighter = 0;
+        for (int y = bar + 40; y < bar + 60; y++)
+            for (int x = 10; x < 130; x++)
+                if ((fb.pixel(x, y) >> 24) > 140) brighter++;
+        CHECK(brighter > 20);
+        savePng(outDir() + "/transparent-window.png", fb);
+        // repainted in part: still cleared to see-through there (not stacked up)
+        w.update(Rect(150, 80, 40, 30));
+        app.tick();
+        CHECK(fb.pixel(180, bar + 100) == in);
+        // transparency off: opaque as before (over black; the corners are the native shape's)
+        app.setTransparency(false);
+        app.tick();
+        CHECK(!w.hasAlpha() && !w.hasState("transparent"));
+        CHECK((w.framebuffer().pixel(180, bar + 100) >> 24) == 255);
+        app.setTransparency(true);
+        app.tick();
+        CHECK(w.hasAlpha() && w.framebuffer().pixel(1, 1) == 0);
+        w.hideWindow();
+    }
+    app.setAlphaWhenHeadless(false);
+    app.setFramesWhenHeadless(false);
+
+    // --- native windows (a stub): a popup's room for its shadow and where clicks reach, opacity, blur ---
+    theme::setStyles({theme::builtinSheet(),
+                      css::parse("Window#pop:transparent { box-shadow: 0 4px 6px #000000; background-color: #ffffff; }"
+                                 "Window#faded { opacity: 0.5; } Window#frosted { backdrop-filter: blur(12px); }",
+                                 "stub.css", problems)});
+    CHECK(problems.empty());
+    app.nativeWindowFactory = [](const plat::WindowOptions& o, plat::WindowListener*) {
+        return std::unique_ptr<plat::Window>(new StubNative(o));
+    };
+    {
+        Window owner(plat::WindowOptions{});
+        owner.showWindow();
+        // a popup (as a menu, a drop-down list or a tooltip is), its own style's shadow below it
+        plat::WindowOptions po;
+        po.popup = true;
+        po.takesFocus = false;
+        po.w = 120;
+        po.h = 40;
+        Window pop(po);
+        pop.objectName = "pop";
+        Window* tip = &pop;
+        pop.moveWindow(302, 318);
+        app.openPopup(&pop, &owner, [&] { app.closePopup(&pop); });
+        CHECK(stubOf(pop) && pop.hasAlpha() && pop.hasState("transparent"));
+        app.tick();
+        StubNative* sn = stubOf(*tip);
+        Window::FrameInsets s = tip->nativeInsets();
+        // the shadow reaches 6 px around, 4 px lower: more room below than above, none taken from the inside
+        CHECK(s.left > 0 && s.right == s.left && s.bottom > s.top && tip->frameInsets() == Window::FrameInsets());
+        Rect g = sn->geometry(), inside = tip->screenGeometry();
+        CHECK(g.w == tip->width() + s.left + s.right && g.h == tip->height() + s.top + s.bottom);
+        CHECK(inside.x == g.x + s.left && inside.y == g.y + s.top && inside.x == 302 && inside.y == 318);
+        // clicks only on the tooltip itself; the shadow drawn in the room around it, nothing in its far corner
+        CHECK(sn->input == Rect(s.left, s.top, tip->width(), tip->height()));
+        const Image& fb = tip->framebuffer();
+        CHECK(fb.width() == g.w && fb.height() == g.h);
+        CHECK((fb.pixel(fb.width() / 2, fb.height() - s.bottom + 3) >> 24) > 20 && fb.pixel(0, 0) >> 24 < 8);
+        CHECK(premultiplied(fb));
+        savePng(outDir() + "/transparent-popup.png", fb);
+        // a press in the shadow (the platform's grab sends it to the popup): outside it, so the popup closes
+        plat::Event pe = mouseEv(plat::Event::MouseDown, fb.width() / 2, fb.height() - 2, plat::LeftButton, 0);
+        pop.onEvent(nullptr, pe);
+        CHECK(app.popups().empty() && !pop.isWindowShown());
+        app.openPopup(&pop, &owner, [&] { app.closePopup(&pop); });
+        app.tick();
+        // transparency off: no room, clicks everywhere (the stub opaque); the popup stays where it was put
+        app.setTransparency(false);
+        app.tick();
+        CHECK(tip->nativeInsets() == Window::FrameInsets() && sn->input.empty() && !tip->hasState("transparent"));
+        CHECK(sn->geometry() == Rect(302, 318, tip->width(), tip->height()));
+        app.setTransparency(true);
+        app.tick();
+        CHECK(tip->nativeInsets() == s && sn->geometry() == g);
+        app.closePopup(&pop);
+
+        // opacity: the native window's, while transparency is on
+        Window faded(plat::WindowOptions{});
+        faded.objectName = "faded";
+        faded.showWindow();
+        app.tick();
+        CHECK(stubOf(faded)->opacity == 0.5f);
+        app.setTransparency(false);
+        app.tick();
+        CHECK(stubOf(faded)->opacity == 1.f);
+        app.setTransparency(true);
+        app.tick();
+        CHECK(stubOf(faded)->opacity == 0.5f && stubOf(owner)->opacityCalls == 0);
+        // backdrop-filter: blur(): asked for the whole window; not for others, nor while opaque
+        Window frosted(plat::WindowOptions{});
+        frosted.objectName = "frosted";
+        frosted.showWindow();
+        app.tick();
+        CHECK(stubOf(frosted)->blur && stubOf(frosted)->blurArea.empty() && !stubOf(owner)->blur);
+        stubOf(frosted)->alpha = false;
+        frosted.update();
+        app.tick();
+        CHECK(!stubOf(frosted)->blur);
+    }
+    app.nativeWindowFactory = nullptr;
+    theme::setSkin();
+}
+
+// ------------------------------------------------------------------------------------------
+// What classic skins draw with (each only when a stylesheet asks: default.css draws as before): spin buttons as two
+// boxes of their own, a combo box's arrow inside its border, tabs with margins (the selected one larger, over its
+// neighbours and joined to the page), the title bar's buttons placed by their vertical margins with :first / :last,
+// a framed window's ::frame ring, a tree's dotted lines and a selection of its text only, a check box's focus
+// rectangle (outline)
+namespace {
+// a sheet over default.css (none of its rules left out)
+void classicSheet(const std::string& text) {
+    std::vector<css::Problem> problems;
+    css::SheetPtr extra = css::parse(text, "classic-gaps.css", problems);
+    CHECK(problems.empty());
+    for (auto& pr : problems) printf("  problem: %s\n", pr.message.c_str());
+    theme::setStyles({theme::builtinSheet(), extra});
+    App::get().repaintAll();
+}
+int countColour(const Image& fb, const Rect& r, Color c) {
+    int n = 0;
+    for (int y = r.y; y < r.bottom(); ++y)
+        for (int x = r.x; x < r.right(); ++x)
+            if (fb.colorAt(x, y) == c) ++n;
+    return n;
+}
+}  // namespace
+
+static void testSpinButtonBoxes() {
+    theme::setSkin();
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(200, 60);
+    auto* s = w.add<SpinBox>();
+    s->setGeometry(10, 10, 80, 24);
+    s->setRange(0, 10);
+    s->setValue(5);
+    w.showWindow();
+    App::get().tick();
+    Point hint = s->sizeHint();
+    // apart: each button its half of the column (16 px) less its margin, a red border each, a 2 px gap between
+    classicSheet("SpinBox { border: 2px solid #000000; border-radius: 0; background-color: #ffffff; }"
+                 "SpinBox::up-button, SpinBox::down-button { width: 16px; margin: 0; border: 1px solid #ff0000;"
+                 " border-radius: 0; background-color: #c0c0c0; color: #000000; }"
+                 "SpinBox::up-button { margin-bottom: 1px; } SpinBox::down-button { margin-top: 1px; }");
+    App::get().tick();
+    const Image& fb = w.framebuffer();
+    // the inside of the border: (2, 2) 76 x 20; the column x 62..77, the up half y 2..11, the down 12..21: the up
+    // button y 2..10, the down 13..21 (the spin box at (10, 10))
+    Color red(255, 0, 0), grey(192, 192, 192), white(255, 255, 255);
+    auto at = [&](int x, int y) { return fb.colorAt(10 + x, 10 + y); };
+    CHECK(at(62, 2) == red && at(77, 2) == red && at(62, 10) == red && at(77, 10) == red);  // up: its corners
+    CHECK(at(63, 3) == grey && at(76, 9) == grey);
+    CHECK(at(70, 11) == white && at(70, 12) == white);  // the gap: the spin box's own background
+    CHECK(at(62, 13) == red && at(77, 21) == red && at(63, 14) == grey && at(76, 20) == grey);  // down
+    CHECK(at(61, 5) != red && at(70, 22) == Color(0, 0, 0));  // (beside it: the field; below: the border)
+    CHECK(s->sizeHint().x == hint.x + 2);  // (the column's width as before; the border 1 px wider each side)
+    // the arrows in each box's middle (black pixels in both)
+    CHECK(countColour(fb, Rect(10 + 63, 10 + 3, 14, 7), Color(0, 0, 0)) > 0);
+    CHECK(countColour(fb, Rect(10 + 63, 10 + 14, 14, 7), Color(0, 0, 0)) > 0);
+    // a press on each half still steps it
+    click(w, 10 + 70, 10 + 6);
+    CHECK(s->value() == 6);
+    click(w, 10 + 70, 10 + 17);
+    CHECK(s->value() == 5);
+    savePng(outDir() + "/gaps-spin.png", fb);
+    w.hideWindow();
+    theme::setSkin();
+}
+
+static void testComboArrowMargin() {
+    theme::setSkin();
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(200, 60);
+    auto* c = w.add<ComboBox>();
+    c->addItem("One");
+    c->setGeometry(10, 10, 120, 24);
+    w.showWindow();
+    App::get().tick();
+    classicSheet("ComboBox { border: 2px solid #000000; border-radius: 0; background-color: #ffffff; }"
+                 "ComboBox::arrow { width: 16px; background-color: #c0c0c0; border-radius: 0; }");
+    int plain = c->sizeHint().x;
+    classicSheet("ComboBox { border: 2px solid #000000; border-radius: 0; background-color: #ffffff; }"
+                 "ComboBox::arrow { width: 16px; margin: 2px 2px 2px 0; background-color: #c0c0c0; border-radius: 0;"
+                 " color: #000000; }");
+    CHECK(c->sizeHint().x == plain + 2);  // (its margin's room too)
+    App::get().tick();
+    const Image& fb = w.framebuffer();
+    // the arrow's box: 16 px wide, 2 px in from the right, top and bottom: inside the border (x 102..117, y 2..21)
+    Color grey(192, 192, 192), black(0, 0, 0);
+    CHECK(fb.colorAt(10 + 119, 10 + 12) == black && fb.colorAt(10 + 118, 10 + 12) == black);  // the border shows
+    CHECK(fb.colorAt(10 + 110, 10 + 1) == black && fb.colorAt(10 + 110, 10 + 22) == black);
+    CHECK(fb.colorAt(10 + 102, 10 + 2) == grey && fb.colorAt(10 + 117, 10 + 21) == grey);
+    CHECK(fb.colorAt(10 + 101, 10 + 12) == Color(255, 255, 255));
+    CHECK(countColour(fb, Rect(10 + 102, 10 + 2, 16, 20), black) > 0);  // the ▾ in it
+    savePng(outDir() + "/gaps-combo.png", fb);
+    w.hideWindow();
+    theme::setSkin();
+}
+
+static void testTabMarginsAndOverlap() {
+    theme::setSkin();
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(300, 200);
+    auto* tabs = w.add<TabWidget>();
+    tabs->addTab(std::make_unique<Widget>(), "One");
+    Widget* second = tabs->addTab(std::make_unique<Widget>(), "Two");
+    tabs->addTab(std::make_unique<Widget>(), "Three");
+    tabs->setGeometry(0, 0, 300, 200);
+    w.showWindow();
+    App::get().tick();
+    // default.css: side by side from the left, all as high as the bar
+    int bh = tabs->barHeight();
+    CHECK(tabs->tabRect(0).x == 0 && tabs->tabRect(1).x == tabs->tabRect(0).right() && tabs->tabRect(1).h == bh);
+    classicSheet("TabWidget::tab { padding: 2px 6px; margin: 2px 0 1px; border: 0; border-radius: 0;"
+                 " background-color: #c0c0c0; color: #000000; }"
+                 "TabWidget::tab:hover { background-color: #c0c0c0; }"
+                 "TabWidget::tab:first { margin-left: 2px; }"
+                 "TabWidget::tab:selected { padding: 3px 8px 5px; margin: 0 -2px -1px; background-color: #ffffff; }"
+                 "TabWidget::tab-line { height: 0; }"
+                 "TabWidget::base { height: 1px; background-color: #000000; }");
+    tabs->setCurrentIndex(1);
+    App::get().tick();
+    int th = style::textHeight(Font::ui());
+    int t0 = style::textWidth(Font::ui(), "One"), t1 = style::textWidth(Font::ui(), "Two");
+    int bar = th + 7;  // (2 + th + 4 + 1, or th + 8 - 1)
+    CHECK(tabs->barHeight() == bar);
+    Rect r0 = tabs->tabRect(0), r1 = tabs->tabRect(1), r2 = tabs->tabRect(2);
+    CHECK(r0 == Rect(2, 2, t0 + 12, th + 4));
+    CHECK(r1 == Rect(r0.right() - 2, 0, t1 + 16, th + 8));  // (over its neighbours by 2 px, 1 px below the bar)
+    CHECK(r2.x == r0.right() + t1 + 12 && r2.y == 2);         // (as if it weren't larger)
+    CHECK(second->geometry().y == bar);
+    const Image& fb = w.framebuffer();
+    Color white(255, 255, 255), grey(192, 192, 192), black(0, 0, 0);
+    CHECK(fb.colorAt(r0.right() - 1, 3) == white && fb.colorAt(r0.right() - 3, 3) == grey);  // (drawn last)
+    CHECK(fb.colorAt(r2.x + 1, 3) == white && fb.colorAt(r2.x + 2, 3) == grey);
+    CHECK(fb.colorAt(r1.x + 4, bar - 1) == white && fb.colorAt(r2.x + 4, bar - 1) == black);  // joined to the page
+    CHECK(fb.colorAt(1, 3) != grey && fb.colorAt(r1.x + 4, 0) == white && fb.colorAt(r0.x + 4, 0) != grey);
+    // a click where the selected tab overlaps the first: the selected one; on the first's own part: the first
+    click(w, r0.right() - 1, 5);
+    CHECK(tabs->currentIndex() == 1);
+    click(w, r0.x + 3, 5);
+    CHECK(tabs->currentIndex() == 0);
+    App::get().tick();
+    // the first selected: the larger one now
+    CHECK(tabs->tabRect(0).y == 0 && tabs->tabRect(1).y == 2 && tabs->barHeight() == bar);
+    // hovering a tab doesn't move the page
+    moveTo(w, tabs->tabRect(2).x + 3, 5);
+    CHECK(second->geometry().y == bar);
+    savePng(outDir() + "/gaps-tabs.png", fb);
+    w.hideWindow();
+    theme::setSkin();
+}
+
+static void testTitleButtonPlaces() {
+    App& app = App::get();
+    theme::setSkin();
+    app.setFramesWhenHeadless(true);
+    plat::WindowOptions o;
+    o.title = "Placed";
+    o.w = 300;
+    o.h = 100;
+    Window w(o);
+    w.showWindow();
+    TitleBar* tb = w.titleBar();
+    CHECK(tb != nullptr);
+    if (!tb) return;
+    // default.css: centred in the bar, no :first / :last look
+    Rect plain = tb->partRect(TitleBar::Close);
+    CHECK(plain.y == 0 && plain.h == TitleBar::barHeight());
+    classicSheet(":root { --title-bar-height: 30px; } TitleBar { padding: 0; }"
+                 "TitleBar::minimize, TitleBar::maximize, TitleBar::close { width: 16px; height: 14px;"
+                 " margin: 5px 0 9px 0; }"
+                 "TitleBar::minimize:first, TitleBar::maximize:first, TitleBar::close:first { width: 20px; }"
+                 "TitleBar::minimize:last, TitleBar::maximize:last, TitleBar::close:last { width: 24px; }");
+    app.tick();
+    // vertically: centred in what the margins leave (30 - 5 - 9 = 16: 1 px above the 14)
+    Rect mn = tb->partRect(TitleBar::Minimize), mx = tb->partRect(TitleBar::Maximize), cl = tb->partRect(TitleBar::Close);
+    CHECK(mn.y == 6 && mx.y == 6 && cl.y == 6 && cl.h == 14);
+    // right: minimize first, close last
+    CHECK(mn.w == 20 && mx.w == 16 && cl.w == 24 && cl.right() == 300 && mx.right() == cl.x && mn.right() == mx.x);
+    // left: close first, minimize last
+    classicSheet(":root { --title-bar-height: 30px; --title-buttons: left; } TitleBar { padding: 0; }"
+                 "TitleBar::minimize, TitleBar::maximize, TitleBar::close { width: 16px; height: 14px; margin: 0 0 4px; }"
+                 "TitleBar::minimize:first, TitleBar::maximize:first, TitleBar::close:first { width: 20px; }"
+                 "TitleBar::minimize:last, TitleBar::maximize:last, TitleBar::close:last { width: 24px; }");
+    mn = tb->partRect(TitleBar::Minimize), cl = tb->partRect(TitleBar::Close);
+    CHECK(cl.x == 0 && cl.w == 20 && mn.w == 24 && cl.y == 6);  // ((30 - 4 - 14) / 2)
+    // a window that can't be resized: no maximize (and so minimize is the last)
+    w.setResizable(false);
+    CHECK(!tb->hasButton(TitleBar::Maximize) && tb->partRect(TitleBar::Maximize).empty());
+    CHECK(tb->partRect(TitleBar::Minimize).w == 24);
+    // a modal one that can't be resized: only close, both first and last (the later rule: 24)
+    w.setModal(true);
+    CHECK(tb->partRect(TitleBar::Close).w == 24 && tb->partRect(TitleBar::Minimize).empty());
+    TitleBar::Part shown[3];
+    CHECK(tb->shownButtons(shown) == 1 && shown[0] == TitleBar::Close);
+    w.setModal(false);
+    w.hideWindow();
+    // a message box can't be resized, so it has no maximize
+    bool sawBox = false;
+    app.singleShot(30, [&] {
+        Window* top = app.modalWindow();
+        if (!top) return;
+        sawBox = true;
+        CHECK(!top->isResizable() && top->isFramed() && top->titleBar());
+        if (top->titleBar()) CHECK(!top->titleBar()->hasButton(TitleBar::Maximize));
+        key(*top, plat::Key_Escape);
+    });
+    msg::information(&w, "Note", "Nothing to resize here.");
+    CHECK(sawBox);
+    theme::setSkin();
+    app.setFramesWhenHeadless(false);
+}
+
+static void testWindowFrameRing() {
+    App& app = App::get();
+    theme::setSkin();
+    app.setFramesWhenHeadless(true);
+    plat::WindowOptions o;
+    o.title = "Ring";
+    o.w = 200;
+    o.h = 100;
+    Window w(o);
+    w.showWindow();
+    int bar = TitleBar::barHeight();
+    CHECK(w.frameInsets().left == 1 && w.frameInsets().top == 1 + bar);
+    classicSheet("Window:framed { border: 2px solid #0000ff; background-color: #c0c0c0; }"
+                 "Window:framed::frame { border: 1px solid #ff0000; padding: 2px; background-color: #00ff00; }"
+                 "Window:framed:maximized::frame { border-width: 0; padding: 0; }");
+    app.tick();
+    Window::FrameInsets f = w.frameInsets();
+    CHECK(f.left == 5 && f.right == 5 && f.bottom == 5 && f.top == 5 + bar);
+    CHECK(w.width() == 200 && w.height() == 100 && w.contentsRect() == Rect(0, 0, 200, 100));  // (its padding as it was)
+    CHECK(w.titleBar()->geometry() == Rect(0, -bar, 200, bar));
+    const Image& fb = w.framebuffer();
+    CHECK(fb.width() == 210 && fb.height() == 110 + bar);
+    Color blue(0, 0, 255), red(255, 0, 0), green(0, 255, 0), grey(192, 192, 192);
+    int midY = 5 + bar + 50;
+    CHECK(fb.colorAt(0, midY) == blue && fb.colorAt(1, midY) == blue && fb.colorAt(2, midY) == red);
+    CHECK(fb.colorAt(3, midY) == green && fb.colorAt(4, midY) == green && fb.colorAt(5, midY) == grey);  // the inside: the Window's
+    CHECK(fb.colorAt(209, midY) == blue && fb.colorAt(207, midY) == red && fb.colorAt(205, midY) == green);
+    CHECK(fb.colorAt(100, 2) == red && fb.colorAt(100, 4) == green && fb.colorAt(100, fb.height() - 4) == green);
+    CHECK(fb.colorAt(100, fb.height() - 3) == red);
+    CHECK(near(fb.colorAt(100, 5 + bar / 2), style::background(w.titleBar()->computedStyle()), 1));  // (the bar over it)
+    savePng(outDir() + "/gaps-frame-ring.png", fb);
+    // the resize band reaches over the ring
+    CHECK(w.resizeEdgeAt(Point(-5, 50)) != 0);
+    // maximized: no ring (its own states)
+    w.setWindowMaximized(true);
+    CHECK(w.frameInsets().left == 0 && w.frameInsets().top == bar);
+    w.setWindowMaximized(false);
+    CHECK(w.frameInsets().left == 5);
+    // :active restyles the window's own background (a synthetic FocusIn repaints it)
+    // (the border's colour the same both ways: only the background changes)
+    classicSheet("Window:framed { border-color: #000000; background-color: #c0c0c0; }"
+                 "Window:framed:active { border-color: #000000; background-color: #ff00ff; }");
+    app.tick();
+    Window::FrameInsets g = w.frameInsets();
+    CHECK(w.framebuffer().colorAt(g.left + 100, g.top + 50) == Color(192, 192, 192));
+    plat::Event focus;
+    focus.type = plat::Event::FocusIn;
+    w.onEvent(nullptr, focus);
+    app.tick();
+    CHECK(w.framebuffer().colorAt(g.left + 100, g.top + 50) == Color(255, 0, 255));
+    focus.type = plat::Event::FocusOut;
+    w.onEvent(nullptr, focus);
+    app.tick();
+    CHECK(w.framebuffer().colorAt(g.left + 100, g.top + 50) == Color(192, 192, 192));
+    // a ring on :active only: the insets follow the focus
+    classicSheet("Window:framed:active::frame { padding: 3px; }");
+    app.tick();
+    CHECK(w.frameInsets().left == 1);
+    focus.type = plat::Event::FocusIn;
+    w.onEvent(nullptr, focus);
+    CHECK(w.frameInsets().left == 4 && w.width() == 200 && w.height() == 100);
+    w.hideWindow();
+    theme::setSkin();
+    app.setFramesWhenHeadless(false);
+}
+
+static void testTreeLinesAndTextSelection() {
+    theme::setSkin();
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(220, 120);
+    auto* t = w.add<TreeWidget>();
+    t->setGeometry(0, 0, 200, 100);
+    TreeWidget::Node* a = t->root()->add("A");
+    TreeWidget::Node* a1 = a->add("A1");
+    a->add("A2");
+    t->root()->add("B");
+    a->filled = true;
+    t->setExpanded(a, true);
+    w.showWindow();
+    App::get().tick();
+    CHECK(t->rowCount() == 4);
+    // default.css: no lines (the white of a classic sheet's lines' places stays the list's)
+    classicSheet("TreeWidget { background-color: #ffffff; border: 0; padding: 0; }"
+                 "TreeWidget::item { height: 16px; padding: 0; color: #000000; }"
+                 "TreeWidget::item:hover { background-color: transparent; }"
+                 "TreeWidget::item:selected { background-color: transparent; color: #000000; }"
+                 "TreeWidget::text:selected { background-color: #000080; color: #ffffff; padding: 0 2px; }"
+                 "TreeWidget::branch { width: 19px; padding: 0 5px; color: #000000;"
+                 " -tiny-tree-lines: dotted; -tiny-tree-line-color: #808080; }");
+    t->setCurrent(a1);
+    App::get().tick();
+    CHECK(t->indent == 19 && t->rowHeight == 16);
+    const Image& fb = w.framebuffer();
+    Color line(128, 128, 128), white(255, 255, 255), navy(0, 0, 128);
+    // (each level's line through x = 9 of its indent; each row's middle at y = 7 of its 16; dots where x + y is even)
+    // A1 (row 1, depth 1): its own line down (A2 follows) and across; A's passing by (B follows)
+    CHECK(fb.colorAt(28, 18) == line && fb.colorAt(28, 19) == white && fb.colorAt(28, 30) == line);
+    CHECK(fb.colorAt(31, 23) == line && fb.colorAt(30, 23) == white && fb.colorAt(37, 23) == line);
+    CHECK(fb.colorAt(9, 17) == line && fb.colorAt(9, 18) == white);
+    // A2 (row 2): the last child: its line stops at its middle
+    CHECK(fb.colorAt(28, 34) == line && fb.colorAt(28, 38) == line && fb.colorAt(28, 44) == white);
+    // B (row 3, the last): A's line comes down to its middle only
+    CHECK(fb.colorAt(9, 49) == line && fb.colorAt(9, 55) == line && fb.colorAt(9, 61) == white);
+    // the selection covers A1's text only (its padding: 2 px each side)
+    int tw = style::textWidth(Font::ui(), "A1");
+    CHECK(fb.colorAt(38, 20) == navy && fb.colorAt(38 + tw + 3, 20) == navy && fb.colorAt(38 + tw + 4, 20) == white);
+    CHECK(fb.colorAt(150, 20) == white && countColour(fb, Rect(40, 16, tw, 16), white) > 0);  // (its text white)
+    savePng(outDir() + "/gaps-tree.png", fb);
+    // the focus rectangle around the text: its outline
+    classicSheet("TreeWidget { background-color: #ffffff; } TreeWidget::item { height: 16px; padding: 0; }"
+                 "TreeWidget::item:selected { background-color: transparent; }"
+                 "TreeWidget::branch { width: 19px; padding: 0 5px; }"
+                 "TreeWidget:focus::text:selected { outline: 1px solid #ff0000; }");
+    App::get().tick();
+    CHECK(countColour(fb, Rect(0, 0, 200, 100), Color(255, 0, 0)) == 0);
+    t->setFocus();
+    App::get().tick();
+    CHECK(fb.colorAt(37, 15) == Color(255, 0, 0) && fb.colorAt(38 + tw, 32) == Color(255, 0, 0));
+    w.hideWindow();
+    theme::setSkin();
+}
+
+static void testCheckBoxFocusRectangle() {
+    theme::setSkin();
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(200, 60);
+    auto* other = w.add<Button>("Other");
+    other->setGeometry(10, 36, 60, 20);
+    auto* cb = w.add<CheckBox>("Loop");
+    cb->setGeometry(10, 10, 150, 22);
+    w.showWindow();
+    App::get().tick();
+    Point plain = cb->sizeHint();
+    classicSheet("CheckBox::label { padding: 0 1px; }"
+                 "CheckBox::label:focus { outline: 1px dotted #ff0000; }");
+    CHECK(cb->computedStyle("label").raw("outline-style").empty());
+    CHECK(cb->sizeHint().x == plain.x + 2);
+    App::get().tick();
+    const Image& fb = w.framebuffer();
+    Color red(255, 0, 0);
+    CHECK(countColour(fb, Rect(10, 10, 150, 22), red) == 0);  // (not focused: none)
+    cb->setFocus();
+    App::get().tick();
+    const css::Style& ls = cb->computedStyle("label");
+    CHECK(ls.keyword("outline-style", "") == "dotted" && style::px(ls, "outline-width") == 1);
+    // the outline: 1 px outside the label's box (the text and 1 px each side), every other pixel
+    const css::Style& is = cb->computedStyle("indicator");
+    int lx = style::px(is, "width", 14) + style::px(is, "margin-right", 6);
+    int lw = style::textWidth(style::font(cb->computedStyle(), theme::uiFont()), "Loop") + 2;
+    int lh = style::textHeight(style::font(cb->computedStyle(), theme::uiFont()));
+    int ly = (22 - lh) / 2;
+    int top = countColour(fb, Rect(10 + lx - 1, 10 + ly - 1, lw + 2, 1), red);
+    CHECK(top >= (lw + 2) / 3 && top <= (lw + 2) / 2 + 2);  // (dotted: about half of them)
+    CHECK(countColour(fb, Rect(10 + lx - 1, 10 + ly + lh, lw + 2, 1), red) >= (lw + 2) / 3);
+    CHECK(countColour(fb, Rect(10 + lx - 1, 10 + ly, 1, lh), red) >= lh / 2 - 1);
+    CHECK(countColour(fb, Rect(10 + lx, 10 + ly, lw, lh), red) == 0);  // (the inside: the text)
+    savePng(outDir() + "/gaps-check-focus.png", fb);
+    other->setFocus();
+    App::get().tick();
+    CHECK(countColour(fb, Rect(10, 10, 150, 22), red) == 0);
+    // the outline shorthand: as a border's
+    classicSheet("CheckBox::label:focus { outline: thin dashed; outline-offset: 2px; }");
+    cb->setFocus();
+    const css::Style& l2 = cb->computedStyle("label");
+    CHECK(l2.keyword("outline-style", "") == "dashed" && l2.length("outline-width", 0) == 1 &&
+          l2.raw("outline-color") == "currentcolor" && style::px(l2, "outline-offset") == 2);
+    App::get().tick();
+    w.hideWindow();
+    theme::setSkin();
+}
+
 int main() {
     App::get().initHeadless();
     util::makeDirs("build/toolkit-samples");
@@ -2739,5 +3779,16 @@ int main() {
     testWindowFrames();
     gallery();
     testCssPainting();
+    testCssImages();
+    testCssSvgStretch();
+    testCssCalcMixed();
+    testTransparency();
+    testSpinButtonBoxes();
+    testComboArrowMargin();
+    testTabMarginsAndOverlap();
+    testTitleButtonPlaces();
+    testWindowFrameRing();
+    testTreeLinesAndTextSelection();
+    testCheckBoxFocusRectangle();
     TEST_MAIN_END();
 }

@@ -51,6 +51,7 @@ public:
     explicit MenuPopup(Menu* m) : menu(m) {
         setStyleType("Menu");
         setMouseTracking(true);
+        paintsOwnBox_ = true;
     }
     ~MenuPopup() override {
         if (subTimer >= 0) App::get().cancelTimer(subTimer);
@@ -127,6 +128,15 @@ public:
         return -1;
     }
 
+    // a disabled item's tooltip (Action::tooltip): why it can't be chosen now
+    std::string toolTipAt(Point p) const override {
+        int i = itemAt(p);
+        auto& acts = menu->actions();
+        if (i < 0 || i >= (int)acts.size()) return "";
+        const Action* a = acts[i].get();
+        return a->enabled || a->separator || a->section ? std::string() : a->tooltip;
+    }
+
     void paint(Painter& p) override {
         // its box (Menu), each separator's (Menu::separator, inside its margins) and item's (Menu::item in its
         // states): its check mark (::check), text, shortcut (::shortcut) and submenu arrow (::arrow)
@@ -156,8 +166,9 @@ public:
             if (a->checkable && a->checked) {
                 const css::Style& ck = parts.get("check", states, &item);
                 float size = (float)std::max(0, style::px(ck, "width", 10));
-                style::icon(p, (float)(in.x + style::px(ck, "margin-left", 7)), in.y + (in.h - size) / 2.f, size, "check",
-                            style::foreground(ck));
+                float cx = (float)(in.x + style::px(ck, "margin-left", 7));
+                if (!style::glyph(p, RectF(cx, (float)in.y, size, (float)in.h), ck))
+                    style::icon(p, cx, in.y + (in.h - size) / 2.f, size, "check", style::foreground(ck));
             }
             style::text(p, c, AlignLeft | AlignVCenter, stripAmp(leftPart(a->text)), parts.font(item, base), tc, item);
             std::string right = !a->shortcut.empty() ? a->shortcut.text() : rightPart(a->text);
@@ -169,8 +180,9 @@ public:
             if (a->submenu) {
                 const css::Style& ar = parts.get("arrow", states, &item);
                 int aw = std::max(0, style::px(ar, "width", 10));
-                style::icon(p, (float)(in.right() - style::px(ar, "margin-right", 6) - aw), in.y + (in.h - aw) / 2.f,
-                            (float)aw, "right", style::foreground(ar));
+                float ax = (float)(in.right() - style::px(ar, "margin-right", 6) - aw);
+                if (!style::glyph(p, RectF(ax, (float)in.y, (float)aw, (float)in.h), ar))
+                    style::icon(p, ax, in.y + (in.h - aw) / 2.f, (float)aw, "right", style::foreground(ar));
             }
         }
     }
@@ -227,6 +239,7 @@ public:
         Menu* sm = a->submenu;
         if (sm->aboutToShow) sm->aboutToShow(sm);
         if (sm->isEmpty()) return;
+        if (sm->popup_ && !sm->popup_->isOpen() && sm->popup_->madeOpaque()) sm->popup_.reset();  // (made again)
         if (!sm->popup_) sm->popup_ = std::make_unique<MenuPopup>(sm);
         MenuPopup* c = sm->popup_.get();
         c->owner = owner;
@@ -472,6 +485,7 @@ bool Menu::contains(const Action* a) const {
 void Menu::show(Point at, const Rect* anchor, Widget* owner) {
     if (aboutToShow) aboutToShow(this);
     if (actions_.empty()) return;
+    if (popup_ && !popup_->isOpen() && popup_->madeOpaque()) popup_.reset();  // (see-through now: made again)
     if (!popup_) popup_ = std::make_unique<MenuPopup>(this);
     MenuPopup* p = popup_.get();
     if (p->isOpen()) p->closeChain();

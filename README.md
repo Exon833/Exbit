@@ -313,6 +313,26 @@ and tiles it), double-click it to maximize, right-click it for Minimize / Maximi
 edges to resize. Skins restyle them (`TitleBar`, its buttons, `Window:framed`, `:active` / `:inactive`,
 `--title-bar-height`). **Options → Window frames** switches to the system's own frames at once.
 
+**See-through windows.** With Options → Window frames → Transparency (on by default) and a desktop that
+composites windows (KWin, Mutter, picom…), Tiny DAW's windows can be see-through where the skin makes them so:
+rounded frame corners are smooth against the desktop, menus and tooltips can cast soft shadows, and a skin can use
+a translucent `background-color`, `opacity` on a window and `backdrop-filter: blur(…)` (glass, blurred behind on
+KWin). Without a compositing manager everything stays opaque, as before.
+
+**Pictures in skins.** Skins can use PNG and SVG images next to them: `url()` layers in `background` (with
+`background-repeat`, `-position`, `-size`, `-origin`, `-clip`, and `image-rendering: pixelated` for pixel-exact
+art), `-tiny-glyph: url(…)` to replace any control's check mark, arrow or caption-button sign, and `font-smooth:
+never` for crisp, unsmoothed text. Saving an image reloads the skin. The skins' own fonts are in
+`data/skins/fonts` (Selawik and Wine's Tahoma, free, with their licences).
+
+**Classic controls, 1:1.** Skins can draw spin buttons as separate bevelled boxes, a drop-down's arrow inside
+its border, tabs where the chosen one is larger and joins its page, joined title-bar button groups (`:first` /
+`:last`), a face-coloured ring inside a window's frame (`Window:framed::frame`), a message box's button strip,
+dotted tree lines and focus rectangles (`outline`); `calc()` may mix percentages and lengths in backgrounds and
+gradient stops, SVG images stretch (`preserveAspectRatio`) and have gradients, and unsmoothed text keeps its
+thin strokes. **Options → Skin → Edit this skin…, Import… and Export…** take every file a skin uses (images,
+fonts, imported stylesheets) into a folder of its own beside the copy, so a copy works wherever it goes.
+
 **docs/skins.md** lists every variable, type, part, class, state and property.
 
 ## Several cores

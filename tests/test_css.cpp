@@ -15,6 +15,7 @@
 #include "check.h"
 #include "core/css.h"
 #include "core/css_internal.h"
+#include "core/util.h"
 #include "gfx/geom.h"
 
 using namespace css;
@@ -1499,7 +1500,7 @@ void testPaintValues() {
         "X { background-image: linear-gradient(red) }\n"                                                             // 36
         "X { background-image: linear-gradient(to middle, red, blue) }\n"                                            // 37
         "X { background-image: radial-gradient(circle 10% , red, blue) }\n"                                          // 38
-        "X { background-image: url(a.png) }\n"                                                                       // 39
+        "X { background-image: url(a.png) url(b.png) }\n"                                                            // 39
         "X { background-image: linear-gradient(red, 50%, blue) }\n"                                                  // 40
         "X { background: linear-gradient(red, nope) blue }\n"                                                        // 41
         "X { box-shadow: 1px }\n"                                                                                     // 42
@@ -1521,7 +1522,7 @@ void testPaintValues() {
     CHECK(at("a gradient needs two colour stops", 36, 5));
     CHECK(at("is not a side", 37, 5));
     CHECK(at("a circle's size is one length", 38, 5));
-    CHECK(at("url() images are not supported", 39, 5));
+    CHECK(at("is not one url(", 39, 5));
     CHECK(at("transition hints", 40, 5));
     CHECK(at("bad value for 'background'", 41, 5));
     CHECK(at("needs its x and y offsets", 42, 5));
@@ -1587,9 +1588,12 @@ void testPaintValues() {
     Style b2 = s.engine.compute(SimpleNode("B2"));
     CHECK(b2.color("background-color", Rgba{}) == rgba(0x10, 0x20, 0x30) && b2.gradients().size() == 1 &&
           b2.gradients()[0].kind == G::Radial);
-    Style b3 = s.engine.compute(SimpleNode("B3"));  // (the url() layer: none; the colour from the last layer)
-    CHECK(b3.raw("background-image") == "linear-gradient(red, blue), none" && b3.gradients().size() == 1 &&
+    Style b3 = s.engine.compute(SimpleNode("B3"));  // (a url() layer; the colour from the last layer)
+    CHECK(b3.raw("background-image") == "linear-gradient(red, blue), url(x.png)" && b3.gradients().size() == 1 &&
           b3.color("background-color", Rgba{}) == rgba(0, 128, 0));
+    CHECK(b3.raw("background-repeat") == "repeat, no-repeat" && b3.backgrounds().size() == 2 &&
+          b3.backgrounds()[1].kind == Style::Background::UrlImage && b3.backgrounds()[1].url == "x.png" &&
+          b3.backgrounds()[1].repeatX == Style::Background::NoRepeat);
     Style b4 = s.engine.compute(SimpleNode("B4"));
     CHECK(b4.raw("background-image") == "none" && b4.gradients().empty());
     g = grads("V1");
@@ -1652,6 +1656,287 @@ void testPaintValues() {
     CHECK(near(angle("linear-gradient(to top, red, blue)"), 0) && near(angle("linear-gradient(to left, red, blue)"), 270));
     CHECK(angle("linear-gradient(1px, red, blue)") == -1 && angle("linear-gradient(red, blue") == -1);
     CHECK(angle("linear-gradient(currentColor, blue)") == -1);  // (no currentColor here)
+}
+
+// url() images in background-image and the background shorthand, background-repeat / -position / -size /
+// -origin / -clip, url()s resolved against the sheet's folder and checked (problems at their line and column),
+// imageFiles(), -tiny-glyph and its properties, font-smooth and image-rendering (inherited)
+void testImages() {
+    using B = Style::Background;
+    auto near = [](double a, double b) { return std::fabs(a - b) < 1e-9; };
+    Sheet s(
+        "I1 { background-image: url(a.png), linear-gradient(red, blue), none, url(\"b c.svg\") }\n"
+        "I2 { background-image: url(a.png); background-repeat: repeat-x, no-repeat; background-position: right 4px bottom 10%;"
+        " background-size: 10px auto; background-origin: content-box; background-clip: padding-box }\n"
+        "I3 { background: url(t.png) center / cover no-repeat padding-box content-box #102030 }\n"
+        "I4 { background: url(a.png) 0 0 / 50% 3px space round, url(b.png) left 2px top 3px repeat-y blue }\n"
+        "I5 { background-image: url(a.png), url(b.png), url(c.png); background-repeat: space, round;"
+        " background-size: contain }\n"
+        "P1 { background-image: url(a.png); background-position: top }\n"
+        "P2 { background-image: url(a.png); background-position: 30% bottom }\n"
+        "P3 { background-image: url(a.png); background-position: 7px 9px }\n"
+        "P4 { background-image: url(a.png); background-position: bottom right 6px }\n"
+        "G1 { -tiny-glyph: url(check.svg); -tiny-glyph-size: 7px 8px; -tiny-glyph-offset: 1px; -tiny-glyph-tint: color }\n"
+        "G2 { -tiny-glyph: none; -tiny-glyph-size: auto 2em; font-size: 10px }\n"
+        ":root { font-smooth: never; image-rendering: pixelated }\n"
+        "F2 { -webkit-font-smoothing: none } F3 { font-smooth: 2em }\n"
+        "X { background-repeat: sideways }\n"                     // 14
+        "X { background-position: left 3px 4px }\n"               // 15
+        "X { background-size: -1px }\n"                           // 16
+        "X { background-origin: margin-box }\n"                   // 17
+        "X { background-clip: border-box padding-box }\n"         // 18
+        "X { image-rendering: blurry }\n"                         // 19
+        "X { font-smooth: sometimes }\n"                          // 20
+        "X { -webkit-font-smoothing: never }\n"                   // 21
+        "X { -tiny-glyph: linear-gradient(red, blue) }\n"         // 22
+        "X { -tiny-glyph-size: 1px 2px 3px }\n"                   // 23
+        "X { -tiny-glyph-offset: auto }\n"                        // 24
+        "X { -tiny-glyph-tint: red }\n"                           // 25
+        "X { background: url(a.png) / cover }\n"                  // 26
+        "X { background: url(a.png) url(b.png) }\n");            // 27
+    for (const Problem& p : s.problems) CHECK(p.line >= 14 && p.line <= 27);
+    for (int line = 14; line <= 27; line++) {
+        bool found = false;
+        for (const Problem& p : s.problems) found = found || (p.line == line && p.column == 5);
+        CHECK(found);
+        if (!found) printf("  no problem on line %d\n", line);
+    }
+    CHECK(s.problems.size() == 14);
+    if (s.problems.size() != 14)
+        for (const Problem& p : s.problems) printf("  %s\n", p.text().c_str());
+    auto bg = [&](const char* type) { return s.engine.compute(SimpleNode(type)).backgrounds(); };
+    std::vector<B> l = bg("I1");
+    CHECK(l.size() == 4 && l[0].kind == B::UrlImage && l[0].url == "a.png" && l[1].kind == B::GradientImage &&
+          l[2].kind == B::NoImage && l[3].url == "b c.svg");
+    CHECK(l.size() == 4 && l[0].repeatX == B::Repeat && l[0].repeatY == B::Repeat && l[0].posX == 0 && l[0].posY == 0 &&
+          l[0].sizing == B::Given && l[0].width == -1 && l[0].height == -1 && l[0].origin == B::PaddingBox &&
+          l[0].clip == B::BorderBox);
+    l = bg("I2");
+    CHECK(l.size() == 1 && l[0].repeatX == B::Repeat && l[0].repeatY == B::NoRepeat);
+    CHECK(l.size() == 1 && l[0].posX == 1 && l[0].offX == -4 && near(l[0].posY, 0.9) && l[0].offY == 0);
+    CHECK(l.size() == 1 && l[0].width == 10 && !l[0].widthPercent && l[0].height == -1);
+    CHECK(l.size() == 1 && l[0].origin == B::ContentBox && l[0].clip == B::PaddingBox);
+    Style i3 = s.engine.compute(SimpleNode("I3"));
+    l = i3.backgrounds();
+    CHECK(i3.color("background-color", Rgba{}) == rgba(0x10, 0x20, 0x30));
+    CHECK(l.size() == 1 && l[0].url == "t.png" && l[0].sizing == B::Cover && l[0].posX == 0.5 && l[0].posY == 0.5 &&
+          l[0].repeatX == B::NoRepeat && l[0].repeatY == B::NoRepeat && l[0].origin == B::PaddingBox &&
+          l[0].clip == B::ContentBox);
+    CHECK(i3.raw("background-size") == "cover" && i3.raw("background-origin") == "padding-box");
+    Style i4 = s.engine.compute(SimpleNode("I4"));
+    l = i4.backgrounds();
+    CHECK(i4.raw("background-image") == "url(a.png), url(b.png)" && i4.color("background-color", Rgba{}) == rgba(0, 0, 255));
+    CHECK(l.size() == 2 && l[0].repeatX == B::Space && l[0].repeatY == B::Round && near(l[0].width, 0.5) &&
+          l[0].widthPercent && l[0].height == 3 && l[1].repeatX == B::NoRepeat && l[1].repeatY == B::Repeat);
+    CHECK(l.size() == 2 && l[1].posX == 0 && l[1].offX == 2 && l[1].posY == 0 && l[1].offY == 3 && l[1].sizing == B::Given &&
+          l[1].width == -1);
+    l = bg("I5");  // (the lists repeated to the layers' number)
+    CHECK(l.size() == 3 && l[0].repeatX == B::Space && l[1].repeatX == B::Round && l[2].repeatX == B::Space &&
+          l[2].sizing == B::Contain);
+    l = bg("P1");
+    CHECK(l.size() == 1 && l[0].posX == 0.5 && l[0].posY == 0);
+    l = bg("P2");
+    CHECK(l.size() == 1 && near(l[0].posX, 0.3) && l[0].posY == 1);
+    l = bg("P3");
+    CHECK(l.size() == 1 && l[0].posX == 0 && l[0].offX == 7 && l[0].posY == 0 && l[0].offY == 9);
+    l = bg("P4");
+    CHECK(l.size() == 1 && l[0].posY == 1 && l[0].offY == 0 && l[0].posX == 1 && l[0].offX == -6);
+    Style g1 = s.engine.compute(SimpleNode("G1"));
+    CHECK(g1.url("-tiny-glyph") == "check.svg" && g1.raw("-tiny-glyph-size") == "7px 8px" &&
+          g1.keyword("-tiny-glyph-tint", "") == "color");
+    CHECK(s.engine.compute(SimpleNode("G2")).url("-tiny-glyph").empty());
+    // inherited: font-smooth, image-rendering
+    Style child = s.engine.compute(SimpleNode("F1"));
+    CHECK(child.keyword("font-smooth", "") == "never" && child.keyword("image-rendering", "") == "pixelated");
+    CHECK(s.engine.compute(SimpleNode("F2")).keyword("-webkit-font-smoothing", "") == "none");
+    CHECK(!s.engine.compute(SimpleNode("I1")).has("-tiny-glyph"));
+
+    // url()s resolved against the sheet's folder and checked; problems where they are named
+    std::string dir = "build/test-css-images";
+    CHECK(util::makeDirs(dir + "/90s"));
+    CHECK(util::writeFile(dir + "/90s/check.svg", "<svg xmlns='http://www.w3.org/2000/svg' width='7' height='7'/>"));
+    CHECK(util::writeFile(dir + "/tile.png", "not checked here"));
+    std::map<std::string, std::string> files = {{dir + "/sub/inner.css", "Inner { background-image: url(../90s/check.svg) }"}};
+    ParseOptions o;
+    o.baseDir = dir;
+    o.readFile = [&](const std::string& path, std::string& text) {
+        if (!files.count(path)) return util::readFile(path, text);
+        text = files[path];
+        return true;
+    };
+    std::vector<Problem> ps;
+    SheetPtr sheet = parse(
+        "@import url(sub/inner.css);\n"
+        "A { background: url(90s/check.svg) no-repeat, url('tile.png') }\n"
+        "B {\n  -tiny-glyph: url(missing.svg);\n} :root { --img: url(90s/check.svg) }\n"
+        "C { background-image: var(--img); -tiny-glyph: var(--img) }\n"
+        "D { background-image: url(http://example.com/x.png) }\n"
+        "@font-face { font-family: F; src: url(f.ttf) }\n",
+        "skin.css", ps, o);
+    CHECK(ps.size() == 2);
+    if (ps.size() != 2)
+        for (const Problem& p : ps) printf("  %s\n", p.text().c_str());
+    CHECK(anyProblem(ps, "can't use missing.svg") && ps.size() == 2 && ps[0].line == 4 && ps[0].column == 16);
+    CHECK(anyProblem(ps, "only files can be used") && ps.size() == 2 && ps[1].line == 7 && ps[1].column == 23);
+    std::vector<std::string> imgs = imageFiles(sheet);
+    CHECK(imgs.size() == 3 && imgs[0] == dir + "/90s/check.svg" && imgs[1] == dir + "/tile.png" &&
+          imgs[2] == dir + "/missing.svg");
+    CHECK(fontFaces(sheet).size() == 1 && fontFaces(sheet)[0].file == dir + "/f.ttf");  // (not resolved twice)
+    Engine e;
+    e.setSheets({sheet});
+    Style a = e.compute(SimpleNode("A"));
+    l = a.backgrounds();
+    CHECK(l.size() == 2 && l[0].url == dir + "/90s/check.svg" && l[1].url == dir + "/tile.png" &&
+          l[0].repeatX == B::NoRepeat && l[1].repeatX == B::Repeat);
+    Style c = e.compute(SimpleNode("C"));  // (through var(): the declaring sheet's folder)
+    CHECK(c.backgrounds().size() == 1 && c.backgrounds()[0].url == dir + "/90s/check.svg");
+    CHECK(c.url("-tiny-glyph") == dir + "/90s/check.svg");
+    CHECK(e.compute(SimpleNode("Inner")).backgrounds().size() == 1 &&
+          e.compute(SimpleNode("Inner")).backgrounds()[0].url == dir + "/90s/check.svg");  // (the import's own folder)
+    // a checker of the program's own (the skin's: can the image be drawn?)
+    ps.clear();
+    int asked = 0;
+    o.checkImage = [&](const std::string& path, std::string& why) {
+        asked++;
+        why = "not a PNG or an SVG image";
+        return path.find("tile.png") == std::string::npos;
+    };
+    parse("A { background: url(tile.png) }", "skin.css", ps, o);
+    CHECK(asked == 1 && ps.size() == 1 && anyProblem(ps, "can't use tile.png") && anyProblem(ps, "not a PNG or an SVG image") &&
+          ps[0].line == 1 && ps[0].column == 17);
+    // a sheet not from a file: url()s as written, not checked
+    ps.clear();
+    sheet = parse("A { background-image: url(nowhere.png) }", "x.css", ps);
+    CHECK(ps.empty() && imageFiles(sheet).size() == 1 && imageFiles(sheet)[0] == "nowhere.png");
+    util::removeFile(dir + "/90s/check.svg");
+    util::removeFile(dir + "/tile.png");
+}
+
+// calc() of percentages and lengths together where a percentage may be (background-size, -position, colour stops,
+// a radial gradient's centre and size): kept as a fraction plus px (drawn: test_toolkit); through var(), and
+// through var() in the background shorthand; what still isn't a value reported (when the sheet is read, or with
+// var() by Engine::checkVarUses, once, without computing a node)
+void testCalcMixed() {
+    using B = Style::Background;
+    auto near = [](double a, double b) { return std::fabs(a - b) < 1e-9; };
+    {
+        using namespace css::detail;
+        Tokens t;
+        double px = 0, frac = 0;
+        LenCtx ctx;
+        auto lp = [&](const char* text) {
+            tokenize(text, t);
+            return evalLengthPercent(t, 0, t.size(), ctx, px, frac);
+        };
+        CHECK(lp("calc(100% - 8px)") && near(frac, 1) && near(px, -8));
+        CHECK(lp("calc((50% + 2px) * 2 - 1em / 2)") && near(frac, 1) && near(px, 4 - 6));
+        CHECK(lp("calc(2 * (10% - 1pt))") && near(frac, 0.2) && near(px, -2 * 96.0 / 72));
+        CHECK(lp("calc(25% / 2)") && near(frac, 0.125) && near(px, 0));
+        CHECK(lp("50%") && near(frac, 0.5) && near(px, 0));
+        CHECK(lp("3px") && near(frac, 0) && near(px, 3));
+        CHECK(lp("0") && frac == 0 && px == 0);
+        CHECK(!lp("calc(100% * 2px)") && !lp("calc(10% / 5px)") && !lp("calc(10% + 2)") && !lp("calc(100% / 0)"));
+        CHECK(!lp("2") && !lp("red") && !lp("calc(100%-8px)"));
+        // (evalLength as it was: a percentage of what it is of)
+        ctx.percentOf = 200;
+        double whole = 0;
+        tokenize("calc(100% - 8px)", t);
+        CHECK(evalLength(t, 0, t.size(), ctx, whole) && near(whole, 192));
+    }
+    Sheet s(
+        ":root { --h: calc(100% - 8px); --p: calc(100% - 8px) 0; --e: calc(100% - 1px); --s: 2px calc(100% - 8px) }\n"  // 1
+        "S1 { background-image: url(a.png); background-size: 2px calc(100% - 8px) }\n"                                     // 2
+        "S2 { background-image: url(a.png); background-size: 2px var(--h) }\n"                                             // 3
+        "S3 { background: url(a.png) 0 0 / var(--s) no-repeat }\n"                                                         // 4
+        "S4 { background-image: url(a.png); background-size: calc(-10% + 30px) auto }\n"                                   // 5
+        "P1 { background-image: url(a.png); background-position: calc(100% - 8px) calc(50% + 1em) }\n"                    // 6
+        "P2 { background-image: url(a.png); background-position: var(--p) }\n"                                             // 7
+        "P3 { background: url(a.png) var(--p) / 2px 100% no-repeat }\n"                                                    // 8
+        "P4 { background-image: url(a.png); background-position: right calc(10% + 2px) bottom calc(5% - 1px) }\n"          // 9
+        "G1 { background-image: linear-gradient(red, red calc(100% - 1px), blue calc(100% - 1px)) }\n"                     // 10
+        "G2 { background: linear-gradient(red, red var(--e), blue var(--e)) }\n"                                            // 11
+        "G3 { background-image: radial-gradient(ellipse calc(50% - 2px) calc(50% + 1px) at calc(100% - 4px) 25%, red, blue) }\n"  // 12
+        "X1 { background-size: calc(100% * 2px) }\n"                                                                        // 13
+        "X2 { background-size: -10% }\n"                                                                                    // 14
+        "X3 { background-image: radial-gradient(circle calc(50% + 1px), red, blue) }\n"                                     // 15
+        "X4 { background-image: radial-gradient(ellipse -10% 20%, red, blue) }\n");                                         // 16
+    auto bg = [&](const char* type) { return s.engine.compute(SimpleNode(type)).backgrounds(); };
+    std::vector<B> l = bg("S1");
+    CHECK(l.size() == 1 && near(l[0].width, 2) && !l[0].widthPercent && l[0].heightPercent && near(l[0].height, 1) &&
+          near(l[0].heightPlus, -8));
+    l = bg("S2");
+    CHECK(l.size() == 1 && l[0].heightPercent && near(l[0].height, 1) && near(l[0].heightPlus, -8));
+    l = bg("S3");
+    CHECK(l.size() == 1 && l[0].heightPercent && near(l[0].heightPlus, -8) && l[0].repeatX == B::NoRepeat);
+    l = bg("S4");  // (below 0 for a box over 300 px: 0 there)
+    CHECK(l.size() == 1 && l[0].widthPercent && near(l[0].width, -0.1) && near(l[0].widthPlus, 30) && l[0].height == -1);
+    l = bg("P1");
+    CHECK(l.size() == 1 && near(l[0].posX, 1) && near(l[0].offX, -8) && near(l[0].posY, 0.5) && near(l[0].offY, 12));
+    l = bg("P2");
+    CHECK(l.size() == 1 && near(l[0].posX, 1) && near(l[0].offX, -8) && near(l[0].posY, 0) && near(l[0].offY, 0));
+    l = bg("P3");
+    CHECK(l.size() == 1 && near(l[0].posX, 1) && near(l[0].offX, -8) && near(l[0].width, 2) && l[0].heightPercent);
+    l = bg("P4");  // (from the right / bottom: inwards)
+    CHECK(l.size() == 1 && near(l[0].posX, 0.9) && near(l[0].offX, -2) && near(l[0].posY, 0.95) && near(l[0].offY, 1));
+    for (const char* g : {"G1", "G2"}) {
+        l = bg(g);
+        CHECK(l.size() == 1 && l[0].gradient.stops.size() == 3);
+        if (l.size() != 1 || l[0].gradient.stops.size() != 3) continue;
+        const auto& st = l[0].gradient.stops;
+        CHECK(st[0].position == -1 && !st[1].px && near(st[1].position, 1) && near(st[1].plus, -1) &&
+              near(st[2].position, 1) && near(st[2].plus, -1));
+    }
+    l = bg("G3");
+    CHECK(l.size() == 1);
+    if (l.size() == 1) {
+        const Style::Gradient& g = l[0].gradient;
+        CHECK(g.size == Style::Gradient::Explicit && g.radiusXPercent && near(g.radiusX, 0.5) && near(g.radiusXPlus, -2) &&
+              g.radiusYPercent && near(g.radiusYPlus, 1) && !g.centerXPx && near(g.centerX, 1) && near(g.centerXPlus, -4) &&
+              near(g.centerY, 0.25) && near(g.centerYPlus, 0));
+    }
+    // what still isn't a value: reported where it is, as before
+    CHECK(s.problems.size() == 4);
+    bool x1 = false, x2 = false, x3 = false, x4 = false;
+    for (const Problem& p : s.problems) {
+        x1 = x1 || (p.line == 13 && p.message.find("background-size") != std::string::npos);
+        x2 = x2 || (p.line == 14 && p.message.find("background-size") != std::string::npos);
+        x3 = x3 || (p.line == 15 && p.message.find("a circle's size is one length") != std::string::npos);
+        x4 = x4 || (p.line == 16 && p.message.find("radial-gradient") != std::string::npos);
+    }
+    CHECK(x1 && x2 && x3 && x4);
+    if (s.problems.size() != 4 || !x1 || !x2 || !x3 || !x4)
+        for (const Problem& p : s.problems) printf("  %s\n", p.text().c_str());
+    CHECK(s.engine.takeProblems().empty());
+
+    // through var(): a bad value is reported by checkVarUses, for every rule, before any node is computed; once
+    // (computing a node later doesn't report it again); a var() of a property declared elsewhere isn't checked
+    {
+        Sheet v(":root { --bad: calc(100% * 2px); --good: calc(100% - 1px); --none: ; }\n"   // 1
+                "A { background-size: var(--bad) }\n"                                         // 2
+                "B { background-image: linear-gradient(red var(--good), blue) }\n"           // 3
+                "C { background: url(x.png) var(--bad) }\n"                                   // 4
+                "D { --mine: 2px; background-size: var(--mine) }\n"                          // 5
+                "E { background-size: var(--mine) }\n"                                        // 6
+                "F { background-size: var(--missing) }\n"                                     // 7
+                "@media (max-width: 10px) { G { background-size: var(--bad) } }\n");          // 8
+        CHECK(v.problems.empty());
+        v.engine.checkVarUses();
+        std::vector<Problem> found = v.engine.takeProblems();
+        std::set<int> lines;
+        for (const Problem& p : found) lines.insert(p.line);
+        CHECK((lines == std::set<int>{2, 4, 7}));  // (not 3: fine; not 5, 6: --mine is declared on D; not 8: @media)
+        bool after = false;
+        for (const Problem& p : found)
+            after = after || (p.line == 2 && p.message.find("after var(); 'background-size' is left unset") != std::string::npos);
+        CHECK(after);
+        if ((lines != std::set<int>{2, 4, 7}) || !after)
+            for (const Problem& p : found) printf("  %s\n", p.text().c_str());
+        v.engine.compute(SimpleNode("A"));
+        v.engine.compute(SimpleNode("F"));
+        CHECK(v.engine.takeProblems().empty());  // (reported once)
+        v.engine.compute(SimpleNode("E"));
+        CHECK(v.engine.takeProblems().size() == 1);  // (E alone: --mine isn't there)
+    }
 }
 
 // random and cut-short stylesheets: never a crash, never an exception, and quick
@@ -1816,6 +2101,8 @@ int main() {
     testImport();
     testFontFace();
     testPaintValues();
+    testImages();
+    testCalcMixed();
     testFuzz();
     testFuzzMore();
     testSpeed();

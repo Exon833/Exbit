@@ -11,6 +11,7 @@
 #include "paths.h"
 #include "ui/colors.h"
 #include "ui/toolkit/dialogs.h"
+#include "ui/toolkit/style.h"
 
 namespace skin {
 
@@ -60,6 +61,8 @@ css::SheetPtr parseFile(const std::string& path, std::vector<css::Problem>& prob
     css::ParseOptions options;  // (@import and @font-face's files: next to the stylesheet)
     options.baseDir = util::dirName(path);
     options.readFile = [](const std::string& file, std::string& out) { return util::readFile(file, out); };
+    // (url() images: a PNG or SVG that can be read, else reported where it is named; kept, decoded, for drawing)
+    options.checkImage = [](const std::string& file, std::string& why) { return ui::style::imageFileOk(file, why); };
     return ok ? css::parse(text, util::baseName(path), problems, options) : nullptr;
 }
 
@@ -113,6 +116,162 @@ std::string withName(const std::string& text, const std::string& name) {
     std::string out = text;
     if (!out.empty() && out.back() != '\n') out += "\n";
     return out + "\n:root {\n    --skin-name: " + quoted(name) + ";\n}\n";
+}
+
+// --- a skin's files, copied with it ---
+// "/a/b" "/a/c/d.png" -> "../c/d.png" (both absolute and normalised)
+std::string relativePath(const std::string& fromDir, const std::string& to) {
+    std::vector<std::string> a, b;
+    for (auto& p : util::split(fromDir, '/'))
+        if (!p.empty()) a.push_back(p);
+    for (auto& p : util::split(to, '/'))
+        if (!p.empty()) b.push_back(p);
+    size_t common = 0;
+    while (common < a.size() && common + 1 < b.size() && a[common] == b[common]) common++;
+    std::string out;
+    for (size_t i = common; i < a.size(); i++) out += "../";
+    for (size_t i = common; i < b.size(); i++) out += b[i] + (i + 1 < b.size() ? "/" : "");
+    return out;
+}
+
+// What copying a stylesheet with its files does (planCopy(), then writeFiles()): the files it uses (its url() images,
+// its @font-face fonts and the stylesheets it @imports, at any depth: those there are) go into a folder of their
+// own beside the copy, named after it ("My skin.css": "My skin/"), keeping where they are from one another; the
+// url()s of the copy and of the stylesheets it imports are changed to name them there. A file already there that
+// is the same is left as it is; one that isn't is never overwritten: "My skin (2)/" is used then (and so on).
+struct FileCopy {
+    std::string from, to;  // (absolute paths)
+    std::string data;      // what `to` gets (an imported stylesheet: its url()s changed)
+    bool sheet = false;
+};
+struct SkinFiles {
+    std::string folder;  // where the files go ("": none to copy)
+    std::vector<FileCopy> files;
+    std::string text;    // the stylesheet's own text, its url()s changed
+};
+
+bool sameFile(const std::string& path, const std::string& data) {
+    std::string now;
+    return !util::isDir(path) && util::readFile(path, now) && now == data;
+}
+
+// the stylesheet `from` (its text `text`) copied to `target`, with its files: false and `error` if a file it uses
+// can't be read
+bool planCopy(const std::string& fromPath, const std::string& text, const std::string& targetPath, SkinFiles& out,
+              std::string& error) {
+    std::string from = util::absolutePath(fromPath), target = util::absolutePath(targetPath);
+    std::string fromDir = util::dirName(from), targetDir = util::dirName(target);
+    out = SkinFiles();
+    out.text = text;
+    // the files it uses (resolved as the parser resolves them)
+    css::ParseOptions options;
+    options.baseDir = fromDir;
+    options.readFile = [](const std::string& file, std::string& data) { return util::readFile(file, data); };
+    options.checkImage = [](const std::string&, std::string&) { return true; };  // (only their names here)
+    std::vector<css::Problem> ignored;
+    css::SheetPtr sheet = css::parse(text, util::baseName(from), ignored, options);
+    std::vector<std::string> used;
+    std::vector<std::string> imports = css::importedFiles(sheet);
+    auto add = [&](const std::string& f) {
+        std::string path = util::absolutePath(f);
+        if (path.empty() || path == from || std::find(used.begin(), used.end(), path) != used.end()) return;
+        if (!util::fileExists(path) || util::isDir(path)) return;  // (missing: reported when the skin is put on)
+        used.push_back(path);
+    };
+    for (auto& f : imports) add(f);
+    for (auto& f : css::imageFiles(sheet)) add(f);
+    std::vector<std::string> fontDirs;
+    for (auto& f : css::fontFaces(sheet)) {
+        size_t before = used.size();
+        add(f.file);
+        if (used.size() > before && std::find(fontDirs.begin(), fontDirs.end(), util::dirName(used.back())) == fontDirs.end())
+            fontDirs.push_back(util::dirName(used.back()));
+    }
+    // (a font's licence goes with it: the text files beside it, *.txt, *.md, LICENSE, COPYING…)
+    for (auto& dir : fontDirs)
+        for (auto& e : util::listDir(dir)) {
+            std::string n = util::lower(e.name), ext = util::extension(e.name);
+            if (!e.isDir && (ext == ".txt" || ext == ".md" || ext.empty() || n.find("license") != std::string::npos ||
+                             n.find("licence") != std::string::npos || n.find("copying") != std::string::npos))
+                add(util::joinPath(dir, e.name));
+        }
+    for (auto& f : imports) f = util::absolutePath(f);
+    if (used.empty()) return true;
+    // where each goes in the folder: as it is from the stylesheet's own folder (those outside it: by their name),
+    // less a folder all of them are in ("Mine/xp/a.svg", "Mine/fonts/b.ttf": "xp/a.svg", "fonts/b.ttf")
+    std::vector<std::string> rel;
+    for (auto& f : used) {
+        std::string r = util::startsWith(f, fromDir == "/" ? "/" : fromDir + "/") ? f.substr(fromDir.size() + (fromDir == "/" ? 0 : 1))
+                                                                                    : util::baseName(f);
+        std::string unique = r;
+        for (int n = 2; std::find(rel.begin(), rel.end(), unique) != rel.end(); n++)
+            unique = util::joinPath(util::dirName(r), util::stem(r) + " (" + std::to_string(n) + ")" + util::extension(r));
+        rel.push_back(unique);
+    }
+    for (;;) {
+        size_t slash = rel[0].find('/');
+        if (slash == std::string::npos) break;
+        std::string first = rel[0].substr(0, slash + 1);
+        bool all = true;
+        for (auto& r : rel) all = all && util::startsWith(r, first) && r.size() > first.size();
+        if (!all) break;
+        for (auto& r : rel) r = r.substr(first.size());
+    }
+    // the folder: the copy's name, or the first "name (n)" where no other file would be overwritten
+    std::string name = util::stem(target);
+    for (int n = 1;; n++) {
+        if (n > 1000) {
+            error = "No folder for the skin's files beside " + target;
+            return false;
+        }
+        std::string folder = util::joinPath(targetDir, n == 1 ? name : name + " (" + std::to_string(n) + ")");
+        if (util::fileExists(folder) && !util::isDir(folder)) continue;
+        out.folder = folder;
+        out.files.clear();
+        std::map<std::string, std::string> where;  // from -> to
+        for (size_t i = 0; i < used.size(); i++) where[used[i]] = util::joinPath(folder, rel[i]);
+        // a url() of a stylesheet that was in `dir` and is now in `nowDir`
+        auto rewrite = [&](const std::string& data, const std::string& dir, const std::string& nowDir) {
+            return css::rewriteUrls(data, [&](const std::string& url) -> std::string {
+                std::string path = css::resolveUrl(dir, url);
+                if (path.empty()) return "";
+                auto it = where.find(util::absolutePath(path));
+                return it == where.end() ? "" : relativePath(nowDir, it->second);
+            });
+        };
+        bool clash = false;
+        for (size_t i = 0; i < used.size() && !clash; i++) {
+            FileCopy c;
+            c.from = used[i];
+            c.to = where[used[i]];
+            if (!util::readFile(c.from, c.data)) {
+                error = "Can't read " + c.from;
+                return false;
+            }
+            c.sheet = std::find(imports.begin(), imports.end(), c.from) != imports.end();
+            if (c.sheet) c.data = rewrite(c.data, util::dirName(c.from), util::dirName(c.to));
+            if (c.to != c.from && util::fileExists(c.to) && !sameFile(c.to, c.data)) clash = true;
+            for (std::string d = util::dirName(c.to); !clash && d.size() > folder.size(); d = util::dirName(d))
+                clash = util::fileExists(d) && !util::isDir(d);  // (a file where a folder must be)
+            out.files.push_back(std::move(c));
+        }
+        if (clash) continue;
+        out.text = rewrite(text, fromDir, targetDir);
+        return true;
+    }
+}
+
+// writes the files planCopy found (not the stylesheet itself); false and `error` if one can't be written
+bool writeFiles(const SkinFiles& plan, std::string& error) {
+    for (const FileCopy& c : plan.files) {
+        if (c.to == c.from || sameFile(c.to, c.data)) continue;
+        util::makeDirs(util::dirName(c.to));
+        if (!util::writeFile(c.to, c.data)) {
+            error = "Can't write " + c.to;
+            return false;
+        }
+    }
+    return true;
 }
 
 // the text without the comment it starts with (a built-in skin's header)
@@ -231,6 +390,7 @@ Skin find(const std::string& name, const std::string& user) {
 }
 
 std::vector<std::string> apply(const Skin& s) {
+    ui::style::clearImageCaches();  // (the old skin's images: the new one's are read as its stylesheets are)
     std::vector<css::Problem> problems;
     std::vector<css::SheetPtr> sheets;
     std::vector<std::pair<std::string, std::string>> files;  // (name, text) of each, for where things are
@@ -261,10 +421,16 @@ std::vector<std::string> apply(const Skin& s) {
     gWatched.clear();
     gWatched.push_back(def);
     if (!s.path.empty() && util::absolutePath(s.path) != util::absolutePath(def)) gWatched.push_back(s.path);
-    for (auto& sheet : sheets)
+    for (auto& sheet : sheets) {
         for (auto& f : css::importedFiles(sheet))
             if (std::find(gWatched.begin(), gWatched.end(), f) == gWatched.end()) gWatched.push_back(f);
+        for (auto& f : css::imageFiles(sheet))  // (its url() images: saving one shows it at once)
+            if (std::find(gWatched.begin(), gWatched.end(), f) == gWatched.end()) gWatched.push_back(f);
+    }
     theme::setStyles(std::move(sheets), &problems);
+    // values with var() that won't do wherever they are used (computing a node finds them only for that node)
+    theme::styles().checkVarUses();
+    for (css::Problem& p : theme::styles().takeProblems()) problems.push_back(std::move(p));
     // colour variables that aren't colours (any text is a variable's value: only its use tells)
     for (const std::string& var : theme::colorVariables()) {
         std::optional<std::string> v = theme::styles().root().variable(var);
@@ -388,7 +554,13 @@ std::string makeCopy(const Skin& s, const std::string& name, std::string& error)
                          "   default.css: change any variable or rule here, save, and Tiny DAW shows it at once.\n"
                          "   docs/skins.md lists every variable, selector, part and property there is. */\n\n";
     std::string path = util::joinPath(userDir(), fileName(name));
+    SkinFiles files;  // (its images, fonts and imports: into a folder of its own beside it)
+    if (!s.path.empty()) {
+        if (!planCopy(s.path, text, path, files, error)) return "";
+        text = files.text;
+    }
     util::makeDirs(userDir());
+    if (!writeFiles(files, error)) return "";
     if (!util::writeFile(path, header + withName(withoutHeader(text), name))) {
         error = "Can't write " + path;
         return "";
@@ -398,30 +570,48 @@ std::string makeCopy(const Skin& s, const std::string& name, std::string& error)
 
 bool openInEditor(const std::string& path) { return plat::openUrl(path); }
 
+bool importFrom(const std::string& path, Skin& out, std::vector<std::string>& problems, std::string& error,
+                const std::function<bool(const std::string& name)>& replace) {
+    Skin s;
+    std::string text;
+    error.clear();
+    if (!read(path, s, problems, error) || !util::readFile(path, text)) {
+        if (error.empty()) error = "Can't read the file.";
+        return false;
+    }
+    std::string target = util::joinPath(userDir(), fileName(s.name));
+    if (util::absolutePath(target) != util::absolutePath(path)) {
+        if (util::fileExists(target) && replace && !replace(s.name)) return false;  // (not replaced: error "")
+        SkinFiles files;
+        if (!planCopy(path, text, target, files, error)) return false;
+        util::makeDirs(userDir());
+        if (!writeFiles(files, error)) return false;
+        if (!util::writeFile(target, files.text)) {
+            error = "Can't write " + target;
+            return false;
+        }
+        if (!read(target, s, problems, error)) return false;  // (what is left out: of the copy, as it is put on)
+    }
+    s.path = target;
+    s.builtin = false;
+    out = s;
+    return true;
+}
+
 bool importSkin(ui::Window* parent, const std::function<void(const Skin&)>& choose) {
     std::string path = ui::files::openFile(parent, "Import skin", "", "Tiny DAW skin (*.css)");
     if (path.empty()) return false;
     Skin s;
     std::vector<std::string> problems;
-    std::string err, text;
-    if (!read(path, s, problems, err) || !util::readFile(path, text)) {
-        ui::msg::warning(parent, "Cannot import skin", path + "\n\n" + (err.empty() ? "Can't read the file." : err));
+    std::string err;
+    auto replace = [&](const std::string& name) {
+        return ui::msg::question(parent, "Skin exists", "You already have a skin called " + name + ". Replace it?") ==
+               ui::msg::Yes;
+    };
+    if (!importFrom(path, s, problems, err, replace)) {
+        if (!err.empty()) ui::msg::warning(parent, "Cannot import skin", path + "\n\n" + err);
         return false;
     }
-    std::string target = util::joinPath(userDir(), fileName(s.name));
-    if (util::absolutePath(target) != util::absolutePath(path)) {
-        if (util::fileExists(target) &&
-            ui::msg::question(parent, "Skin exists", "You already have a skin called " + s.name + ". Replace it?") !=
-                ui::msg::Yes)
-            return false;
-        util::makeDirs(userDir());
-        if (!util::writeFile(target, text)) {
-            ui::msg::warning(parent, "Cannot import skin", path + "\n\nCan't write " + target);
-            return false;
-        }
-    }
-    s.path = target;
-    s.builtin = false;
     if (choose) choose(s);
     if (!problems.empty()) {
         std::string list;
@@ -432,17 +622,34 @@ bool importSkin(ui::Window* parent, const std::function<void(const Skin&)>& choo
     return true;
 }
 
+bool exportTo(const Skin& s, const std::string& path, std::string& error) {
+    std::string text = ":root {\n    --skin-name: " + quoted(s.name) + ";\n}\n";
+    if (!s.path.empty() && !util::readFile(s.path, text)) {
+        error = "Can't read " + s.path;
+        return false;
+    }
+    if (!s.path.empty() && util::absolutePath(s.path) == util::absolutePath(path)) return true;  // (itself: there)
+    SkinFiles files;
+    if (!s.path.empty()) {
+        if (!planCopy(s.path, text, path, files, error)) return false;
+        text = files.text;
+    }
+    if (!util::dirName(path).empty()) util::makeDirs(util::dirName(path));
+    if (!writeFiles(files, error)) return false;
+    if (!util::writeFile(path, text)) {
+        error = "Can't write " + path;
+        return false;
+    }
+    return true;
+}
+
 std::string exportSkin(ui::Window* parent, const Skin& s) {
     std::string path = ui::files::saveFile(parent, "Export skin", fileName(s.name), "Tiny DAW skin (*.css)");
     if (path.empty()) return "";
     if (util::extension(path) != ".css") path += ".css";
-    std::string text = ":root {\n    --skin-name: " + quoted(s.name) + ";\n}\n";
-    if (!s.path.empty() && !util::readFile(s.path, text)) {
-        ui::msg::warning(parent, "Cannot export skin", "Can't read " + s.path);
-        return "";
-    }
-    if (!util::writeFile(path, text)) {
-        ui::msg::warning(parent, "Cannot export skin", "Can't write " + path);
+    std::string err;
+    if (!exportTo(s, path, err)) {
+        ui::msg::warning(parent, "Cannot export skin", err);
         return "";
     }
     return path;

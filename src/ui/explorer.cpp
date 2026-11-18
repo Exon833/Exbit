@@ -467,6 +467,8 @@ const FileView::Look& FileView::look() {
     const css::Style& icon = parts_.get("icon");
     l.icon = ui::style::foreground(icon);
     l.iconSelected = ui::style::foreground(parts_.get("icon", "selected"));
+    l.branch = &parts_.get("branch");
+    l.branchOpen = &parts_.get("branch", "open");
     l.folderAlpha = (int)std::lround(std::min(1.0, std::max(0.0, icon.number("fill-opacity", 90 / 255.0))) * 255);
     const css::Style& header = parts_.get("header");
     l.header = &header;  // (its bottom border: the line under it)
@@ -499,7 +501,9 @@ void FileView::paint(Painter& p) {
         if (mode_ == Mode::Tree) {
             int x = it->depth * indent;
             Color ic = sel ? look.iconSelected : look.icon;
-            if (it->isDir && !(it->filled && it->children.empty()))
+            if (it->isDir && !(it->filled && it->children.empty()) &&
+                !ui::style::glyph(p, RectF((float)x, (float)y, (float)indent, (float)rowHeight),
+                                  it->expanded ? *look.branchOpen : *look.branch))
                 ui::style::icon(p, x + (indent - 10) / 2.f, y + (rowHeight - 10) / 2.f, 10, it->expanded ? "down" : "right", ic);
             x += indent;
             if (it->isDir) folderIcon(p, (float)x, y + (rowHeight - 16) / 2.f, ic, look.folderAlpha);

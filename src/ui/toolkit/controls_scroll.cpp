@@ -490,6 +490,7 @@ void paintLineButton(Painter& p, const Rect& r, const css::Style& st, const char
     if (r.empty()) return;
     style::box(p, r, st);
     Rect c = style::contents(r, st);
+    if (style::glyph(p, RectF(c), st)) return;
     float size = (float)st.length("icon-size", 8);
     float stroke = st.has("stroke-width") ? (float)std::max(0.0, st.length("stroke-width", 0)) : 1.5f * (size / 10.f);
     Color col = style::foreground(st);
@@ -1045,7 +1046,9 @@ void ListWidget::paint(Painter& p) {
             style::box(p, cr, ind);
             if (it.checked) {
                 Rect mark = style::contents(cr, ind);
-                style::icon(p, (float)mark.x, (float)mark.y, (float)std::min(mark.w, mark.h), "check", style::foreground(ind));
+                if (!style::glyph(p, RectF(mark), ind))
+                    style::icon(p, (float)mark.x, (float)mark.y, (float)std::min(mark.w, mark.h), "check",
+                                style::foreground(ind));
             }
             x = cr.right() + style::px(ind, "margin-right", 6);
         }
@@ -1396,6 +1399,34 @@ void TreeWidget::paint(Painter& p) {
     std::vector<const char*> states;
     int scroll = bar_->value();
     int first = std::max(0, scroll / std::max(1, rowHeight));
+    // the lines joining the rows (TreeWidget::branch's -tiny-tree-lines: dotted or solid; none by default), in
+    // -tiny-tree-line-color (else the branch's color), through the middle of each level's indent
+    const css::Style& lineStyle = parts.get("branch");
+    std::string lines = lineStyle.keyword("-tiny-tree-lines", "none");
+    bool dotted = lines == "dotted", drawLines = dotted || lines == "solid";
+    Color lineColor = drawLines ? style::color(lineStyle, "-tiny-tree-line-color", style::foreground(lineStyle)) : Color();
+    style::Insets linePad = style::insets(lineStyle, "padding");
+    // (from the start of a level's indent: the middle pixel of the branch's room, rounding down, where a glyph of
+    // an odd size has its middle)
+    int lineMid = linePad.left + std::max(0, indent - linePad.w() - 1) / 2;
+    // a line along x0..x1 at y, or y0..y1 at x (tree coordinates: dotted ones keep their dots as the rows scroll)
+    auto hLine = [&](int x0, int x1, int yy) {
+        if (!dotted) {
+            p.fillRect(Rect(x0, yy, x1 - x0, 1), lineColor);
+            return;
+        }
+        for (int xx = x0; xx < x1; ++xx)
+            if (((xx + yy + scroll) & 1) == 0) p.fillRect(Rect(xx, yy, 1, 1), lineColor);
+    };
+    auto vLine = [&](int xx, int y0, int y1) {
+        if (!dotted) {
+            p.fillRect(Rect(xx, y0, 1, y1 - y0), lineColor);
+            return;
+        }
+        for (int yy = y0; yy < y1; ++yy)
+            if (((xx + yy + scroll) & 1) == 0) p.fillRect(Rect(xx, yy, 1, 1), lineColor);
+    };
+    auto lastChild = [](const Node* n) { return !n->parent || n->parent->children.empty() || n->parent->children.back().get() == n; };
     for (int row = first; row < (int)rows_.size(); ++row) {
         int y = vr.y + row * rowHeight - scroll;
         if (y >= vr.bottom()) break;
@@ -1408,12 +1439,25 @@ void TreeWidget::paint(Painter& p) {
         style::box(p, r, item);
         Rect c = style::contents(r, item);
         int x = c.x + depth * indent;
+        if (drawLines) {
+            // its own: from the middle of its level's indent to the right (to its text), up to the row above (its
+            // parent or the sibling before), down to the next sibling if it has one; and its ancestors' lines
+            // passing by on the left, to their next siblings
+            int mid = c.y + std::max(0, c.h - 1) / 2;
+            int lx = x + lineMid;
+            hLine(lx + 1, x + indent, mid);
+            vLine(lx, (depth == 0 && row == 0) ? mid : r.y, lastChild(n) ? mid + 1 : r.bottom());
+            const Node* a = n->parent;
+            for (int d = depth - 1; d >= 0 && a; --d, a = a->parent)
+                if (!lastChild(a)) vLine(c.x + d * indent + lineMid, r.y, r.bottom());
+        }
         if (n->expandable || !n->children.empty()) {
             const css::Style& br = parts.get("branch", states, &item);
             style::Insets pad = style::insets(br, "padding");
             float size = (float)std::max(0, indent - pad.w());
-            style::icon(p, (float)(x + pad.left), c.y + (c.h - size) / 2.f, size, n->expanded ? "down" : "right",
-                        style::foreground(br));
+            if (!style::glyph(p, RectF((float)(x + pad.left), (float)c.y, size, (float)c.h), br))
+                style::icon(p, (float)(x + pad.left), c.y + (c.h - size) / 2.f, size, n->expanded ? "down" : "right",
+                            style::foreground(br));
         }
         x += indent;
         if (!n->icon.empty()) {
@@ -1426,8 +1470,21 @@ void TreeWidget::paint(Painter& p) {
                 p.drawImage(RectF((float)x, c.y + (c.h - ih) / 2.f, (float)iw, (float)ih), n->icon);
             x += iw + style::px(ic, "margin-right", 4);
         }
-        style::text(p, Rect(x, c.y, std::max(0, c.right() - x), c.h), AlignLeft | AlignVCenter, n->text,
-                    parts.font(item, f), style::foreground(item), item, true);
+        // the text: in its ::text box (shrink-wrapped around it: its padding and border; a selection that covers
+        // the text only), outlined by its outline (a focus rectangle)
+        const css::Style& ts = parts.get("text", states, &item);
+        const Font& tf = parts.font(ts, f);
+        Rect avail(x, c.y, std::max(0, c.right() - x), c.h);
+        Rect tr = style::contents(avail, ts);
+        const style::BoxLook& tl = style::boxLook(ts);
+        if (tl.more || !tl.fillOnly || tl.bg.a || ts.has("outline-style")) {
+            style::Insets ex = style::contentInsets(ts);
+            Rect tb(x, c.y, std::min(avail.w, style::textWidth(tf, n->text) + ex.w()), c.h);
+            style::box(p, tb, ts);
+            paintOutline(p, tb, ts);
+        }
+        style::text(p, tr, AlignLeft | AlignVCenter, n->text, tf, style::foreground(ts),
+                    ts.has("text-shadow") ? ts : item, true);
     }
     if (clip) p.restore();
 }

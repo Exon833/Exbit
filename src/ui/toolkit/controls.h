@@ -141,9 +141,14 @@ Button* pushButton(Widget* parent, const std::string& text, std::function<void()
 Button* toolButton(Widget* parent, const std::string& text, std::function<void()> onClick = nullptr,
                    const std::string& tooltip = "");
 
+// CSS's outline around r (outline-style, -width, -color, -offset; square): what draws a focus rectangle
+// (CheckBox::label:focus, TreeWidget::text). Nothing without an outline-style.
+void paintOutline(Painter& p, const Rect& r, const css::Style& s);
+
 // Styled as `CheckBox`: its text (color, font-*), padding; ::indicator (the box: width, height, background-color,
-// border, border-radius, padding; its check mark in `color`, margin-right: the gap to the text); states :checked
-// :hover :disabled :focus.
+// border, border-radius, padding; its check mark in `color`, margin-right: the gap to the text); ::label (a box
+// shrink-wrapped around the text: padding, border, background, color; outline: a focus rectangle, e.g.
+// CheckBox::label:focus { outline: 1px dotted }); states :checked :hover :disabled :focus.
 class CheckBox : public Widget {
 public:
     explicit CheckBox(const std::string& text = "", Widget* parent = nullptr);
@@ -255,8 +260,8 @@ private:
 // around the widest number. States :hover :focus (its editor has the focus) :disabled :pressed, :up-hover
 // :down-hover (a button under the mouse), :up-pressed :down-pressed (held), :at-maximum :at-minimum (the value at
 // that end, not wrapping: that button is off). Parts ::up-button and ::down-button (a box drawn over the inside of
-// the border, clipped to the button; color: the arrow's; icon-size; stroke-width; width: the buttons' column, the
-// up button's).
+// the border, clipped to the button; with a margin (either's, even 0): each a box of its own, its half of the column
+// less its margin; color: the arrow's; icon-size; stroke-width; width: the buttons' column, the up button's).
 class SpinBox : public Widget {
 public:
     explicit SpinBox(Widget* parent = nullptr);
@@ -322,7 +327,8 @@ private:
 // QComboBox: items (text + data); a drop-down list when clicked.
 // Stylesheets: ComboBox. Its box; its text from its padding's left (the padding gives its size). States :hover
 // :focus :disabled :pressed, :open (its list is open), :editable. Part ::arrow (width: the right-hand box, over the
-// border; padding-left: the arrow's place in it; a box: background…; color; icon-size; stroke-width). Its list is
+// border; margin: the room around it (inside the border); padding-left: the arrow's place in it; a box:
+// background…; color; icon-size; stroke-width). Its list is
 // a ComboPopup: its box and padding; parts ::item (a box; padding; color; font; states :hover and :selected on the
 // highlighted row, :disabled on a disabled one: the popup's states while an item's style is computed) and
 // ::separator (height: its row; margin: the line's ends; a box: background…; stroke-width: the line's thickness).
@@ -624,7 +630,9 @@ private:
 // QTreeWidget: an expandable tree (the Explorer's folders); children filled when first expanded. Styles:
 // TreeWidget (as ListWidget), TreeWidget::item (height: the rows'; :selected :hover :disabled :open
 // :has-children :bold), TreeWidget::branch (the arrow of nodes with children; width: the indent of each level,
-// the arrow inside its padding), TreeWidget::icon
+// the arrow inside its padding; -tiny-tree-lines: none, dotted or solid lines joining the rows, in
+// -tiny-tree-line-color, else its color), TreeWidget::icon, TreeWidget::text (a box shrink-wrapped around the text,
+// the item's states: a selection of the text only; its outline: a focus rectangle)
 class TreeWidget : public Widget {
 public:
     explicit TreeWidget(Widget* parent = nullptr);
@@ -689,8 +697,11 @@ private:
 };
 
 // QTabWidget: tabs on top, one page shown. Styled as `TabWidget`: ::tab (each tab: a box (background-color, border,
-// border-radius) with padding around its title (color, font-*)); ::tab-line (a line along the tab's bottom, `height`
-// tall: the selected tab's accent); both with :selected, :hover (the tab under the pointer) and :disabled; ::base
+// border-radius) with padding around its title (color, font-*); margin: the room around it, placed in a row from the
+// left, their bottoms margin-bottom above the bar's (negative: over a neighbour or the pane; the selected tab is
+// drawn last); the bar as high as the highest tab with its margins); ::tab-line (a line along the tab's bottom,
+// `height` tall: the selected tab's accent); both with :selected, :hover (the tab under the pointer), :disabled,
+// :first and :last (the row's ends); ::base
 // (the line under all the tabs: its `height` and background-color); ::pane (a box under the tabs, inside its
 // margin, around the page: the page inside its border and padding; default.css: none).
 class TabWidget : public Widget {
@@ -718,6 +729,7 @@ public:
     const std::string& tabText(int i) const { return titles_[i]; }
     void setTabText(int i, const std::string& t) { titles_[i] = t; update(); }
     int barHeight() const;
+    Rect tabRect(int i) const;  // tab i's box (its margin placed it; it may reach beyond the bar)
     // (while one tab is being styled: that tab's states, :selected and :hover, instead of the widget's)
     void styleStates(std::vector<std::string>& out) const override;
 private:
@@ -725,11 +737,14 @@ private:
     std::vector<std::string> titles_;
     int current_ = -1, hoverTab_ = -1;
     mutable int styledTab_ = -1;  // the tab styleStates() describes: -1 none (the widget), -2 no tab in particular
+    mutable bool styleNoHover_ = false;  // (and as if it weren't under the pointer)
     int tabAt(Point p) const;
-    Rect tabRect(int i) const;
     Rect paneRect() const;  // (::pane's box)
+    Rect barArea() const;   // the bar and every tab
+    // every tab's box (out: null for the bar's height only); returns the bar's height
+    int tabGeometry(std::vector<Rect>* out) const;
     // a part of tab i ("tab", "tab-line") in that tab's states (-2: no tab in particular: for sizes)
-    const css::Style& tabStyle(int i, const std::string& part) const;
+    const css::Style& tabStyle(int i, const std::string& part, bool noHover = false) const;
 };
 
 // QGroupBox: a panel-coloured box with a title above. Styled as `GroupBox`: the box (background-color, border,

@@ -956,7 +956,7 @@ namespace {
 
 struct Defaults {
     std::string ui;
-    float uiPoints = 9;
+    float uiPx = 12;  // (9 pt)
     std::string mono = "Consolas";
 };
 Defaults& defaults() {
@@ -1074,7 +1074,82 @@ const uint8_t* coverageCurve() {
     return lut;
 }
 
-void renderGlyph(const TtfFont& f, int gid, float px, int phase, bool bold, Font::Glyph& out) {
+// An outline's edge, in the mask's pixels (y down).
+struct Edge {
+    float x0, y0, x1, y1;
+};
+
+// Dropout control for an outline drawn without anti-aliasing (font-smooth: never). `mask` holds the pixels
+// the outline covers at least half of (each 0 or 255); a stroke thinner than a pixel can cover none of its
+// pixels by half (a minus sign, an apostrophe, the thin parts of an S or of a serif) and would vanish or break.
+// So, as TrueType's monochrome rasterizers do: along each scanline through the pixels' centres (each row's,
+// then each column's), every span the outline holds inside (non-zero winding) that has none of the pixels it
+// passes through on gets the pixel nearest its middle turned on. A stub (a span at the tip of a part of the
+// outline: it reaches the scanline on one side but not the other) is left out when the pixel next to it on the
+// side the part goes on was on before this pass: the outer edge of a round stroke drawn in the next row or
+// column doesn't grow a bump (and a bar two pixels long still gets both). So every stroke keeps a pixel in each row and each column it crosses; what was already
+// on stays as it is.
+void dropoutControl(const std::vector<Edge>& edges, int w, int h, uint8_t* mask) {
+    struct Crossing {
+        float at;
+        int dir;
+    };
+    struct Span {
+        float from, to;
+    };
+    std::vector<Crossing> xs;
+    std::vector<std::vector<Span>> spans;
+    std::vector<uint8_t> was;  // (the mask before the pass)
+    for (int pass = 0; pass < 2; pass++) {
+        bool rows = pass == 0;  // rows: scanlines across y, spans along x; then the columns
+        int lines = rows ? h : w, len = rows ? w : h;
+        spans.assign((size_t)lines, {});
+        for (int j = 0; j < lines; j++) {  // each scanline's inside spans
+            float c = j + 0.5f;
+            xs.clear();
+            for (const Edge& e : edges) {
+                float a0 = rows ? e.y0 : e.x0, a1 = rows ? e.y1 : e.x1;  // across the scanline
+                if (a0 == a1) continue;
+                float lo = a0 < a1 ? a0 : a1, hi = a0 < a1 ? a1 : a0;
+                if (c < lo || c >= hi) continue;  // (half open: a vertex two edges share counts once)
+                float b0 = rows ? e.x0 : e.y0, b1 = rows ? e.x1 : e.y1;  // along it
+                xs.push_back({b0 + (b1 - b0) * ((c - a0) / (a1 - a0)), a1 > a0 ? 1 : -1});
+            }
+            std::sort(xs.begin(), xs.end(), [](const Crossing& a, const Crossing& b) { return a.at < b.at; });
+            int wind = 0;
+            float start = 0;
+            for (const Crossing& x : xs) {
+                int before = wind;
+                wind += x.dir;
+                if (before == 0 && wind != 0) start = x.at;
+                else if (before != 0 && wind == 0 && x.at > start) spans[(size_t)j].push_back({start, x.at});
+            }
+        }
+        auto index = [&](int line, int i) { return rows ? (size_t)line * w + i : (size_t)i * w + line; };
+        was.assign(mask, mask + (size_t)w * h);
+        // does the part of the outline a span is in reach the scanline k too? (a span there that overlaps it)
+        auto reaches = [&](int k, const Span& s) {
+            if (k < 0 || k >= lines) return false;
+            for (const Span& o : spans[(size_t)k])
+                if (o.from <= s.to + 0.5f && o.to >= s.from - 0.5f) return true;
+            return false;
+        };
+        for (int j = 0; j < lines; j++)
+            for (const Span& s : spans[(size_t)j]) {
+                int i0 = std::max(0, (int)std::floor(s.from)), i1 = std::min(len - 1, (int)std::ceil(s.to) - 1);
+                bool any = false;
+                for (int i = i0; i <= i1 && !any; i++) any = mask[index(j, i)] != 0;
+                if (any) continue;
+                int i = std::max(0, std::min(len - 1, (int)std::floor((s.from + s.to) * 0.5f)));
+                bool before = reaches(j - 1, s), after = reaches(j + 1, s);
+                if (before != after && was[index(before ? j - 1 : j + 1, i)]) continue;  // (a stub, drawn next to it)
+                mask[index(j, i)] = 255;
+            }
+    }
+}
+
+// `aliased`: drawn without anti-aliasing (each pixel 0 or 255; dropoutControl)
+void renderGlyph(const TtfFont& f, int gid, float px, int phase, bool bold, bool aliased, Font::Glyph& out) {
     std::vector<std::vector<TtfFont::Pt>> contours;
     if (!f.outline(gid, contours) || contours.empty()) return;
     float scale = px / f.upem;
@@ -1138,7 +1213,12 @@ void renderGlyph(const TtfFont& f, int gid, float px, int phase, bool bold, Font
     int w = ix1 - ix0, h = iy1 - iy0;
     if (w <= 0 || h <= 0 || w > 4096 || h > 4096) return;
     static raster::Accumulator acc;
+    std::vector<Edge> edges;  // (aliased: the edges too, for dropoutControl)
     acc.begin(w, h);
+    auto edge = [&](float ax, float ay, float bx, float by) {
+        if (aliased) edges.push_back({ax, ay, bx, by});
+        acc.line(ax, ay, bx, by);
+    };
     float ox = (float)ix0, oy = (float)iy0;
     const float tol = 0.1f;
     for (auto& c : contours) {
@@ -1162,7 +1242,7 @@ void renderGlyph(const TtfFont& f, int gid, float px, int phase, bool bold, Font
         bool haveCtrl = false;
         float qx = 0, qy = 0;
         auto lineTo = [&](float x, float y) {
-            acc.line(cx, cy, x, y);
+            edge(cx, cy, x, y);
             cx = x;
             cy = y;
         };
@@ -1174,7 +1254,7 @@ void renderGlyph(const TtfFont& f, int gid, float px, int phase, bool bold, Font
             for (int s = 1; s <= steps; s++) {
                 float t = (float)s / steps, u = 1 - t;
                 float nx = u * u * px0 + 2 * u * t * ctx + t * t * x, ny = u * u * py0 + 2 * u * t * cty + t * t * y;
-                acc.line(cx, cy, nx, ny);
+                edge(cx, cy, nx, ny);
                 cx = nx;
                 cy = ny;
             }
@@ -1204,6 +1284,11 @@ void renderGlyph(const TtfFont& f, int gid, float px, int phase, bool bold, Font
     out.top = iy0;
     out.mask.resize((size_t)w * h);
     acc.readMask(out.mask.data());
+    if (aliased) {  // (on where the outline covers half of a pixel or more, then dropout control)
+        for (uint8_t& v : out.mask) v = v >= 128 ? 255 : 0;
+        dropoutControl(edges, w, h, out.mask.data());
+        return;
+    }
     const uint8_t* lut = coverageCurve();
     for (uint8_t& v : out.mask) v = lut[v];
 }
@@ -1224,8 +1309,8 @@ void boxGlyph(float px, Font::Glyph& out) {
 
 float boxAdvance(float px) { return std::lround(px * 0.5f) + 2 * std::max(1.f, (float)std::lround(px * 0.08f)); }
 
-const Font::Glyph* cachedGlyph(const FontFace::Mapped& m, float px, int phase) {
-    GlyphKey k{m.font, 0, m.gid, (uint8_t)phase, (uint8_t)(m.synth ? 1 : 0)};
+const Font::Glyph* cachedGlyph(const FontFace::Mapped& m, float px, int phase, bool aliased) {
+    GlyphKey k{m.font, 0, m.gid, (uint8_t)phase, (uint8_t)((m.synth ? 1 : 0) | (aliased ? 2 : 0))};
     memcpy(&k.sizeBits, &px, 4);
     auto& c = glyphCache();
     auto it = c.find(k);
@@ -1233,7 +1318,7 @@ const Font::Glyph* cachedGlyph(const FontFace::Mapped& m, float px, int phase) {
         CacheEntry e;
         e.glyph.reset(new Font::Glyph);
         if (m.gid < 0) boxGlyph(px, *e.glyph);
-        else if (m.font) renderGlyph(*m.font, m.gid, px, phase, m.synth, *e.glyph);
+        else if (m.font) renderGlyph(*m.font, m.gid, px, phase, m.synth, aliased, *e.glyph);
         it = c.emplace(k, std::move(e)).first;
     }
     it->second.lastUse = ++g_useClock;
@@ -1286,7 +1371,7 @@ float walk(FontFace* face, float px, const std::string& s, F&& fn) {
 // ================================================================================================
 // Font
 
-Font::Font() : family_(defaults().ui), size_(defaults().uiPoints * 4.f / 3.f), bold_(false) {}
+Font::Font() : family_(defaults().ui), size_(defaults().uiPx), bold_(false) {}
 
 Font::Font(const std::string& family, float pixelSize, bool bold)
     : family_(family), size_(pixelSize > 0 ? pixelSize : 12.f), bold_(bold) {}
@@ -1369,29 +1454,31 @@ float Font::layout(const std::string& utf8, float startX, std::vector<Run>& out)
     out.clear();
     out.reserve(utf8.size());
     float px = size_;
+    bool aliased = aliased_;
     return walk(face(), px, utf8, [&](size_t, const FontFace::Mapped& m, float pen) {
-        float x = std::floor((startX + pen) * 4.f + 0.5f) / 4.f;
+        // (aliased: each glyph on a whole pixel, so a letter looks the same wherever it is)
+        float x = aliased ? std::floor(startX + pen + 0.5f) : std::floor((startX + pen) * 4.f + 0.5f) / 4.f;
         float ix = std::floor(x);
         int phase = (int)((x - ix) * 4.f + 0.5f) & 3;
-        const Glyph* g = cachedGlyph(m, px, phase);
+        const Glyph* g = cachedGlyph(m, px, phase, aliased);
         out.push_back(Run{g, x});
     });
 }
 
 Font Font::ui() {
     const Defaults& d = defaults();
-    return fromPoints(d.ui, d.uiPoints > 0 ? d.uiPoints : 9.f);
+    return Font(d.ui, d.uiPx > 0 ? d.uiPx : 12.f);
 }
 
 Font Font::mono() {
     const Defaults& d = defaults();
-    return fromPoints(d.mono.empty() ? "Consolas" : d.mono, d.uiPoints > 0 ? d.uiPoints : 9.f);
+    return Font(d.mono.empty() ? "Consolas" : d.mono, d.uiPx > 0 ? d.uiPx : 12.f);
 }
 
-void Font::setDefaults(const std::string& uiFamily, float uiPoints, const std::string& monoFamily) {
+void Font::setDefaults(const std::string& uiFamily, float uiPixels, const std::string& monoFamily) {
     Defaults& d = defaults();
     d.ui = uiFamily;
-    d.uiPoints = uiPoints > 0 ? uiPoints : 9.f;
+    d.uiPx = uiPixels > 0 ? uiPixels : 12.f;
     d.mono = monoFamily.empty() ? "Consolas" : monoFamily;
 }
 

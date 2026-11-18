@@ -251,6 +251,7 @@ public:
     void resized() override { fitStyle(); }
     void paint(Painter& p) override {
         const css::Style& st = computedStyle();
+        if (style::glyph(p, RectF(rect()), st)) return;  // (an image of the whole icon)
         Color bg = style::background(st);
         Color fg = style::foreground(st);
         // (the drawing is made for 32 px: scaled to its size, centred in it when it isn't square)
@@ -290,6 +291,28 @@ public:
     }
 };
 
+// A message box's button area: a band across the whole width, below the sign and the text, drawn as the
+// dialog's ::buttons part (Dialog.message-box::buttons: a box, e.g. a grey strip under a white upper part); its
+// buttons inside its border and padding. What its padding doesn't set (each side) is the message box's sizes:
+// --message-box-spacing above, --message-box-margin at the sides and below (so, unstyled, the buttons are where
+// they always were).
+class MessageButtons : public Widget {
+public:
+    explicit MessageButtons(Dialog* d) : dialog_(d) { vPolicy = SizePolicy::Fixed; }
+    // its room around the buttons (left, top, right, bottom): the part's border and padding
+    static style::Insets room(const css::Style& part) {
+        int margin = theme::metric("message-box-margin", 14), spacing = theme::metric("message-box-spacing", 14);
+        style::Insets b = style::insets(part, "border-width");
+        auto pad = [&](const char* side, int def) { return part.has(side) ? style::px(part, side) : def; };
+        return style::Insets{b.left + pad("padding-left", margin), b.top + pad("padding-top", spacing),
+                             b.right + pad("padding-right", margin), b.bottom + pad("padding-bottom", margin)};
+    }
+    void paint(Painter& p) override { style::box(p, rect(), dialog_->computedStyle("buttons")); }
+
+private:
+    Dialog* dialog_;
+};
+
 int toStandard(int mb) {
     int s = 0;
     if (mb & msg::Ok) s |= ButtonBox::Ok;
@@ -323,12 +346,18 @@ int box(Window* parent, Icon icon, const std::string& title, const std::string& 
     Dialog d(parent, title, 400, 150);
     d.addStyleClass("message-box");
     d.setMinimumWindowSize(0, 0);
-    // (default.css's sizes: 14 px around and between the parts, 8 px between the text and its details)
-    auto* outer = vbox(&d, theme::metric("message-box-margin", 14), theme::metric("message-box-spacing", 14));
+    d.setResizable(false);  // (its size is its text's: no resizing, no maximize)
+    // (default.css's sizes: 14 px around and between the parts, 8 px between the text and its details): the sign
+    // and the text above, inside the margin; the buttons in their band below (MessageButtons)
+    int margin = theme::metric("message-box-margin", 14);
+    auto* outer = vbox(&d, 0, 0);
+    auto upper = std::make_unique<VBox>();
+    upper->setContentsMargins(margin, margin, margin, 0);
     auto row = std::make_unique<HBox>();
     row->spacing = theme::metric("message-box-spacing", 14);
     HBox* rowp = row.get();
-    outer->addLayout(std::move(row));
+    upper->addLayout(std::move(row));
+    outer->addLayout(std::move(upper));
     if (icon != Icon::None) {
         auto* ic = d.add<MsgIcon>(icon);
         rowp->addWidget(ic, 0, AlignTop);
@@ -349,8 +378,13 @@ int box(Window* parent, Icon icon, const std::string& title, const std::string& 
         colp->addWidget(det);
     }
     colp->addStretch(1);
-    auto* bb = d.add<ButtonBox>(toStandard(buttons));
-    outer->addWidget(bb);
+    auto* band = d.add<MessageButtons>(&d);
+    style::Insets room = MessageButtons::room(d.computedStyle("buttons"));
+    VBox* bandLayout = vbox(band, 0, 0);
+    bandLayout->setContentsMargins(room.left, room.top, room.right, room.bottom);
+    auto* bb = band->add<ButtonBox>(toStandard(buttons));
+    bandLayout->addWidget(bb);
+    outer->addWidget(band);
     int escape = (buttons & Cancel) ? Cancel : (buttons & No) ? No : (buttons & Close) ? Close : (buttons & Ok) ? Ok : 0;
     if (!escape) escape = (buttons & Discard) ? Discard : (buttons & Yes) ? Yes : Save;
     int pressed = escape;

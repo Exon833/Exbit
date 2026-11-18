@@ -9,8 +9,8 @@
 // Glyphs a font lacks (✕ ▾ ♩ ⟲ 🎹 …) come from fallback fonts (DejaVu Sans, DejaVu Sans Mono,
 // Noto Sans Symbols, Symbola… whichever exist); a glyph nobody has is drawn as a hollow box.
 //
-// Glyphs are rendered once per (face, size, glyph, subpixel x offset in quarters) into 8-bit
-// coverage masks and cached. Everything here is for the GUI thread only.
+// Glyphs are rendered once per (face, size, glyph, subpixel x offset in quarters, aliased or not) into
+// 8-bit coverage masks and cached. Everything here is for the GUI thread only.
 #pragma once
 #include <memory>
 #include <string>
@@ -30,9 +30,18 @@ public:
     float pixelSize() const { return size_; }
     float pointSize() const { return size_ * 0.75f; }
     bool bold() const { return bold_; }
-    Font withPixelSize(float px) const { return Font(family_, px, bold_); }
-    Font withPointSize(float pt) const { return fromPoints(family_, pt, bold_); }
-    Font withBold(bool b) const { return Font(family_, size_, b); }
+    Font withPixelSize(float px) const { return Font(family_, px, bold_).withAliased(aliased_); }
+    Font withPointSize(float pt) const { return fromPoints(family_, pt, bold_).withAliased(aliased_); }
+    Font withBold(bool b) const { return Font(family_, size_, b).withAliased(aliased_); }
+    // drawn without anti-aliasing (CSS font-smooth: never): each glyph's pixels fully on or off (on where the
+    // outline covers half of a pixel or more, plus dropout control: a stroke thinner than a pixel keeps a pixel in
+    // each row and column it crosses), each glyph on a whole pixel. Advances and metrics are the same.
+    bool aliased() const { return aliased_; }
+    Font withAliased(bool a) const {
+        Font f = *this;
+        f.aliased_ = a;
+        return f;
+    }
 
     float ascent() const;    // px above the baseline
     float descent() const;   // px below the baseline (positive)
@@ -47,9 +56,10 @@ public:
     bool hasGlyph(uint32_t codepoint) const;
 
     // the interface font set by the skin (theme), and the numbers font
-    static Font ui();          // the skin's "ui" font at its "ui_size" (0: 9 pt)
+    static Font ui();          // the skin's "ui" font at its size (default: 12 px, 9 pt)
     static Font mono();        // the skin's "mono" font at the ui size
-    static void setDefaults(const std::string& uiFamily, float uiPoints, const std::string& monoFamily);
+    // the ui font and its size in px (kept exactly as given: 11.5 px stays 11.5 px), and the numbers font
+    static void setDefaults(const std::string& uiFamily, float uiPixels, const std::string& monoFamily);
     static std::vector<std::string> families();  // installed family names, sorted (skin editor)
     // a family from a font file (a skin's @font-face): `family` finds it from now on, before the system's fonts
     // of that name, as a face of the weight and style given (whatever the file says). False if the file has no
@@ -76,6 +86,7 @@ private:
     std::string family_;
     float size_;
     bool bold_;
+    bool aliased_ = false;
     FontFace* face_ = nullptr;  // resolved lazily
     FontFace* face() const;
 };

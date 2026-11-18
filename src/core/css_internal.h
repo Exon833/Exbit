@@ -7,6 +7,7 @@
 #pragma once
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -35,6 +36,7 @@ struct Token {
 
 struct Tokens {
     std::string_view src;  // (the text tokenized: it must outlive these)
+    std::shared_ptr<const std::string> own;  // (when the text is theirs: kept here)
     std::vector<Token> list;
     std::vector<std::pair<uint32_t, std::string>> problems;  // byte offset, message
     size_t size() const { return list.size(); }
@@ -79,6 +81,10 @@ struct LenCtx {
 // mm, Q, pc (96 px to the inch); false if [b, e) is something else
 bool evalLength(const Tokens& t, size_t b, size_t e, const LenCtx& ctx, double& px);
 bool lengthText(std::string_view text, const LenCtx& ctx, double& px);
+// a length-percentage worked out where it is used: `frac` of what 100% is there, plus `px`. 50% is 0.5 and 0,
+// 8px is 0 and 8, calc(100% - 8px) is 1 and -8 (calc() of lengths and percentages added, or multiplied and
+// divided by numbers: always of that form); false if [b, e) is something else
+bool evalLengthPercent(const Tokens& t, size_t b, size_t e, const LenCtx& ctx, double& px, double& frac);
 // a number: 1.5, 50% (= 0.5), calc() of numbers
 bool evalNumber(const Tokens& t, size_t b, size_t e, double& v);
 // a colour: [b, e) is exactly one; `current` is currentColor's (null: currentColor isn't one)
@@ -97,12 +103,28 @@ bool isGradientFunction(const Token& k);  // linear-gradient( radial-gradient( a
 // one gradient: [b, e) is exactly one gradient function; `current` is currentColor (null: not one)
 bool parseGradient(const Tokens& t, size_t b, size_t e, const Rgba* current, double em, Style::Gradient& g,
                    std::string& why);
-// background-image's value: none, or a comma list of gradients (and none); `out` may be null (checking only)
+// a url(): [b, e) is exactly one (url(x), url("x") or url('x')); `url` its text (false: not one, or empty)
+bool urlAt(const Tokens& t, size_t b, size_t e, std::string& url);
+bool startsUrl(const Token& k);  // a url token, or a url( function
+// background-image's value: none, or a comma list of gradients, url()s and none (each layer's kind, gradient and
+// url into `out`, which may be null: checking only)
 bool parseImages(const Tokens& t, size_t b, size_t e, const Rgba* current, double em,
-                 std::vector<Style::Gradient>* out, std::string& why);
+                 std::vector<Style::Background>* out, std::string& why);
+// one layer's background-repeat, -position, -size (the components of its value) and a box keyword (-origin,
+// -clip), into `out`'s fields; false if they aren't one
+bool repeatValue(const Tokens& t, const std::vector<std::pair<size_t, size_t>>& c, Style::Background& out);
+bool positionValue(const Tokens& t, const std::vector<std::pair<size_t, size_t>>& c, double em, Style::Background& out);
+bool sizeValue(const Tokens& t, const std::vector<std::pair<size_t, size_t>>& c, double em, Style::Background& out);
+bool boxValue(const Tokens& t, std::pair<size_t, size_t> r, Style::Background::Box& out);
+// a comma list of those (property: background-repeat, -position, -size, -origin, -clip): each into a layer of
+// `out` (null: checking only)
+bool parseLayerList(const std::string& property, const Tokens& t, size_t b, size_t e, double em,
+                    std::vector<Style::Background>* out, std::string& why);
 // box-shadow (box) or text-shadow's value: none, or a comma list of shadows
 bool parseShadows(const Tokens& t, size_t b, size_t e, bool box, const Rgba* current, double em,
                   std::vector<Style::Shadow>* out, std::string& why);
+// backdrop-filter's value: none, or blur(<length>) (px: the length, 0 for none; may be null)
+bool parseBackdropBlur(const Tokens& t, size_t b, size_t e, double em, double* px, std::string& why);
 
 // --- properties ---
 bool isShorthand(const std::string& name);
@@ -195,6 +217,7 @@ public:
     std::vector<detail::MediaBlock> media;  // its @media blocks (its imports' too)
     std::vector<std::string> imports;       // the files it imported, at any depth (resolved)
     std::vector<FontFace> fonts;            // its @font-face rules (its imports' too)
+    std::vector<std::string> images;        // the files its declarations' url()s name (its imports' too; resolved)
     std::vector<SheetPtr> imported;         // the imported sheets (their rules moved here; kept for their names)
     bool viewport = false;                  // does it use vw / vh (its imports too)?
 };

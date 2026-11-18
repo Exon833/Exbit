@@ -66,8 +66,8 @@ Skin find(const std::string& name, const std::string& userDir = "");
 // registered with onApply). Returns what in the stylesheets was left out ("file:line:col: …"). The caller then
 // rebuilds / repaints what was built with them (MainWindow::restyle).
 std::vector<std::string> apply(const Skin& skin);
-// the files the skin last put on was read from: default.css, its stylesheet, and every file they @import (what to
-// watch for changes)
+// the files the skin last put on was read from: default.css, its stylesheet, every file they @import, and every
+// image their url()s name (what to watch for changes: MainWindow puts the skin on again when one is saved)
 std::vector<std::string> watchedFiles();
 // called after every apply() (e.g. the waveform tiles' cache: clear it); returns an id
 int onApply(std::function<void()> fn);
@@ -82,16 +82,32 @@ bool cssFromJson(const std::string& jsonText, const std::string& fallbackName, s
 std::vector<std::string> convertOldSkins(const std::string& dir);
 
 // --- Options → Skin actions ---
-// your own copy of `skin` called `name` in your skins folder (its stylesheet, with that --skin-name): the path,
-// or "" and `error`
+// A skin is copied (made your own, imported, exported) with the files its stylesheet uses: its url() images, its
+// @font-face fonts and the stylesheets it @imports (theirs too, at any depth). They go into a folder of their own
+// beside the copy, named after it ("My skin.css": "My skin/"), as they were from one another (less a folder all
+// of them were in), and the url()s of the copy (and of the stylesheets it imports) are changed to name them there:
+// each copy has its own files, and changing them changes no other skin. A file already there that is the same is
+// left as it is; one that differs is never overwritten: the files go into "My skin (2)/" then (or the first
+// "(n)" where nothing differs). Files that are missing stay as they were named (reported when it is put on).
+//
+// your own copy of `skin` called `name` in your skins folder (its stylesheet, with that --skin-name, and its
+// files): the path, or "" and `error`
 std::string makeCopy(const Skin& skin, const std::string& name, std::string& error);
 // opens the stylesheet in the system's editor for it (false if that couldn't be started)
 bool openInEditor(const std::string& path);
-// Asks for a stylesheet, copies it into your skins folder (asking before replacing one of the same name),
-// then choose(skin) and tells what was left out of it. False if nothing was imported.
+// the stylesheet at `path` (and its files) copied into your skins folder as <its name>.css: the skin there (`out`)
+// and what is left out of it (`problems`). Before replacing a skin of that name, replace(name) is asked (null:
+// replaced); false: it said no (`error` ""), or `error`.
+bool importFrom(const std::string& path, Skin& out, std::vector<std::string>& problems, std::string& error,
+                const std::function<bool(const std::string& name)>& replace = nullptr);
+// Asks for a stylesheet, imports it (importFrom; asking before replacing one of the same name), then
+// choose(skin) and tells what was left out of it. False if nothing was imported.
 bool importSkin(ui::Window* parent, const std::function<void(const Skin&)>& choose);
-// Asks where to write `skin`'s stylesheet (a .css file); returns the path written, "" if none. (The caller
-// shows "Skin saved as <path>" in the status bar.)
+// `skin`'s stylesheet written to `path` (a .css file) and its files into the folder beside it ("X.css": "X/");
+// false and `error`
+bool exportTo(const Skin& skin, const std::string& path, std::string& error);
+// Asks where to write `skin`'s stylesheet (a .css file) and exports it there (exportTo); returns the path written,
+// "" if none. (The caller shows "Skin saved as <path>" in the status bar.)
 std::string exportSkin(ui::Window* parent, const Skin& skin);
 void openSkinsFolder();  // (made if missing)
 

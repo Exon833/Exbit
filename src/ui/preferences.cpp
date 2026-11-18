@@ -99,6 +99,8 @@ int prefs::interfaceScale() {
 
 bool prefs::ownWindowFrames() { return getStr("window_frames", "own") != "system"; }
 
+bool prefs::transparentWindows() { return getBool("transparency", true); }
+
 Preferences Preferences::load() {
     Preferences p;
     p.driverType = getStr("driver_type", p.driverType);
@@ -140,6 +142,7 @@ Preferences Preferences::load() {
     p.reloadCrashedPlugins = getBool("reload_crashed_plugins", p.reloadCrashedPlugins);
     p.statusHints = getBool("status_hints", p.statusHints);
     p.windowFrames = prefs::ownWindowFrames() ? "own" : "system";
+    p.transparency = prefs::transparentWindows();
     auto& sizes = prefs::bufferSizes();
     if (std::find(sizes.begin(), sizes.end(), p.bufferSize) == sizes.end()) p.bufferSize = 0;
     auto& rates = prefs::refreshRates();
@@ -183,6 +186,7 @@ Preferences Preferences::load() {
     p.known_["reload_crashed_plugins"] = Json(p.reloadCrashedPlugins);
     p.known_["status_hints"] = Json(p.statusHints);
     p.known_["window_frames"] = Json(p.windowFrames);
+    p.known_["transparency"] = Json(p.transparency);
     return p;
 }
 
@@ -234,4 +238,5 @@ void Preferences::save() const {
     put("reload_crashed_plugins", reloadCrashedPlugins);
     put("status_hints", statusHints);
     put("window_frames", windowFrames);
+    put("transparency", transparency);
 }

@@ -16,7 +16,7 @@ class Menu;
 class Action {
 public:
     std::string text;
-    std::string tooltip;
+    std::string tooltip;         // (shown while the pointer rests on it when it is disabled: why)
     KeySequence shortcut;        // shown on the right; also triggers it when the menu's owner window has it registered
     bool checkable = false;
     bool checked = false;

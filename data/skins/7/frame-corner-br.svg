@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 8 8">
+<!-- the frame round its bottom right corner -->
+<g transform="translate(8 8) scale(-1 -1)">
+<path d="M0.5 6 A5.5 5.5 0 0 1 6 0.5" fill="none" stroke="#000000" stroke-opacity="0.7"/>
+<path d="M1.5 6 A4.5 4.5 0 0 1 6 1.5" fill="none" stroke="#ffffff" stroke-opacity="0.67"/>
+</g>
+</svg>
