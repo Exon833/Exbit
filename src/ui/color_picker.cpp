@@ -5,6 +5,7 @@
 
 #include "core/util.h"
 #include "ui/colors.h"
+#include "ui/paint_helpers.h"
 #include "ui/theme.h"
 #include "ui/toolkit/layout.h"
 #include "ui/toolkit/style.h"
@@ -192,7 +193,8 @@ void TrackPreview::paint(Painter& p) {
     Color background, text;
     colors::trackColors(hexColor, tone, background, text);
     Rect r = style::inside(rect(), style::insets(st, "padding"));
-    p.fillRect(r, background);  // (the row's colours are the track's own)
+    // (the row's colours are the track's own: ::row is the box drawn in them, as a panel row's TrackRow)
+    style::box(p, r, paint::withBackground(computedStyle("row"), background));
     const css::Style& stripe = computedStyle("stripe");
     style::box(p, Rect(r.x, r.y, style::px(stripe, "width", 3), r.h), stripe);
     p.drawText(RectF(r.x + 10, r.y + 6, r.w - 10, 16), AlignLeft | AlignVCenter, "Track name",

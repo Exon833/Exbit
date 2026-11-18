@@ -22,6 +22,7 @@ LaneFrame::LaneFrame(Color color, std::optional<Color> accent, int height, std::
 }
 
 void LaneFrame::setColors(Color color, std::optional<Color> accent, std::optional<Color> text) {
+    if (!(color == color_)) boxStale_ = true;
     color_ = color;
     accent_ = accent;
     text_ = text;
@@ -41,6 +42,27 @@ void LaneFrame::setTopLine(std::optional<Color> c) {
     topLine_ = c;
     if (layout()) layout()->invalidate();
     update();
+}
+
+void LaneFrame::setRowStyle(const css::Style& style) {
+    rowStyle_ = style;
+    boxStale_ = true;
+    if (layout()) layout()->invalidate();  // (its border: the inside may be smaller)
+    update();
+}
+
+const css::Style& LaneFrame::box() const {
+    // (a panel row's style is kept as given: only a skin change or a new colour makes it again; the master's own
+    // style follows its states too)
+    int gen = theme::styles().generation();
+    bool stale = boxStale_ || gen != boxGeneration_;
+    if (!rowStyle_) stale = boxStamp_.stale(this) || stale;
+    if (stale) {
+        box_ = paint::withBackground(rowStyle_ ? *rowStyle_ : computedStyle(), color_);
+        boxStale_ = false;
+        boxGeneration_ = gen;
+    }
+    return box_;
 }
 
 void LaneFrame::applyTextColor() {
@@ -69,24 +91,39 @@ const LaneFrame::Look& LaneFrame::look() const {
     l.currentEdge = panel_style::color(current, "border-top-color");
     const css::Style& load = parts_.get("load");
     l.loadTrack = &load;
+    l.loadInset = ui::style::contentInsets(load);
     l.loadH = std::max(0, panel_style::px(load, "height", 2));
     l.loadBelow = panel_style::px(load, "margin-bottom", 1);
     const char* states[] = {"ok", "warn", "hot"};
-    for (int i = 0; i < 3; ++i) l.load[i] = panel_style::bg(parts_.get("load-bar", states[i]));
+    for (int i = 0; i < 3; ++i) {
+        l.loadBar[i] = &parts_.get("load-bar", states[i]);
+        l.load[i] = panel_style::bg(*l.loadBar[i]);
+    }
     look_ = l;
     return look_;
 }
 
 Rect LaneFrame::contentsRect() const {
     const Look& look = this->look();
-    int left = accent_ ? look.stripeW : look.edgeW;
-    int top = current_ ? look.current.top : topLine_ ? 1 : 0;
-    int right = current_ ? look.current.right : 0, bottom = current_ ? look.current.bottom : 0;
+    const ui::style::Insets& border = ui::style::boxLook(box()).border;  // (none in the default look)
+    int left = std::max(accent_ ? look.stripeW : look.edgeW, border.left);
+    int top = std::max(current_ ? look.current.top : topLine_ ? 1 : 0, border.top);
+    int right = std::max(current_ ? look.current.right : 0, border.right);
+    int bottom = std::max(current_ ? look.current.bottom : 0, border.bottom);
     return rect().adjusted(left, top, -right, -bottom);
 }
 
+Rect LaneFrame::paintRect() const {
+    Rect r = ui::Widget::paintRect();
+    if (!rowStyle_) return r;  // (the master's row: its own style's, as any widget's)
+    const ui::style::Insets& o = ui::style::boxLook(box()).overflow;
+    if (o.left || o.top || o.right || o.bottom) r = r.united(rect().adjusted(-o.left, -o.top, o.right, o.bottom));
+    return r;
+}
+
 void LaneFrame::paint(Painter& p) {
-    p.fillRect(rect(), color_);
+    // its own colour (data) as the box's background; the default look: a plain fill
+    ui::style::box(p, rect(), box());
 }
 
 void LaneFrame::paintOver(Painter& p) {
@@ -108,13 +145,16 @@ void LaneFrame::paintOver(Painter& p) {
         // twice its share (a quarter of a core: warning colour, 40 %: hot); anything measurable shows
         int x0 = accent_ ? look.stripeW : look.edgeW, full = std::max(0, w - x0 - 1);
         double scaled = std::min(1.0, load_ * 2);
-        int bar = (int)std::lround(full * scaled);
-        if (load_ >= 0.001) bar = std::max(1, bar);
         int y = h - look.loadBelow - look.loadH;
-        ui::style::box(p, Rect(x0, y, full, look.loadH), *look.loadTrack);
+        Rect track(x0, y, full, look.loadH);
+        ui::style::box(p, track, *look.loadTrack);
+        Rect in = ui::style::inside(track, look.loadInset);  // (the bar inside its border and padding)
+        int bar = (int)std::lround(std::max(0, in.w) * scaled);
+        if (load_ >= 0.001) bar = std::max(1, bar);
         const char* state = cpu_monitor::loadState(scaled);
         int range = state[0] == 'h' ? 2 : state[0] == 'w' ? 1 : 0;
-        if (bar > 0) p.fillRect(Rect(x0, y, bar, look.loadH), look.load[range]);
+        if (bar > 0 && in.h > 0)
+            panel_style::fillPart(p, RectF(Rect(in.x, in.y, bar, in.h)), look.loadBar[range], look.load[range]);
     }
 }
 

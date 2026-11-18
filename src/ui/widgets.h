@@ -10,6 +10,7 @@
 #include "config.h"
 #include "model/model.h"
 #include "ui/toolkit/controls.h"
+#include "ui/paint_helpers.h"
 #include "ui/panel_style.h"
 #include "ui/toolkit/menu.h"
 
@@ -23,6 +24,9 @@
 // down its left without one: background-color, width), ::current (the selected row's edges: border-color,
 // border-width per side), ::load (the CPU bar: background-color, height, margin-bottom) and ::load-bar :ok /
 // :warn / :hot. The row's own colour is data (the lane's or the track's).
+// It is drawn as a box (style::box) in that colour: a panel row as its TrackRow style gives it (setRowStyle: the
+// border and its styles, radii, gradients over the colour, inset and outer shadows), the master's row as its own
+// (LaneFrame.master); its controls go inside that box's border (and the stripe, edge and current-row outline).
 class LaneFrame : public ui::Widget {
 public:
     LaneFrame(Color color, std::optional<Color> accent = std::nullopt, int height = config::TRACK_H,
@@ -32,6 +36,9 @@ public:
     void setCurrent(bool on);              // the property "current"
     bool isCurrent() const { return current_; }
     void setTopLine(std::optional<Color> c);
+    // the box it is drawn as (its TrackRow style: lane_panel), with its own colour as the background; without one,
+    // its own style's (the master's row)
+    void setRowStyle(const css::Style& style);
     // Options → CPU per track: a thin bar along its bottom: the track's share of a core (full width: half a core;
     // < 0: none)
     void setLoad(double share);
@@ -40,6 +47,7 @@ public:
     std::optional<Color> accent() const { return accent_; }
     std::optional<Color> textColor() const { return text_; }
     Rect contentsRect() const override;
+    Rect paintRect() const override;       // (and where its box's outer shadows reach)
     void paint(Painter& p) override;
     void paintOver(Painter& p) override;
     // right-click menu (with_menu): filled by fillMenu each time
@@ -59,10 +67,20 @@ private:
         ui::style::Insets current{0, 1, 1, 1};
         Color edge, currentEdge, load[3];
         const css::Style* loadTrack = nullptr;
+        ui::style::Insets loadInset;  // (its border and padding: the bar inside them)
+        const css::Style* loadBar[3] = {nullptr, nullptr, nullptr};  // (more than a colour: drawn as boxes)
     };
     const Look& look() const;
     mutable panel_style::Parts parts_{*this};
     mutable Look look_;
+    // the box it is drawn as: its row style (or its own) with its colour as the background, worked out again when
+    // either changes, or the stylesheets (and the master's own states: boxStamp_)
+    std::optional<css::Style> rowStyle_;
+    const css::Style& box() const;
+    mutable css::Style box_;
+    mutable bool boxStale_ = true;
+    mutable int boxGeneration_ = -1;
+    mutable paint::Stamp boxStamp_;
 };
 
 // Keeps `widget` across the bottom of `viewport` (a scroll area's), `margin` px above its bottom

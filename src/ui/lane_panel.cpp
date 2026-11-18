@@ -55,6 +55,13 @@ struct RowStyle {
     int columnGap(int def) const { return ui::style::px(row, "column-gap", def); }
 };
 
+// an automation lane's row as a box: TrackRow.automation (:armed while armed for writing)
+css::Style automationRowStyle(const Automation& lane, const ui::Widget* panel, Kind kind) {
+    std::vector<std::string> states;
+    if (lane.armed) states.push_back("armed");
+    return RowStyle(panel, {"automation", kindClass(kind)}, states).row;
+}
+
 }  // namespace
 
 namespace lane_panel {
@@ -315,6 +322,7 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
         text = fg;
     }
     auto* frame = parent->add<LaneFrame>(color, style.stripe().value_or(kindAccent(track->kind)), track->height, text);
+    frame->setRowStyle(style.row);  // (its box: TrackRow's, in its colour)
     frame->fillMenu = [this, track](ui::Menu& menu) { fillTrackMenu(menu, track); };
     frame->onPress = [this, track] { timeline.setCurrentTrack(track); };  // clicking the row selects the track
     ui::HBox* outer = ui::hbox(frame, 0, 0);
@@ -480,6 +488,7 @@ LaneFrame* LanePanel::automationHeader(ui::Widget* parent, const Lane& lane) {
     RowStyle style(this, {"automation", kindClass(track->kind)});
     Color accent = style.stripe().value_or(kindAccent(track->kind));
     auto* frame = parent->add<LaneFrame>(lane_panel::automationRowColor(*a, this, track->kind), accent, lane.height);
+    frame->setRowStyle(automationRowStyle(*a, this, track->kind));  // (its box: TrackRow.automation's, :armed)
     // (a line above it, as in the timeline: stacked lanes stay apart)
     if (style.row.has("border-top-color")) frame->setTopLine(ui::style::color(style.row, "border-top-color"));
     frame->onPress = [this, track] { timeline.setCurrentTrack(track); };
@@ -504,7 +513,9 @@ LaneFrame* LanePanel::automationHeader(ui::Widget* parent, const Lane& lane) {
             [this, alive, tl, a, frame, accent, kind](bool on) {
                 a->armed = on;
                 if (!on) automation::recorder().release(a);
-                frame->setColors(lane_panel::automationRowColor(*a, alive.expired() ? nullptr : this, kind), accent);
+                const ui::Widget* panel = alive.expired() ? nullptr : this;
+                frame->setColors(lane_panel::automationRowColor(*a, panel, kind), accent);
+                frame->setRowStyle(automationRowStyle(*a, panel, kind));
                 tl->update();  // (armed lanes are tinted red there too)
             },
             "Write: while the song plays, moving this parameter (" + a->param +
@@ -538,6 +549,7 @@ LaneFrame* LanePanel::takeHeader(ui::Widget* parent, const Lane& lane) {
     RowStyle style(this, {"take", kindClass(track->kind)});
     auto* frame = parent->add<LaneFrame>(style.background(theme::c("automation_lane")),
                                          style.stripe().value_or(kindAccent(track->kind)), lane.height);
+    frame->setRowStyle(style.row);
     frame->onPress = [this, track] { timeline.setCurrentTrack(track); };
     ui::HBox* row = ui::hbox(frame, 0, style.columnGap(4));
     style.margins(row, 14, 4, 8, 4);
@@ -570,6 +582,7 @@ LaneFrame* LanePanel::groupHeader(ui::Widget* parent, const GroupPtr& group) {
         text = fg;
     }
     auto* frame = parent->add<LaneFrame>(fill, lane_panel::groupBarColor(*group, this), lanes::groupHeight(), text);
+    frame->setRowStyle(style.row);  // (in the group's own colour, if it has one)
     frame->fillMenu = [this, group](ui::Menu& menu) { fillGroupMenu(menu, group); };
     ui::VBox* col = ui::vbox(frame, 0, style.rowGap(3));
     style.margins(col, 4, 4, 8, 4);
@@ -829,7 +842,10 @@ void LanePanel::updateHeights() {
 void LanePanel::fitHeight() {
     // All lanes + master, plus room matching the timeline's horizontal scrollbar, so both scroll
     // areas have the same range (the timeline's ruler is matched by the CPU monitor).
-    int h = lanes::layout(project).back().bottom() + theme::scrollbarWidth();
+    // (and the timeline frame's bottom: ScrollArea#timeline's border and padding, nothing in the default look)
+    auto* view = dynamic_cast<const TimelineView*>(timeline.scroll);
+    int frame = view ? std::max(0, view->insetBottom()) : 0;
+    int h = lanes::layout(project).back().bottom() + theme::scrollbarWidth() + frame;
     setFixedHeight(h);
     if (height() != h) resize(width() > 0 ? width() : lane_panel::panelWidth(), h);
 }

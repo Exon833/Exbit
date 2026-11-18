@@ -21,7 +21,8 @@ A **skin** is a stylesheet put on top of `default.css`: it changes what it names
 that only sets some variables recolours everything that uses them; a skin can also change any rule. Its name
 is its `--skin-name` (else its file's name).
 
-- The program's own skins (Dark, Light, Midnight, OLED, High contrast) are in `data/skins`. Yours are in
+- The program's own skins (Dark, Light, Midnight, OLED, High contrast, and three looks of classic desktops:
+  90s, XP and 7) are in `data/skins`: each is a readable example of what a skin can do. Yours are in
   `~/.local/share/TinyDAW/skins` (Options → Skin → Open the skins folder).
 - **Options → Skin → Edit this skin…** opens the skin's stylesheet in your text editor (the one your desktop
   opens `.css` files with). One of the program's own skins is copied into your folder first, under a name you
@@ -375,12 +376,22 @@ Each entry gives the type's own properties (what it reads besides its box), its 
 - **`CheckBox`**: `color`, the font, `padding`, a box. States `:checked`, `:hover`, `:disabled`, `:focus`. Part
   `::indicator`: `width`, `height`, `margin-right` (the gap to the text), `padding`, a box; the check mark is its
   `color`.
-- **`GroupBox`**: a box starting `margin-top` down, its contents inside `padding`. State `:disabled`. Part
-  `::title`: `color`, the font, `height`, `margin`.
+- **`GroupBox`**: a box (the frame) starting `margin-top` down, its contents inside `padding`. State
+  `:disabled`. Part `::title`: `color`, the font, `height` (its row), `margin`; with a background, a border or
+  `padding`, also a box. The title is placed against the frame's top-left corner: its row starts `margin-top`
+  below the frame's top (negative: above it; default.css has `margin: -19px 4px 1px`) and `margin-left` in.
+  A title with a background, border or padding is drawn as a box shrink-wrapped around its text, over the
+  frame, so it can sit across the frame's top line; if it reaches below the frame's top border, the contents
+  start that much lower (like a fieldset's legend). Example: `GroupBox { margin-top: 7px } GroupBox::title {
+  margin-top: -7px; margin-left: 8px; padding: 0 3px; background-color: var(--window) }`.
 - **`TabWidget`**: a box. Parts `::tab` (a box; `padding`, `color`, the font) and `::tab-line` (`height`;
   `background-color`), both with `:selected`, `:hover`, `:disabled`; `::base` (the line under the tabs:
-  `height`, `background-color`).
-- **`Separator`**: `color`, `line-width`, `margin`. States `:vertical`, `:horizontal`.
+  `height`, `background-color`); `::pane` (a box under the tabs, around the pages: the current page goes
+  inside its border and `padding`; `::base` is drawn over its top).
+- **`Separator`**: `color`, `line-width`, `margin`. States `:vertical`, `:horizontal`. With a border it is a box
+  across its thickness instead of a line (`width` thick when vertical, `height` when horizontal, else as thick
+  as its borders): `Separator:vertical { border-left: 1px solid #808080; border-right: 1px solid #fff; width:
+  2px }` is an etched divider.
 - **`SplitterHandle`**: `color`, `line-width`; `width` (`:horizontal`) or `height` (`:vertical`). States
   `:hover`, `:pressed`.
 - **`StatusBar`**: `color`, the font, `padding`, a box. Parts `::separator` (the line above it: `height`,
@@ -448,8 +459,14 @@ from its style is `--layout-spacing` (rows and columns) and `--grid-spacing` (gr
   `:disabled`), `::handle` (`width`, `height`, a box; `:hover`, `:pressed`, `:disabled`; a radius of half its
   size makes it round).
 - **`ScrollBar`**: `width`, `height` (its thickness: `--scrollbar-width`). States `:horizontal`, `:vertical`. Part
-  `::thumb`: a box, `margin`, `min-height` / `min-width`; `:hover`, `:pressed`.
-- **`ScrollArea`**: the type only.
+  `::thumb`: a box, `margin`, `min-height` / `min-width`; `:hover`, `:pressed`. Parts `::sub-line` (the arrow
+  button at the top or left end) and `::add-line` (bottom or right): their length along the bar is `height` on
+  a vertical bar and `width` on a horizontal one (default 0: no buttons); each a box with an arrow (`color`,
+  `icon-size`, `stroke-width`), `:hover`, `:pressed`. A press steps the bar; held, it repeats. The thumb moves
+  between them.
+- **`ScrollArea`**: a box; its viewport and scroll bars sit inside its border and padding. The timeline's is
+  `ScrollArea#timeline`: its box surrounds the ruler, the lanes, the pinned master lane and the scroll bars,
+  so `border: 2px inset …` makes a sunken well (the track panel keeps its rows lined up with the lanes).
 - **`ListWidget`**: a box; `width`, `height`, `min-width`, `min-height`. Parts `::item` (`height`, `padding`,
   `color`; `:selected`, `:hover`, `:alternate`, `:disabled`, `:checked`, `:checkable`, `:bold`), `::indicator`
   (a row's check box: `width`, `height`, `margin`, `padding`, a box, `color`; `:checked`), `::icon` (`width`,
@@ -461,7 +478,8 @@ from its style is `--layout-spacing` (rows and columns) and `--grid-spacing` (gr
   `:checkable`, `:checked`, `:section`, `:submenu`), `::separator` (`height`, `margin`), `::check` (`width`,
   `margin-left`), `::shortcut` (`margin-left`), `::arrow` (`width`, `margin-left`, `margin-right`).
 - **`FileList`** (the file window's list): a box; `width`, `height`, `min-width`, `min-height`, `--details-from`
-  (the size and date columns show when rows are wider). Parts `::header` (a box, `padding`), `::item` (`height`;
+  (the size and date columns show when rows are wider). Its header, rows and scroll bar are inside its border
+  and padding. Parts `::header` (a box, `padding`), `::item` (`height`;
   `:selected`, `:hover`, `:folder`), `::icon` (`width`, `color`), `::detail` (`padding`, `--spare`, `color`),
   `::placeholder` (`height`).
 
@@ -494,21 +512,27 @@ from its style is `--layout-spacing` (rows and columns) and `--grid-spacing` (gr
   (the stripe), `border-top-color`, `padding`, `row-gap`, `column-gap`. Classes `.track`, `.automation`, `.take`,
   `.group`, `.audio`, `.midi`, `.return`; states `:alternate`, `:armed`. Parts `::tint`, `::group-bar` (`width`,
   `background-color`), `::controls`, `::volume`, `::auto` (the room of those rows of controls). Its controls'
-  sizes are `:root` variables (the Auto and Write buttons, the outputs).
+  sizes are `:root` variables (the Auto and Write buttons, the outputs). A row is drawn as a box in its own
+  colour (a track's or group's colour wins over `background-color`): its border and border styles, radii,
+  gradients over the colour, inset and outer shadows all apply, so `TrackRow { border: 2px outset #c0c0c0 }`
+  gives raised rows; its controls go inside the border, and `border-left-color` is still the stripe.
 - **`LaneFrame`** (`#lane`, a row's frame): parts `::stripe` (`width`), `::edge` (`background-color`, `width`),
   `::current` (the current row's outline: `border-color`, `border-width`), `::load` (a box, `height`,
   `margin-bottom`), `::load-bar` (`:ok`, `:warn`, `:hot`). Class `.master` (`background-color`, `padding`,
-  `row-gap`, `column-gap`; `::title` font, `::notice` `margin-top`).
+  `row-gap`, `column-gap`; `::title` font, `::notice` `margin-top`): the master's row, drawn as a full box the
+  same way. `::load` is a box with its bar inside its border and padding; `::load-bar` may be a box.
 - **`NameLabel`** (`.group`: the font), **`PanKnob`** (`background-color`, `padding`; `::arc`, `::pointer`:
   `color`, `stroke-width`), **`SendsPanel`** (a box, `padding`, `row-gap`, `column-gap`, `min-width`, `min-height`; `::title` font). Class
   `.pin-cover` (a box).
 
 ### Meters, the transport and the top bar
 
-- **`LevelMeter`**: parts `::track` (a box), `::bar` and `::peak` (`:ok`, `:warn`, `:hot`: `background-color`;
-  `::peak` `width`), `::number` (`:clipped`: a box, `color`, `font-family`, `font-weight`).
+- **`LevelMeter`**: a box around the whole meter, the bars and number inside its border and padding. Parts
+  `::track` (a box; its bar and peak are drawn inside its border and padding), `::bar` and `::peak` (`:ok`,
+  `:warn`, `:hot`: a box, so a gradient makes glossy bars; `::peak` `width`), `::number` (`:clipped`: a box, `color`, `font-family`, `font-weight`).
 - **`CpuMonitor`**: a box (its left border is the line by the ruler), `color`, the font, `padding`. Parts
-  `::late` (`color`, `min-width`), `::track` (a box, `height`), `::bar` (`:ok`, `:warn`, `:hot`).
+  `::late` (`color`, `min-width`), `::track` (a box, `height`; the bar inside its border and padding), `::bar`
+  (`:ok`, `:warn`, `:hot`: a box).
 - **`Scope`**: a box, `padding`, `margin-top`. Parts `::divider` (`color`, `width`, `margin-left`,
   `margin-right`), `::trace` (`color`, `stroke-width`, `fill-opacity`), `::grid` (`color`), `::caption` (`color`,
   the font, `padding`, `height`).
@@ -547,7 +571,8 @@ from its style is `--layout-spacing` (rows and columns) and `--grid-spacing` (gr
 ### The Explorer, waveforms and the Pad Kit
 
 - **`Explorer`**: `padding`, `row-gap`; parts `::folder-row` and `::preview-row` (`column-gap`), `::folder` (the
-  folder list: `min-width`). **`ExplorerDock`** (the Explorer with its title): `::title-bar`.
+  folder list: `min-width`). **`ExplorerDock`** (the Explorer with its title): `::title-bar` (a box: a caption
+  bar's gradient, a border; `padding`, `column-gap`; its `color` and font go to the title "Explorer").
 - **`FileView`** (the Explorer's list): a box, `color`. Parts `::row` (`:hover`, `:selected`), `::icon` (`color`,
   `fill-opacity`; `:selected`), `::header` (a box).
 - **`SampleWaveform`**: a box, `color`, the font. Parts `::caption` (`color`, the font, `height`, `padding`,
@@ -561,10 +586,12 @@ from its style is `--layout-spacing` (rows and columns) and `--grid-spacing` (gr
 - **`EffectWindow`**: `background-color`, `padding`, `row-gap`, `column-gap`. Parts `::slider` and `::value`
   (`min-width`), `::changed` (`color`).
 - **`CurveView`**: a box. Parts `::grid` (`color`, `stroke-width`, the font), `::analyzer` (`color`,
-  `fill-opacity`, `stroke-opacity`, `stroke-width`), `::curve` (`color`, `stroke-width`).
+  `fill-opacity`, `stroke-opacity`, `stroke-width`), `::curve` (`color`, `stroke-width`), `::grid-label` (the
+  grid's labels: `color`, the font; by default the grid's).
 - **`MeterView`**: `color`, the font, `line-height` (a row's height). Parts `::label` (`width`, `padding-right`),
-  `::track` (a box, `height`), `::bar`, `::value` (`width`, `padding-left`).
-- **`Tuner`** (a `MeterView`): a box. Parts `::note` (`:in-tune`, `:silent`), `::scale` (`background-color`,
+  `::track` (a box, `height`; the bar inside its border and padding), `::bar` (a box), `::value` (`width`,
+  `padding-left`).
+- **`Tuner`** (a `MeterView`): a box. Parts `::note` (`:in-tune`, `:silent`), `::scale` (a box,
   `height`, `margin-left`, `margin-right`, `top`), `::tick` (`width`, `height`; `:centre`), `::needle` (`background-color`,
   `border-radius`, `width`, `height`, `top`; `:in-tune`), `::cents`, `::hz`, `::end-label`.
 - **`EditorWindow`** (a plugin's own window): parts `::plugin` and `::stopped` (`background-color`, `padding`,
@@ -573,8 +600,8 @@ from its style is `--layout-spacing` (rows and columns) and `--grid-spacing` (gr
 - **`EnvelopeGraph`** (the metronome's; classes `.bar`, `.beat`): a box, `color`. Parts `::grid`, `::envelope`
   (`stroke-width`, `fill-opacity`), `::label`, `::handle` (`:dragging`).
 - The colour window: **`ColorWheel`** (`::marker`), **`ClipPreview`** (a box, `padding`, `width`, `height`;
-  `::clip`: `min-height`, `border-top-width`), **`TrackPreview`** (`::stripe`, `::name`, `::readout`,
-  `::button`, `::meter`), **`Swatch`** (`::chip`).
+  `::clip`: `min-height`, `border-top-width`), **`TrackPreview`** (`::row`: a box in the track's colour,
+  as a panel row; `::stripe`, `::name`, `::readout`, `::button`, `::meter`), **`Swatch`** (`::chip`).
 
 ### What stays the program's
 

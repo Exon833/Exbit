@@ -29,6 +29,12 @@ public:
     void setWordWrap(bool on) { wrap_ = on; updateGeometry(); update(); }
     void setElide(bool on) { elide_ = on; updateGeometry(); update(); }
     void setFont(const Font& f) { font_ = f; hasFont_ = true; updateGeometry(); update(); }
+    void clearFont() {  // the stylesheets' again
+        if (!hasFont_) return;
+        hasFont_ = false;
+        updateGeometry();
+        update();
+    }
     void setColor(Color c) {  // overrides the style's (a repaint only when it changes: paint() may set it)
         if (hasColor_ && color_ == c) return;
         color_ = c;
@@ -457,7 +463,10 @@ private:
 
 // Styles: ScrollBar (:horizontal / :vertical; width / height: its size, the thickness from --scrollbar-width),
 // ScrollBar::thumb (its own :hover and :pressed; margin: around it in the bar; min-height / min-width: its
-// shortest length)
+// shortest length), ScrollBar::sub-line and ::add-line (the arrow buttons at the top / left and the bottom /
+// right end: `height` long on a vertical bar, `width` on a horizontal one, default.css 0: none; a box with an
+// arrow of `color`, icon-size, stroke-width; their own :hover and :pressed). A press on one steps the value by
+// the single step, again and again while it is held (as an auto-repeating button); the thumb moves between them.
 class ScrollBar : public Widget {
 public:
     explicit ScrollBar(Orientation o = Orientation::Vertical, Widget* parent = nullptr);
@@ -477,25 +486,34 @@ public:
     bool mouseRelease(MouseEvent& e) override;
     bool wheel(WheelEvent& e) override;
     void enter() override { update(); }
-    void leave() override { hoverHandle_ = false; update(); }
+    void leave() override { hoverHandle_ = false; hoverLine_ = 0; update(); }
     int singleStep() const { return single_; }
     Point minimumSizeHint() const override { return sizeHint(); }
     void styleStates(std::vector<std::string>& out) const override;
     int thickness() const;                       // across it: its width when vertical, height when horizontal
     Rect handleRect() const;                     // the thumb
+    Rect lineRect(int which) const;              // an arrow button: -1 ::sub-line, 1 ::add-line (empty: none)
+    Rect trackRect() const;                      // where the thumb moves: between the arrow buttons
     ~ScrollBar() override;
     Orientation orientation;
 private:
     int lo_ = 0, hi_ = 0, value_ = 0, page_ = 10, single_ = 20;
     bool dragging_ = false, hoverHandle_ = false;
+    int hoverLine_ = 0, pressLine_ = 0;          // the arrow button under the pointer / held: -1 sub, 1 add, 0 none
     int dragOffset_ = 0, repeatTimer_ = -1;
     float wheelAcc_ = 0;
+    struct Geometry {
+        Rect sub, add, track, slot;              // the arrow buttons, the track, the thumb's slot (in it)
+    };
+    Geometry geometry(PartStyles& parts) const;
     void stopRepeat();
     Rect slotRect() const;                       // the thumb with its margins (what the mouse takes)
     void thumbStates(std::vector<const char*>& out) const;
+    void lineStates(int which, std::vector<const char*>& out) const;
 };
 
-// QScrollArea: shows a content widget through a viewport, with scroll bars as needed
+// QScrollArea: shows a content widget through a viewport, with scroll bars as needed. Styled as ScrollArea: a box,
+// its viewport and scroll bars inside its border and padding (read when it lays them out: a skin change does that)
 class ScrollArea : public Widget {
 public:
     explicit ScrollArea(Widget* parent = nullptr);
@@ -522,6 +540,10 @@ public:
     Point sizeHint() const override;
     Point minimumSizeHint() const override;
     void place();                                // (lays the content and the bars out now)
+    // inside its border and padding (its style's box: drawn under them; none in the default look): where its
+    // viewport and scroll bars go
+    Rect innerRect() const;
+    void paint(Painter& p) override;
 private:
     Widget* viewport_;
     Widget* content_ = nullptr;
@@ -669,7 +691,8 @@ private:
 // QTabWidget: tabs on top, one page shown. Styled as `TabWidget`: ::tab (each tab: a box (background-color, border,
 // border-radius) with padding around its title (color, font-*)); ::tab-line (a line along the tab's bottom, `height`
 // tall: the selected tab's accent); both with :selected, :hover (the tab under the pointer) and :disabled; ::base
-// (the line under all the tabs: its `height` and background-color).
+// (the line under all the tabs: its `height` and background-color); ::pane (a box under the tabs, inside its
+// margin, around the page: the page inside its border and padding; default.css: none).
 class TabWidget : public Widget {
 public:
     explicit TabWidget(Widget* parent = nullptr);
@@ -704,13 +727,16 @@ private:
     mutable int styledTab_ = -1;  // the tab styleStates() describes: -1 none (the widget), -2 no tab in particular
     int tabAt(Point p) const;
     Rect tabRect(int i) const;
+    Rect paneRect() const;  // (::pane's box)
     // a part of tab i ("tab", "tab-line") in that tab's states (-2: no tab in particular: for sizes)
     const css::Style& tabStyle(int i, const std::string& part) const;
 };
 
 // QGroupBox: a panel-coloured box with a title above. Styled as `GroupBox`: the box (background-color, border,
 // border-radius) starts margin-top below its top; its layout goes inside the box's padding; ::title (color, font-*,
-// height, margin: where the title goes above the box).
+// height: its row; margin: placed against the box's top-left corner, default.css -19px 4px 1px: in the room above
+// the box; with a background, border or padding a box shrink-wrapped around its text, drawn over the frame: across
+// its line). When the title reaches below the box's top border, the contents start that much lower.
 class GroupBox : public Widget {
 public:
     explicit GroupBox(const std::string& title = "", Widget* parent = nullptr);
@@ -725,7 +751,8 @@ public:
 
 // a thin line (QFrame HLine/VLine, or the toolbar separator). Styled as `Separator`, :vertical or :horizontal: the
 // line's `color` and `line-width`, the empty space around it (margin: a vertical one, the toolbar separator, 6 px
-// above and below and 3 px beside; a horizontal one none).
+// above and below and 3 px beside; a horizontal one none). With a border it is a box instead (an etched line: each
+// side's colour), `width` thick when vertical, `height` when horizontal (else as thick as its borders across it).
 class Separator : public Widget {
 public:
     explicit Separator(Orientation o = Orientation::Horizontal, Widget* parent = nullptr);

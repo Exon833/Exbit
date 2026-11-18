@@ -143,7 +143,8 @@ void drawFileGlyph(Painter& p, float x, float y, float s, Color c) {
     p.drawPolyline({{x + 8.5f * s, y + 0.5f * s}, {x + 8.5f * s, y + 3.5f * s}, {x + 11.5f * s, y + 3.5f * s}}, c, 1.0f * s);
 }
 
-// --- the list of folders and files. Styles (default.css): FileList (its box; width / height, min-width /
+// --- the list of folders and files, inside its border and padding: the header along the top, the rows (and
+// their scroll bar) below. Styles (default.css): FileList (its box; width / height, min-width /
 // min-height; --details-from: the detail columns show when its rows are wider than that), FileList::header (the
 // column titles: its box, padding around each title), FileList::item (each row: height, :selected, :hover,
 // :folder), FileList::icon (the folder / file glyph: width, colour), FileList::detail (the size and date
@@ -204,24 +205,33 @@ public:
         sync();
         selectionChanged.emit();
     }
+    // inside its border and padding: the header along the top, the rows below it (and the scroll bar at their right)
+    Rect inner() const { return style::contents(rect(), computedStyle()); }
+    // the rows' area (without the scroll bar)
+    Rect viewRect() const {
+        Rect in = inner();
+        int hh = headerH();
+        return Rect(in.x, in.y + hh, std::max(0, in.w - (bar->isVisible() ? bar->thickness() : 0)), in.h - hh);
+    }
     void sync() {
         readStyle();
-        int total = (int)entries.size() * rowH, vh = height() - headerH();
+        Rect in = inner();
+        int hh = headerH();
+        int total = (int)entries.size() * rowH, vh = in.h - hh;
         bool need = total > vh && vh > 0;
         int bw = bar->thickness();
         bar->setVisible(need);
-        bar->setGeometry(width() - bw, headerH(), bw, std::max(0, vh));
+        bar->setGeometry(in.right() - bw, in.y + hh, bw, std::max(0, vh));
         bar->setPageStep(vh);
         bar->setSingleStep(rowH);
         bar->setRange(0, std::max(0, total - vh));
         update();
     }
     void resized() override { sync(); }
-    int viewWidth() const { return width() - (bar->isVisible() ? bar->thickness() : 0); }
     int rowAt(Point p) const {
-        int vw = viewWidth();
-        if (p.x < 0 || p.x >= vw || p.y < headerH() || p.y >= height()) return -1;
-        int r = (p.y - headerH() + bar->value()) / rowH;
+        Rect vr = viewRect();
+        if (p.x < vr.x || p.x >= vr.right() || p.y < vr.y || p.y >= vr.bottom()) return -1;
+        int r = (p.y - vr.y + bar->value()) / rowH;
         return r < (int)entries.size() ? r : -1;
     }
     std::vector<int> selected() const {
@@ -232,7 +242,7 @@ public:
     }
     void scrollTo(int r) {
         if (r < 0) return;
-        int y = r * rowH, v = bar->value(), vh = height() - headerH();
+        int y = r * rowH, v = bar->value(), vh = viewRect().h;
         if (y < v) v = y;
         else if (y + rowH > v + vh) v = y + rowH - vh;
         bar->setValue(v);
@@ -263,7 +273,9 @@ public:
         PartStyles parts(*this);
         Font base = theme::uiFont();
         Font hf = style::font(head, base);
-        int vw = viewWidth();
+        // (inside its border and padding: the header, then the rows)
+        Rect in = inner(), vr = viewRect();
+        int vw = vr.w, x0 = in.x;
         int hh = headerH();
         style::box(p, rect(), st);
         // columns: name | size | modified (the detail columns: their widest value, padding and --spare)
@@ -275,31 +287,32 @@ public:
         int sizeW = style::textWidth(df, "000.0 MB") + dpad.w() + spare;
         bool cols = vw > (int)std::lround(PartStyles::lengthVar(st, "--details-from", 360));
         int nameW = cols ? vw - dateW - sizeW : vw;
-        style::box(p, Rect(0, 0, width(), hh), head);
+        style::box(p, Rect(in.x, in.y, in.w, hh), head);
         style::Insets hpad = style::insets(head, "padding"), hb = style::insets(head, "border-width");
         Color ht = style::foreground(head);
-        int th = hh - hb.h();  // (the titles centred above the header's bottom edge)
-        style::text(p, Rect(hb.left + hpad.left, hb.top, nameW - hb.left - hpad.w(), th), AlignLeft | AlignVCenter, "Name",
-                    hf, ht);
+        int th = hh - hb.h(), ty = in.y + hb.top;  // (the titles centred above the header's bottom edge)
+        style::text(p, Rect(x0 + hb.left + hpad.left, ty, nameW - hb.left - hpad.w(), th), AlignLeft | AlignVCenter,
+                    "Name", hf, ht);
         if (cols) {
-            style::text(p, Rect(nameW + hpad.left, hb.top, sizeW - hpad.w(), th), AlignRight | AlignVCenter, "Size", hf, ht);
-            style::text(p, Rect(nameW + sizeW + hpad.left, hb.top, dateW - hpad.w(), th), AlignLeft | AlignVCenter,
+            style::text(p, Rect(x0 + nameW + hpad.left, ty, sizeW - hpad.w(), th), AlignRight | AlignVCenter, "Size", hf,
+                        ht);
+            style::text(p, Rect(x0 + nameW + sizeW + hpad.left, ty, dateW - hpad.w(), th), AlignLeft | AlignVCenter,
                         "Modified", hf, ht);
         }
         p.save();
-        p.setClip(Rect(0, hh, vw, height() - hh));
+        p.setClip(vr);
         int scroll = bar->value();
         std::vector<const char*> states;
         for (int r = std::max(0, scroll / rowH); r < (int)entries.size(); ++r) {
-            int y = hh + r * rowH - scroll;
-            if (y >= height()) break;
+            int y = vr.y + r * rowH - scroll;
+            if (y >= vr.bottom()) break;
             const Entry& e = entries[r];
             states.clear();
             if (sel[r]) states.push_back("selected");
             if (r == hover) states.push_back("hover");
             if (e.dir) states.push_back("folder");
             const css::Style& item = parts.get("item", states);
-            Rect row(0, y, vw, rowH);
+            Rect row(x0, y, vw, rowH);
             style::box(p, row, item);
             Rect c = style::contents(row, item);
             const css::Style& icon = parts.get("icon", states, &item);
@@ -309,7 +322,7 @@ public:
             if (e.dir) drawFolderGlyph(p, gx, gy, iw / 14.f, gc);
             else drawFileGlyph(p, gx, gy, iw / 14.f, gc);
             int tx = (int)gx + iw + style::px(icon, "margin-right", 6);
-            Rect nameBox = style::contents(Rect(0, y, nameW, rowH), item);
+            Rect nameBox = style::contents(Rect(x0, y, nameW, rowH), item);
             style::text(p, Rect(tx, c.y, nameBox.right() - tx, c.h), AlignLeft | AlignVCenter, e.name,
                         parts.font(item, base), style::foreground(item), true);
             if (cols) {
@@ -317,16 +330,16 @@ public:
                 const Font& dff = parts.font(d, base);
                 Color dc = style::foreground(d);
                 if (!e.dir)
-                    style::text(p, Rect(nameW + dpad.left, c.y, sizeW - dpad.w(), c.h), AlignRight | AlignVCenter,
+                    style::text(p, Rect(x0 + nameW + dpad.left, c.y, sizeW - dpad.w(), c.h), AlignRight | AlignVCenter,
                                 sizeText(e.size), dff, dc);
-                style::text(p, Rect(nameW + sizeW + dpad.left, c.y, dateW - dpad.w(), c.h), AlignLeft | AlignVCenter,
-                            timeText(e.mtime), dff, dc);
+                style::text(p, Rect(x0 + nameW + sizeW + dpad.left, c.y, dateW - dpad.w(), c.h),
+                            AlignLeft | AlignVCenter, timeText(e.mtime), dff, dc);
             }
         }
         p.restore();
         if (entries.empty()) {
             const css::Style& ph = parts.get("placeholder");
-            style::text(p, Rect(0, hh, vw, std::min(style::px(ph, "height", 60), height() - hh)), AlignCenter, "(empty)",
+            style::text(p, Rect(vr.x, vr.y, vw, std::min(style::px(ph, "height", 60), vr.h)), AlignCenter, "(empty)",
                         parts.font(ph, base), style::foreground(ph));
         }
     }
@@ -363,7 +376,7 @@ public:
     }
     bool keyPress(KeyEvent& e) override {
         int n = (int)entries.size();
-        int page = std::max(1, (height() - headerH()) / rowH - 1);
+        int page = std::max(1, viewRect().h / rowH - 1);
         int r = current;
         switch (e.key) {
         case plat::Key_Up: r = std::max(0, r - 1); break;

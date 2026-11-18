@@ -996,3 +996,61 @@ void Explorer::openPath(const std::string& path) {
 void Explorer::presetsChanged() {
     if (!tree->rootPath().empty() && util::startsWith(tree->rootPath(), presets::tracksFolder())) tree->reload();
 }
+
+// ============================================================================================
+// ExplorerDock
+// ============================================================================================
+
+namespace {
+// the Explorer's title bar: ExplorerDock::title-bar's box (none in the default look; a caption bar's gradient…)
+class DockTitleBar : public ui::Widget {
+public:
+    explicit DockTitleBar(const ui::Widget& dock) : dock_(dock) {}
+    void paint(Painter& p) override { ui::style::box(p, rect(), dock_.computedStyle("title-bar")); }
+
+private:
+    const ui::Widget& dock_;
+};
+}  // namespace
+
+ExplorerDock::ExplorerDock(ui::Widget* content, std::function<void()> onClose) {
+    auto* col = ui::vbox(this, 0, 0);
+    setStyleType("ExplorerDock");
+    auto* bar = bar_ = add<DockTitleBar>(*this);
+    row_ = ui::hbox(bar, 0, 0);
+    auto* row = row_;
+    row->setContentsMargins(6, 0, 2, 0);
+    auto* title = title_ = bar->add<ui::Label>("Explorer");
+    row->addWidget(title, 1);
+    auto* x = close_ = bar->add<ui::Button>("✕");
+    x->setStyle(ui::Button::Style::Tool);
+    x->setProperty("autoRaise", "true");
+    x->setToolTip("Close the Explorer (View → Explorer, Ctrl+E shows it again)");
+    x->clicked.connect(std::move(onClose));
+    row->addWidget(x);
+    col->addWidget(bar);
+    adopt(std::unique_ptr<ui::Widget>(content));
+    col->addWidget(content, 1);
+    fit();
+}
+
+// the title bar's and the ✕'s sizes from the skin (--dock-title-height, --dock-close-size), the room around the
+// title and ✕ (ExplorerDock::title-bar's padding); its title in the bar's color and font, when it sets them (else
+// the Label's own)
+void ExplorerDock::fit() {
+    int gen = theme::styles().generation();
+    if (gen != titled_) {
+        titled_ = gen;
+        css::Style own = panel_style::declared(*this, "title-bar");
+        if (own.has("color")) title_->setColor(ui::style::color(own, "color", title_->color()));
+        else title_->clearColor();
+        title_->clearFont();
+        if (own.has("font-family") || own.has("font-size") || own.has("font-weight"))
+            title_->setFont(ui::style::font(own, title_->font()));
+        bar_->update();
+    }
+    ui::styleRoom(row_, computedStyle("title-bar"));
+    int h = theme::metric("dock-title-height", 22), x = theme::metric("dock-close-size", 18);
+    if (bar_->minimumSize().y != h || bar_->maximumSize().y != h) bar_->setFixedHeight(h);
+    if (close_->minimumSize() != Point(x, x) || close_->maximumSize() != Point(x, x)) close_->setFixedSize(x, x);
+}

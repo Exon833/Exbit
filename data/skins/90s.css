@@ -1,0 +1,808 @@
+/* 90s: a skin of Tiny DAW with a mid-90s desktop look. A silver-grey window face, black text, white fields
+   and lists; 2 px bevels (raised buttons and bars, sunken fields, lists and meters), a navy selection, square
+   corners and a small, crisp font. It is put on top of default.css: it sets the variables, then changes the
+   rules that draw the bevels. docs/skins.md lists everything a skin can style. */
+
+/* ============================================================================================================
+   The palette. The 16-colour desktop palette: silver #c0c0c0, grey #808080, white, black, navy #000080,
+   teal #008080, maroon, olive, and the bright red, yellow and green for the meters.
+   ============================================================================================================ */
+:root {
+    --skin-name: "90s";
+    font-family: "Liberation Sans", "Nimbus Sans", "DejaVu Sans", sans-serif;
+    font-size: 8pt;
+    --mono-font: "Liberation Mono", "Nimbus Mono PS", "DejaVu Sans Mono", monospace;
+
+    /* Window */
+    --window: #c0c0c0;
+    --window-text: #000000;
+    --base: #ffffff;
+    --alternate-base: #ffffff;
+    --text: #000000;
+    --button: #c0c0c0;
+    --button-text: #000000;
+    --highlight: #000080;
+    --highlighted-text: #ffffff;
+    --tooltip-base: #ffffe1;
+    --tooltip-text: #000000;
+    --disabled-text: #808080;
+    --hint-text: #404040;
+    --dimmed-text: #606060;
+    --accent: #000080;
+    --accent-text: #ffffff;
+    --frame-edge: #000000;
+
+    /* Timeline */
+    --lane: #ffffff;
+    --lane-alt: #f2f2f2;
+    --below-lanes: #808080;
+    --master-lane: #dcdcdc;
+    --master-divider: #000080;
+    --group-lane: #d4d4d4;
+    --group-accent: #808080;
+    --ruler-bg: #c0c0c0;
+    --ruler-text: #000000;
+    --grid-fine: #ececec;
+    --grid: #d6d6d6;
+    --grid-bar: #a0a0a0;
+    --playhead: #ff0000;
+    --cursor: #000080;
+    --selection-fill: #0000802a;
+    --selection-edge: #000080;
+    --automation-lane: #eaeaea;
+    --automation-line: #800080;
+    --loop: #008080c0;
+    --loop-off: #00808050;
+    --frozen-tint: #00008030;
+    --overview-bg: #c0c0c0;
+    --overview-view: #000080;
+    --overview-view-fill: #00008018;
+    --overview-edge: #808080;
+
+    /* Tracks and clips (a track's or clip's own colour is its data: kept) */
+    --row: #c0c0c0;
+    --row-alt: #c0c0c0;
+    --clip-audio: #2a6db0;
+    --clip-midi: #2e8b57;
+    --accent-audio: #000080;
+    --accent-midi: #008000;
+    --accent-return: #808000;
+    --mute: #ff4040;
+    --solo: #ffff00;
+    --record: #ff0000;
+
+    /* Meters: a black well with green, yellow and red */
+    --meter-bg: #000000;
+    --meter-ok: #00e000;
+    --meter-warn: #ffff00;
+    --meter-hot: #ff0000;
+
+    /* MIDI editor */
+    --keys-white: #ffffff;
+    --keys-black: #000000;
+    --keys-line: #808080;
+    --keys-label: #000000;
+    --key-sounding: #000080a0;
+    --roll-shade: #80808070;
+    --selected-note: #000000;
+
+    /* Explorer */
+    --sample-wave: #00e000;
+
+    /* The shades (--hover … --accent-hover) stay default.css's mixes of the colours above: every rule that reads
+       them is replaced below (no hover glow; pressed and switched-on controls are sunken instead). */
+
+    /* The bevels, used by the rules below: a 1 px border (the outer ring) and two inset shadows (the inner ring).
+       Raised: white and light grey top-left, grey and black bottom-right; sunken the other way round. */
+    --raised-edge: #ffffff #000000 #000000 #ffffff;
+    --raised-inner: inset -1px -1px #808080, inset 1px 1px #dfdfdf;
+    --sunken-edge: #808080 #ffffff #ffffff #808080;
+    --sunken-inner: inset 1px 1px #000000, inset -1px -1px #dfdfdf;
+    --pressed-edge: #000000 #ffffff #ffffff #000000;
+    --pressed-inner: inset 1px 1px #808080, inset -1px -1px #dfdfdf;
+    /* the light dithered face of a switched-on tool button and of scroll bar tracks */
+    --dither: repeating-linear-gradient(45deg, #c0c0c0 0 0.3536px, #ffffff 0.3536px 1.0607px, #c0c0c0 1.0607px 1.4142px);
+
+    /* Sizes: a little more room for the bevels */
+    --scrollbar-width: 16px;
+    --ruler-height: 26px;
+    --dock-title-height: 20px;
+    --dock-close-size: 16px;
+    --transport-button-size: 26px;
+}
+
+/* ============================================================================================================
+   Buttons: raised 2 px bevels; pressed or switched on: sunken, the content one pixel down and right.
+   ============================================================================================================ */
+Button {
+    background-color: var(--button);
+    color: var(--button-text);
+    border: 1px solid;
+    border-color: var(--raised-edge);
+    border-radius: 0;
+    box-shadow: var(--raised-inner);
+}
+PushButton { padding: 4px 12px; }
+Button:hover { background-color: var(--button); }
+Button:pressed, Button:checked {
+    background-color: var(--button);
+    border-color: var(--pressed-edge);
+    box-shadow: var(--pressed-inner);
+}
+PushButton:pressed, PushButton:checked { padding: 5px 11px 3px 13px; }
+ToolButton:pressed, ToolButton:checked { padding: 4px 4px 2px 6px; }
+ToolButton:icon:pressed, ToolButton:icon:checked { padding: 4px 2px 2px 4px; }
+/* a switched-on tool button: sunken on the light dithered face */
+ToolButton:checked { background-image: var(--dither); }
+
+/* Lit buttons (a track's FX with plugins, Preview, Metronome on…): teal, raised (sunken while switched on) */
+Button:lit, Button:lit:hover { background-color: #008080; color: #ffffff; }
+Button:lit:checked { background-image: none; }
+
+/* A dialog's default button (and the focused one): a black frame around the bevel */
+Button:default, Button:default:hover, PushButton:focus {
+    background-color: var(--button);
+    color: var(--button-text);
+    border-color: #000000;
+    box-shadow: inset -1px -1px #000000, inset 1px 1px #ffffff, inset -2px -2px #808080, inset 2px 2px #dfdfdf;
+}
+PushButton:default:pressed, PushButton:focus:pressed {
+    box-shadow: inset 0 0 0 1px #808080;  /* pressed: the frame, then a flat grey edge */
+    padding: 5px 11px 3px 13px;
+}
+PushButton:focus:lit { border-color: #000000; }
+PushButton:focus:disabled { border-color: var(--raised-edge); box-shadow: var(--raised-inner); }
+
+/* Mute, solo, record and the other switches with a role: sunken in their colour */
+Button:toggled, Button:toggled:hover {
+    background-color: var(--toggle-color, var(--accent));
+    border-color: var(--pressed-edge);
+    box-shadow: var(--pressed-inner);
+}
+.toggle-mute:toggled, .toggle-record:toggled { color: #ffffff; }
+.toggle-accent:toggled { color: #ffffff; }
+
+/* Disabled: grey text embossed in white */
+Button:disabled { color: var(--disabled-text); text-shadow: 1px 1px #ffffff; }
+PushButton:disabled, ToolButton:disabled { background-color: var(--button); }
+
+/* Flat tool buttons (tool bars): no edge until the mouse is over them, then a thin raised one */
+ToolButton.autoRaise { background-color: transparent; border-color: transparent; box-shadow: none; }
+ToolButton.autoRaise:hover { border-color: #ffffff #808080 #808080 #ffffff; }
+ToolButton.autoRaise:pressed { border-color: #808080 #ffffff #ffffff #808080; box-shadow: none; }
+/* … and switched on (Beats, a menu's open button): sunken thin on the dithered face, the text black */
+ToolButton.autoRaise:checked, ToolButton.autoRaise:lit, ToolButton.autoRaise:lit:hover {
+    background-color: #c0c0c0;
+    background-image: var(--dither);
+    color: #000000;
+    border-color: #808080 #ffffff #ffffff #808080;
+    box-shadow: none;
+}
+ToolButton.autoRaise:disabled { background-color: transparent; border-color: transparent; }
+
+/* The drop-down part of a split button */
+Button::arrow { background-color: transparent; }
+Button:arrow-hover::arrow { background-color: #d4d4d4; }
+Button::separator { background-color: #808080; }
+
+/* The playback buttons' icons */
+IconButton::icon { color: #000000; }
+IconButton:checked::icon { color: #000000; }
+IconButton:disabled::icon { color: #808080; }
+
+/* ============================================================================================================
+   Basic controls: labels, check boxes, group boxes, tabs, separators, the status bar, tooltips, dialogs
+   ============================================================================================================ */
+Label:link { color: #0000ff; }
+/* a disabled label is also how the program dims a hint: dark enough to read */
+Label:disabled { color: #606060; }
+
+/* The time display: a sunken black window with green digits */
+Label#time {
+    background-color: #000000;
+    color: #00ff00;
+    border: 1px solid;
+    border-color: var(--sunken-edge);
+    box-shadow: var(--sunken-inner);
+    padding: 1px 6px;
+}
+
+/* Check boxes: a white sunken square with a black tick */
+CheckBox::indicator {
+    width: 13px;
+    height: 13px;
+    padding: 2px;
+    background-color: #ffffff;
+    border: 1px solid;
+    border-color: var(--sunken-edge);
+    border-radius: 0;
+    box-shadow: var(--sunken-inner);
+    color: #000000;
+}
+CheckBox:hover::indicator { border-color: var(--sunken-edge); }
+CheckBox:checked::indicator { background-color: #ffffff; border-color: var(--sunken-edge); }
+CheckBox:pressed::indicator { background-color: #c0c0c0; }
+CheckBox:disabled { text-shadow: 1px 1px #ffffff; }
+CheckBox:disabled::indicator { background-color: #c0c0c0; border-color: var(--sunken-edge); color: #808080; }
+
+/* Group boxes: an etched frame (grey and white), the title on the face across its top line */
+GroupBox {
+    background-color: transparent;
+    border: 2px groove #d4d4d4;
+    border-radius: 0;
+    margin-top: 8px;
+}
+GroupBox::title {
+    color: #000000;
+    background-color: #c0c0c0;
+    margin-top: -8px;
+    margin-left: 8px;
+    padding: 0 3px;
+}
+
+/* Tabs (the toolkit's; no window of the program has them yet): raised tabs, the chosen one bold */
+TabWidget::base { height: 1px; background-color: #ffffff; }
+TabWidget::tab {
+    padding: 4px 10px 4px;
+    color: #000000;
+    background-color: #c0c0c0;
+    border: 1px solid;
+    border-color: #ffffff #000000 transparent #ffffff;
+    box-shadow: inset -1px 0 #808080, inset 1px 1px #dfdfdf;
+}
+TabWidget::tab:hover { background-color: #c0c0c0; }
+TabWidget::tab:selected { background-color: #c0c0c0; font-weight: bold; }
+TabWidget::tab:disabled { color: var(--disabled-text); }
+TabWidget::tab-line { height: 0; }
+TabWidget::tab-line:selected { background-color: transparent; }
+TabWidget::pane {
+    border: 1px solid;
+    border-color: var(--raised-edge);
+    box-shadow: var(--raised-inner);
+    padding: 4px;
+}
+
+/* Separators: etched (a grey line beside a white one); splitters: no line, the face shows between the panes */
+Separator:vertical { border-left: 1px solid #808080; border-right: 1px solid #ffffff; width: 2px; }
+Separator:horizontal { border-top: 1px solid #808080; border-bottom: 1px solid #ffffff; height: 2px; }
+SplitterHandle { color: #c0c0c0; }
+SplitterHandle:hover, SplitterHandle:pressed { color: #808080; }
+
+/* The status bar: a thin sunken pane along the bottom (no line above it) */
+StatusBar {
+    color: #000000;
+    padding: 3px 6px;
+    border: 1px solid;
+    border-color: #808080 #ffffff #ffffff #808080;  /* a thin sunken pane */
+}
+StatusBar::separator { height: 0; }
+
+/* Tooltips: the pale yellow note with a black edge */
+ToolTip {
+    background-color: var(--tooltip-base);
+    color: #000000;
+    border: 1px solid #000000;
+    border-radius: 0;
+    padding: 2px 4px;
+}
+
+/* Dialogs: the message box's signs; the progress bar's sunken well and navy blocks */
+MessageIcon { background-color: #000080; color: #ffffff; }
+MessageIcon.question { background-color: #000080; }
+MessageIcon.warning { background-color: #ffff00; color: #000000; }
+MessageIcon.critical { background-color: #ff0000; color: #ffffff; }
+ProgressBar {
+    background-color: #ffffff;
+    color: #000000;
+    border: 1px solid;
+    border-color: var(--sunken-edge);
+    border-radius: 0;
+    box-shadow: var(--sunken-inner);
+}
+ProgressBar::chunk { background-color: #000080; color: #ffffff; border-radius: 0; }
+
+/* ============================================================================================================
+   Fields: white and sunken (2 px), the selection navy
+   ============================================================================================================ */
+LineEdit, SpinBox, ComboBox {
+    background-color: #ffffff;
+    color: #000000;
+    border: 1px solid;
+    border-color: var(--sunken-edge);
+    border-radius: 0;
+    box-shadow: var(--sunken-inner);
+}
+LineEdit:frameless { background-color: transparent; border-width: 0; box-shadow: none; }
+LineEdit:hover, LineEdit:focus, LineEdit:disabled,
+SpinBox:hover, SpinBox:focus, SpinBox:disabled,
+ComboBox:hover, ComboBox:focus, ComboBox:open, ComboBox:disabled { border-color: var(--sunken-edge); }
+LineEdit:disabled, SpinBox:disabled, ComboBox:disabled { background-color: #c0c0c0; color: #808080; }
+LineEdit:read-only { background-color: #c0c0c0; }
+LineEdit:frameless:disabled, LineEdit:frameless:read-only { background-color: transparent; }
+LineEdit::placeholder { color: #808080; }
+LineEdit::selection { background-color: #000080; color: #ffffff; padding: 1px 0; }
+LineEdit::cursor { background-color: #000000; width: 1px; }
+LineEdit::clear-button { color: #000000; }
+
+/* Number fields: the arrows on two small raised buttons at the right */
+SpinBox::up-button, SpinBox::down-button {
+    background-color: #c0c0c0;
+    color: #000000;
+    width: 16px;
+    border: 1px solid;
+    border-color: var(--raised-edge);
+    border-radius: 0;
+    box-shadow: var(--raised-inner);
+    icon-size: 7px;
+    stroke-width: 1.4px;
+}
+SpinBox:up-hover::up-button, SpinBox:down-hover::down-button { background-color: #c0c0c0; }
+SpinBox:up-pressed::up-button, SpinBox:down-pressed::down-button {
+    border-color: var(--pressed-edge);
+    box-shadow: var(--pressed-inner);
+}
+SpinBox:at-maximum::up-button, SpinBox:at-minimum::down-button,
+SpinBox:disabled::up-button, SpinBox:disabled::down-button { background-color: #c0c0c0; color: #808080; }
+
+/* Drop-down lists: the arrow on a raised button at the right */
+ComboBox::arrow {
+    background-color: #c0c0c0;
+    color: #000000;
+    width: 16px;
+    padding-left: 3px;
+    border: 1px solid;
+    border-color: var(--raised-edge);
+    box-shadow: var(--raised-inner);
+    icon-size: 8px;
+    stroke-width: 1.6px;
+}
+ComboBox:open::arrow, ComboBox:pressed::arrow { border-color: var(--pressed-edge); box-shadow: var(--pressed-inner); }
+ComboBox:disabled::arrow { color: #808080; }
+ComboPopup { background-color: #ffffff; border: 1px solid #000000; padding: 0; }
+ComboPopup::item { color: #000000; padding: 2px 6px; }
+ComboPopup::item:hover, ComboPopup::item:selected { background-color: #000080; color: #ffffff; }
+ComboPopup::separator { background-color: #808080; }
+
+/* ============================================================================================================
+   Sliders, scroll bars, lists, trees, menus, the file dialog
+   ============================================================================================================ */
+
+/* Sliders: a sunken groove, a raised upright handle */
+Slider { height: 20px; }
+Slider:vertical { width: 20px; }
+Slider::groove {
+    width: 4px;
+    height: 4px;
+    background-color: #ffffff;
+    border: 1px solid;
+    border-color: var(--sunken-edge);
+    border-radius: 0;
+    box-shadow: inset 1px 1px #000000;
+}
+Slider::fill { background-color: #000080; border-radius: 0; }
+Slider::fill:disabled { background-color: #808080; }
+Slider::handle {
+    width: 10px;
+    height: 18px;
+    background-color: #c0c0c0;
+    border: 1px solid;
+    border-color: var(--raised-edge);
+    border-radius: 0;
+    box-shadow: var(--raised-inner);
+}
+Slider:vertical::handle { width: 18px; height: 10px; }
+Slider::handle:hover, Slider::handle:pressed { background-color: #c0c0c0; }
+Slider::handle:disabled { background-color: #c0c0c0; }
+
+/* Scroll bars: a dithered light track, a raised thumb */
+ScrollBar { background-color: #dfdfdf; background-image: var(--dither); }
+ScrollBar::thumb {
+    background-color: #c0c0c0;
+    margin: 0;
+    border: 1px solid;
+    border-color: var(--raised-edge);
+    border-radius: 0;
+    box-shadow: var(--raised-inner);
+}
+ScrollBar::thumb:hover, ScrollBar::thumb:pressed { background-color: #c0c0c0; }
+/* … and a raised arrow button at each end (sunken, the arrow shifted, while pressed) */
+ScrollBar::sub-line, ScrollBar::add-line {
+    height: 16px;
+    background-color: #c0c0c0;
+    color: #000000;
+    border: 1px solid;
+    border-color: var(--raised-edge);
+    box-shadow: var(--raised-inner);
+    icon-size: 7px;
+    stroke-width: 1.6px;
+}
+ScrollBar:horizontal::sub-line, ScrollBar:horizontal::add-line { width: 16px; }
+ScrollBar::sub-line:hover, ScrollBar::add-line:hover { background-color: #c0c0c0; }
+ScrollBar::sub-line:pressed, ScrollBar::add-line:pressed {
+    border-color: #808080;
+    box-shadow: none;
+    padding: 1px 0 0 1px;
+}
+
+/* Lists and trees: white and sunken; the selected row navy */
+ListWidget, TreeWidget, FileList, FileView {
+    background-color: #ffffff;
+    border: 1px solid;
+    border-color: var(--sunken-edge);
+    border-radius: 0;
+    box-shadow: var(--sunken-inner);
+}
+ListWidget::item, TreeWidget::item, FileList::item { color: #000000; }
+ListWidget::item:alternate { background-color: #ffffff; }
+ListWidget::item:hover, TreeWidget::item:hover, FileList::item:hover, FileView::row:hover { background-color: transparent; }
+ListWidget::item:selected, TreeWidget::item:selected, FileList::item:selected, FileView::row:selected {
+    background-color: #000080;
+    color: #ffffff;
+}
+ListWidget::indicator {
+    background-color: #ffffff;
+    border: 1px solid;
+    border-color: var(--sunken-edge);
+    border-radius: 0;
+    box-shadow: var(--sunken-inner);
+    color: #000000;
+    padding: 2px;
+}
+ListWidget::indicator:checked { background-color: #ffffff; border-color: var(--sunken-edge); }
+TreeWidget::branch { color: #000000; }
+
+/* The menu bar on the face: the open title navy */
+MenuBar::item { padding: 3px 7px; color: #000000; }
+MenuBar::item:hover { background-color: transparent; }
+MenuBar::item:open { background-color: #000080; color: #ffffff; }
+MenuBar::item:disabled { color: #808080; }
+
+/* Menus: a raised 2 px bevel on the face, the row under the mouse navy */
+Menu {
+    background-color: #c0c0c0;
+    border: 1px solid;
+    border-color: #dfdfdf #000000 #000000 #dfdfdf;
+    border-radius: 0;
+    box-shadow: inset -1px -1px #808080, inset 1px 1px #ffffff;
+    padding: 3px;
+}
+Menu::item { padding: 3px 20px; color: #000000; }
+Menu::item:hover { background-color: #000080; color: #ffffff; }
+Menu::item:disabled { color: #808080; text-shadow: 1px 1px #ffffff; }
+Menu::item:section { color: #000000; }
+Menu::item:disabled:hover { background-color: #000080; color: #808080; text-shadow: none; }
+Menu::separator { height: 2px; margin: 3px 2px; background-color: #808080; border-bottom: 1px solid #ffffff; }
+Menu::check { color: #000000; }
+Menu::check:hover { color: #ffffff; }
+
+/* The file dialog's list: column titles as raised buttons */
+FileList::header {
+    background-color: #c0c0c0;
+    color: #000000;
+    border: 1px solid;
+    border-color: var(--raised-edge);
+    box-shadow: var(--raised-inner);
+    padding: 2px 6px;
+}
+FileList::icon { color: #808000; }
+FileList::detail { color: #000000; }
+FileList::placeholder { color: #808080; }
+
+/* ============================================================================================================
+   The timeline: white lanes with grey grid lines, a raised silver ruler, the master lane below a navy line
+   ============================================================================================================ */
+Ruler {
+    background-color: #c0c0c0;
+    color: #000000;
+    border: 1px solid;
+    border-color: var(--raised-edge);
+    box-shadow: var(--raised-inner);
+}
+/* the labels a little higher, the loop band a little lower: black numbers stay off the teal band */
+Ruler::label { baseline: 13px; }
+Ruler::tempo { color: #000080; baseline: 13px; }
+Ruler::loop { height: 45%; }
+Ruler::marker { background-color: #000080; color: #ffffff; height: 45%; }
+Ruler::marker-line { background-color: #000080; }
+
+Lane.group { border-top: 1px solid #808080; }
+Lane.automation, Lane.take { border-top: 1px solid #a0a0a0; }
+Lane.automation::value { background-color: #eaeaea; }
+
+/* Clips (their colours are their own): a thin outline; a selected clip framed in black, a white line inside it,
+   so the frame shows on white lanes and on dark clips alike */
+Clip { stroke-width: 1px; }
+Clip:selected { stroke-width: 0; }
+Clip:selected::overlay { border: 2px solid #000000; box-shadow: inset 0 0 0 1px #ffffff; }
+Clip::fade { background-color: rgba(0, 0, 0, 0.22); }
+
+/* The overview bar: a sunken well (its lanes are the timeline's); its caption on the face */
+Overview {
+    background-color: #c0c0c0;
+    border: 1px solid;
+    border-color: var(--sunken-edge);
+    box-shadow: var(--sunken-inner);
+}
+Overview::view { outline-color: #000080; }
+OverviewCaption { background-color: #c0c0c0; color: #000000; border-bottom: 1px solid #808080; }
+
+/* The timeline (ruler, lanes, master lane and their scroll bars) in a sunken 2 px well */
+ScrollArea#timeline {
+    border: 1px solid;
+    border-color: var(--sunken-edge);
+    box-shadow: var(--sunken-inner);
+    padding: 1px;
+}
+
+/* The track rows beside the lanes: raised panels in the track's own colour (its data; the left edge stays the
+   stripe), automation, take and group rows light grey */
+TrackRow {
+    border: 1px solid;
+    border-color: var(--raised-edge);
+    box-shadow: inset -1px -1px rgba(0, 0, 0, 0.35), inset 1px 1px rgba(255, 255, 255, 0.45);
+}
+TrackRow.automation, TrackRow.take { background-color: #d4d4d4; border-top-color: #808080; }
+TrackRow.group { background-color: #d4d4d4; }
+
+/* A row's frame: a grey edge on the left where it has no stripe, the current row outlined in navy, its CPU bar
+   in a black well; the master's row light grey */
+LaneFrame::edge { background-color: #808080; }
+LaneFrame::current { border-width: 1px 1px 1px 0; border-color: #000080; }
+LaneFrame::load { background-color: #000000; }
+LaneFrame.master {
+    background-color: #c0c0c0;
+    border: 1px solid;
+    border-color: var(--raised-edge);
+    box-shadow: var(--raised-inner);
+}
+
+/* ============================================================================================================
+   Panels, meters and editors
+   ============================================================================================================ */
+
+/* Meters: a sunken black well around the bars and the number; green, yellow and red */
+LevelMeter {
+    background-color: #000000;
+    border: 1px solid;
+    border-color: var(--sunken-edge);  /* (thin: the number's box covers the inside up to the border) */
+    padding: 0;
+}
+LevelMeter::track { background-color: #000000; }
+LevelMeter::number { background-color: #000000; color: #00ff00; }
+LevelMeter::number:clipped { background-color: #ff0000; color: #ffffff; }
+
+/* The transport: a raised tool bar */
+Transport {
+    background-color: #c0c0c0;
+    border: 1px solid;
+    border-color: var(--raised-edge);
+    box-shadow: var(--raised-inner);
+    padding: 3px;
+    column-gap: 2px;
+}
+
+/* The CPU monitor beside the ruler: a sunken black well */
+CpuMonitor {
+    background-color: #000000;
+    color: #00ff00;
+    border: 1px solid;
+    border-color: var(--sunken-edge);
+    box-shadow: var(--sunken-inner);
+    padding: 0 8px 3px 8px;
+}
+CpuMonitor::track { background-color: #004000; }
+
+/* The master scope: a sunken black screen with a green trace */
+Scope {
+    background-color: #000000;
+    border: 1px solid;
+    border-color: var(--sunken-edge);
+    box-shadow: var(--sunken-inner);
+}
+Scope::divider { color: #404040; }
+Scope::trace { color: #00ff00; }
+Scope::grid { color: #003300; }
+Scope::caption { color: #00c000; }
+
+/* The MIDI editor: grey rows (the black keys' darker), white and black keys, a raised ruler */
+PianoRoll::row:white { background-color: #ffffff; }
+PianoRoll::row:black { background-color: #e0e0e0; }
+PianoRoll::row:tonic { background-color: #00008014; }
+PianoRoll::octave { background-color: #808080; }
+PianoRoll::below { background-color: #808080; }
+PianoRoll::keys { background-color: #ffffff; }
+PianoRoll::key-line { background-color: #808080; }
+PianoRoll::keys-edge, Steps::keys-edge { background-color: #000000; }
+PianoRoll::selection-box { background-color: #00008020; border-color: #000080; }
+Steps { background-color: #808080; }
+Steps::row { background-color: #ffffff; }
+Steps::pad { background-color: #e0e0e0; border-radius: 0; }
+Steps::add-row { color: #000000; }
+VelocityLane { background-color: #ffffff; border-top: 1px solid #808080; }
+VelocityLane::label { background-color: #c0c0c0; color: #000000; }
+EditorRuler {
+    background-color: #c0c0c0;
+    color: #000000;
+    border: 1px solid;
+    border-color: var(--raised-edge);
+    box-shadow: var(--raised-inner);
+}
+EditorRuler::corner { background-color: #c0c0c0; }
+
+/* The patch panel: a grey rack, raised units on the face, black jacks, cables in the bright colours */
+PatchPanel {
+    background-color: #808080;
+    --cable-1: #ff0000;
+    --cable-2: #ffff00;
+    --cable-3: #0000ff;
+    --cable-4: #00c000;
+    --cable-5: #ff00ff;
+    --cable-6: #00c0c0;
+}
+PatchPanel::rail { background-color: #c0c0c0; }
+PatchPanel::rail-edge { background-color: #000000; }
+PatchPanel::screw { background-color: #dfdfdf; color: #404040; }
+PatchPanel::sources { background-color: #c0c0c0; border-top: 1px solid #ffffff; }
+PatchPanel::sources-title, PatchPanel::end-title, PatchPanel::end-label, PatchPanel::empty-hint { color: #000000; }
+PatchPanel::source { color: #000000; }
+PatchPanel::jack { background-color: #000000; border: 3px solid #808080; }
+PatchPanel::jack-ring { color: #008080; }
+PatchPanel::jack-ring:hover { color: #000080; }
+PatchPanel::unit {
+    background-color: #c0c0c0;
+    border: 1px solid;
+    border-color: var(--raised-edge);
+    border-radius: 0;
+    box-shadow: var(--raised-inner);
+}
+PatchPanel::unit:hover { background-color: #c8c8c8; }
+PatchPanel::unit:selected { outline-color: #000080; outline-width: 2px; }
+PatchPanel::picture { background-color: #c0c0c0; }
+PatchPanel::faceplate { color: #808080; }
+PatchPanel::faceplate-text { color: #404040; }
+PatchPanel::wave { color: #000080; }
+PatchPanel::reload {
+    background-color: #c0c0c0;
+    color: #000000;
+    border: 1px solid;
+    border-color: var(--raised-edge);
+    border-radius: 0;
+    box-shadow: var(--raised-inner);
+}
+PatchPanel::reload:hover { background-color: #c0c0c0; color: #000000; }
+PatchPanel::name { color: #000000; }
+PatchPanel::name:bypassed { color: #808080; }
+PatchPanel::sidechain-label, PatchPanel::status, PatchPanel::value { color: #404040; }
+PatchPanel::status:hover, PatchPanel::value:hover { color: #000000; }
+PatchPanel::led { border-top: 1px solid #000000; }
+PatchPanel::led:on { background-color: #00e000; }
+PatchPanel::led:bypassed { background-color: #808080; }
+PatchPanel::groove { background-color: #ffffff; border-radius: 0; }
+PatchPanel::level { background-color: #000080; }
+PatchPanel::level:bypassed { background-color: #808080; }
+PatchPanel::zero-mark { color: #000000; }
+PatchPanel::knob {
+    background-color: #c0c0c0;
+    border-top: 1px solid #000000;
+    border-radius: 0;
+}
+PatchPanel::knob:hover { background-color: #dfdfdf; }
+PatchPanel::mod-link { color: #000080; }
+PatchPanel::mod-label { background-color: #ffffe1; }
+
+/* The Explorer's waveform and the sampler's: a sunken black well, the wave green */
+SampleWaveform {
+    background-color: #000000;
+    color: #00ff00;
+    border: 1px solid;
+    border-color: var(--sunken-edge);
+    box-shadow: var(--sunken-inner);
+}
+SampleWaveform::caption { color: #00ff00; }
+SampleWaveform::midline { background-color: #004000; }
+PadView::name { color: #00ff00; }
+PadView::frame { border-top: 1px solid #808080; }
+PadView::frame:selected, PadView::frame:dropping { border-top: 2px solid #ffff00; }
+SamplerWaveform::marker { background-color: #ffff00; }
+
+/* The Explorer's title bar, as a window's caption: white bold on navy, its ✕ a small raised button on it */
+ExplorerDock::title-bar {
+    background-color: #000080;
+    color: #ffffff;
+    font-weight: bold;
+    padding: 0 2px 0 4px;
+    column-gap: 0;
+}
+ExplorerDock > :not(Explorer) > ToolButton.autoRaise {
+    background-color: #c0c0c0;
+    color: #000000;
+    border-color: var(--raised-edge);
+    box-shadow: var(--raised-inner);
+    padding: 0;
+}
+ExplorerDock > :not(Explorer) > ToolButton.autoRaise:pressed {
+    border-color: var(--pressed-edge);
+    box-shadow: var(--pressed-inner);
+}
+
+/* The Explorer's list: white and sunken, folders in olive */
+FileView { color: #000000; }
+FileView::icon { color: #808000; fill-opacity: 0.5; }
+FileView::header { background-color: #c0c0c0; color: #000000; border-color: #808080; }
+
+/* The colour dialog's previews and swatches */
+ClipPreview { background-color: #ffffff; }
+TrackPreview::stripe { background-color: #000080; }
+TrackPreview::button { background-color: #c0c0c0; }
+TrackPreview::meter { background-color: #000000; }
+Swatch::chip { border-color: #000000; border-radius: 0; }
+
+/* The metronome's envelope graphs: sunken black screens */
+EnvelopeGraph {
+    background-color: #000000;
+    border: 1px solid;
+    border-color: var(--sunken-edge);
+    box-shadow: var(--sunken-inner);
+    color: #00ff00;
+}
+EnvelopeGraph.bar { color: #ffff00; }
+EnvelopeGraph.beat { color: #00ffff; }
+EnvelopeGraph::grid { color: #004000; }
+EnvelopeGraph::label { color: #00c000; }
+EnvelopeGraph::handle { background-color: #000000; }
+EnvelopeGraph::handle:dragging { border-top-color: #ffffff; }
+
+/* A track's pan knob, the sends' popup */
+PanKnob { background-color: #c0c0c0; }
+PanKnob::pointer { color: #000000; }
+PanKnob::arc { color: #000080; }
+SendsPanel {
+    background-color: #c0c0c0;
+    border: 1px solid;
+    border-color: #dfdfdf #000000 #000000 #dfdfdf;
+    box-shadow: inset -1px -1px #808080, inset 1px 1px #ffffff;
+}
+.pin-cover { background-color: #c0c0c0; }
+
+/* The update notice under the master */
+UpdateNotice, UpdateNotice::link { color: #404040; }
+
+/* Effect windows: the curve on a sunken white screen, the meters sunken black wells */
+EffectWindow::changed { color: #000080; }
+CurveView {
+    background-color: #ffffff;
+    border: 1px solid;
+    border-color: var(--sunken-edge);
+    box-shadow: var(--sunken-inner);
+}
+CurveView::grid { color: #c8c8c8; }
+CurveView::grid-label { color: #404040; }
+CurveView::analyzer { color: #808080; }
+CurveView::curve { color: #000080; }
+MeterView { color: #000000; }
+MeterView::track {
+    background-color: #000000;
+    border: 1px solid;
+    border-color: var(--sunken-edge);
+}
+MeterView::bar { background-color: #00e000; }
+Tuner {
+    background-color: #ffffff;
+    border: 1px solid;
+    border-color: var(--sunken-edge);
+    box-shadow: var(--sunken-inner);
+}
+Tuner::note { color: #000000; }
+Tuner::note:in-tune { color: #008000; }
+Tuner::note:silent { color: #808080; }
+Tuner::scale { background-color: #808080; }
+Tuner::tick { color: #808080; }
+Tuner::tick:centre { color: #000000; }
+Tuner::needle { background-color: #ff0000; border-radius: 0; }
+Tuner::needle:in-tune { background-color: #008000; }
+Tuner::cents { color: #000000; }
+Tuner::hz, Tuner::end-label { color: #404040; }
+
+/* A plugin's own window when its plugin stopped; Edit → History's undone changes */
+EditorWindow::stopped { background-color: #c0c0c0; }
+HistoryWindow::undone { color: #808080; }

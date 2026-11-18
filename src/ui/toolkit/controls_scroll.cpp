@@ -425,45 +425,126 @@ Rect thumbSlot(const css::Style& thumb, bool v, int len, int across, int lo, int
 }
 }  // namespace
 
-Rect ScrollBar::slotRect() const {
-    std::vector<const char*> states;
-    thumbStates(states);
-    PartStyles parts(*this);
+void ScrollBar::lineStates(int which, std::vector<const char*>& out) const {
+    if (hoverLine_ == which) out.push_back("hover");
+    if (pressLine_ == which) out.push_back("pressed");
+}
+
+ScrollBar::Geometry ScrollBar::geometry(PartStyles& parts) const {
+    Geometry g;
     bool v = orientation == Orientation::Vertical;
-    return thumbSlot(parts.get("thumb", states), v, v ? height() : width(), v ? width() : height(), lo_, hi_, value_,
-                     page_);
+    int len = std::max(0, v ? height() : width()), across = v ? width() : height();
+    // the arrow buttons' lengths along the bar (::sub-line and ::add-line: height when vertical, width when
+    // horizontal; default.css 0), each at most half of it
+    std::vector<const char*> states;
+    lineStates(-1, states);
+    int sub = std::clamp(style::px(parts.get("sub-line", states), v ? "height" : "width", 0), 0, len / 2);
+    states.clear();
+    lineStates(1, states);
+    int add = std::clamp(style::px(parts.get("add-line", states), v ? "height" : "width", 0), 0, len / 2);
+    int trackLen = len - sub - add;
+    if (v) {
+        g.sub = Rect(0, 0, across, sub);
+        g.add = Rect(0, len - add, across, add);
+        g.track = Rect(0, sub, across, trackLen);
+    } else {
+        g.sub = Rect(0, 0, sub, across);
+        g.add = Rect(len - add, 0, add, across);
+        g.track = Rect(sub, 0, trackLen, across);
+    }
+    states.clear();
+    thumbStates(states);
+    g.slot = thumbSlot(parts.get("thumb", states), v, trackLen, across, lo_, hi_, value_, page_);
+    g.slot.x += g.track.x;
+    g.slot.y += g.track.y;
+    return g;
+}
+
+Rect ScrollBar::slotRect() const {
+    PartStyles parts(*this);
+    return geometry(parts).slot;
+}
+
+Rect ScrollBar::trackRect() const {
+    PartStyles parts(*this);
+    return geometry(parts).track;
+}
+
+Rect ScrollBar::lineRect(int which) const {
+    PartStyles parts(*this);
+    Geometry g = geometry(parts);
+    return which < 0 ? g.sub : which > 0 ? g.add : Rect();
 }
 
 Rect ScrollBar::handleRect() const {
     std::vector<const char*> states;
     thumbStates(states);
     PartStyles parts(*this);
-    const css::Style& thumb = parts.get("thumb", states);
-    bool v = orientation == Orientation::Vertical;
-    Rect slot = thumbSlot(thumb, v, v ? height() : width(), v ? width() : height(), lo_, hi_, value_, page_);
-    return style::inside(slot, style::insets(thumb, "margin"));
+    return style::inside(geometry(parts).slot, style::insets(parts.get("thumb", states), "margin"));
 }
+
+namespace {
+// an arrow button: its box, and the arrow (`kind`: up, down, left, right) centred inside its border and padding,
+// icon-size across (default 8), stroke-width thick (default 1.5 px at 10 px), in its `color`
+void paintLineButton(Painter& p, const Rect& r, const css::Style& st, const char* kind) {
+    if (r.empty()) return;
+    style::box(p, r, st);
+    Rect c = style::contents(r, st);
+    float size = (float)st.length("icon-size", 8);
+    float stroke = st.has("stroke-width") ? (float)std::max(0.0, st.length("stroke-width", 0)) : 1.5f * (size / 10.f);
+    Color col = style::foreground(st);
+    if (size <= 0 || stroke <= 0 || col.a == 0) return;
+    style::icon(p, c.x + (c.w - size) / 2.f, c.y + (c.h - size) / 2.f, size, kind, col, stroke);
+}
+}  // namespace
 
 void ScrollBar::paint(Painter& p) {
     style::box(p, rect(), computedStyle());
-    std::vector<const char*> states;
-    thumbStates(states);
     PartStyles parts(*this);
-    const css::Style& thumb = parts.get("thumb", states);
+    Geometry g = geometry(parts);
     bool v = orientation == Orientation::Vertical;
-    Rect slot = thumbSlot(thumb, v, v ? height() : width(), v ? width() : height(), lo_, hi_, value_, page_);
-    style::box(p, style::inside(slot, style::insets(thumb, "margin")), thumb);
+    std::vector<const char*> states;
+    if (!g.sub.empty()) {
+        lineStates(-1, states);
+        paintLineButton(p, g.sub, parts.get("sub-line", states), v ? "up" : "left");
+    }
+    if (!g.add.empty()) {
+        states.clear();
+        lineStates(1, states);
+        paintLineButton(p, g.add, parts.get("add-line", states), v ? "down" : "right");
+    }
+    states.clear();
+    thumbStates(states);
+    const css::Style& thumb = parts.get("thumb", states);
+    style::box(p, style::inside(g.slot, style::insets(thumb, "margin")), thumb);
 }
 
 bool ScrollBar::mousePress(MouseEvent& e) {
     bool v = orientation == Orientation::Vertical;
     int c = v ? e.pos.y : e.pos.x;
-    Rect h = slotRect();
+    PartStyles parts(*this);
+    Geometry g = geometry(parts);
+    Rect h = g.slot;
     int hs = v ? h.y : h.x, hl = v ? h.h : h.w;
-    int len = v ? height() : width();
+    int ts = v ? g.track.y : g.track.x, len = v ? g.track.h : g.track.w;
+    if (e.button == plat::LeftButton && (g.sub.contains(e.pos) || g.add.contains(e.pos))) {
+        // an arrow button: a single step now, then again and again while it is held with the pointer on it
+        int which = g.sub.contains(e.pos) ? -1 : 1;
+        pressLine_ = hoverLine_ = which;
+        setValue(value_ + which * single_);
+        stopRepeat();
+        repeatTimer_ = App::get().singleShot(300, [this, which] {
+            repeatTimer_ = App::get().every(100, [this, which] {
+                if (pressLine_ == which && hoverLine_ == which) setValue(value_ + which * single_);
+            });
+            if (pressLine_ == which && hoverLine_ == which) setValue(value_ + which * single_);
+        });
+        update();
+        return true;
+    }
     if (e.button == plat::MiddleButton && hi_ > lo_) {
         // jump there and drag
-        int start = c - hl / 2;
+        int start = c - ts - hl / 2;
         setValue(lo_ + (int)std::lround((double)std::max(0, start) * (hi_ - lo_) / std::max(1, len - hl)));
         dragging_ = true;
         dragOffset_ = hl / 2;
@@ -495,18 +576,24 @@ bool ScrollBar::mousePress(MouseEvent& e) {
 }
 
 bool ScrollBar::mouseMove(MouseEvent& e) {
-    bool hh = slotRect().contains(e.pos);
-    if (hh != hoverHandle_) {
+    PartStyles parts(*this);
+    Geometry g = geometry(parts);
+    bool hh = g.slot.contains(e.pos);
+    // (while an arrow button is held, only that one: the pointer on it or not)
+    int line = g.sub.contains(e.pos) ? -1 : g.add.contains(e.pos) ? 1 : 0;
+    if (pressLine_ && line != pressLine_) line = 0;
+    if (hh != hoverHandle_ || line != hoverLine_) {
         hoverHandle_ = hh;
+        hoverLine_ = line;
         update();
+        if (dragging_) g = geometry(parts);  // (in its new states)
     }
     if (!dragging_) return isPressed();
     bool v = orientation == Orientation::Vertical;
     int c = v ? e.pos.y : e.pos.x;
-    int len = v ? height() : width();
-    Rect h = slotRect();
-    int hl = v ? h.h : h.w;
-    int start = c - dragOffset_;
+    int len = v ? g.track.h : g.track.w;
+    int hl = v ? g.slot.h : g.slot.w;
+    int start = c - dragOffset_ - (v ? g.track.y : g.track.x);
     int room = std::max(1, len - hl);
     if (hi_ > lo_) setValue(lo_ + (int)std::lround((double)start * (hi_ - lo_) / room));
     return true;
@@ -514,6 +601,10 @@ bool ScrollBar::mouseMove(MouseEvent& e) {
 
 bool ScrollBar::mouseRelease(MouseEvent& e) {
     stopRepeat();
+    if (pressLine_) {
+        pressLine_ = 0;
+        update();
+    }
     if (dragging_) {
         dragging_ = false;
         update();
@@ -599,6 +690,10 @@ void ScrollArea::place() {
         if (c->vPolicy == SizePolicy::Fixed) cmin.y = chint.y;
         cmax = c->maximumSize();
     }
+    // (its viewport and bars inside its border and padding: none in the default look)
+    Rect in = innerRect();
+    W = in.w;
+    H = in.h;
     bool needV = vpol_ == Policy::AlwaysOn, needH = hpol_ == Policy::AlwaysOn;
     int vw = W, vh = H, cw = 0, ch = 0;
     for (int i = 0; i < 4; ++i) {
@@ -619,11 +714,11 @@ void ScrollArea::place() {
         needV = nv;
         needH = nh;
     }
-    viewport_->setGeometry(0, 0, vw, vh);
+    viewport_->setGeometry(in.x, in.y, vw, vh);
     vbar_->setVisible(needV);
     hbar_->setVisible(needH);
-    vbar_->setGeometry(vw, 0, vsb, vh);
-    hbar_->setGeometry(0, vh, vw, hsb);
+    vbar_->setGeometry(in.x + vw, in.y, vsb, vh);
+    hbar_->setGeometry(in.x, in.y + vh, vw, hsb);
     vbar_->setPageStep(vh);
     hbar_->setPageStep(vw);
     vbar_->setRange(0, std::max(0, ch - vh));
@@ -633,6 +728,16 @@ void ScrollArea::place() {
 }
 
 void ScrollArea::contentResized() { place(); }
+
+Rect ScrollArea::innerRect() const {
+    const css::Style& st = computedStyle();
+    Rect in = style::contents(rect(), st);
+    return Rect(in.x, in.y, std::max(0, in.w), std::max(0, in.h));
+}
+
+void ScrollArea::paint(Painter& p) {
+    style::box(p, rect(), computedStyle());  // (the default look: nothing to draw)
+}
 
 void ScrollArea::resized() { place(); }
 
@@ -672,13 +777,21 @@ Point ScrollArea::sizeHint() const {
     if (hpol_ == Policy::AlwaysOn) h.y += hbar_->thickness();
     h.x = std::min(h.x, 36 * fh);
     h.y = std::min(h.y, 24 * fh);
+    const css::Style& st = computedStyle();  // (its border and padding around)
+    style::Insets b = style::insets(st, "border-width"), pad = style::insets(st, "padding");
+    h.x += b.w() + pad.w();
+    h.y += b.h() + pad.h();
     Point mn = minimumSize(), mx = maximumSize();
     if (mn.x == mx.x) h.x = mn.x;
     if (mn.y == mx.y) h.y = mn.y;
     return h;
 }
 
-Point ScrollArea::minimumSizeHint() const { return Point(4 * vbar_->thickness(), 4 * hbar_->thickness()); }
+Point ScrollArea::minimumSizeHint() const {
+    const css::Style& st = computedStyle();
+    style::Insets b = style::insets(st, "border-width"), pad = style::insets(st, "padding");
+    return Point(4 * vbar_->thickness() + b.w() + pad.w(), 4 * hbar_->thickness() + b.h() + pad.h());
+}
 
 // ============================================================================================
 // ListWidget

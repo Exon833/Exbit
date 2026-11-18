@@ -48,7 +48,10 @@ const CurveView::Look& CurveView::look() {
     const css::Style& grid = parts_.get("grid");
     l.grid = panel_style::fg(grid);
     l.gridW = panel_style::lengthF(grid, "stroke-width", 1);
-    l.font = ui::style::font(grid, theme::uiFont());
+    // (its labels: ::grid-label, inheriting the grid's colour and font)
+    const css::Style& label = parts_.get("grid-label", "", "grid");
+    l.label = panel_style::fg(label);
+    l.font = ui::style::font(label, theme::uiFont());
     const css::Style& analyzer = parts_.get("analyzer");
     Color shade = panel_style::fg(analyzer);
     auto alpha = [&](const char* property, double def) {
@@ -75,12 +78,12 @@ void CurveView::paint(Painter& p) {
         for (const auto& g : effect->curveYGrid) {
             PointF a = toXY(0, g.pos), b = toXY(1, g.pos);
             p.drawLine(PointF(a.x, a.y + 0.5f), PointF(b.x, b.y + 0.5f), grid, look.gridW);
-            p.drawText(PointF(4, a.y - 2), g.label, font, grid);
+            p.drawText(PointF(4, a.y - 2), g.label, font, look.label);
         }
         for (const auto& g : effect->curveXGrid) {
             PointF a = toXY(g.pos, -1), b = toXY(g.pos, 1);
             p.drawLine(PointF(a.x + 0.5f, a.y), PointF(b.x + 0.5f, b.y), grid, look.gridW);
-            p.drawText(PointF(toXY(g.pos, 0).x + 3, (float)h - 4), g.label, font, grid);
+            p.drawText(PointF(toXY(g.pos, 0).x + 3, (float)h - 4), g.label, font, look.label);
         }
     }
     if (spectrum.size() > 1) {  // (the analyzer: a soft filled shape behind the response)
@@ -132,8 +135,10 @@ const MeterView::Look& MeterView::look() const {
     l.labelW = panel_style::px(label, "width", 110);
     l.labelPad = panel_style::px(label, "padding-right", 6);
     l.track = &parts_.get("track");
+    l.trackInset = ui::style::contentInsets(*l.track);
     l.trackH = panel_style::px(*l.track, "height", 12);
-    l.bar = panel_style::bg(parts_.get("bar"));
+    l.barStyle = &parts_.get("bar");
+    l.bar = panel_style::bg(*l.barStyle);
     const css::Style& value = parts_.get("value");
     l.valueW = panel_style::px(value, "width", 80);
     l.valuePad = panel_style::px(value, "padding-left", 6);
@@ -154,7 +159,10 @@ void MeterView::paint(Painter& p) {
         Rect bar(labelW, (int)i * rowH + trackY, std::max(0, width() - labelW - look.valueW), look.trackH);
         ui::style::box(p, bar, *look.track);
         float fraction = (float)std::max(0.0, std::min(1.0, m.fraction));
-        p.fillRect(RectF((float)bar.x, (float)bar.y, bar.w * fraction, (float)bar.h), look.bar);
+        Rect in = ui::style::inside(bar, look.trackInset);  // (the bar inside the track's border and padding)
+        if (in.w > 0 && in.h > 0)
+            panel_style::fillPart(p, RectF((float)in.x, (float)in.y, in.w * fraction, (float)in.h), look.barStyle,
+                                  look.bar);
         p.drawText(RectF((float)(bar.right() + look.valuePad), (float)y, (float)(look.valueW - look.valuePad), (float)textH),
                    AlignVCenter | AlignLeft, m.text, font, look.text);
     }
@@ -178,6 +186,7 @@ const TunerView::TunerLook& TunerView::tunerLook() {
         l.noteFont[i] = ui::style::font(*l.note[i], big);
     }
     const css::Style& scale = tparts_.get("scale");
+    l.scaleStyle = &scale;
     l.scale = panel_style::bg(scale);
     l.scaleH = panel_style::px(scale, "height", 2);
     l.scaleLeft = panel_style::px(scale, "margin-left", 24);
@@ -223,7 +232,8 @@ void TunerView::paint(Painter& p) {
     p.drawText(RectF(0, 4, (float)w, 48), AlignCenter, note, look.noteFont[state], ui::style::foreground(*look.note[state]));
     // the scale: −50…+50 cents, a tick every 10, the middle longer
     float left = (float)look.scaleLeft, right = (float)(w - look.scaleRight), y = (float)look.scaleTop;
-    p.fillRect(RectF(left, y, right - left, (float)look.scaleH), look.scale);
+    // (a box, if styled as one)
+    panel_style::fillPart(p, RectF(left, y, right - left, (float)look.scaleH), look.scaleStyle, look.scale);
     for (int c = -50; c <= 50; c += 10) {
         float x = left + (right - left) * (c + 50) / 100.0f;
         float tall = c == 0 ? look.tickCentreH : look.tickH;

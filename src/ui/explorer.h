@@ -237,3 +237,24 @@ private:
     void onIndexed(int generation, std::vector<explorer::Indexed> index);
     void onPreviewLoaded(int generation, const std::string& path, AudioPtr audio);
 };
+
+// The Explorer's dock (QDockWidget "Explorer", the main window's): a title bar with ✕ over the Explorer (`content`,
+// adopted). Styled as ExplorerDock: ::title-bar is the bar (a box: a caption bar's gradient, a border; padding and
+// column-gap: the room around and between the title and ✕; color and the font: its title's, when it sets them,
+// else the title Label's own); :root's --dock-title-height and --dock-close-size.
+class ExplorerDock : public ui::Widget {
+public:
+    ExplorerDock(ui::Widget* content, std::function<void()> onClose);
+    // (also after a skin change: App::repaintAll calls every widget's resized())
+    void resized() override { fit(); }
+    ui::Widget* titleBar() const { return bar_; }
+    ui::Label* title() const { return title_; }
+
+private:
+    ui::Widget* bar_ = nullptr;
+    ui::Label* title_ = nullptr;
+    ui::Button* close_ = nullptr;
+    ui::HBox* row_ = nullptr;
+    int titled_ = -1;  // (the stylesheets' generation the title's colour and font were read for)
+    void fit();
+};

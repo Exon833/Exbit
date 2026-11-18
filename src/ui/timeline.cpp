@@ -17,6 +17,7 @@
 #include "ui/pad_kit_dialog.h"
 #include "ui/theme.h"
 #include "ui/toolkit/dialogs.h"
+#include "ui/toolkit/style.h"
 
 namespace {
 // a viewport resize filter that outlives nothing: it checks the timeline is still there
@@ -254,6 +255,16 @@ std::vector<Rect> Timeline::strips(std::vector<Rect> region) {
             columns.push_back(r);
     }
     return columns;
+}
+
+int TimelineView::insetTop() const {
+    const css::Style& st = computedStyle();
+    return ui::style::insets(st, "border-width").top + ui::style::insets(st, "padding").top;
+}
+
+int TimelineView::insetBottom() const {
+    const css::Style& st = computedStyle();
+    return ui::style::insets(st, "border-width").bottom + ui::style::insets(st, "padding").bottom;
 }
 
 void Timeline::relayout() {

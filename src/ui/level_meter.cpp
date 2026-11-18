@@ -9,6 +9,7 @@
 
 #include "audio/dsp.h"
 #include "config.h"
+#include "ui/paint_helpers.h"
 #include "ui/theme.h"
 
 namespace level_meter {
@@ -153,10 +154,19 @@ void LevelMeter::push(const std::vector<float>* peaks) {
     if (changed) update();
 }
 
-int LevelMeter::barsW() const { return width() >= level_meter::NUMBER_MIN_W ? width() - level_meter::NUMBER_W : width(); }
+Rect LevelMeter::inner() const {
+    Rect in = ui::style::inside(rect(), look().inset);  // (inside its box's border and padding: none by default)
+    return Rect(in.x, in.y, std::max(0, in.w), std::max(0, in.h));
+}
+
+int LevelMeter::barsW() const {
+    int w = inner().w;
+    return w >= level_meter::NUMBER_MIN_W ? w - level_meter::NUMBER_W : w;
+}
 
 std::vector<std::pair<int, int>> LevelMeter::barRects() const {
-    int n = (int)levels_.size(), w = width(), h = height();
+    Rect in = inner();
+    int n = (int)levels_.size(), w = in.w, h = in.h;
     std::vector<std::pair<int, int>> out;
     if (n == 0) return out;
     int g = look().gap;
@@ -164,10 +174,10 @@ std::vector<std::pair<int, int>> LevelMeter::barRects() const {
     int thickness = std::max(1, std::min((int)(w * level_meter::MAX_BAR_FRACTION), floorDiv(h - gap * (n - 1), n)));
     int total = n * thickness + gap * (n - 1);
     if (total > h) {  // not even 1 px each: spread over the height (neighbours may share a pixel)
-        for (int i = 0; i < n; ++i) out.push_back({std::min(h - 1, floorDiv(i * h, n)), 1});
+        for (int i = 0; i < n; ++i) out.push_back({in.y + std::min(h - 1, floorDiv(i * h, n)), 1});
         return out;
     }
-    int top = (h - total) / 2;
+    int top = in.y + (h - total) / 2;
     for (int i = 0; i < n; ++i) out.push_back({top + i * (thickness + gap), thickness});
     return out;
 }
@@ -175,11 +185,17 @@ std::vector<std::pair<int, int>> LevelMeter::barRects() const {
 const LevelMeter::Look& LevelMeter::look() const {
     if (!parts_.refresh()) return look_;
     Look l;
+    l.self = &parts_.get("");
+    l.inset = ui::style::contentInsets(*l.self);
+    l.selfShows = paint::shows(*l.self);
     l.track = &parts_.get("track");
+    l.trackInset = ui::style::contentInsets(*l.track);
     const char* ranges[] = {"ok", "warn", "hot"};
     for (int i = 0; i < 3; ++i) {
-        l.bar[i] = panel_style::bg(parts_.get("bar", ranges[i]));
-        l.peak[i] = panel_style::bg(parts_.get("peak", ranges[i]));
+        l.barStyle[i] = &parts_.get("bar", ranges[i]);
+        l.peakStyle[i] = &parts_.get("peak", ranges[i]);
+        l.bar[i] = panel_style::bg(*l.barStyle[i]);
+        l.peak[i] = panel_style::bg(*l.peakStyle[i]);
     }
     l.peakW = std::max(1, panel_style::px(parts_.get("peak", "ok"), "width", 2));
     l.gap = std::max(0, theme::metric("meter-gap", level_meter::GAP));
@@ -197,30 +213,39 @@ const LevelMeter::Look& LevelMeter::look() const {
 
 void LevelMeter::paint(Painter& p) {
     const Look& look = this->look();
-    int w = barsW();
-    int warnW = (int)(w * level_meter::dbFraction(level_meter::WARN_DB));
-    int hotW = (int)(w * level_meter::dbFraction(level_meter::HOT_DB));
+    if (look.selfShows) ui::style::box(p, rect(), *look.self);  // (its own box, around it all: none by default)
+    Rect all = inner();
+    int left = all.x, w = barsW();
     auto rects = barRects();
     for (size_t k = 0; k < rects.size() && k < levels_.size(); ++k) {
         int y = rects[k].first, thickness = rects[k].second;
-        ui::style::box(p, Rect(0, y, w, thickness), *look.track);
-        int barW = (int)(w * level_meter::dbFraction(dsp::gainToDb(levels_[k])));
+        Rect track(left, y, w, thickness);
+        ui::style::box(p, track, *look.track);
+        // the bar inside the track's border and padding (none by default: the track's whole rect)
+        Rect in = ui::style::inside(track, look.trackInset);
+        if (in.w <= 0 || in.h <= 0) continue;
+        int bw = in.w;
+        int warnW = (int)(bw * level_meter::dbFraction(level_meter::WARN_DB));
+        int hotW = (int)(bw * level_meter::dbFraction(level_meter::HOT_DB));
+        int barW = (int)(bw * level_meter::dbFraction(dsp::gainToDb(levels_[k])));
         // green up to -12 dB, yellow up to 0 dB, red at the right end
         struct Part { int right, left, range; };
         Part parts[] = {{std::min(barW, warnW), 0, 0}, {std::min(barW, hotW), warnW, 1}, {barW, hotW, 2}};
         for (auto& part : parts)
             if (part.right > part.left)
-                p.fillRect(Rect(part.left, y, part.right - part.left, thickness), look.bar[part.range]);
+                panel_style::fillPart(p, RectF(Rect(in.x + part.left, in.y, part.right - part.left, in.h)),
+                                      look.barStyle[part.range], look.bar[part.range]);
         double held = k < held_.size() ? held_[k] : 0.0;
         if (held > 0) {  // the held peak: a thin line in its level's colour (red at full scale, wherever drawn)
             double heldDb = dsp::gainToDb(held);
-            int x = std::min(w - look.peakW, (int)(w * level_meter::dbFraction(heldDb)));
+            int x = std::min(bw - look.peakW, (int)(bw * level_meter::dbFraction(heldDb)));
             int range = heldDb >= level_meter::HOT_DB ? 2 : heldDb >= level_meter::WARN_DB ? 1 : 0;
-            p.fillRect(Rect(x, y, look.peakW, thickness), look.peak[range]);
+            panel_style::fillPart(p, RectF(Rect(in.x + x, in.y, look.peakW, in.h)), look.peakStyle[range],
+                                  look.peak[range]);
         }
     }
-    if (w < width()) {  // the loudest since Play; red once it clipped
-        RectF box((float)w + 2, 0, (float)level_meter::NUMBER_W - 2, (float)height());
+    if (w < all.w) {  // the loudest since Play; red once it clipped
+        RectF box((float)(left + w + 2), (float)all.y, (float)level_meter::NUMBER_W - 2, (float)all.h);
         ui::style::box(p, clipBox(box), clipped_ ? *look.clipped : *look.number);
         std::string text = "–";
         if (loudest_ > 0) {
@@ -229,7 +254,8 @@ void LevelMeter::paint(Painter& p) {
             text = buf;
             if (text[0] == '-') text = "−" + text.substr(1);  // (a real minus sign)
         }
-        Font font = (clipped_ ? look.clippedFont : look.font).withPointSize((float)std::max(6.0, std::min(8.0, height() * 0.55)));
+        float size = (float)std::max(6.0, std::min(8.0, all.h * 0.55));
+        Font font = (clipped_ ? look.clippedFont : look.font).withPointSize(size);
         p.drawText(box, AlignCenter, text, font, clipped_ ? look.clippedText : look.numberText);
     }
 }

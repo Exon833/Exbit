@@ -41,8 +41,8 @@ inline void frame(Painter& p, const Rect& r, Color fillC, Color edge, float rad)
     }
 }
 
-// the small drawings of theme.ICON_LINES, in a size x size box at (x, y), stroke 1.5 px at 10 px
-inline void icon(Painter& p, float x, float y, float size, const char* kind, Color c) {
+// the small drawings of theme.ICON_LINES, in a size x size box at (x, y), its lines `stroke` px wide
+inline void icon(Painter& p, float x, float y, float size, const char* kind, Color c, float stroke) {
     static const float down[] = {2, 3.5f, 5, 6.5f, 8, 3.5f};
     static const float up[] = {2, 6.5f, 5, 3.5f, 8, 6.5f};
     static const float right[] = {3.5f, 2, 6.5f, 5, 3.5f, 8};
@@ -57,7 +57,11 @@ inline void icon(Painter& p, float x, float y, float size, const char* kind, Col
     float s = size / 10.f;
     std::vector<PointF> v;
     for (int i = 0; i < 3; ++i) v.push_back(PointF(x + pts[i * 2] * s, y + pts[i * 2 + 1] * s));
-    p.drawPolyline(v, c, 1.5f * s, LineCap::Round, LineJoin::Round);
+    p.drawPolyline(v, c, stroke, LineCap::Round, LineJoin::Round);
+}
+// the same, stroke 1.5 px at 10 px
+inline void icon(Painter& p, float x, float y, float size, const char* kind, Color c) {
+    icon(p, x, y, size, kind, c, 1.5f * (size / 10.f));
 }
 
 // --- what the stylesheets give (Widget::computedStyle(part)) ---
@@ -88,6 +92,12 @@ inline Rect inside(const Rect& r, const Insets& i) { return r.adjusted(i.left, i
 inline Rect contents(const Rect& r, const css::Style& s) {
     return inside(inside(r, insets(s, "border-width")), insets(s, "padding"));
 }
+// its border and padding together, what contents() takes off (read once and kept by what paints at frame rate:
+// reading them parses)
+inline Insets contentInsets(const css::Style& s) {
+    Insets b = insets(s, "border-width"), p = insets(s, "padding");
+    return Insets{b.left + p.left, b.top + p.top, b.right + p.right, b.bottom + p.bottom};
+}
 // its corners' radius (one for all four: border-top-left-radius), 0 when Options → Rounded corners is off
 inline float radius(const css::Style& s) {
     return theme::rounded ? (float)std::max(0.0, s.length("border-top-left-radius", 0)) : 0.f;
@@ -106,6 +116,7 @@ struct BoxLook {
     std::shared_ptr<const BoxPaint> more;  // null: a plain box
     std::vector<css::Style::Shadow> textShadows;  // text-shadow (the first on top): style::text
     float opacity = 1;  // the node's whole opacity (Widget::paintTree), 0..1
+    Insets overflow;    // how far its outer box-shadows reach beyond it (Widget::paintRect)
 };
 // what a box has beyond a plain one (null: nothing), and drawing such a box (style_box.cpp)
 std::shared_ptr<const BoxPaint> boxPaint(const css::Style& s, const BoxLook& look);
@@ -124,6 +135,16 @@ inline const BoxLook& boxLook(const css::Style& s) {
         look->more = boxPaint(s, *look);
         if (s.has("text-shadow")) look->textShadows = s.shadows("text-shadow");
         if (s.has("opacity")) look->opacity = (float)std::clamp(s.number("opacity", 1), 0.0, 1.0);
+        if (s.has("box-shadow"))
+            for (const css::Style::Shadow& sh : s.shadows("box-shadow")) {
+                if (sh.inset) continue;
+                double reach = std::max(0.0, sh.blur + sh.spread) + 1;  // (+1: the soft edge's last pixel)
+                Insets& o = look->overflow;
+                o.left = std::max(o.left, (int)std::ceil(std::max(0.0, reach - sh.x)));
+                o.right = std::max(o.right, (int)std::ceil(std::max(0.0, reach + sh.x)));
+                o.top = std::max(o.top, (int)std::ceil(std::max(0.0, reach - sh.y)));
+                o.bottom = std::max(o.bottom, (int)std::ceil(std::max(0.0, reach + sh.y)));
+            }
         s.memo_.value = look;
     }
     return *static_cast<const BoxLook*>(s.memo_.value.get());

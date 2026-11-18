@@ -1,7 +1,8 @@
 // The track panel and the top bar, headless: level meter dB mapping, decay and bars; output pairs;
 // LUFS text; the CPU monitor; version comparison and the update check (with a fake GitHub); the
 // update notice; the master strip's settings; the transport bar (tap tempo through its shortcut,
-// play/pause, timing); the lane panel's rows, meters, outputs and menus. Paints the panel, the
+// play/pause, timing); the lane panel's rows, meters, outputs and menus; boxes a skin can give the track rows, the
+// timeline's frame, the Explorer's title bar, meters and the EQ's grid labels. Paints the panel, the
 // master strip, the transport bar and the CPU monitor into PNGs in build/ui-samples/panel/.
 #include <algorithm>
 #include <cstdio>
@@ -29,6 +30,11 @@
 #include "update_check.h"
 
 #include "ui/automation_dialog.h"
+#include "core/css.h"
+#include "effects/effects.h"
+#include "ui/colors.h"
+#include "ui/effect_window.h"
+#include "ui/explorer.h"
 
 namespace {
 
@@ -901,6 +907,186 @@ static void testPinToBottom() {
     win.hideWindow();
 }
 
+// Boxes drawn where only flat colours were: a track's row (its own colour inside TrackRow's box), the timeline's
+// frame (ScrollArea#timeline), the Explorer's title bar, a meter's track and the meter itself, the EQ curve's grid
+// labels. Only a stylesheet asking for them changes anything: the default look comes back pixel for pixel.
+static void testSurfaceBoxes() {
+    auto sheetOf = [](const std::string& text) {
+        std::vector<css::Problem> problems;
+        css::SheetPtr sheet = css::parse(text, "surfaces.css", problems);
+        CHECK(problems.empty());
+        for (auto& pr : problems) std::printf("  %s\n", pr.text().c_str());
+        return sheet;
+    };
+    auto sameImage = [](const Image& a, const Image& b) {
+        if (a.width() != b.width() || a.height() != b.height()) return false;
+        for (int y = 0; y < a.height(); ++y)
+            for (int x = 0; x < a.width(); ++x)
+                if (a.pixel(x, y) != b.pixel(x, y)) return false;
+        return true;
+    };
+    auto brightness = [](Color c) { return c.r + c.g + c.b; };
+    auto near = [](Color c, Color want) {
+        return std::abs(c.r - want.r) <= 40 && std::abs(c.g - want.g) <= 40 && std::abs(c.b - want.b) <= 40;
+    };
+    const Color backdrop(1, 2, 3);  // (under what is painted: what shows where nothing is)
+
+    Project project;
+    audio::Engine engine(project);
+    engine.channels = 2;
+    TrackPtr plain = addTrack(project, Kind::Audio, "Plain");
+    TrackPtr coloured = addTrack(project, Kind::Audio, "Coloured");
+    coloured->color = "#3070c0";
+    ui::Window win(plat::WindowOptions{});
+    win.resizeWindow(1000, 700);
+    auto* view = win.add<TimelineView>();
+    view->setGeometry(0, 0, 700, 600);
+    auto* timeline = view->makeContent<Timeline>(project, engine, view);
+    MasterStrip master(engine, [] {});
+    auto* panel = win.add<LanePanel>(project, *timeline, master, engine.channels, [](const TrackPtr&) {});
+    auto* dock = win.add<ExplorerDock>(new ui::Widget(), [] {});
+    dock->setGeometry(0, 0, 240, 300);
+    LevelMeter meter(2);
+    meter.resize(200, 30);
+    meter.push(std::vector<float>{1.0f, 1.0f});
+    CurveView curve(std::shared_ptr<effects::Effect>(effects::create("eq")));
+    curve.resize(300, 130);
+    win.showWindow();
+    ui::App::get().doLayouts();
+    timeline->setCurrentTrack(plain);  // (the coloured row: not outlined)
+    auto paintAlone = [&](ui::Widget& w) {  // (the widget's own paint(), not its children)
+        Image img(w.width(), w.height(), backdrop);
+        Painter p(img);
+        w.paint(p);
+        return img;
+    };
+    auto restyle = [&](const std::vector<css::SheetPtr>& sheets) {
+        if (sheets.empty()) theme::setSkin();
+        else theme::setStyles(sheets);
+        panel->rebuild();  // (as the main window does after a skin change: MainWindow::restyle)
+        ui::App::get().collectGarbage();
+        ui::App::get().repaintAll();
+        ui::App::get().doLayouts();
+    };
+
+    // --- the default look ---
+    Color own, text;
+    colors::trackColors(coloured->color, coloured->tone, own, text);
+    LaneFrame* row = panel->frames[coloured];
+    Image rowBefore = paintWidget(row, backdrop);
+    CHECK(rowBefore.colorAt(row->width() / 2, 0) == own);
+    CHECK(rowBefore.colorAt(row->width() / 2, row->height() - 1) == own);
+    CHECK(row->contentsRect().y == 0);
+    int panelH = panel->height();
+    CHECK(view->insetTop() == 0 && view->insetBottom() == 0);
+    CHECK(view->viewport()->geometry().x == 0 && view->viewport()->geometry().y == 0);
+    Image viewBefore = paintWidget(view, backdrop);
+    Image barBefore = paintWidget(dock->titleBar(), backdrop);
+    CHECK(barBefore.colorAt(3, 1) == backdrop);  // (the bar draws nothing of its own)
+    Color titleColor = dock->title()->color();
+    bool titleBold = dock->title()->font().bold();
+    Image meterBefore = paintAlone(meter);
+    Image curveBefore = paintAlone(curve);
+    auto countNear = [&](const Image& img, Color want) {
+        int n = 0;
+        for (int y = 0; y < img.height(); ++y)
+            for (int x = 0; x < img.width(); ++x)
+                if (near(img.colorAt(x, y), want)) ++n;
+        return n;
+    };
+    const Color magenta(255, 0, 255), cyan(0, 255, 255);
+    CHECK(countNear(curveBefore, magenta) == 0);
+
+    restyle({theme::builtinSheet(),
+             sheetOf("TrackRow { border: 2px outset #c0c0c0; }\n"
+                     "ScrollArea#timeline { border: 2px inset #808080; }\n"
+                     "ExplorerDock::title-bar { background-image: linear-gradient(to right, #000080, #1084d0);"
+                     " color: #ffffff; font-weight: bold; }\n"
+                     "LevelMeter { border: 2px solid #00ff00; padding: 1px; }\n"
+                     "LevelMeter::track { border: 1px solid #ff0000; background-color: #000000; }\n"
+                     "CurveView::grid-label { color: #ff00ff; }\n")});
+
+    // a raised track row: lighter along its top, darker along its bottom and right, the track's colour inside
+    row = panel->frames[coloured];
+    CHECK(row && row->height() == coloured->height);
+    if (row) {
+        Image raised = paintWidget(row, backdrop);
+        int w = row->width(), h = row->height(), mid = w / 2;
+        Color top = raised.colorAt(mid, 0), bottom = raised.colorAt(mid, h - 1), right = raised.colorAt(w - 1, h / 2);
+        CHECK(top != own && bottom != own && brightness(top) > brightness(bottom));
+        CHECK(right == bottom);  // (outset: the right and bottom edges in the same shade)
+        CHECK(raised.colorAt(mid, 3) == own);  // the track's own colour inside the bevel (above its controls)
+        CHECK(raised.colorAt(0, h / 2) == rowBefore.colorAt(0, h / 2));  // the stripe stays as it was
+        Rect in = row->contentsRect();  // its controls inside the border
+        CHECK(in.y >= 2 && in.right() <= w - 2 && in.bottom() <= h - 2);
+    }
+
+    // the timeline's frame: a sunken well around the ruler and the lanes, the panel's rows still lined up
+    CHECK(view->insetTop() == 2 && view->insetBottom() == 2);
+    Rect vp = view->viewport()->geometry();
+    CHECK(vp.x == 2 && vp.y == 2);
+    CHECK(panel->height() == panelH + 2);  // (the frame's bottom: the same room to scroll as the timeline)
+    Image framed = paintWidget(view, backdrop);
+    Color left = framed.colorAt(0, 300), topEdge = framed.colorAt(300, 0);
+    Color rightEdge = framed.colorAt(699, 300), bottomEdge = framed.colorAt(300, 599);
+    CHECK(left == topEdge && rightEdge == bottomEdge && brightness(left) < brightness(rightEdge));  // (inset)
+    CHECK(left != viewBefore.colorAt(0, 300));
+    int moved = 0;  // the lanes and ruler inside it, as they were, 2 px further in
+    for (int y = 0; y < lanes::rulerHeight() + 60; ++y)
+        for (int x = 0; x < 400; ++x)
+            if (framed.pixel(x + 2, y + 2) != viewBefore.pixel(x, y)) ++moved;
+    CHECK(moved == 0);
+
+    // the Explorer's title bar: a caption bar's gradient, its title white and bold
+    {
+        Image bar = paintWidget(dock->titleBar(), backdrop);
+        int w = bar.width();
+        Color l = bar.colorAt(2, 1), r = bar.colorAt(w - 3, 1);
+        CHECK(near(l, Color(0, 0, 0x80)) && near(r, Color(0x10, 0x84, 0xd0)) && l != r);
+        CHECK(dock->title()->color() == Color(255, 255, 255) && dock->title()->font().bold());
+    }
+
+    // the meter: its own box around it all, each bar inside its track's border, which stays there with signal
+    {
+        Image img = paintAlone(meter);
+        CHECK(img.colorAt(0, 0) == Color(0, 255, 0));
+        auto bars = meter.barRects();
+        CHECK(bars.size() == 2 && bars[0].first >= 3);  // (inside the meter's 2 px border and 1 px padding)
+        if (!bars.empty()) {
+            int y0 = bars[0].first, t = bars[0].second;
+            CHECK(t >= 3);
+            CHECK(img.colorAt(3, y0 + t / 2) == Color(255, 0, 0));       // the track's left border
+            CHECK(img.colorAt(20, y0) == Color(255, 0, 0));              // …its top
+            CHECK(img.colorAt(20, y0 + t - 1) == Color(255, 0, 0));      // …its bottom, under a full bar
+            CHECK(img.colorAt(20, y0 + t / 2) == theme::c("meter_ok"));  // the bar inside
+        }
+    }
+
+    // the EQ's grid labels in their own colour; the grid's lines as they were
+    {
+        Image img = paintAlone(curve);
+        CHECK(countNear(img, magenta) > 5);
+        int lineY = (curve.height() - 1) / 2;  // (the 0 dB line, under no label at x = 150)
+        CHECK(!near(img.colorAt(150, lineY), magenta) && !near(img.colorAt(150, lineY + 1), magenta));
+        CHECK(img.colorAt(150, lineY) == curveBefore.colorAt(150, lineY));
+    }
+    // …which take the grid's colour unless they set one
+    restyle({theme::builtinSheet(), sheetOf("CurveView::grid { color: #00ffff; }\n")});
+    CHECK(countNear(paintAlone(curve), cyan) > 5);
+
+    // back to the default look: as before, pixel for pixel
+    restyle({});
+    row = panel->frames[coloured];
+    CHECK(row && sameImage(paintWidget(row, backdrop), rowBefore));
+    CHECK(view->insetTop() == 0 && view->viewport()->geometry().x == 0 && panel->height() == panelH);
+    CHECK(sameImage(paintWidget(view, backdrop), viewBefore));
+    CHECK(sameImage(paintWidget(dock->titleBar(), backdrop), barBefore));
+    CHECK(dock->title()->color() == titleColor && dock->title()->font().bold() == titleBold);
+    CHECK(sameImage(paintAlone(meter), meterBefore));
+    CHECK(sameImage(paintAlone(curve), curveBefore));
+    win.hideWindow();
+}
+
 int main() {
     ui::App::get().initHeadless();
     settings::setPath("build/ui-samples/panel/settings.json");
@@ -915,5 +1101,6 @@ int main() {
     testPanel();
     testPanel2();
     testPinToBottom();
+    testSurfaceBoxes();
     TEST_MAIN_END();
 }

@@ -1,0 +1,663 @@
+/* 7: a skin of Tiny DAW with a 2009-era glass desktop look. Pale blue-white windows, glossy split-face
+   buttons that turn light blue under the mouse, soft blue glows, a sky-blue glass bar at the top, white
+   lanes with a soft grid. It is put on top of default.css: the variables first, then the rules it changes. */
+
+/* =========================================== Variables =========================================== */
+
+:root {
+    --skin-name: "7";
+    /* a clean humanist sans, the first of these this computer has */
+    font-family: "Noto Sans", "Carlito", "Liberation Sans", "DejaVu Sans", sans-serif;
+    font-size: 9pt;
+    --mono-font: "DejaVu Sans Mono", "Liberation Mono", monospace;
+
+    /* Window */
+    --window: #dde7f3;
+    --window-text: #1e2b3c;
+    --base: #ffffff;
+    --alternate-base: #f5f8fc;
+    --text: #1b1f24;
+    --button: #e4e4e4;
+    --button-text: #1b1f24;
+    --highlight: #d5eafc;           /* the light-blue selection box (with dark text, as in file lists) */
+    --highlighted-text: #10161d;
+    --tooltip-base: #fdfdfe;
+    --tooltip-text: #3b3b3b;
+    --disabled-text: #8d96a1;
+    --hint-text: #5a6878;
+    --dimmed-text: #7b8796;
+    --accent: #3c7fb1;
+    --accent-text: #ffffff;
+    --frame-edge: #8e9aab;
+
+    /* Timeline: white lanes, a soft grid, a glassy ruler */
+    --lane: #ffffff;
+    --lane-alt: #f6f9fc;
+    --below-lanes: #e6edf6;
+    --master-lane: #e9f1fa;
+    --master-divider: #7fa6d1;
+    --group-lane: #e1e9f3;
+    --group-accent: #6f8aa8;
+    --ruler-bg: #e8f0f9;
+    --ruler-text: #23384f;
+    --grid-fine: #eef2f7;
+    --grid: #dfe6ef;
+    --grid-bar: #bccbdc;
+    --playhead: #e0302a;
+    --cursor: #2a7fd4;
+    --selection-fill: #3399ff26;
+    --selection-edge: #3c7fb1c8;
+    --automation-lane: #eef3f9;
+    --automation-line: #c87410;
+    --loop: #f0a73cb4;
+    --loop-off: #f0a73c46;
+    --frozen-tint: #5aa0ff3c;
+    --overview-bg: #e9f0f8;
+    --overview-view: #3c7fb1d0;
+    --overview-view-fill: #3c7fb11c;
+    --overview-edge: #b4c4d8;
+
+    /* Tracks and clips (a clip's and a track's own colours stay theirs) */
+    --row: #f8fafd;
+    --row-alt: #eff4fa;
+    --clip-audio: #4f8fd0;
+    --clip-midi: #4fae73;
+    --accent-audio: #3d82c8;
+    --accent-midi: #3fa465;
+    --accent-return: #d8902c;
+    --mute: #e0483e;
+    --solo: #f2b81f;
+    --record: #d6372c;
+
+    /* Meters: a light, sunken track and glossy bars */
+    --meter-bg: #e4e9ef;
+    --meter-ok: #2fb34a;
+    --meter-warn: #e8bd1c;
+    --meter-hot: #e0352b;
+
+    /* MIDI editor */
+    --keys-white: #ffffff;
+    --keys-black: #2b2f36;
+    --keys-line: #c7cdd6;
+    --keys-label: #4d5866;
+    --key-sounding: #3399ff80;
+    --roll-shade: #3a4a6022;
+    --selected-note: #14273e;
+
+    /* Explorer */
+    --sample-wave: #2f6fb5;
+
+    /* (the shades, --hover … --accent-hover, stay default.css's mixes of the colours above, as in every
+       built-in skin: the rules below draw this skin's hover, pressed, field and list looks themselves) */
+
+    /* the faces this skin draws again and again */
+    --face: linear-gradient(to bottom, #f2f2f2 0%, #ebebeb 50%, #dddddd 50%, #cfcfcf 100%);
+    --face-hover: linear-gradient(to bottom, #eaf6fd 0%, #d9f0fc 50%, #bee6fd 50%, #a7d9f5 100%);
+    --face-pressed: linear-gradient(to bottom, #e5f4fc 0%, #c4e5f6 50%, #98d1ef 50%, #68b3db 100%);
+    --gloss: linear-gradient(to bottom, #ffffffa6 0%, #ffffff4d 50%, #ffffff00 50%, #0000001a 100%);
+    --select-box: linear-gradient(to bottom, #f2f8fe 0%, #d5e8fb 100%);
+    --select-box-strong: linear-gradient(to bottom, #e6f1fd 0%, #c2dcfb 100%);
+    --glass: linear-gradient(to bottom, #ffffffa6 0%, #ffffff66 49%, #ffffff0d 50%, #ffffff40 100%);
+}
+
+/* Every window and dialog: a pale blue-white glass face, lighter at the top. Popups are windows too: theirs is
+   their own (below), never the gradient. */
+Window {
+    background-color: var(--window);
+    background-image: linear-gradient(to bottom, #e3ecf7 0%, #d6e2f1 100%);
+}
+ComboPopup, DragImage, SendsPanel { background-image: none; }
+EffectWindow { background-color: transparent; }
+
+/* ============================================ Buttons ============================================ */
+
+Button {
+    background-color: #e1e1e1;
+    background-image: var(--face);
+    color: var(--button-text);
+    border: 1px solid #707070;
+    border-radius: 3px;
+}
+PushButton { padding: 4px 14px; }
+Button:hover {
+    background-color: #d0ecfc;
+    background-image: var(--face-hover);
+    border-color: #3c7fb1;
+}
+Button:pressed, Button:checked {
+    background-color: #b6dcf2;
+    background-image: var(--face-pressed);
+    border-color: #2c628b;
+    box-shadow: inset 0 1px 3px #0f3a5c66;
+}
+Button:checked:hover { background-image: var(--face-pressed); border-color: #3c7fb1; }
+
+/* lit (a switched-on accent button, a dialog's default button): the deep blue face with a blue glow */
+Button:lit {
+    background-color: #b6dcf2;
+    background-image: var(--face-pressed);
+    color: #0d2238;
+    border-color: #2c628b;
+}
+Button:lit:hover { background-image: var(--face-hover); border-color: #3c7fb1; }
+PushButton:lit:hover { box-shadow: 0 0 4px #4aa6f080, inset 0 0 2px 1px #ffffffb0; }
+
+Button:disabled, PushButton:disabled, ToolButton:disabled {
+    background-color: #f4f4f4;
+    background-image: none;
+    color: var(--disabled-text);
+    border-color: #adb2b5;
+    box-shadow: none;
+}
+
+/* focus: a soft blue glow around the button, and a light-blue line just inside its border */
+PushButton:focus { border-color: #3c7fb1; box-shadow: 0 0 4px 1px #4aa6f0a6, inset 0 0 2px 1px #6ec0f4; }
+PushButton:focus:lit { border-color: #2c628b; }
+PushButton:focus:disabled { border-color: #adb2b5; box-shadow: none; }
+
+/* flat tool buttons: nothing until the mouse is over them */
+ToolButton.autoRaise { background-color: transparent; background-image: none; border-color: transparent; }
+ToolButton.autoRaise:hover { background-color: #d0ecfc; background-image: var(--face-hover); border-color: #3c7fb1; }
+ToolButton.autoRaise:pressed, ToolButton.autoRaise:checked {
+    background-color: #b6dcf2;
+    background-image: var(--face-pressed);
+    border-color: #2c628b;
+}
+ToolButton.autoRaise:disabled { background-color: transparent; border-color: transparent; }
+
+/* toggles with a role (mute, solo, record…): their own colour under the gloss (after the tool buttons' rules,
+   so a flat tool button switched on shows its colour too) */
+Button:toggled, ToolButton.autoRaise:toggled {
+    background-color: var(--toggle-color, var(--accent));
+    background-image: var(--gloss);
+    color: #ffffff;
+    text-shadow: 0 1px 1px #00000055;
+    border-color: color-mix(in srgb, var(--toggle-color, var(--accent)) 60%, #000000 40%);
+    box-shadow: none;
+}
+Button:toggled:hover, ToolButton.autoRaise:toggled:hover {
+    background-color: color-mix(in srgb, var(--toggle-color, var(--accent)) 85%, #ffffff 15%);
+    background-image: var(--gloss);
+    border-color: color-mix(in srgb, var(--toggle-color, var(--accent)) 60%, #000000 40%);
+}
+Button.toggle-solo:toggled { color: #2a1d00; text-shadow: 0 1px 0 #ffffff80; }
+Button:toggled:disabled { background-color: #f4f4f4; background-image: none; color: var(--disabled-text); border-color: #adb2b5; }
+
+Button::arrow { background-color: transparent; }
+Button:arrow-hover::arrow { background-color: #98d1ef80; }
+Button::separator { background-color: #9aa5b2; }
+
+IconButton::icon { color: #24364c; }
+IconButton:checked::icon { color: #0d2238; }
+IconButton:disabled::icon { color: var(--disabled-text); }
+IconButton:toggled::icon { color: #ffffff; }
+
+/* ===================================== Labels, boxes and tabs ===================================== */
+
+Label:link { color: #0066cc; }
+Label.hint { color: var(--hint-text); }
+
+CheckBox::indicator {
+    background-color: #f4f4f4;
+    background-image: linear-gradient(to bottom, #dcdcdc 0%, #f8f8f8 100%);
+    border: 1px solid #8f8f8f;
+    border-radius: 2px;
+    color: #1d4a7a;
+}
+CheckBox:hover::indicator {
+    background-image: linear-gradient(to bottom, #b9dff6 0%, #e9f7fe 100%);
+    border-color: #3c7fb1;
+}
+CheckBox:checked::indicator {
+    background-color: #f4f4f4;
+    background-image: linear-gradient(to bottom, #dcdcdc 0%, #f8f8f8 100%);
+    border-color: #8f8f8f;
+}
+CheckBox:checked:hover::indicator {
+    background-image: linear-gradient(to bottom, #b9dff6 0%, #e9f7fe 100%);
+    border-color: #3c7fb1;
+}
+CheckBox:disabled::indicator { background-color: #f4f4f4; background-image: none; border-color: #c6c6c6; color: #a0a0a0; }
+
+ListWidget::indicator {
+    background-image: linear-gradient(to bottom, #dcdcdc 0%, #f8f8f8 100%);
+    border: 1px solid #8f8f8f;
+    border-radius: 2px;
+    color: #1d4a7a;
+}
+ListWidget::indicator:checked { background-color: #f4f4f4; border-color: #8f8f8f; }
+
+/* group boxes: a light, rounded panel with a thin edge */
+GroupBox {
+    background-color: #f3f7fc99;
+    border: 1px solid #c3cfdd;
+    border-radius: 4px;
+    box-shadow: inset 0 1px 0 #ffffffcc;
+}
+GroupBox::title { color: #1e3a5f; margin-top: -19px; }
+
+/* tabs: light rounded tabs, the selected one white and raised */
+TabWidget::base { height: 1px; background-color: #8d9fb5; }
+TabWidget::tab {
+    color: #2c3b4e;
+    background-color: #e4ebf4;
+    background-image: linear-gradient(to bottom, #f6f9fd 0%, #e3eaf3 50%, #d8e2ee 50%, #e0e8f2 100%);
+    border: 1px solid #a3b4c8;
+    border-bottom-width: 0;
+    border-radius: 3px 3px 0 0;
+    margin: 0 1px;
+}
+TabWidget::tab:hover {
+    color: #10161d;
+    background-image: linear-gradient(to bottom, #f0f8fe 0%, #dcf0fc 50%, #c4e6fb 50%, #d6eefc 100%);
+    border-color: #3c7fb1;
+}
+TabWidget::tab:selected {
+    color: #10161d;
+    background-color: #ffffff;
+    background-image: linear-gradient(to bottom, #ffffff 0%, #fbfcfe 100%);
+    border-color: #8d9fb5;
+}
+TabWidget::tab-line { height: 0; }
+TabWidget::pane {
+    background-color: #fbfcfe;
+    background-image: linear-gradient(to bottom, #ffffff 0%, #f3f7fc 100%);
+    border: 1px solid #8d9fb5;
+    border-top-width: 0;
+    border-radius: 0 0 3px 3px;
+    padding: 6px;
+}
+
+Separator { color: #b2c0d1; }
+/* upright dividers (the transport's): etched, a shaded line beside a white one */
+Separator:vertical { border-left: 1px solid #8ea8c6; border-right: 1px solid #ffffffb3; width: 2px; }
+SplitterHandle { color: #b9c7d8; }
+SplitterHandle:hover, SplitterHandle:pressed { color: #3c7fb1; }
+
+/* the status bar: a light glass strip */
+StatusBar {
+    color: #1e2b3c;
+    background-color: #dbe6f3;
+    background-image: linear-gradient(to bottom, #eef4fb 0%, #dbe6f3 100%);
+}
+StatusBar::separator { background-color: #a9bbd1; }
+
+ToolTip {
+    background-color: #fbfcfe;
+    background-image: linear-gradient(to bottom, #ffffff 0%, #e4e5f0 100%);
+    color: #3b3b3b;
+    border: 1px solid #767676;
+    border-radius: 3px;
+    padding: 4px 6px;
+}
+
+/* message box signs: glossy round signs */
+MessageIcon { background-color: #2a73c6; color: #ffffff; }
+MessageIcon.warning { background-color: #f0b41c; color: #2a1d00; }
+MessageIcon.critical { background-color: #d8382d; }
+
+/* progress: the green glossy bar */
+ProgressBar {
+    background-color: #e6e6e6;
+    background-image: linear-gradient(to bottom, #f3f3f3 0%, #e0e0e0 50%, #d6d6d6 50%, #e4e4e4 100%);
+    color: #1b1f24;
+    border: 1px solid #b2b2b2;
+    border-radius: 3px;
+}
+ProgressBar::chunk {
+    background-color: #06b025;
+    background-image: linear-gradient(to bottom, #ccf5d2 0%, #6fd47f 45%, #22b33b 50%, #34c74e 100%);
+    color: #0a2a10;
+    border-radius: 2px;
+}
+
+/* ========================================= Fields and lists ========================================= */
+
+LineEdit, SpinBox, ComboBox {
+    background-color: #ffffff;
+    border: 1px solid #abadb3;
+    border-top-color: #8f9398;
+    border-radius: 2px;
+}
+LineEdit:frameless { background-color: transparent; border-width: 0; }
+LineEdit:hover, SpinBox:hover, ComboBox:hover { border-color: #7eb4ea; }
+LineEdit:focus, SpinBox:focus, ComboBox:focus, ComboBox:open { border-color: #3d7bad; box-shadow: 0 0 3px 1px #2f86dcb0; }
+LineEdit:frameless:focus { box-shadow: none; }  /* (the spin box or combo box around it glows) */
+LineEdit:disabled, SpinBox:disabled, ComboBox:disabled { background-color: #f4f4f4; border-color: #c9cbd0; }
+LineEdit::selection { background-color: #3399ff; color: #ffffff; }
+SpinBox:up-hover::up-button, SpinBox:down-hover::down-button {
+    background-color: #e3f2fc;
+    background-image: linear-gradient(to bottom, #eaf6fd 0%, #bee6fd 100%);
+}
+
+/* a combo box's ▾ end */
+ComboBox::arrow { color: #3a4a5c; }
+ComboBox:hover::arrow { background-image: linear-gradient(to bottom, #eaf6fd 0%, #bee6fd 100%); }
+
+/* the drop-down's list: white with rounded light-blue rows */
+ComboPopup { background-color: #ffffff; border: 1px solid #8d9fb5; padding: 2px; }
+ComboPopup::item:selected, ComboPopup::item:hover {
+    background-color: #dcebfc;
+    background-image: var(--select-box);
+    color: var(--highlighted-text);
+    border: 1px solid #84acdd;
+    border-radius: 3px;
+}
+
+/* list rows: the soft blue selection box */
+ListWidget, TreeWidget, FileList { background-color: #ffffff; }
+ListWidget::item:selected, TreeWidget::item:selected, FileList::item:selected {
+    background-color: #d5e8fb;
+    background-image: var(--select-box-strong);
+    color: var(--highlighted-text);
+    border: 1px solid #84acdd;
+    border-radius: 3px;
+}
+ListWidget::item:hover, TreeWidget::item:hover, FileList::item:hover {
+    background-color: #eef6fe;
+    background-image: linear-gradient(to bottom, #fafcfe 0%, #e8f2fd 100%);
+    border: 1px solid #b8d6fb;
+    border-radius: 3px;
+}
+ListWidget::item:selected:hover, TreeWidget::item:selected:hover, FileList::item:selected:hover {
+    background-image: linear-gradient(to bottom, #dcebfc 0%, #b2d2f7 100%);
+    border-color: #7da2ce;
+}
+TreeWidget::branch:selected { color: #10161d; }
+FileList::icon { color: #c79a2e; }
+FileList::icon:selected { color: #a77b14; }
+FileList::detail:selected { color: #3b4b5d; }
+FileList::header {
+    background-color: #ffffff;
+    background-image: linear-gradient(to bottom, #ffffff 0%, #f1f4f8 100%);
+    color: #4c607a;
+    border-color: #d5dde7;
+}
+
+/* =============================================== Menus =============================================== */
+
+/* the menu bar: a light glass strip */
+MenuBar {
+    background-color: #dbe6f3;
+    background-image: linear-gradient(to bottom, #f6f9fd 0%, #e6eef7 50%, #dae5f1 50%, #e2eaf4 100%);
+    border-bottom: 1px solid #b4c4d8;
+}
+MenuBar::item { color: #1b1f24; border: 1px solid transparent; border-radius: 3px; }
+MenuBar::item:hover {
+    background-color: #dcebfc;
+    background-image: linear-gradient(to bottom, #f5faff 0%, #ddedfc 50%, #c9e2fb 50%, #d8eafc 100%);
+    border-color: #7da2ce;
+}
+MenuBar::item:open {
+    background-color: #c9e2fb;
+    background-image: linear-gradient(to bottom, #e4f0fd 0%, #c4ddf8 100%);
+    border-color: #6e93c0;
+    box-shadow: inset 0 1px 2px #1c3c6440;
+}
+
+/* the menus: white with a light gutter down the left for the check marks */
+Menu {
+    background-color: #fcfcfc;
+    background-image: linear-gradient(to right, #f1f1f1 0, #f1f1f1 27px, #e2e3e3 27px, #e2e3e3 28px,
+                                      #ffffff 28px, #ffffff 29px, #fcfcfc 29px);
+    border: 1px solid #979797;
+    padding: 3px 2px;
+}
+Menu::item { padding: 4px 26px 4px 34px; color: #1b1f24; border: 1px solid transparent; border-radius: 3px; }
+Menu::item:hover {
+    background-color: #e3eefc;
+    background-image: linear-gradient(to bottom, #f2f8fe 0%, #dcebfc 100%);
+    color: #10161d;
+    border-color: #a8c8eb;
+}
+Menu::item:disabled, Menu::item:section { color: #8d96a1; }
+Menu::item:disabled:hover { background-image: linear-gradient(to bottom, #f5f5f5 0%, #ebebeb 100%); border-color: #d6d6d6; }
+Menu::separator { height: 1px; margin: 3px 2px 3px 31px; background-color: #e0e0e0; }
+Menu::check { width: 10px; margin-left: 10px; color: #1d4a7a; }
+
+/* ============================================ Scroll bars ============================================ */
+
+ScrollBar { background-color: #eaeef3; }
+ScrollBar:vertical { background-image: linear-gradient(to right, #e2e6eb 0%, #f2f4f7 100%); }
+ScrollBar:horizontal { background-image: linear-gradient(to bottom, #e2e6eb 0%, #f2f4f7 100%); }
+ScrollBar::thumb {
+    background-color: #dcdfe3;
+    border: 1px solid #959ba3;
+    border-radius: 3px;
+    margin: 1px;
+}
+ScrollBar:vertical::thumb {
+    background-image: linear-gradient(to right, #f6f6f6 0%, #ebebeb 50%, #d8d8d8 50%, #e2e2e2 100%);
+}
+ScrollBar:horizontal::thumb {
+    background-image: linear-gradient(to bottom, #f6f6f6 0%, #ebebeb 50%, #d8d8d8 50%, #e2e2e2 100%);
+}
+ScrollBar:vertical::thumb:hover, ScrollBar:vertical::thumb:pressed {
+    background-image: linear-gradient(to right, #eaf6fd 0%, #d9f0fc 50%, #bee6fd 50%, #a7d9f5 100%);
+    border-color: #3c7fb1;
+}
+ScrollBar:horizontal::thumb:hover, ScrollBar:horizontal::thumb:pressed {
+    background-image: linear-gradient(to bottom, #eaf6fd 0%, #d9f0fc 50%, #bee6fd 50%, #a7d9f5 100%);
+    border-color: #3c7fb1;
+}
+
+/* ============================================== Sliders ============================================== */
+
+Slider::groove { background-color: #c9d1db; border-radius: 2px; }
+Slider::fill { background-color: #4a90cf; }
+Slider::fill:disabled { background-color: #b9c3cf; }
+Slider::handle {
+    background-color: #e8e8e8;
+    background-image: linear-gradient(to bottom, #fbfbfb 0%, #ececec 50%, #d9d9d9 50%, #e6e6e6 100%);
+    border: 1px solid #6f7a87;
+}
+Slider::handle:hover, Slider::handle:pressed {
+    background-color: #c4e5f6;
+    background-image: linear-gradient(to bottom, #f0f9fe 0%, #d9f0fc 50%, #b2e0fb 50%, #c9ebfd 100%);
+    border-color: #3c7fb1;
+}
+Slider::handle:disabled { background-image: none; background-color: #eeeeee; border-color: #b9bec4; }
+
+/* ============================================= Top bar =============================================== */
+
+/* the transport: a sky-blue glass bar, white over blue, a bright line along its top */
+Transport {
+    background-color: #8bbbea;
+    background-image: var(--glass), linear-gradient(to bottom, #9fc8f0 0%, #77abe0 100%);
+    border-width: 0 0 1px 0;
+    border-color: #6f93bf;
+    box-shadow: inset 0 1px 0 #ffffff, inset 0 -1px 0 #ffffff59;
+}
+Transport Label { color: #0f1f33; text-shadow: 0 0 5px #ffffff, 0 0 2px #ffffff; }
+
+/* the CPU monitor beside the ruler */
+CpuMonitor {
+    background-color: #e8f0f9;
+    background-image: linear-gradient(to bottom, #fdfeff 0%, #eef4fb 50%, #e0eaf6 50%, #e9f1fa 100%);
+    color: #23384f;
+    border-color: #b4c4d8;
+}
+CpuMonitor::track { background-color: #cdd7e3; border-radius: 1px; }
+CpuMonitor::bar:ok, CpuMonitor::bar:warn, CpuMonitor::bar:hot { background-image: var(--gloss); border-radius: 1px; }
+
+/* ============================================== Timeline ============================================= */
+
+/* the timeline's frame: a thin edge around the ruler, the lanes and the master */
+ScrollArea#timeline { border: 1px solid #9fb2c9; }
+
+Ruler {
+    background-color: #e8f0f9;
+    background-image: linear-gradient(to bottom, #fdfeff 0%, #eef4fb 50%, #e0eaf6 50%, #e9f1fa 100%);
+    border-bottom: 1px solid #b4c4d8;
+}
+Ruler::marker { background-color: #3c7fb1; color: #ffffff; border-radius: 2px; }
+Ruler::tempo { color: #1d5f99; }
+
+Lane.group { border-top-color: #c3cfdd; }
+MasterLane { background-image: linear-gradient(to bottom, #f1f6fc 0%, #e3edf8 100%); }
+
+Overview { background-image: linear-gradient(to bottom, #f4f8fc 0%, #e4ecf6 100%); }
+OverviewCaption { background-image: linear-gradient(to bottom, #f4f8fc 0%, #e4ecf6 100%); color: #4c607a; }
+
+Clip::fade { background-color: rgba(255, 255, 255, 0.35); }
+
+/* track rows: panels in their track's colour with a glass sheen (white over the colour, lighter at the top) and
+   a bright line along their top */
+TrackRow {
+    border-top-color: #d6dfea;
+    background-image: linear-gradient(to bottom, #ffffff59 0%, #ffffff26 100%);
+    box-shadow: inset 0 1px 0 #ffffff80;
+}
+TrackRow.automation, TrackRow.take { background-image: none; box-shadow: none; }
+LaneFrame::edge { background-color: #b9c7d8; }
+LaneFrame::current { border-color: #3c7fb1; }
+LaneFrame.master {
+    background-color: #e6eff9;
+    background-image: linear-gradient(to bottom, #f4f8fd 0%, #e2ecf8 100%);
+    box-shadow: inset 0 1px 0 #ffffff;
+}
+.pin-cover { background-color: #dde7f3; }
+
+PanKnob { background-color: #e4e4e4; }
+PanKnob::pointer { color: #1e2b3c; }
+PanKnob::arc { color: #3c7fb1; }
+
+SendsPanel {
+    background-color: #f3f7fc;
+    border: 1px solid #8d9fb5;
+    border-radius: 3px;
+    box-shadow: inset 0 1px 0 #ffffff;
+}
+
+/* =============================================== Meters ============================================== */
+
+/* a sunken light track with a thin edge; glossy bars (white over the top half of each colour, a hard stop,
+   then the colour a little deeper) */
+LevelMeter::track {
+    background-color: #e3e8ee;
+    background-image: linear-gradient(to bottom, #d3d9e1 0%, #eef1f5 100%);
+    border: 1px solid #a9b4c2;
+    border-radius: 2px;
+}
+LevelMeter::bar:ok, LevelMeter::bar:warn, LevelMeter::bar:hot,
+LevelMeter::peak:ok, LevelMeter::peak:warn, LevelMeter::peak:hot { background-image: var(--gloss); }
+LevelMeter::number { background-color: #eef2f7; color: #23384f; }
+
+Scope { background-color: #f9fbfe; border: 1px solid #a9b8cb; border-radius: 2px; }
+Scope::trace { color: #2f73c0; }
+Scope::grid { color: #e0e7f0; }
+Scope::divider { color: #c3cfdd; }
+Scope::caption { color: #5a6878; }
+
+MeterView::track {
+    background-color: #e3e8ee;
+    background-image: linear-gradient(to bottom, #d3d9e1 0%, #eef1f5 100%);
+    border: 1px solid #b2bcc8;
+    border-radius: 2px;
+}
+MeterView::bar {
+    background-color: #2fb34a;
+    background-image: linear-gradient(to bottom, #c7f2cf 0%, #6fd47f 45%, #22b33b 50%, #34c74e 100%);
+    border-radius: 1px;
+}
+
+/* ============================================ MIDI editor ============================================ */
+
+PianoRoll::row:white { background-color: #ffffff; }
+PianoRoll::row:black { background-color: #eff3f8; }
+PianoRoll::octave { background-color: #b9c7d8; }
+PianoRoll::below { background-color: #e6edf6; }
+PianoRoll::keys-edge, Steps::keys-edge { background-color: #8e9aab; }
+PianoRoll::key:black, Steps::key:black {
+    background-color: #2b2f36;
+    background-image: linear-gradient(to right, #1d2026 0%, #3f4550 85%, #2b2f36 100%);
+}
+PianoRoll::selection-box { background-color: #3399ff26; border-color: #3c7fb1; }
+
+Steps { background-color: #e6edf6; }
+Steps::pad { background-color: #eaf0f7; }
+
+VelocityLane { background-color: #f8fafd; border-top: 1px solid #b4c4d8; }
+VelocityLane::label { background-color: #e8f0f9; color: #23384f; }
+
+EditorRuler {
+    background-color: #e8f0f9;
+    background-image: linear-gradient(to bottom, #fdfeff 0%, #eef4fb 50%, #e0eaf6 50%, #e9f1fa 100%);
+    color: #23384f;
+}
+EditorRuler::corner { background-color: #e8f0f9; }
+
+/* ======================================== Effects and the patch panel ======================================== */
+
+CurveView { background-color: #ffffff; border: 1px solid #a9b8cb; }
+CurveView::grid { color: #e1e8f1; }
+CurveView::grid-label { color: #5f7189; }
+CurveView::analyzer { color: #7d9bbf; }
+CurveView::curve { color: #2a6fbe; }
+Tuner { background-color: #ffffff; }
+EnvelopeGraph { background-color: #f9fbfe; border: 1px solid #a9b8cb; }
+EnvelopeGraph::grid { color: #e0e7f0; }
+EnvelopeGraph::label { color: #4c607a; }
+EnvelopeGraph::handle { background-color: #ffffff; }
+SampleWaveform { background-color: #f9fbfe; color: #4c607a; }
+SampleWaveform::caption { color: #4c607a; }
+
+/* the patch panel: light glass units on silver rails */
+PatchPanel { background-color: #d3dfed; }
+PatchPanel::rail {
+    background-color: #d8dde3;
+    background-image: linear-gradient(to bottom, #f4f6f8 0%, #dfe3e8 50%, #cfd5dc 50%, #dde2e7 100%);
+}
+PatchPanel::rail-edge { background-color: #9aa5b2; }
+PatchPanel::screw { background-color: #c4cad1; color: #6e7884; }
+PatchPanel::sources { background-color: #e9f0f8; border-top-color: #b4c4d8; }
+PatchPanel::unit {
+    background-color: #eef2f7;
+    background-image: linear-gradient(to bottom, #fbfcfe 0%, #eef2f7 50%, #e3e9f1 50%, #eaeff5 100%);
+    border: 1px solid #9eb0c5;
+    border-radius: 4px;
+}
+PatchPanel::unit:hover {
+    background-image: linear-gradient(to bottom, #f4faff 0%, #e2f1fc 50%, #cfe8fa 50%, #dcedfb 100%);
+    border-color: #3c7fb1;
+}
+PatchPanel::unit:selected { outline-color: #3c7fb1; }
+PatchPanel::picture { background-color: #ffffff; }
+PatchPanel::jack { background-color: #2b2f36; border-color: #aab4c0; }
+PatchPanel::reload {
+    background-color: #e1e1e1;
+    background-image: var(--face);
+    border: 1px solid #707070;
+    border-radius: 3px;
+}
+PatchPanel::reload:hover { background-image: var(--face-hover); color: #10161d; border-color: #3c7fb1; }
+PatchPanel::groove { background-color: #b9c3cf; }
+PatchPanel::knob {
+    background-color: #e8e8e8;
+    background-image: linear-gradient(to bottom, #fbfbfb 0%, #ececec 50%, #d9d9d9 50%, #e6e6e6 100%);
+    border: 1px solid #6f7a87;
+}
+PatchPanel::knob:hover { background-image: var(--face-hover); border-color: #3c7fb1; }
+PatchPanel::mod-label { background-color: #ffffff; }
+
+/* ============================================ The Explorer ============================================ */
+
+/* the Explorer's caption: a light glass bar, as the menu bar */
+ExplorerDock::title-bar {
+    background-color: #dbe6f3;
+    background-image: linear-gradient(to bottom, #f6f9fd 0%, #e6eef7 50%, #dae5f1 50%, #e2eaf4 100%);
+    border-bottom: 1px solid #b4c4d8;
+    box-shadow: inset 0 1px 0 #ffffff;
+    color: #1e3a5f;
+}
+
+FileView { background-color: #ffffff; }
+FileView::row:selected {
+    background-color: #d5e8fb;
+    background-image: var(--select-box-strong);
+    color: var(--highlighted-text);
+}
+FileView::row:hover { background-color: #eef6fe; }
+FileView::icon { color: #c79a2e; fill-opacity: 0.45; }
+FileView::icon:selected { color: #a77b14; }
+FileView::header { background-color: #f1f4f8; color: #4c607a; border-color: #d5dde7; }
