@@ -877,6 +877,10 @@ std::string checkValue(const std::string& p, const Tokens& t, size_t b, size_t e
         double v;
         return evalNumber(t, b, e, v) ? "" : bad();
     }
+    if (p == "backdrop-filter") {
+        std::string why;
+        return parseBackdropBlur(t, b, e, 12, nullptr, why) ? "" : "a bad value for 'backdrop-filter': " + why;
+    }
     if (p == "color" || ends("-color")) {
         if (isKind(t, b, e, Kind::Color)) return "";
         if (e == b + 1 && t[b].type == Tok::Ident) return "unknown colour '" + whole + "'";

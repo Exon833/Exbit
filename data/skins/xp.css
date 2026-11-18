@@ -865,6 +865,10 @@ Window:framed, Window:framed:active {
 }
 Window:framed:inactive { border-color: #7f9be3 #5d76c4 #5d76c4 #7f9be3; }
 Window:framed:maximized { border-width: 0; border-radius: 0; box-shadow: none; }
+/* (see-through, :transparent: no black outside the corners, the desktop shows there, anti-aliased) */
+Window:framed:transparent, Window:framed:active:transparent { box-shadow: none; }
+/* (see-through: menus, drop-down lists and tooltips cast a soft shadow, as XP's did) */
+Menu:transparent, ComboPopup:transparent, ToolTip:transparent { box-shadow: 2px 3px 6px rgba(0, 0, 0, 0.4); }
 /* the caption: a light line along the top, deep blue, brighter towards the bottom, then a dark lip */
 TitleBar {
     background-color: #0050ee;  /* (the caption's main blue: where the gradient can't be drawn) */

@@ -70,7 +70,8 @@
 // [spread]] [colour] (the colour: currentColor when left out); text-shadow the same without inset and spread.
 // Style::shadows(). border-style and border-top-style…: none hidden solid dashed dotted double groove ridge inset
 // outset; a side whose style is none or hidden has a width of 0 (Style::length, edges). opacity: a number or a
-// percentage (the whole node: Widget::paintTree). image-rendering: auto | smooth | high-quality | pixelated |
+// percentage (the whole node: Widget::paintTree). backdrop-filter: none or blur(<length>), only that filter
+// (Style::backdropBlur; a window's, ui/toolkit). image-rendering: auto | smooth | high-quality | pixelated |
 // crisp-edges. Tiny DAW's own: -tiny-glyph (none | url(): an image in place of a part's drawn glyph),
 // -tiny-glyph-size and -tiny-glyph-offset (one or two lengths), -tiny-glyph-tint (none | color). font-smooth
 // (auto | never | always | a length) and -webkit-font-smoothing (auto | none | antialiased |
@@ -274,6 +275,8 @@ public:
         Rgba color;
     };
     std::vector<Shadow> shadows(const std::string& property) const;
+    // backdrop-filter: blur(<length>)'s length in px (0: none, not set, or another filter)
+    double backdropBlur() const;
     // every custom property's value (--name -> text, var() resolved)
     const std::map<std::string, std::string>& variables() const { return vars_; }
     std::optional<std::string> variable(const std::string& name) const;  // "--lane" or "lane"

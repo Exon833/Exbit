@@ -34,7 +34,7 @@
 //   (positions are in the window's logical pixels, whatever the interface size, from the top-left of its
 //   inside: its own frame's title bar is at negative y. Dragging a title bar or a window's edge moves or
 //   resizes it by the program, not the window manager: the script's pointer isn't the real one)
-//     print                           what is open, the status bar, tracks and clips (stdout)
+//     print                           what is open (transparent: see-through), the status bar, tracks and clips (stdout)
 //     quit                            closes the program without asking; close: as the title bar's ✕;
 //     closewin                        closes the target window (as its ✕)
 #pragma once

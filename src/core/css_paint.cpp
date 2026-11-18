@@ -1,6 +1,6 @@
 // Reading the CSS values that paint (css.h): background images (url()s and gradients: background-image and the
 // background shorthand) and the background-repeat, -position, -size, -origin and -clip lists, box-shadow and
-// text-shadow lists, and opacity; Style's getters for them.
+// text-shadow lists, opacity, and backdrop-filter's blur(); Style's getters for them.
 //
 // GRADIENTS. linear-gradient([<angle> | to <side-or-corner>,] <stops>) and radial-gradient([<shape> ||
 // <size>] [at <position>], <stops>), and their repeating- forms. Angles in deg, rad, turn, grad (or a bare
@@ -591,6 +591,33 @@ bool parseShadows(const Tokens& t, size_t b, size_t e, bool box, const Rgba* cur
     return true;
 }
 
+bool parseBackdropBlur(const Tokens& t, size_t b, size_t e, double em, double* px, std::string& why) {
+    t.trim(b, e);
+    if (px) *px = 0;
+    if (e == b + 1 && t[b].type == Tok::Ident && ieq(t[b].text, "none")) return true;
+    if (b >= e || t[b].type != Tok::Function || t[b].close != e - 1) {
+        why = "none or blur(<length>)";
+        return false;
+    }
+    if (!ieq(t[b].text, "blur")) {
+        why = "only blur() is supported";
+        return false;
+    }
+    double v = 0;
+    size_t ab = b + 1, ae = e - 1;
+    t.trim(ab, ae);
+    if (ab < ae && !lengthOnly(t, {ab, ae}, em, v)) {  // (blur() alone: 0)
+        why = "blur() takes a length";
+        return false;
+    }
+    if (v < 0) {
+        why = "a blur can't be negative";
+        return false;
+    }
+    if (px) *px = v;
+    return true;
+}
+
 }  // namespace detail
 
 namespace {
@@ -695,6 +722,16 @@ std::vector<Style::Shadow> Style::shadows(const std::string& property) const {
     std::string why;
     if (!detail::parseShadows(t, 0, t.size(), property != "text-shadow", &current, emPx_, &r, why)) r.clear();
     return r;
+}
+
+double Style::backdropBlur() const {
+    auto it = props_.find("backdrop-filter");
+    if (it == props_.end()) return 0;
+    detail::Tokens t;
+    detail::tokenize(it->second, t);
+    double px = 0;
+    std::string why;
+    return detail::parseBackdropBlur(t, 0, t.size(), emPx_, &px, why) ? px : 0;
 }
 
 bool declaresOnNodes(const Engine& engine, const std::string& property) {

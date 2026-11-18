@@ -680,6 +680,10 @@ Window:framed, Window:framed:active {
 }
 Window:framed:inactive { border-color: #c4d0de; }
 Window:framed:maximized { border-width: 0; border-radius: 0; box-shadow: none; }
+/* (see-through, :transparent: no black outside the corners, the desktop shows there, anti-aliased) */
+Window:framed:transparent, Window:framed:active:transparent { box-shadow: none; }
+/* (see-through: menus, drop-down lists and tooltips cast a soft shadow) */
+Menu:transparent, ComboPopup:transparent, ToolTip:transparent { box-shadow: 1px 3px 8px rgba(0, 0, 0, 0.35); }
 /* the caption: glass over a pale blue (the buttons hang from its top: the padding below them; the title's
    own padding puts it back in the middle) */
 TitleBar {

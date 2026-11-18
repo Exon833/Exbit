@@ -1,6 +1,7 @@
 // The GUI toolkit, headless: widget trees, layouts, events through the windows' dispatch paths,
 // painting into images (pixel checks), text editing, spin boxes, shortcuts, menus, dialogs,
 // deleteLater safety. Also writes a gallery of the controls as PNGs to build/toolkit-samples/.
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <memory>
@@ -2969,6 +2970,242 @@ static void testCssImages() {
     style::clearImageCaches();
 }
 
+// ------------------------------------------------------------------------------------------
+// transparency (App::setTransparency): see-through windows, headless (setAlphaWhenHeadless: the framebuffer as a
+// compositing manager would show it), and native windows' requests through a stub (App::nativeWindowFactory)
+namespace {
+struct StubNative : plat::Window {
+    static std::vector<StubNative*>& all() {
+        static std::vector<StubNative*> v;
+        return v;
+    }
+    plat::WindowOptions opts;
+    Rect geom;
+    bool shown = false, alpha = true, blur = false;
+    float opacity = 1;
+    Rect input, blurArea;
+    int radii[4] = {0, 0, 0, 0};
+    int opacityCalls = 0;
+    explicit StubNative(const plat::WindowOptions& o) : opts(o), geom(std::max(0, o.x), std::max(0, o.y), o.w, o.h) {
+        all().push_back(this);
+    }
+    ~StubNative() override { all().erase(std::find(all().begin(), all().end(), this)); }
+    void show() override { shown = true; }
+    void hide() override { shown = false; }
+    bool isVisible() const override { return shown; }
+    void setTitle(const std::string&) override {}
+    void resize(int w, int h) override { geom.w = w, geom.h = h; }
+    void move(int x, int y) override { geom.x = x, geom.y = y; }
+    void setMinimumSize(int, int) override {}
+    void setResizable(bool) override {}
+    Rect geometry() const override { return geom; }
+    Rect frameGeometry() const override { return geom; }
+    void raise() override {}
+    void setMaximized(bool) override {}
+    bool isMaximized() const override { return false; }
+    void setFullScreen(bool) override {}
+    bool hasFocus() const override { return false; }
+    void setCursor(plat::Cursor) override {}
+    void present(const Image&, const Rect&) override {}
+    void grabPointer(bool) override {}
+    uintptr_t nativeHandle() const override { return 0; }
+    void* nativeDisplay() const override { return nullptr; }
+    bool capture(Image&) override { return false; }
+    // (as the platform: see-through only while transparency is on)
+    bool hasAlpha() const override { return alpha && App::get().transparency(); }
+    void setInputArea(const Rect& r) override { input = r; }
+    void setOpacity(float o) override {
+        opacity = o;
+        opacityCalls++;
+    }
+    void setBlurBehind(bool on, const Rect& r) override {
+        blur = on;
+        blurArea = r;
+    }
+    void setCornerRadii(int tl, int tr, int br, int bl) override {
+        radii[0] = tl, radii[1] = tr, radii[2] = br, radii[3] = bl;
+    }
+};
+StubNative* stubOf(Window& w) { return dynamic_cast<StubNative*>(w.native()); }
+// every pixel a valid premultiplied colour (no channel above its alpha): what composites correctly
+bool premultiplied(const Image& img) {
+    for (int y = 0; y < img.height(); y++)
+        for (int x = 0; x < img.width(); x++) {
+            uint32_t p = img.pixel(x, y), a = p >> 24;
+            if (((p >> 16) & 255) > a || ((p >> 8) & 255) > a || (p & 255) > a) return false;
+        }
+    return true;
+}
+}  // namespace
+
+static void testTransparency() {
+    App& app = App::get();
+    std::vector<css::Problem> problems;
+    // backdrop-filter: none or blur(<length>) only (others reported and left out)
+    css::parse("A { backdrop-filter: blur(1em); } B { backdrop-filter: none; } C { backdrop-filter: blur(); }",
+               "blur.css", problems);
+    CHECK(problems.empty());
+    css::parse("D { backdrop-filter: brightness(2); } E { backdrop-filter: blur(-3px); } F { backdrop-filter: blur(4px) "
+               "blur(2px); }",
+               "blur2.css", problems);
+    CHECK(problems.size() == 3);
+    problems.clear();
+    {
+        theme::setStyles({theme::builtinSheet(), css::parse("Label#b { backdrop-filter: blur(1.5em); font-size: 10px; }",
+                                                            "blur3.css", problems)});
+        Window w(plat::WindowOptions{});
+        auto* l = w.add<Label>("x");
+        l->objectName = "b";
+        CHECK(std::abs(l->computedStyle().backdropBlur() - 15) < 1e-9 && w.computedStyle().backdropBlur() == 0);
+    }
+    // --- headless, see-through: a framed window with rounded corners, a half see-through blue background and a
+    // square red title bar (cut round all the same) ---
+    theme::setStyles({theme::builtinSheet(),
+                      css::parse("Window:framed:transparent { border: 0; border-radius: 10px; "
+                                 "background-color: rgb(0 0 255 / 50%); } TitleBar, TitleBar:inactive { background-color: #ff0000; "
+                                 "border-radius: 0; } Label { color: #ffffff; }",
+                                 "glass.css", problems)});
+    CHECK(problems.empty());
+    app.setFramesWhenHeadless(true);
+    app.setAlphaWhenHeadless(true);
+    {
+        plat::WindowOptions o;
+        o.w = 200;
+        o.h = 120;
+        Window w(o);
+        auto* text = w.add<Label>("Glass text");
+        text->setGeometry(10, 40, 120, 20);
+        w.showWindow();
+        app.tick();
+        CHECK(w.isFramed() && w.hasAlpha() && w.hasState("transparent"));
+        const Image& fb = w.framebuffer();
+        int bar = TitleBar::barHeight();
+        CHECK(fb.width() == 200 && fb.height() == 120 + bar);
+        // outside the rounded corners: nothing (the red title bar's square corner taken off), every corner
+        CHECK(fb.pixel(0, 0) == 0 && fb.pixel(1, 1) == 0 && fb.pixel(199, 0) == 0 && fb.pixel(0, fb.height() - 1) == 0 &&
+              fb.pixel(199, fb.height() - 1) == 0);
+        // on the arc: anti-aliased (some pixels partly covered, the red kept red)
+        int partial = 0;
+        for (int y = 0; y < 10; y++)
+            for (int x = 0; x < 10; x++) {
+                uint32_t a = fb.pixel(x, y) >> 24;
+                if (a > 0 && a < 255) {
+                    partial++;
+                    CHECK(fb.colorAt(x, y).r > 240 && fb.colorAt(x, y).g < 10);
+                }
+            }
+        CHECK(partial >= 5);
+        // the title bar opaque red; the inside the half see-through blue (cleared, not over black)
+        CHECK((fb.pixel(100, bar / 2) >> 24) == 255 && fb.colorAt(100, bar / 2) == Color(255, 0, 0));
+        uint32_t in = fb.pixel(180, bar + 100);
+        CHECK(std::abs((int)(in >> 24) - 128) <= 1 && fb.colorAt(180, bar + 100).b > 250 && fb.colorAt(180, bar + 100).r < 5);
+        // the text on it: grayscale anti-aliased, composited (premultiplied, some of it more opaque than the glass)
+        CHECK(premultiplied(fb));
+        int brighter = 0;
+        for (int y = bar + 40; y < bar + 60; y++)
+            for (int x = 10; x < 130; x++)
+                if ((fb.pixel(x, y) >> 24) > 140) brighter++;
+        CHECK(brighter > 20);
+        savePng(outDir() + "/transparent-window.png", fb);
+        // repainted in part: still cleared to see-through there (not stacked up)
+        w.update(Rect(150, 80, 40, 30));
+        app.tick();
+        CHECK(fb.pixel(180, bar + 100) == in);
+        // transparency off: opaque as before (over black; the corners are the native shape's)
+        app.setTransparency(false);
+        app.tick();
+        CHECK(!w.hasAlpha() && !w.hasState("transparent"));
+        CHECK((w.framebuffer().pixel(180, bar + 100) >> 24) == 255);
+        app.setTransparency(true);
+        app.tick();
+        CHECK(w.hasAlpha() && w.framebuffer().pixel(1, 1) == 0);
+        w.hideWindow();
+    }
+    app.setAlphaWhenHeadless(false);
+    app.setFramesWhenHeadless(false);
+
+    // --- native windows (a stub): a popup's room for its shadow and where clicks reach, opacity, blur ---
+    theme::setStyles({theme::builtinSheet(),
+                      css::parse("Window#pop:transparent { box-shadow: 0 4px 6px #000000; background-color: #ffffff; }"
+                                 "Window#faded { opacity: 0.5; } Window#frosted { backdrop-filter: blur(12px); }",
+                                 "stub.css", problems)});
+    CHECK(problems.empty());
+    app.nativeWindowFactory = [](const plat::WindowOptions& o, plat::WindowListener*) {
+        return std::unique_ptr<plat::Window>(new StubNative(o));
+    };
+    {
+        Window owner(plat::WindowOptions{});
+        owner.showWindow();
+        // a popup (as a menu, a drop-down list or a tooltip is), its own style's shadow below it
+        plat::WindowOptions po;
+        po.popup = true;
+        po.takesFocus = false;
+        po.w = 120;
+        po.h = 40;
+        Window pop(po);
+        pop.objectName = "pop";
+        Window* tip = &pop;
+        pop.moveWindow(302, 318);
+        app.openPopup(&pop, &owner, [&] { app.closePopup(&pop); });
+        CHECK(stubOf(pop) && pop.hasAlpha() && pop.hasState("transparent"));
+        app.tick();
+        StubNative* sn = stubOf(*tip);
+        Window::FrameInsets s = tip->nativeInsets();
+        // the shadow reaches 6 px around, 4 px lower: more room below than above, none taken from the inside
+        CHECK(s.left > 0 && s.right == s.left && s.bottom > s.top && tip->frameInsets() == Window::FrameInsets());
+        Rect g = sn->geometry(), inside = tip->screenGeometry();
+        CHECK(g.w == tip->width() + s.left + s.right && g.h == tip->height() + s.top + s.bottom);
+        CHECK(inside.x == g.x + s.left && inside.y == g.y + s.top && inside.x == 302 && inside.y == 318);
+        // clicks only on the tooltip itself; the shadow drawn in the room around it, nothing in its far corner
+        CHECK(sn->input == Rect(s.left, s.top, tip->width(), tip->height()));
+        const Image& fb = tip->framebuffer();
+        CHECK(fb.width() == g.w && fb.height() == g.h);
+        CHECK((fb.pixel(fb.width() / 2, fb.height() - s.bottom + 3) >> 24) > 20 && fb.pixel(0, 0) >> 24 < 8);
+        CHECK(premultiplied(fb));
+        savePng(outDir() + "/transparent-popup.png", fb);
+        // a press in the shadow (the platform's grab sends it to the popup): outside it, so the popup closes
+        plat::Event pe = mouseEv(plat::Event::MouseDown, fb.width() / 2, fb.height() - 2, plat::LeftButton, 0);
+        pop.onEvent(nullptr, pe);
+        CHECK(app.popups().empty() && !pop.isWindowShown());
+        app.openPopup(&pop, &owner, [&] { app.closePopup(&pop); });
+        app.tick();
+        // transparency off: no room, clicks everywhere (the stub opaque); the popup stays where it was put
+        app.setTransparency(false);
+        app.tick();
+        CHECK(tip->nativeInsets() == Window::FrameInsets() && sn->input.empty() && !tip->hasState("transparent"));
+        CHECK(sn->geometry() == Rect(302, 318, tip->width(), tip->height()));
+        app.setTransparency(true);
+        app.tick();
+        CHECK(tip->nativeInsets() == s && sn->geometry() == g);
+        app.closePopup(&pop);
+
+        // opacity: the native window's, while transparency is on
+        Window faded(plat::WindowOptions{});
+        faded.objectName = "faded";
+        faded.showWindow();
+        app.tick();
+        CHECK(stubOf(faded)->opacity == 0.5f);
+        app.setTransparency(false);
+        app.tick();
+        CHECK(stubOf(faded)->opacity == 1.f);
+        app.setTransparency(true);
+        app.tick();
+        CHECK(stubOf(faded)->opacity == 0.5f && stubOf(owner)->opacityCalls == 0);
+        // backdrop-filter: blur(): asked for the whole window; not for others, nor while opaque
+        Window frosted(plat::WindowOptions{});
+        frosted.objectName = "frosted";
+        frosted.showWindow();
+        app.tick();
+        CHECK(stubOf(frosted)->blur && stubOf(frosted)->blurArea.empty() && !stubOf(owner)->blur);
+        stubOf(frosted)->alpha = false;
+        frosted.update();
+        app.tick();
+        CHECK(!stubOf(frosted)->blur);
+    }
+    app.nativeWindowFactory = nullptr;
+    theme::setSkin();
+}
+
 int main() {
     App::get().initHeadless();
     util::makeDirs("build/toolkit-samples");
@@ -3000,5 +3237,6 @@ int main() {
     gallery();
     testCssPainting();
     testCssImages();
+    testTransparency();
     TEST_MAIN_END();
 }

@@ -86,6 +86,7 @@ struct WindowOptions {
     std::string iconSvg;          // optional: the window's icon, as SVG text
     bool decorated = true;        // false: the window manager draws no frame around it (no title bar, no
                                   // border: the program draws its own, ui::Window's title bar)
+    bool opaque = false;          // never see-through (a 24-bit window even while transparency is on)
 };
 
 // the edges of a window a resize drags (beginMoveResize): one, or two for a corner; none: a move
@@ -151,6 +152,22 @@ public:
     virtual void* nativeDisplay() const = 0;
     // a picture of what the window shows, including child windows (plugin editors); false if it can't
     virtual bool capture(Image& out) = 0;
+
+    // --- transparency (see compositing() and setTransparency() below) ---
+    // true while the alpha of what present() shows is the window's own: where its framebuffer is see-through
+    // (premultiplied alpha below 255), the desktop shows. False for windows made without transparency (24-bit,
+    // opaque: alpha is ignored, the corners are cut by setCornerRadii's shape) and while no compositing manager
+    // runs or transparency is off (a see-through window made earlier is then shown opaque, as over black)
+    virtual bool hasAlpha() const { return false; }
+    // where clicks reach the window (device pixels, its own coordinates; the corners given by setCornerRadii cut
+    // round while hasAlpha()); elsewhere they go to what is under it (a popup's drop shadow). Empty: everywhere
+    virtual void setInputArea(const Rect& area) { (void)area; }
+    // the whole window's opacity, 0…1 (_NET_WM_WINDOW_OPACITY: the compositing manager fades all of it)
+    virtual void setOpacity(float opacity) { (void)opacity; }
+    // asks the compositing manager to blur what is behind the window (KWin's _KDE_NET_WM_BLUR_BEHIND_REGION): in
+    // `area` (device pixels; empty: the input area, else the whole window; corners cut round where they are the
+    // window's), or not at all (on false). Only while hasAlpha(): an opaque window hides what is behind it anyway
+    virtual void setBlurBehind(bool on, const Rect& area) { (void)on, (void)area; }
 };
 
 // --- the main loop ---
@@ -199,6 +216,19 @@ std::string dataDir();               // the program's data (skins/, icons/): nex
 bool openUrl(const std::string& url);
 bool openFolder(const std::string& path);
 void beep();
+
+// --- transparency ---
+// a compositing manager runs (X11: the _NET_WM_CM_S<screen> selection has an owner); followed while it starts and
+// stops (setCompositingListener)
+bool compositing();
+// Windows made while it is on and compositing() is true are see-through where their framebuffer is (32-bit, with
+// their own alpha: Window::hasAlpha); off, they are made as before (24-bit, opaque). Turning it off shows the
+// see-through ones opaque at once; turning it on again (or a compositing manager starting) makes them see-through
+// again; windows made while it was off stay opaque until they are made again. On by default.
+void setTransparency(bool on);
+bool transparency();
+// called on the main thread after compositing() or transparency() changed (one listener: the toolkit's App)
+void setCompositingListener(std::function<void()> fn);
 
 // --- additions (platform/x11.cpp) ---
 // false when init() could not connect to a display (no windows then; timers and posted work still run)

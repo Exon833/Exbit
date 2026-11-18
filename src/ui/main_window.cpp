@@ -685,6 +685,31 @@ void MainWindow::buildOptionsMenu() {
     systemFrames->group = 4;
     systemFrames->triggered = [this] { setWindowFrames(false); };
     systemFrames->tooltip = "Every window's title bar and border are the window manager's, as other programs have";
+    // see-through windows (the skin's translucent backgrounds, rounded corners against the desktop, shadows under
+    // menus and tooltips), while the desktop composites windows
+    frames->addSeparator();
+    transparencyAction = frames->addCheckable("T&ransparency", prefs.transparency, [this](bool on) { setTransparency(on); });
+    frames->aboutToShow = [this](ui::Menu*) { offerTransparency(); };
+    offerTransparency();
+}
+
+void MainWindow::offerTransparency() {
+    if (!transparencyAction) return;
+    bool available = App::get().transparencyAvailable();
+    transparencyAction->setEnabled(available);
+    transparencyAction->tooltip =
+        available ? "Windows may be see-through where the skin makes them so (Window:transparent in docs/skins.md): "
+                    "rounded corners against the desktop, shadows under menus and tooltips. Windows opened "
+                    "while it was off stay opaque until they are opened again (this one: after a restart)"
+                  : "No compositing manager runs on this desktop: windows can't be see-through (they are opaque, "
+                    "their corners cut)";
+}
+
+void MainWindow::setTransparency(bool on) {
+    // Options → Window frames → Transparency (remembered)
+    prefs.transparency = on;
+    prefs.save();
+    App::get().setTransparency(on);
 }
 
 void MainWindow::setWindowFrames(bool own) {

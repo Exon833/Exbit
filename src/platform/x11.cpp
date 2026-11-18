@@ -5,6 +5,19 @@
 // - Windows use the default 24-bit TrueColor visual (opaque windows: the ARGB framebuffer's alpha
 //   byte is ignored). present() copies the dirty rectangle into an MIT-SHM image and sends it with
 //   XShmPutImage (XPutImage when shared memory isn't available, e.g. a remote display).
+// - Transparency: while a compositing manager runs (the _NET_WM_CM_S<screen> selection has an owner,
+//   followed through the MANAGER message on the root window and the owner window's DestroyNotify) and
+//   setTransparency is on, top-level windows (not offscreen ones, not WindowOptions::opaque) are made
+//   with a 32-bit TrueColor visual and a colormap of their own (border pixel 0, no background pixmap).
+//   The framebuffer is premultiplied ARGB32, which is what such a visual takes on a little-endian
+//   machine with masks 0xFF0000 / 0xFF00 / 0xFF (alpha the top byte): present() copies it as it is
+//   (XShmPutImage at depth 32). Their rounded corners are then left to the alpha (no bounding shape;
+//   an input shape cuts them for clicks). If the compositing manager stops, or transparency is turned
+//   off, the 32-bit windows stay (they aren't made again: a plugin's view may be inside) and are shown
+//   opaque: present() makes every pixel's alpha 255 (as 24-bit windows show it), the 1-bit shape cuts
+//   the corners again; when it starts again they are see-through again. Windows made while there was
+//   none stay 24-bit until they are made again. The embedArea() window (a plugin's view) is always
+//   24-bit, with the default visual and colormap, inside a 32-bit window too.
 // - Offscreen windows (photographing plugin editors) are override-redirect windows mapped at
 //   (-20000, -20000): outside every screen, unmanaged, never shown. XGetImage refuses rectangles
 //   outside the screen on a plain X server (BadMatch), but under XWayland every top-level window
@@ -84,7 +97,8 @@ struct Atoms {
         NET_WORKAREA, NET_CURRENT_DESKTOP, NET_WM_USER_TIME, CLIPBOARD, TARGETS, TEXT, TEXT_PLAIN_UTF8,
         INCR, TINYDAW_SEL, XdndAware, XdndEnter, XdndPosition, XdndStatus, XdndLeave, XdndDrop,
         XdndFinished, XdndSelection, XdndTypeList, XdndActionCopy, URI_LIST, MOTIF_WM_HINTS, CLIPBOARD_MANAGER,
-        SAVE_TARGETS, XEMBED, NET_WM_MOVERESIZE, STATE_HIDDEN, NET_SUPPORTED;
+        SAVE_TARGETS, XEMBED, NET_WM_MOVERESIZE, STATE_HIDDEN, NET_SUPPORTED, NET_WM_WINDOW_OPACITY,
+        KDE_BLUR_BEHIND, MANAGER;
 };
 
 struct Timer {
@@ -115,6 +129,14 @@ struct State {
     int shmCompletion = -1;  // the ShmCompletion event type
     int compositeOpcode = 0; // the Composite extension's major opcode (0: none)
     bool xwayland = false;   // the display is XWayland (every top-level window has its own pixmap)
+    // transparency (see the notes above)
+    Visual* argbVisual = nullptr;  // a 32-bit TrueColor visual with alpha in the top byte (null: none)
+    Colormap argbCmap = 0;
+    Atom cmAtom = 0;               // _NET_WM_CM_S<screen>
+    XWin cmOwner = 0;              // its owner: the compositing manager (0: none)
+    bool compositing = false;
+    bool transparency = true;
+    std::function<void()> compositingListener;
     XIM im = nullptr;
     XIMStyle imStyle = 0;
     XWin helper = 0;         // owns the clipboard, receives selections
@@ -582,6 +604,12 @@ public:
     uintptr_t nativeHandle() const override { return (uintptr_t)win_; }
     void* nativeDisplay() const override { return S().dpy; }
     bool capture(Image& out) override;
+    bool hasAlpha() const override { return argb_ && S().compositing && S().transparency; }
+    void setInputArea(const Rect& area) override;
+    void setOpacity(float opacity) override;
+    void setBlurBehind(bool on, const Rect& area) override;
+    // compositing or transparency changed: the shapes (bounding or input) and the blur as hasAlpha() says now
+    void alphaChanged() { applyShape(); }
 
     // handles one X event for this window (it may be destroyed by the listener: emit last)
     void handle(XEvent& ev);
@@ -601,8 +629,18 @@ private:
     bool visible_ = false, mapped_ = false, shownOnce_ = false, moved_ = false;
     bool focus_ = false, maximized_ = false, fullscreen_ = false, minimized_ = false;
     int radii_[4] = {0, 0, 0, 0};  // setCornerRadii (device pixels)
-    bool shaped_ = false;          // a shape is set on the window
-    void applyShape();
+    bool shaped_ = false;          // a bounding shape is set on the window
+    bool inputShaped_ = false;     // an input shape is
+    void applyShape();             // (the bounding or input shape, and the blur's region)
+    bool argb_ = false;            // made with the 32-bit visual (see-through while hasAlpha())
+    Visual* visual_ = nullptr;
+    int depth_ = 24;
+    Rect inputArea_;               // setInputArea (empty: all of it)
+    bool blurOn_ = false;          // setBlurBehind
+    Rect blurArea_;
+    std::vector<long> blurSent_;   // the blur region as last set (blurSet_: set at all)
+    bool blurSet_ = false;
+    float opacity_ = 1;
     bool focusOnMap_ = false;
     XWin embed_ = 0;              // embedArea(): the window plugins' views go into (0: none, they go into win_)
     Rect embedRect_;
@@ -724,11 +762,16 @@ XWindow::XWindow(const WindowOptions& o, WindowListener* l) : listener_(l), opts
         }
     }
 
+    // see-through (32-bit) while a compositing manager runs and transparency is on; offscreen windows (photographs
+    // of plugins' windows) and opaque ones never
+    argb_ = s.argbVisual && s.compositing && s.transparency && !o.offscreen && !o.opaque;
+    visual_ = argb_ ? s.argbVisual : s.visual;
+    depth_ = argb_ ? 32 : s.depth;
     XSetWindowAttributes a{};
     unsigned long mask = CWBackPixmap | CWBorderPixel | CWColormap | CWBitGravity | CWEventMask;
     a.background_pixmap = None;
     a.border_pixel = 0;
-    a.colormap = s.cmap;
+    a.colormap = argb_ ? s.argbCmap : s.cmap;
     a.bit_gravity = NorthWestGravity;
     a.event_mask = ExposureMask | StructureNotifyMask | KeyPressMask | KeyReleaseMask | ButtonPressMask |
                    ButtonReleaseMask | PointerMotionMask | EnterWindowMask | LeaveWindowMask | FocusChangeMask |
@@ -738,7 +781,7 @@ XWindow::XWindow(const WindowOptions& o, WindowListener* l) : listener_(l), opts
         a.save_under = True;
         mask |= CWOverrideRedirect | CWSaveUnder;
     }
-    win_ = XCreateWindow(d, s.root, x_, y_, (unsigned)w_, (unsigned)h_, 0, s.depth, InputOutput, s.visual, mask, &a);
+    win_ = XCreateWindow(d, s.root, x_, y_, (unsigned)w_, (unsigned)h_, 0, depth_, InputOutput, visual_, mask, &a);
     s.windows[win_] = this;
 
     // WM_CLASS, WM_HINTS, WM_NORMAL_HINTS, WM_CLIENT_MACHINE, WM_LOCALE_NAME
@@ -1042,44 +1085,126 @@ void XWindow::setDecorated(bool on) {
 
 void XWindow::setCornerRadii(int tl, int tr, int br, int bl) {
     int r[4] = {std::max(0, tl), std::max(0, tr), std::max(0, br), std::max(0, bl)};
-    if (opts_.popup || opts_.offscreen || std::equal(r, r + 4, radii_)) return;
+    if (opts_.offscreen || std::equal(r, r + 4, radii_)) return;
     std::copy(r, r + 4, radii_);
     applyShape();
 }
 
-// the window's bounding shape: the rectangle, less what lies outside each corner's quarter circle (rows of
-// rectangles; X shapes are 1-bit, so the anti-aliased edge drawn inside stays)
-void XWindow::applyShape() {
+void XWindow::setInputArea(const Rect& area) {
+    if (area == inputArea_) return;
+    inputArea_ = area;
+    applyShape();
+}
+
+void XWindow::setOpacity(float opacity) {
     State& s = S();
-    int w = w_, h = h_;
-    bool any = radii_[0] || radii_[1] || radii_[2] || radii_[3];
-    if (!any || w <= 0 || h <= 0) {
-        if (shaped_) XShapeCombineMask(s.dpy, win_, ShapeBounding, 0, 0, 0 /*None*/, ShapeSet);
-        shaped_ = false;
-        XFlush(s.dpy);
-        return;
+    float o = std::isfinite(opacity) ? std::max(0.f, std::min(1.f, opacity)) : 1.f;
+    if (o == opacity_) return;
+    opacity_ = o;
+    if (o >= 1.f) {
+        XDeleteProperty(s.dpy, win_, s.a.NET_WM_WINDOW_OPACITY);
+    } else {
+        long v = (long)(unsigned long)std::lround(o * 4294967295.0);  // (0xFFFFFFFF: opaque)
+        XChangeProperty(s.dpy, win_, s.a.NET_WM_WINDOW_OPACITY, XA_CARDINAL, 32, PropModeReplace, (unsigned char*)&v, 1);
     }
+    XFlush(s.dpy);
+}
+
+void XWindow::setBlurBehind(bool on, const Rect& area) {
+    if (on == blurOn_ && (!on || area == blurArea_)) return;
+    blurOn_ = on;
+    blurArea_ = on ? area : Rect();
+    applyShape();
+}
+
+// the rows of rectangles that make `box` with its corners cut round (radii: top-left, top-right, bottom-right,
+// bottom-left), each corner's quarter circle; X shapes are 1-bit, so an anti-aliased edge drawn inside stays
+std::vector<XRectangle> roundedRects(const Rect& box, const int radii[4]) {
+    std::vector<XRectangle> rects;
+    int w = box.w, h = box.h;
+    if (w <= 0 || h <= 0) return rects;
     auto inset = [](int r, int row) {  // how far in from the side the inside starts on this row of a corner
         double d = r - row - 0.5;
         return (int)std::lround(r - std::sqrt(std::max(0.0, (double)r * r - d * d)));
     };
-    int top = std::min(h / 2, std::max(radii_[0], radii_[1]));
-    int bottom = std::min(h - top, std::max(radii_[2], radii_[3]));
-    std::vector<XRectangle> rects;
+    int top = std::min(h / 2, std::max(radii[0], radii[1]));
+    int bottom = std::min(h - top, std::max(radii[2], radii[3]));
+    auto row = [&](int x, int y, int rw, int rh) {
+        rects.push_back({(short)(box.x + x), (short)(box.y + y), (unsigned short)rw, (unsigned short)rh});
+    };
     for (int y = 0; y < top; y++) {
-        int l = y < radii_[0] ? inset(std::min(radii_[0], w / 2), y) : 0;
-        int r = y < radii_[1] ? inset(std::min(radii_[1], w / 2), y) : 0;
-        if (w - l - r > 0) rects.push_back({(short)l, (short)y, (unsigned short)(w - l - r), 1});
+        int l = y < radii[0] ? inset(std::min(radii[0], w / 2), y) : 0;
+        int r = y < radii[1] ? inset(std::min(radii[1], w / 2), y) : 0;
+        if (w - l - r > 0) row(l, y, w - l - r, 1);
     }
-    if (h - top - bottom > 0) rects.push_back({0, (short)top, (unsigned short)w, (unsigned short)(h - top - bottom)});
-    for (int i = 0; i < bottom; i++) {
+    if (h - top - bottom > 0) row(0, top, w, h - top - bottom);
+    for (int i = bottom - 1; i >= 0; i--) {  // (top to bottom: YXBanded wants the rows in order)
         int y = h - 1 - i;
-        int l = i < radii_[3] ? inset(std::min(radii_[3], w / 2), i) : 0;
-        int r = i < radii_[2] ? inset(std::min(radii_[2], w / 2), i) : 0;
-        if (w - l - r > 0) rects.push_back({(short)l, (short)y, (unsigned short)(w - l - r), 1});
+        int l = i < radii[3] ? inset(std::min(radii[3], w / 2), i) : 0;
+        int r = i < radii[2] ? inset(std::min(radii[2], w / 2), i) : 0;
+        if (w - l - r > 0) row(l, y, w - l - r, 1);
     }
-    XShapeCombineRectangles(s.dpy, win_, ShapeBounding, 0, 0, rects.data(), (int)rects.size(), ShapeSet, YXBanded);
-    shaped_ = true;
+    return rects;
+}
+
+// The window's shapes, as it is shown now. Opaque (24-bit, or 32-bit while not hasAlpha()): its bounding shape is
+// the rectangle less what lies outside each corner's quarter circle (not for popups). See-through: no bounding
+// shape (the corners' alpha shows the desktop, anti-aliased), and an input shape (setInputArea's area, or all of
+// it, its corners cut) so clicks on what is see-through there go to what is under it. And the blur behind it.
+void XWindow::applyShape() {
+    State& s = S();
+    bool alpha = hasAlpha();
+    bool any = radii_[0] || radii_[1] || radii_[2] || radii_[3];
+    Rect whole(0, 0, w_, h_);
+    // the bounding shape (opaque, framed: the corners cut)
+    if (!alpha && any && !opts_.popup && w_ > 0 && h_ > 0) {
+        std::vector<XRectangle> rects = roundedRects(whole, radii_);
+        XShapeCombineRectangles(s.dpy, win_, ShapeBounding, 0, 0, rects.data(), (int)rects.size(), ShapeSet, YXBanded);
+        shaped_ = true;
+    } else if (shaped_) {
+        XShapeCombineMask(s.dpy, win_, ShapeBounding, 0, 0, 0 /*None*/, ShapeSet);
+        shaped_ = false;
+    }
+    // the input shape (see-through: where it can be clicked)
+    Rect base = inputArea_.empty() ? whole : inputArea_.intersected(whole);
+    if (alpha && (any || !inputArea_.empty()) && !base.empty()) {
+        std::vector<XRectangle> rects = roundedRects(base, radii_);
+        XShapeCombineRectangles(s.dpy, win_, ShapeInput, 0, 0, rects.data(), (int)rects.size(), ShapeSet, YXBanded);
+        inputShaped_ = true;
+    } else if (inputShaped_) {
+        XShapeCombineMask(s.dpy, win_, ShapeInput, 0, 0, 0 /*None*/, ShapeSet);
+        inputShaped_ = false;
+    }
+    // the blur behind it: its area, the corners round where they are the input area's (the window's, a popup's box)
+    std::vector<long> region;
+    bool blur = alpha && blurOn_;
+    if (blur) {
+        Rect area = blurArea_.empty() ? base : blurArea_.intersected(whole);
+        int r[4] = {0, 0, 0, 0};
+        if (area.x == base.x && area.y == base.y) r[0] = radii_[0];
+        if (area.right() == base.right() && area.y == base.y) r[1] = radii_[1];
+        if (area.right() == base.right() && area.bottom() == base.bottom()) r[2] = radii_[2];
+        if (area.x == base.x && area.bottom() == base.bottom()) r[3] = radii_[3];
+        if (!(area == whole) || r[0] || r[1] || r[2] || r[3]) {  // (else none: the whole window)
+            for (const XRectangle& x : roundedRects(area, r)) {
+                region.push_back(x.x);
+                region.push_back(x.y);
+                region.push_back(x.width);
+                region.push_back(x.height);
+            }
+            if (region.empty()) blur = false;
+        }
+    }
+    if (blur && (!blurSet_ || region != blurSent_)) {
+        XChangeProperty(s.dpy, win_, s.a.KDE_BLUR_BEHIND, XA_CARDINAL, 32, PropModeReplace,
+                        (unsigned char*)region.data(), (int)region.size());
+        blurSent_ = region;
+        blurSet_ = true;
+    } else if (!blur && blurSet_) {
+        XDeleteProperty(s.dpy, win_, s.a.KDE_BLUR_BEHIND);
+        blurSent_.clear();
+        blurSet_ = false;
+    }
     XFlush(s.dpy);
 }
 
@@ -1279,7 +1404,7 @@ bool XWindow::ensureImage(int w, int h) {
     // some room to grow while the window is being resized
     int aw = (w + 63) & ~63, ah = (h + 63) & ~63;
     if (s.shm) {
-        img_ = XShmCreateImage(s.dpy, s.visual, (unsigned)s.depth, ZPixmap, nullptr, &shmInfo_, (unsigned)aw,
+        img_ = XShmCreateImage(s.dpy, visual_, (unsigned)depth_, ZPixmap, nullptr, &shmInfo_, (unsigned)aw,
                                (unsigned)ah);
         if (img_) {
             shmInfo_.shmid = shmget(IPC_PRIVATE, (size_t)img_->bytes_per_line * ah, IPC_CREAT | 0600);
@@ -1312,7 +1437,7 @@ bool XWindow::ensureImage(int w, int h) {
     if (!img_) {
         char* data = (char*)malloc((size_t)aw * ah * 4);
         if (!data) return false;
-        img_ = XCreateImage(s.dpy, s.visual, (unsigned)s.depth, ZPixmap, 0, data, (unsigned)aw, (unsigned)ah, 32, 0);
+        img_ = XCreateImage(s.dpy, visual_, (unsigned)depth_, ZPixmap, 0, data, (unsigned)aw, (unsigned)ah, 32, 0);
         if (!img_) {
             free(data);
             return false;
@@ -1351,10 +1476,16 @@ void XWindow::present(const Image& fb, const Rect& dirty) {
     if (r.empty() || fb.empty()) return;
     if (!ensureImage(fb.width(), fb.height())) return;
     waitShm();  // the server may still be reading the last picture
+    // (32-bit: the premultiplied pixels as they are while see-through; shown opaque, every alpha 255, so the
+    // compositing manager shows them as a 24-bit window would: what is see-through, over black)
+    const bool opaque32 = argb_ && !hasAlpha();
     for (int y = r.y; y < r.bottom(); y++) {
         const uint32_t* src = fb.row(y) + r.x;
         char* dst = img_->data + (size_t)y * img_->bytes_per_line + (size_t)r.x * 4;
-        if (fastCopy_) {
+        if (fastCopy_ && opaque32) {
+            uint32_t* d32 = (uint32_t*)dst;
+            for (int x = 0; x < r.w; x++) d32[x] = src[x] | 0xFF000000u;
+        } else if (fastCopy_) {
             memcpy(dst, src, (size_t)r.w * 4);
         } else {
             for (int x = 0; x < r.w; x++) {
@@ -1371,6 +1502,10 @@ void XWindow::present(const Image& fb, const Rect& dirty) {
                 put(img_->red_mask, (p >> 16) & 255);
                 put(img_->green_mask, (p >> 8) & 255);
                 put(img_->blue_mask, p & 255);
+                if (argb_) {  // (the bits no colour has: alpha)
+                    unsigned long alphaMask = 0xFFFFFFFFul & ~(img_->red_mask | img_->green_mask | img_->blue_mask);
+                    put(alphaMask, opaque32 ? 255u : p >> 24);
+                }
                 XPutPixel(img_, r.x + x, y, pix);
             }
         }
@@ -1695,7 +1830,7 @@ void XWindow::handle(XEvent& ev) {
             w_ = c.width;
             h_ = c.height;
             bool sized = w_ != reportedW_ || h_ != reportedH_;
-            if (sized && shaped_) applyShape();  // (its corners follow the new size)
+            if (sized && (shaped_ || inputShaped_ || blurSet_)) applyShape();  // (its corners follow the new size)
             reportedW_ = w_;
             reportedH_ = h_;
             int ox = x_, oy = y_;
@@ -1972,11 +2107,51 @@ void handleSelectionRequest(const XSelectionRequestEvent& r) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// transparency: is there a compositing manager (it owns _NET_WM_CM_S<screen>)? Its window is watched for
+// DestroyNotify (it went); MANAGER on the root window says when one starts. tell: the windows and the
+// listener hear of a change
+
+// every window shown as hasAlpha() says now (its shapes, blur), and the listener told
+void alphaChanged() {
+    State& s = S();
+    std::vector<XWindow*> all;
+    for (auto& kv : s.windows)
+        if (std::find(all.begin(), all.end(), kv.second) == all.end()) all.push_back(kv.second);
+    for (XWindow* w : all) w->alphaChanged();
+    if (s.compositingListener) {
+        std::function<void()> fn = s.compositingListener;
+        postToMain([fn] { fn(); });
+    }
+}
+
+void checkCompositing(bool tell) {
+    State& s = S();
+    if (!s.dpy || !s.cmAtom) return;
+    XWin owner = XGetSelectionOwner(s.dpy, s.cmAtom);
+    if (owner && owner != s.cmOwner) {
+        ErrorTrap trap;  // (it may be gone already: then there is none)
+        XSelectInput(s.dpy, owner, StructureNotifyMask);
+        if (trap.end()) owner = 0;
+    }
+    s.cmOwner = owner;
+    bool was = s.compositing;
+    s.compositing = owner != 0;
+    if (tell && was != s.compositing) alphaChanged();
+}
+
+// ---------------------------------------------------------------------------------------------
 // the main loop's parts
 
 void handleXEvent(XEvent& ev) {
     State& s = S();
     if (Time t = eventTime(ev)) s.lastTime = t;
+    // a compositing manager started (MANAGER on the root window, for its selection) or went (its window destroyed)
+    if ((ev.type == ClientMessage && ev.xclient.window == s.root && ev.xclient.message_type == s.a.MANAGER &&
+         (Atom)ev.xclient.data.l[1] == s.cmAtom) ||
+        (ev.type == DestroyNotify && s.cmOwner && ev.xdestroywindow.window == s.cmOwner)) {
+        checkCompositing(true);
+        return;
+    }
     switch (ev.type) {
         case SelectionRequest:
             handleSelectionRequest(ev.xselectionrequest);
@@ -2246,7 +2421,7 @@ void init(int argc, char** argv) {
         "INCR", "TINYDAW_SELECTION", "XdndAware", "XdndEnter", "XdndPosition", "XdndStatus", "XdndLeave", "XdndDrop",
         "XdndFinished", "XdndSelection", "XdndTypeList", "XdndActionCopy", "text/uri-list", "_MOTIF_WM_HINTS",
         "CLIPBOARD_MANAGER", "SAVE_TARGETS", "_XEMBED", "_NET_WM_MOVERESIZE", "_NET_WM_STATE_HIDDEN",
-        "_NET_SUPPORTED"};
+        "_NET_SUPPORTED", "_NET_WM_WINDOW_OPACITY", "_KDE_NET_WM_BLUR_BEHIND_REGION", "MANAGER"};
     const int count = (int)(sizeof names / sizeof names[0]);
     static_assert(sizeof(Atoms) == sizeof(Atom) * (sizeof names / sizeof names[0]), "atom names and Atoms differ");
     XInternAtoms(s.dpy, (char**)names, count, False, (Atom*)&s.a);
@@ -2264,6 +2439,29 @@ void init(int argc, char** argv) {
         if (!compositeQueryVersion()) s.compositeOpcode = 0;
     }
     s.xwayland = XQueryExtension(s.dpy, "XWAYLAND", &opcode, &ev, &err);
+
+    // transparency: a 32-bit TrueColor visual whose colours are 0xFF0000 / 0xFF00 / 0xFF (alpha the top byte), its
+    // colormap; the compositing manager's selection, followed (the root window's MANAGER messages)
+    {
+        XVisualInfo tmpl{};
+        tmpl.screen = s.screen;
+        tmpl.depth = 32;
+        tmpl.c_class = TrueColor;
+        int n = 0;
+        XVisualInfo* list = XGetVisualInfo(s.dpy, VisualScreenMask | VisualDepthMask | VisualClassMask, &tmpl, &n);
+        for (int i = 0; list && i < n && !s.argbVisual; i++)
+            if (list[i].red_mask == 0xFF0000 && list[i].green_mask == 0xFF00 && list[i].blue_mask == 0xFF)
+                s.argbVisual = list[i].visual;
+        if (list) XFree(list);
+        if (s.argbVisual) s.argbCmap = XCreateColormap(s.dpy, s.root, s.argbVisual, AllocNone);
+        char name[40];
+        snprintf(name, sizeof name, "_NET_WM_CM_S%d", s.screen);
+        s.cmAtom = XInternAtom(s.dpy, name, False);
+        XWindowAttributes ra;
+        long rootMask = XGetWindowAttributes(s.dpy, s.root, &ra) ? ra.your_event_mask : 0;
+        XSelectInput(s.dpy, s.root, rootMask | StructureNotifyMask);
+        checkCompositing(false);
+    }
 
     Bool supported = False;
     XkbSetDetectableAutoRepeat(s.dpy, True, &supported);
@@ -2335,12 +2533,30 @@ void shutdown() {
     if (s.im) XCloseIM(s.im);
     s.im = nullptr;
     if (s.ownCmap) XFreeColormap(s.dpy, s.cmap);
+    if (s.argbCmap) XFreeColormap(s.dpy, s.argbCmap);
+    s.argbCmap = 0;
+    s.argbVisual = nullptr;
+    s.compositing = false;
+    s.cmOwner = 0;
     // windows deleted after this must not talk to the display
     XCloseDisplay(s.dpy);
     s.dpy = nullptr;
 }
 
 bool hasDisplay() { return S().dpy != nullptr; }
+
+bool compositing() { return S().compositing; }
+
+void setTransparency(bool on) {
+    State& s = S();
+    if (s.transparency == on) return;
+    s.transparency = on;
+    if (s.dpy) alphaChanged();
+}
+
+bool transparency() { return S().transparency; }
+
+void setCompositingListener(std::function<void()> fn) { S().compositingListener = std::move(fn); }
 
 void processEvents(int timeoutMs) {
     State& s = S();

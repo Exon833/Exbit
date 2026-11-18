@@ -119,6 +119,8 @@ bool parseLayerList(const std::string& property, const Tokens& t, size_t b, size
 // box-shadow (box) or text-shadow's value: none, or a comma list of shadows
 bool parseShadows(const Tokens& t, size_t b, size_t e, bool box, const Rgba* current, double em,
                   std::vector<Style::Shadow>* out, std::string& why);
+// backdrop-filter's value: none, or blur(<length>) (px: the length, 0 for none; may be null)
+bool parseBackdropBlur(const Tokens& t, size_t b, size_t e, double em, double* px, std::string& why);
 
 // --- properties ---
 bool isShorthand(const std::string& name);
