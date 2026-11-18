@@ -434,6 +434,20 @@ bool Widget::hasState(const std::string& name) const {
     return false;
 }
 
+int Widget::childIndex() const {
+    if (!parent_) return -1;
+    const auto& v = parent_->children_;
+    if (indexHint_ >= 0 && indexHint_ < (int)v.size() && v[(size_t)indexHint_].get() == this) return indexHint_;
+    for (size_t i = 0; i < v.size(); i++)
+        if (v[i].get() == this) return indexHint_ = (int)i;
+    return -1;
+}
+
+const css::Node* Widget::sibling(int index) const {
+    if (!parent_ || index < 0 || index >= (int)parent_->children_.size()) return nullptr;
+    return parent_->children_[(size_t)index].get();
+}
+
 std::shared_ptr<const css::Style> Widget::styleShared(const std::string& part) const {
     const css::Engine& engine = theme::styles();
     std::vector<std::string> states;
@@ -443,9 +457,22 @@ std::shared_ptr<const css::Style> Widget::styleShared(const std::string& part) c
     // the parent's style first (it is what this one inherits from, and changes with the parent's own states)
     std::shared_ptr<const css::Style> up = parent_ ? parent_->styleShared("") : nullptr;
     int gen = engine.generation();
+    // (its place, and the siblings before it: their order, types and classes; only if the sheets look at them)
+    int uses = engine.uses(), index = -1, count = 0;
+    size_t siblings = 0;
+    if (uses) {
+        index = childIndex();
+        count = siblingCount();
+        if ((uses & css::Engine::UsesSiblings) && index > 0)
+            for (int i = 0; i < index; i++) {
+                const Widget* w = parent_->children_[(size_t)i].get();
+                siblings = (siblings * 1000003u) ^ (std::hash<const void*>()(w) + (size_t)w->classesVersion_ * 0x9E3779B9u);
+            }
+    }
     for (size_t i = 0; i < styles_.size(); i++) {
         StyleEntry& e = styles_[i];
-        if (e.part == part && e.states == key && e.parent == up && e.generation == gen && e.classes == classesVersion_) {
+        if (e.part == part && e.states == key && e.parent == up && e.generation == gen && e.classes == classesVersion_ &&
+            e.index == index && e.count == count && e.siblings == siblings) {
             if (i > 0) std::rotate(styles_.begin(), styles_.begin() + i, styles_.begin() + i + 1);  // (most recent first)
             return styles_[0].style;
         }
@@ -456,6 +483,9 @@ std::shared_ptr<const css::Style> Widget::styleShared(const std::string& part) c
     e.parent = up;
     e.generation = gen;
     e.classes = classesVersion_;
+    e.index = index;
+    e.count = count;
+    e.siblings = siblings;
     // a part inherits from its node (Slider::handle from Slider)
     std::shared_ptr<const css::Style> base = part.empty() ? up : styleShared("");
     e.style = std::make_shared<const css::Style>(engine.compute(*this, base.get(), part));

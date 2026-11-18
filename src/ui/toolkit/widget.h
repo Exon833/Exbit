@@ -30,7 +30,10 @@
 //   setStyleType), its id its objectName, its classes its properties (setProperty("toggle", "mute"):
 //   .toggle and .toggle-mute; "false", "0" or "" set none) and addStyleClass; its states :hover :pressed
 //   :disabled :focus and whatever styleStates() adds (:checked…). computedStyle(part) is what applies to it now,
-//   kept until the skin, its states, its classes or an ancestor's style change.
+//   kept until the skin, its states, its classes or an ancestor's style change, or (if the skin has
+//   :first-child, :nth-child()… or A + B, A ~ B) its place among its siblings or the classes and types of the
+//   siblings before it. Not the states of those siblings: `A:hover + B` is seen when B's style is next worked
+//   out for another reason.
 // - Layouts are redone lazily: updateGeometry() (called by setText, setVisible, size changes…)
 //   marks the parents' layouts dirty and they run before the next frame is painted (or at once with
 //   App::doLayouts() / relayout()).
@@ -237,6 +240,10 @@ public:
     bool hasClass(const std::string& name) const override;
     bool hasState(const std::string& name) const override;
     Widget* parent() const override { return parent_; }
+    // its place among its parent's children (in order, hidden ones too), for :first-child, :nth-child(), + and ~
+    int childIndex() const override;
+    int siblingCount() const override { return parent_ ? (int)parent_->children_.size() : 0; }
+    const css::Node* sibling(int index) const override;
     void addStyleClass(const std::string& name);
     void removeStyleClass(const std::string& name);
     // what applies to it (or its part: "handle", "arrow"…) in its states now
@@ -320,8 +327,12 @@ private:
         std::string part, states;
         std::shared_ptr<const css::Style> parent;  // (kept alive: never mistaken for another)
         int generation = -1, classes = -1;
+        // (only when the sheets look at them, css::Engine::uses(): its place, and the siblings before it)
+        int index = -1, count = 0;
+        size_t siblings = 0;
         std::shared_ptr<const css::Style> style;
     };
+    mutable int indexHint_ = 0;  // (where it was among its parent's children last time)
     mutable std::vector<StyleEntry> styles_;
     std::shared_ptr<const css::Style> styleShared(const std::string& part) const;
     friend class Window;

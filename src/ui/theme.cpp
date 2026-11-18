@@ -192,6 +192,10 @@ css::SheetPtr builtinSheet() {
 
 void setStyles(std::vector<css::SheetPtr> sheets, std::vector<css::Problem>* problems) {
     if (sheets.empty()) sheets.push_back(builtinSheet());
+    // (ch: the width of "0" in the node's font; no font-family: the interface's)
+    engine.setCharWidth([](const std::string& family, double px) {
+        return (double)Font(family.empty() ? Font::ui().family() : family, (float)px).charWidth('0');
+    });
     engine.setSheets(std::move(sheets));
     refresh();
     std::vector<css::Problem> found = engine.takeProblems();

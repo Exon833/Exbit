@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "check.h"
+#include "core/util.h"
 #include "gfx/font.h"
 #include "gfx/geom.h"
 #include "gfx/image.h"
@@ -451,6 +452,31 @@ static void testFonts() {
     std::vector<std::string> fams = Font::families();
     CHECK(!fams.empty());
     CHECK(std::find(fams.begin(), fams.end(), "DejaVu Sans") != fams.end());
+    // a family from a file (a skin's @font-face): found by its new name, and fonts that asked for that name
+    // before (and got the default) look it up again
+    {
+        const std::string mono = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf";
+        Font early("Tiny Test Face", 20);
+        float before = early.width("iiii");
+        CHECK(!Font::addFamily("Tiny Test Face", "/no/such/font.ttf"));
+        CHECK(!Font::addFamily("Tiny Test Face", "tests/test_gfx.cpp"));  // (not a font)
+        CHECK(!Font::addFamily("", mono) && !Font::addFamily("Tiny Test Face", ""));
+        CHECK(util::fileExists(mono));  // (DejaVu is there: see above)
+        {
+            CHECK(Font::addFamily("Tiny Test Face", mono));
+            CHECK(Font::addFamily("Tiny Test Face", mono));  // (again: nothing changes)
+            Font later("tiny test face", 20);  // (names are matched without case)
+            CHECK_NEAR(later.width("iiii"), later.width("WWWW"), 0.01);  // (monospaced: the file's)
+            CHECK_NEAR(later.width("0"), Font("DejaVu Sans Mono", 20).width("0"), 0.001);
+            CHECK_NEAR(early.width("iiii"), early.width("WWWW"), 0.01);
+            CHECK(early.width("iiii") != before);
+            std::vector<std::string> now = Font::families();
+            CHECK(std::count(now.begin(), now.end(), "Tiny Test Face") == 1);
+            // bold: as the stylesheet says (the file is then the family's bold face as it is: not emboldened again)
+            CHECK(Font::addFamily("Tiny Test Bold", mono, true));
+            CHECK_NEAR(Font("Tiny Test Bold", 20, true).width("0"), Font("DejaVu Sans Mono", 20).width("0"), 0.001);
+        }
+    }
     // drawing matches the layout: text is drawn inside its advance
     Image img(100, 30);
     Painter p(img);
