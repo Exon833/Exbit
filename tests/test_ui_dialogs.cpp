@@ -168,6 +168,44 @@ static void testSkinFiles() {
         CHECK(theme::fonts().ui == "DejaVu Sans" && theme::fonts().uiSize == 10 &&
               theme::fonts().mono == "DejaVu Sans Mono");
     }
+    // a skin that imports a file of its own and brings its own font (@import, @font-face: next to the sheet)
+    {
+        std::string dir = TMP + "/fontskin", font;
+        util::makeDirs(dir + "/parts");
+        util::makeDirs(dir + "/fonts");
+        CHECK(util::readFile("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", font) && font.size() > 1000);
+        util::writeFile(dir + "/fonts/test.ttf", font);
+        util::writeFile(dir + "/parts/colours.css", ":root { --button: #405060; }\n");
+        util::writeFile(dir + "/Fonty.css",
+                        "@import \"parts/colours.css\";\n"
+                        "@import 'parts/none.css';\n"
+                        "@font-face { font-family: \"Skin Test Face\"; src: url(fonts/test.woff2), url(fonts/test.ttf); }\n"
+                        "@font-face { font-family: \"Skin Broken Face\"; src: url(parts/colours.css) format(\"truetype\"); }\n"
+                        ":root { --skin-name: \"Fonty\"; font-family: \"Skin Test Face\"; }\n");
+        skin::Skin s;
+        std::vector<std::string> problems;
+        std::string err;
+        CHECK(skin::read(dir + "/Fonty.css", s, problems, err) && s.name == "Fonty");
+        problems = skin::apply(s);
+        bool missing = false, broken = false;
+        for (auto& p : problems) {
+            missing = missing || p == "Fonty.css:2:1: @import of 'parts/none.css': can't read " + dir + "/parts/none.css (skipped)";
+            broken = broken || p == "Fonty.css:0:0: @font-face 'Skin Broken Face': no font that can be read in " + dir + "/parts/colours.css";
+        }
+        CHECK(missing && broken && problems.size() == 2);
+        if (!missing || !broken || problems.size() != 2)
+            for (auto& p : problems) printf("  %s\n", p.c_str());
+        CHECK(theme::c("button").hex() == "#405060");  // (from the imported file)
+        CHECK(theme::fonts().ui == "Skin Test Face");
+        Font ui = Font::ui();
+        CHECK(ui.family() == "Skin Test Face" && std::fabs(ui.width("iiii") - ui.width("WWWW")) < 0.01);  // (monospaced)
+        CHECK(std::fabs(ui.width("0") - Font::fromPoints("DejaVu Sans Mono", ui.pointSize()).width("0")) < 0.001);
+        // (back to the skin of yours, as it was)
+        skin::Skin back;
+        CHECK(skin::read(mine, back, problems, err));
+        skin::apply(back);
+        CHECK(theme::c("button").hex() == "#102030" && theme::fonts().ui == "DejaVu Sans");
+    }
     lib = skin::library();
     CHECK(lib.size() == 6 && lib.back().name == "Bob's \"own\"" && !lib.back().builtin);
     // yours first, under the same name as one of the program's own

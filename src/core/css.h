@@ -5,16 +5,46 @@
 // (.accent, .hint: from the widgets' properties), an id (#transport), states (:hover :pressed :checked
 // :disabled :focus, and any other a node says it has, e.g. :alternate), :root (the node without a parent),
 // a part of the node (Slider::handle, ScrollBar::thumb: on the last compound only), combined with the
-// descendant (A B) and child (A > B) combinators; selector lists (A, B). Specificity as in CSS: ids, then
-// classes / states / :root, then types / parts; then source order. `!important` wins over that.
+// descendant (A B), child (A > B), next-sibling (A + B) and later-sibling (A ~ B) combinators; selector lists
+// (A, B). Pseudo-classes of selector lists: :not(…), :is(…), :where(…) (complex selectors inside, nested up
+// to 16 deep; no parts there). Its place among its siblings (Node::childIndex): :first-child, :last-child,
+// :only-child, :nth-child(an+b | odd | even), :nth-last-child(…) (not `of S`); a node whose place isn't known
+// matches none of them, nor A + B / A ~ B. Specificity as in CSS: ids, then classes / states / :root / the
+// place pseudo-classes, then types / parts; :not() and :is() count as their most specific argument, :where()
+// as nothing; then source order. `!important` wins over that. Engine::uses() says whether the sheets look at
+// siblings at all (a cache of computed styles must then tell nodes apart by their place: ui/toolkit/widget.h).
 //
 // VALUES. Colours: #rgb #rgba #rrggbb #rrggbbaa, rgb() / rgba() (commas or spaces, `/ alpha`, numbers or %),
 // hsl() / hsla(), the CSS named colours, transparent, currentColor, color-mix(in srgb, A p%, B q%). Lengths:
-// px (logical pixels: the interface size scales them), pt, em (of the node's font size), % (of what the
-// property refers to), and calc() of those (+ - * /). var(--name, fallback), nested. Numbers, keywords,
-// strings ('…' "…"), comma lists (font-family). Colours are rounded to 8 bits as the program's own colour code
-// rounds (halves to even): color-mix() of two opaque colours is exactly the program's own mixColor()
-// (gfx/geom.cpp), so color-mix(in srgb, A 90%, B) is mixColor(A, B, 0.10f) to the byte.
+// px (logical pixels: the interface size scales them), pt, pc, in, cm, mm, Q (96 px to the inch), em (of the
+// node's font size), rem (of :root's font size; in :root's own font-size, of the initial 12px), vw / vh / vmin
+// / vmax (1% of the Media's width / height: Engine::setMedia), ch (the width of "0" in the node's font, from
+// Engine::setCharWidth; half an em without it; in font-size, of the parent's font), % (of what the property
+// refers to), and calc() of those (+ - * /). rem, vw, vh and ch become px when the style is computed (so
+// inherited values and raw() are px; in custom properties rem / vw / vh do, ch is left for the node that uses
+// it); a style computed with vw / vh is stale when the media's size changes (the generation says so).
+// var(--name, fallback), nested. Numbers, keywords, strings ('…' "…"), comma lists (font-family). Colours are
+// rounded to 8 bits as the program's own colour code rounds (halves to even): color-mix() of two opaque
+// colours is exactly the program's own mixColor() (gfx/geom.cpp), so color-mix(in srgb, A 90%, B) is
+// mixColor(A, B, 0.10f) to the byte.
+//
+// AT-RULES. @import url("x.css") / url(x.css) / "x.css", optionally with a media query list: before any rule
+// (else reported and skipped), read through ParseOptions::readFile from ParseOptions::baseDir (each imported
+// sheet from its own folder); its rules come where the @import is. Loops, more than maxDepth levels, files
+// that can't be read, remote URLs, layer() / supports() are reported and skipped; importedFiles() lists every
+// file an @import named (resolved, at any depth, read or not). @media <query list> { rules } (nested too, up
+// to 32 deep): queries joined by commas (any), each `[not | only] [all | screen | another type] [and (feature)
+// …]` or `[not] (feature) [and (feature) …]`; features width / min-width / max-width / height / min-height /
+// max-height (px, or em / rem = 16px as in CSS; also the range forms (width >= 600px), (400px < width <
+// 800px)), orientation (portrait / landscape), resolution / min-resolution / max-resolution (dppx or x: the
+// Media's scale; dpi; dpcm), and each of those alone, (width), as "not zero". Other media types are false (so
+// `not print` is true); a query with an unknown feature, `or`, or anything it can't read is false and reported,
+// the list's other queries still count. Engine::setMedia evaluates them. @font-face { font-family: "X"; src:
+// url(file.ttf) [format(…)], …; font-weight; font-style } goes into fontFaces() (the first url() in src of a
+// local file in a format that can be read: TrueType / OpenType, not woff / woff2 / eot / svg; local() names
+// are skipped; the path resolved against the sheet's folder; font-weight bold / bolder / 600+ is bold,
+// font-style italic / oblique is italic); inside @media it is reported and skipped. @charset is ignored.
+// Other at-rules (@supports, @keyframes, @layer…) are reported and skipped, as at-rules inside a rule's block.
 //
 // CASCADE. An Engine stacks stylesheets in order (the defaults, then a skin, then more): later sheets win at
 // equal specificity. Custom properties (--name) and the text properties (color, font-family, font-size,
@@ -25,20 +55,16 @@
 // background (its colour).
 //
 // PROBLEMS. Nothing in a stylesheet stops it loading: a rule, declaration or value that can't be read is
-// left out and reported (line, column, message), as browsers skip what they don't understand. At-rules are
-// skipped (reported) except @charset (ignored). Comments /* … */.
+// left out and reported (line, column, message), as browsers skip what they don't understand; an imported
+// sheet's problems name that sheet, and come before the importing sheet's own. Comments /* … */.
 //
 // MORE (being added: features/css-full; each part documents itself where it is implemented):
-// - selectors: :not(…), :is(…), :first-child, :last-child, :only-child, :nth-child(an+b), and the sibling
-//   combinators A + B and A ~ B (Node::childIndex / sibling);
-// - at-rules: @import url(…) / "…" (ParseOptions), @media (width / height / resolution… : Engine::setMedia),
-//   @font-face (fontFaces());
-// - units: rem (of :root's font size), vw / vh (of the media's width / height), ch;
 // - values: linear-gradient() / radial-gradient() (repeating- too) in background-image and the background
 //   shorthand (Style::gradients), box-shadow and text-shadow (Style::shadows), border-style per side, opacity.
 //
-// THREADS. Parsing and computing are pure functions of their inputs: any thread. An Engine is changed on
-// one thread (the GUI's) and read there.
+// THREADS. Parsing and computing are pure functions of their inputs: any thread (parse() calls readFile, and
+// compute() the setCharWidth function, on the thread it runs on). An Engine is changed on one thread (the
+// GUI's) and read there.
 #pragma once
 #include <cstdint>
 #include <functional>
@@ -135,9 +161,11 @@ struct ParseOptions {
 // come where the @import is (before the sheet's own rules, as @import must come first).
 SheetPtr parse(const std::string& text, const std::string& sourceName, std::vector<Problem>& problems,
                const ParseOptions& options = {});
-// the files a sheet imported, at any depth (resolved paths: what to watch for changes)
+// the files a sheet's @imports named, at any depth, in order (resolved paths, those that couldn't be read too:
+// what to watch for changes)
 std::vector<std::string> importedFiles(const SheetPtr& sheet);
-// its @font-face rules (its imports' too): a family name and the font file it is in (resolved path)
+// its @font-face rules (its imports' too, whatever their media): a family name and the font file it is in
+// (resolved path)
 struct FontFace {
     std::string family, file;
     bool bold = false, italic = false;
@@ -239,17 +267,35 @@ public:
     Style compute(const Node& node, const Style* parentStyle = nullptr, const std::string& part = "") const;
     // the root's style (:root / the node without parent): the skin's variables
     const Style& root() const;
-    // bumped by every setSheets: computed styles kept by callers are stale when it changed
+    // bumped by every setSheets (and setMedia, setCharWidth as they say): computed styles kept by callers are
+    // stale when it changed
     int generation() const { return generation_; }
     // problems found while computing (var() cycles, values of the wrong type), each reported once
     std::vector<Problem> takeProblems() const;
+    // what the sheets' selectors (those whose @media applies) look at besides the node, its parts, states,
+    // classes and ancestors: a cache of computed styles must tell nodes apart by these too. UsesPosition: its
+    // place among its siblings (:first-child, :nth-child()…: its childIndex() and siblingCount()); UsesSiblings:
+    // the siblings before it (A + B, A ~ B). With UsesSiblings, a node's style can change while nothing of its
+    // own (nor of its ancestors) does: a sibling before it changing its class, type, id or state. The widgets'
+    // cache (ui/toolkit/widget.h) follows the earlier siblings' order, types and classes, not their states:
+    // `A:hover + B` is seen when B's style is next worked out for another reason.
+    enum Uses { UsesPosition = 1, UsesSiblings = 2 };
+    int uses() const { return uses_; }
+    // for ch: the width of "0" in a font (family: the first of the node's font-family, "" none; px: its size).
+    // Without one: half the size. Bumps the generation.
+    void setCharWidth(std::function<double(const std::string& family, double px)> width);
 
 private:
     struct Index;  // the sheets' selectors by their last compound's id / class / type (css.cpp)
     Style computeWith(const Node& node, const Style* parent, const std::string& part) const;
+    void rebuild();  // the index of the rules whose @media applies (and uses_)
+    std::vector<char> applying() const;  // each sheet's @media blocks, one after another: does it apply?
 
     std::vector<SheetPtr> sheets_;
     Media media_;
+    std::vector<char> active_;  // (applying(), for the current media)
+    int uses_ = 0;
+    std::function<double(const std::string&, double)> charWidth_;
     int generation_ = 0;
     std::shared_ptr<const Index> index_;
     mutable std::unique_ptr<Style> root_;

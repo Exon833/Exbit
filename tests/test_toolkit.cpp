@@ -1278,6 +1278,47 @@ static void testStylesheets() {
         CHECK(theme::metric("test-bad", 5) == 5 && theme::metric("no-such-size", 7) == 7);
         CHECK(std::fabs(theme::metricF("test-pt", 0) - 12.0) < 1e-9);
     }
+    // a widget's place among its siblings (:first-child, :nth-child(), + and ~): its cached style follows it
+    {
+        std::vector<css::Problem> pr;
+        theme::setStyles({theme::builtinSheet(), css::parse(
+            "Widget.box > Widget:first-child { --pos: first; }\n"
+            "Widget.box > Widget:nth-child(2n) { --even: yes; }\n"
+            "Widget.box > Widget:last-child { --last: yes; }\n"
+            ".marked + Widget { --after: marked; }\n"
+            ".marked ~ Widget { --later: yes; }\n"
+            ":root { --test-rem: 2rem; --test-vw: 1vw; }\n", "s.css", pr)});
+        CHECK(pr.empty());
+        CHECK(theme::styles().uses() == (css::Engine::UsesPosition | css::Engine::UsesSiblings));
+        Widget box;
+        box.addStyleClass("box");
+        Widget* a = box.add<Widget>();
+        Widget* b = box.add<Widget>();
+        Widget* c = box.add<Widget>();
+        auto var = [](Widget* x, const char* name) {
+            std::optional<std::string> v = x->computedStyle().variable(name);
+            return v ? *v : std::string();
+        };
+        CHECK(a->childIndex() == 0 && b->childIndex() == 1 && c->childIndex() == 2 && a->siblingCount() == 3);
+        CHECK(box.childIndex() == -1 && box.siblingCount() == 0 && a->sibling(2) == c && !a->sibling(3) && !a->sibling(-1));
+        CHECK(var(a, "--pos") == "first" && var(b, "--pos").empty());
+        CHECK(var(b, "--even") == "yes" && var(c, "--last") == "yes" && var(b, "--last").empty());
+        a->raise();  // (b c a)
+        CHECK(a->childIndex() == 2 && var(a, "--last") == "yes" && var(a, "--pos").empty() && var(b, "--pos") == "first");
+        CHECK(var(c, "--even") == "yes" && var(b, "--even").empty() && var(c, "--last").empty());
+        CHECK(var(c, "--after").empty());
+        b->addStyleClass("marked");  // (a sibling before them gets a class)
+        CHECK(var(c, "--after") == "marked" && var(a, "--after").empty() && var(a, "--later") == "yes");
+        b->removeStyleClass("marked");
+        CHECK(var(c, "--after").empty() && var(a, "--later").empty());
+        Widget* d = box.add<Widget>();  // (one more: the count changes)
+        CHECK(var(d, "--last") == "yes" && var(a, "--last").empty() && var(d, "--even") == "yes");
+        a->lower();  // (a b c d)
+        CHECK(var(a, "--pos") == "first" && var(b, "--even") == "yes" && var(d, "--even") == "yes" && var(c, "--even").empty());
+        // rem (of :root's font size) and vw (of the media) in variables, read as lengths
+        CHECK(std::fabs(theme::metricF("test-rem", 0) - 2 * theme::styles().root().emPx_) < 1e-9);
+        CHECK(std::fabs(theme::metricF("test-vw", 0) - theme::styles().media().width / 100) < 1e-9);
+    }
     // back to the default: the button's colour and size are default.css's again (its style isn't kept)
     theme::setSkin();
     CHECK(push->sizeHint().x == before.x && push->sizeHint().y == before.y);

@@ -286,6 +286,45 @@ bool colorAt(const Tokens& t, size_t b, size_t e, const Rgba* current, Rgba& out
     return true;
 }
 
+// --- lengths ---
+// px per `unit` (lower case, as the tokenizer gives it); false if it isn't a length's
+bool pxPerUnit(const std::string& unit, const LenCtx& ctx, double& f) {
+    switch (unit.size()) {
+        case 1:
+            if (unit[0] == 'q') return f = 96 / 101.6, true;  // (a quarter of a millimetre)
+            return false;
+        case 2:
+            if (unit == "px") return f = 1, true;
+            if (unit == "em") return f = ctx.em, true;
+            if (unit == "pt") return f = 96.0 / 72, true;
+            if (unit == "vw") return f = ctx.vw, true;
+            if (unit == "vh") return f = ctx.vh, true;
+            if (unit == "ch") return f = ctx.ch < 0 ? ctx.em * 0.5 : ctx.ch, true;
+            if (unit == "in") return f = 96, true;
+            if (unit == "cm") return f = 96 / 2.54, true;
+            if (unit == "mm") return f = 96 / 25.4, true;
+            if (unit == "pc") return f = 16, true;
+            return false;
+        case 3:
+            if (unit == "rem") return f = ctx.rem, true;
+            return false;
+        case 4:
+            if (unit == "vmin") return f = std::min(ctx.vw, ctx.vh), true;
+            if (unit == "vmax") return f = std::max(ctx.vw, ctx.vh), true;
+            return false;
+        default: return false;
+    }
+}
+
+uint8_t unitOf(const std::string& unit) {
+    if (unit == "rem") return URem;
+    if (unit == "vw") return UVw;
+    if (unit == "vh") return UVh;
+    if (unit == "vmin" || unit == "vmax") return UVw | UVh;
+    if (unit == "ch") return UCh;
+    return 0;
+}
+
 // --- calc() ---
 struct Quantity {
     double v = 0;
@@ -311,10 +350,9 @@ struct Calc {
             else if (ctx.percent) q = {k.num * ctx.percentOf / 100, true};
             else return false;
         } else if (k.type == Tok::Dimension) {
-            if (k.text == "px") q = {k.num, true};
-            else if (k.text == "pt") q = {k.num * 96 / 72, true};
-            else if (k.text == "em") q = {k.num * ctx.em, true};
-            else return false;
+            double f;
+            if (!pxPerUnit(k.text, ctx, f)) return false;
+            q = {k.num * f, true};
         } else if (k.type == Tok::LParen || (k.type == Tok::Function && ieq(k.text, "calc"))) {
             if (depth > 32 || k.close >= e) return false;
             size_t j = i + 1;
@@ -506,6 +544,34 @@ std::string formatNumber(double v) {
     std::string s;
     formatInto(s, v);
     return s;
+}
+
+uint8_t unitsOf(const Tokens& t, size_t b, size_t e) {
+    uint8_t u = 0;
+    for (size_t i = b; i < e; i++)
+        if (t[i].type == Tok::Dimension) u |= unitOf(t[i].text);
+    return u;
+}
+
+std::string resolveUnits(const std::string& text, const UnitPx& px, uint8_t which) {
+    Tokens t;
+    tokenize(text, t);
+    std::string out;
+    size_t last = 0;
+    for (const Token& k : t.list) {
+        if (k.type != Tok::Dimension) continue;
+        uint8_t u = unitOf(k.text);
+        if (!u || (u & which) != u) continue;
+        double f = u == URem ? px.rem : u == UVw ? px.vw : u == UVh ? px.vh : u == UCh ? px.ch
+                 : k.text == "vmin" ? std::min(px.vw, px.vh) : std::max(px.vw, px.vh);
+        out.append(text, last, k.start - last);
+        formatInto(out, k.num * f);
+        out += "px";
+        last = k.end;
+    }
+    if (last == 0) return text;
+    out.append(text, last, std::string::npos);
+    return out;
 }
 
 // --- var() ---

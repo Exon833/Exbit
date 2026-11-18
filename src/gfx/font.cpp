@@ -13,6 +13,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
+#include <iterator>
 #include <map>
 #include <unordered_map>
 
@@ -800,10 +802,19 @@ TtfFont* loadFont(const FaceInfo& fi) {
     return r;
 }
 
-// the faces of a family (matched on the name table, then on the file name)
+// the faces added from files (Font::addFamily), named as they were added (a deque: what points at them stays)
+std::deque<FaceInfo>& addedFaces() {
+    static std::deque<FaceInfo> faces;
+    return faces;
+}
+
+// the faces of a family (those added first; else matched on the name table, then on the file name)
 std::vector<const FaceInfo*> familyFaces(const std::string& family) {
     std::vector<const FaceInfo*> out;
     std::string want = lower(family);
+    for (const FaceInfo& f : addedFaces())
+        if (lower(f.family) == want) out.push_back(&f);
+    if (!out.empty()) return out;
     for (const FaceInfo& f : allFaces())
         if (lower(f.family) == want || lower(f.typoFamily) == want) out.push_back(&f);
     if (out.empty()) {
@@ -953,19 +964,25 @@ Defaults& defaults() {
     return d;
 }
 
-FontFace* resolveFace(const std::string& family, bool bold) {
+// the faces resolved so far, by family (lower case) and boldness (Fonts point at them: they stay)
+std::map<std::pair<std::string, bool>, std::unique_ptr<FontFace>>& resolvedFaces() {
     static std::map<std::pair<std::string, bool>, std::unique_ptr<FontFace>> faces;
+    return faces;
+}
+
+// the file (and fallbacks) of a family, into `face`
+void fillFace(FontFace* face, const std::string& family, bool bold) {
     std::string l = lower(family);
-    auto key = std::make_pair(l, bold);
-    auto it = faces.find(key);
-    if (it != faces.end()) return it->second.get();
     std::vector<const FaceInfo*> cands;
     if (!l.empty() && l != "sans" && l != "sans-serif" && l != "sans serif") cands = familyFaces(family);
     if (cands.empty()) {
         if (l == "serif") cands = familyFaces("DejaVu Serif");
         if (cands.empty()) cands = defaultFamily(isMonoName(l));
     }
-    std::unique_ptr<FontFace> face(new FontFace);
+    face->primary = nullptr;  // (again, when a family was added: what it had found before is forgotten)
+    face->synthBold = false;
+    face->map.clear();
+    std::fill(std::begin(face->asciiReady), std::end(face->asciiReady), false);
     face->wantBold = bold;
     const FaceInfo* fi = pickStyle(cands, bold);
     if (fi) {
@@ -982,6 +999,15 @@ FontFace* resolveFace(const std::string& family, bool bold) {
     if (getenv("TINYDAW_FONT_DEBUG"))
         fprintf(stderr, "font: \"%s\"%s -> %s%s\n", family.c_str(), bold ? " bold" : "",
                 face->primary ? face->primary->path.c_str() : "(none)", face->synthBold ? " (synthetic bold)" : "");
+}
+
+FontFace* resolveFace(const std::string& family, bool bold) {
+    auto& faces = resolvedFaces();
+    auto key = std::make_pair(lower(family), bold);
+    auto it = faces.find(key);
+    if (it != faces.end()) return it->second.get();
+    std::unique_ptr<FontFace> face(new FontFace);
+    fillFace(face.get(), family, bold);
     FontFace* r = face.get();
     faces[key] = std::move(face);
     return r;
@@ -1369,8 +1395,35 @@ void Font::setDefaults(const std::string& uiFamily, float uiPoints, const std::s
     d.mono = monoFamily.empty() ? "Consolas" : monoFamily;
 }
 
+bool Font::addFamily(const std::string& family, const std::string& path, bool bold, bool italic) {
+    if (family.empty() || path.empty()) return false;
+    std::deque<FaceInfo>& added = addedFaces();
+    for (const FaceInfo& f : added)
+        if (f.path == path && f.family == family && (f.weight >= 600) == bold && f.italic == italic) return true;
+    std::vector<FaceInfo> found;
+    scanFile(path, found);
+    if (found.empty()) return false;
+    for (FaceInfo& f : found) {  // (as the stylesheet says it is)
+        f.family = family;
+        f.typoFamily.clear();
+        f.weight = bold ? 700 : 400;
+        f.width = 5;
+        f.italic = italic;
+        f.style = bold ? (italic ? "Bold Italic" : "Bold") : (italic ? "Italic" : "Regular");
+        added.push_back(std::move(f));
+    }
+    // what was found for that name before (another font, or the default) is looked up again
+    auto& faces = resolvedFaces();
+    for (bool b : {false, true}) {
+        auto it = faces.find(std::make_pair(lower(family), b));
+        if (it != faces.end()) fillFace(it->second.get(), family, b);
+    }
+    return true;
+}
+
 std::vector<std::string> Font::families() {
     std::vector<std::string> out;
+    for (const FaceInfo& f : addedFaces()) out.push_back(f.family);
     for (const FaceInfo& f : allFaces()) out.push_back(f.display());
     std::sort(out.begin(), out.end(), [](const std::string& a, const std::string& b) {
         std::string la = lower(a), lb = lower(b);
