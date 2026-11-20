@@ -48,7 +48,7 @@ public:
         held = 0;
         for (int c = 0; c < 2; c++) ring[c].clear(), echoRing[c].clear();
     }
-    void setTransport(double t, int, int, bool playing, int64_t) override { tempo = t, transportPlaying = playing; }
+    void setTransport(double t, int, int, bool playing, int64_t, double) override { tempo = t, transportPlaying = playing; }
     void process(const float* const in[2], const float* const side[2], float* const out[2], int frames) override {
         processCalls++;
         if (throwOnProcess) throw std::runtime_error("fake failure");

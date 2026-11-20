@@ -630,7 +630,14 @@ const std::vector<std::string>& scaleNames() {
 
 Json describeTiming(const Timing& t) {
     Json changes = Json::array();
-    for (auto& c : t.changes) changes.push(Json::array({Json(c.bar), Json(c.bpm), Json(c.beatsPerBar)}));
+    for (auto& c : t.changes) {
+        Json change = Json::array({Json(c.bar), Json(c.bpm), Json(c.beatsPerBar)});
+        if (c.beat != 0 || c.ramp) {  // (only then: [bar, bpm, beats per bar, beat into the bar, ramp])
+            change.push(Json(c.beat));
+            change.push(Json(c.ramp));
+        }
+        changes.push(change);
+    }
     Json out = Json::object({{"bpm", Json(t.bpm)},
                          {"beats_per_bar", Json(t.beatsPerBar)},
                          {"beats", Json(t.beats)},
@@ -648,11 +655,15 @@ Json describeTiming(const Timing& t) {
         out.set("swing_grid", Json(t.swingGrid));
     }
     if (!t.automationFollows) out.set("automation_follows_clips", Json(false));  // (only when off: the default is on)
+    if (t.ramp) out.set("ramp", Json(true));  // (bar 1's tempo ramps to the first change's)
+    // (written only when Beats: files without it, from before the setting, load as Time and behave as they did)
+    if (t.timebaseBeats) out.set("timebase", Json("beats"));
     return out;
 }
 
 Timing readTiming(const Json& entry) {
     Timing t;
+    t.timebaseBeats = false;  // (a file from before the setting: Time, unless it says otherwise)
     if (entry.isObject()) {
         t.bpm = entry.num("bpm", t.bpm);
         t.beatsPerBar = entry.integer("beats_per_bar", t.beatsPerBar);
@@ -662,17 +673,26 @@ Timing readTiming(const Json& entry) {
         t.loopEnd = entry.num("loop_end", t.loopEnd);
         t.looping = entry.flag("looping", t.looping);
         t.automationFollows = entry.flag("automation_follows_clips", t.automationFollows);
+        t.ramp = entry.flag("ramp", false);
+        const Json& timebase = entry["timebase"];  // (none: a file from before the setting, Time)
+        t.timebaseBeats = timebase.isString() && timebase.toString() == "beats";
         const Json& snap = entry["snap_on"];
         t.snapOn = snap.isBool() ? snap.toBool() : snap.isNumber() ? snap.toDouble() != 0 : t.snapOn;
         const Json& grid = entry["grid"];
         if (grid.isNumber()) t.grid = grid.toDouble();
         std::vector<TempoChange> changes;
         for (const Json& c : entry["changes"].items()) {
-            if (!c.isArray() || c.size() != 3 || !c[size_t(0)].isNumber() || !c[size_t(1)].isNumber() ||
-                !c[size_t(2)].isNumber())
+            if (!c.isArray() || (c.size() != 3 && c.size() != 5) || !c[size_t(0)].isNumber() ||
+                !c[size_t(1)].isNumber() || !c[size_t(2)].isNumber())
                 continue;
             TempoChange change{(int)c[size_t(0)].toDouble(), c[size_t(1)].toDouble(), (int)c[size_t(2)].toDouble()};
-            if (change.bar >= 2 && config::MIN_BPM <= change.bpm && change.bpm <= config::MAX_BPM &&
+            if (c.size() == 5) {  // (a change inside a bar, or a ramp)
+                if (!c[size_t(3)].isNumber() || !c[size_t(4)].isBool()) continue;
+                change.beat = c[size_t(3)].toDouble();
+                change.ramp = c[size_t(4)].toBool();
+                if (!(change.beat >= 0 && change.beat <= config::MAX_BEATS_PER_BAR)) continue;
+            }
+            if (change.valid() && config::MIN_BPM <= change.bpm && change.bpm <= config::MAX_BPM &&
                 1 <= change.beatsPerBar && change.beatsPerBar <= config::MAX_BEATS_PER_BAR)
                 changes.push_back(change);
         }
@@ -761,6 +781,17 @@ Json describe(const Project& project, int sr, const MasterSettings& master, Audi
                     points.push(p.bend != 0 ? Json::array({Json(p.t / sr), Json(p.v), Json(p.bend)})
                                             : Json::array({Json(p.t / sr), Json(p.v)}));
                 entry.set("gain_envelope", points);
+            }
+            if (clip->warp || clip->warpMarkers) {  // warping (audio/warp.h): only then, so older files save as before
+                Json w = Json::object({{"on", Json(clip->warp)},
+                                       {"mode", Json(warp::modeName(clip->warpMode))},
+                                       {"preserve", Json(warp::preserveName(clip->warpPreserve))}});
+                if (clip->warpMarkers) {  // [frame of its audio file, beat]
+                    Json ms = Json::array();
+                    for (auto& m : *clip->warpMarkers) ms.push(Json::array({Json(m.frame), Json(m.beat)}));
+                    w.set("markers", ms);
+                }
+                entry.set("warp", w);
             }
         } else {
             entry.set("notes", notesJson(clip->notes));  // [start s, end s, pitch, velocity]
@@ -1314,6 +1345,7 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
 
         Timing timing = readTiming(field(data, "timing"));
         midi_effects::TimingScope onItsBeats(&timing);  // (its MIDI clips prepared on its own tempo and swing)
+        clip_hooks::UseTempoMap onItsTempo(timing.map());  // (and its warped audio clips: audio/warp.h)
         std::vector<std::string> missing;
         std::vector<ClipPtr> clips;
         std::map<double, ClipPtr> linked;  // linked MIDI clips: "link" number -> the first clip with it
@@ -1338,6 +1370,19 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
                 clip->loop = entry.flag("loop", false);
                 clip->loopStart = entry.num("loop_start", 0.0);
                 clip->loopLength = entry.num("loop_length", 0.0);
+                const Json& w = entry["warp"];  // (older projects: none, not warped)
+                if (w.isObject()) {
+                    clip->warp = w.flag("on", false);
+                    clip->warpMode = warp::modeFromName(w.str("mode"));
+                    clip->warpPreserve = warp::preserveFromName(w.str("preserve"));
+                    if (w["markers"].isArray()) {
+                        warp::Markers ms;
+                        for (const Json& m : w["markers"].items())
+                            if (m.isArray() && m.size() == 2 && m[size_t(0)].isNumber() && m[size_t(1)].isNumber())
+                                ms.push_back({m[size_t(0)].toDouble(), m[size_t(1)].toDouble()});
+                        clip->warpMarkers = std::make_shared<const warp::Markers>(warp::ordered(std::move(ms)));
+                    }
+                }
             } else {
                 clip = std::make_shared<Clip>();
                 clip->kind = Kind::Midi;

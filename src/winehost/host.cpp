@@ -147,7 +147,7 @@ DWORD WINAPI audioMain(LPVOID) {
             plugin->notesOff();
         if (block->transportSet)
             plugin->setTransport(block->tempo, block->numerator, block->denominator, block->playing != 0,
-                                 block->position);
+                                 block->position, block->beats);
         float* out[2] = {block->out[0], block->out[1]};
         if (block->op == RENDER) {
             notes.clear();

@@ -12,6 +12,19 @@
 namespace clip_hooks {
 std::function<std::vector<Note>(const Track&, const std::vector<Note>&, double)> midiEffects;
 std::function<AudioPtr(const Track&, const std::vector<Note>&, int, double)> renderSampler;
+std::function<TempoMapPtr()> tempoMap;
+namespace {
+thread_local TempoMapPtr g_using;
+}
+TempoMapPtr currentTempoMap() {
+    if (g_using) return g_using;
+    if (tempoMap)
+        if (TempoMapPtr m = tempoMap()) return m;
+    static const TempoMapPtr fallback = std::make_shared<const TempoMap>();
+    return fallback;
+}
+UseTempoMap::UseTempoMap(TempoMapPtr map) : before(g_using) { g_using = std::move(map); }
+UseTempoMap::~UseTempoMap() { g_using = before; }
 }  // namespace clip_hooks
 
 std::vector<Cable> chain(const std::vector<SlotPtr>& slots) {
@@ -195,10 +208,18 @@ AudioPtr looped(const AudioPtr& audio, int64_t start, int64_t frames, int64_t re
 
 void Clip::prepare(int sr, int64_t reach) {
     if (kind != Kind::Midi) {
-        AudioPtr base = source;
-        if (source && (stretch != 1.0 || pitch != 0.0 || reverse))  // (at its own rate, so its pieces share it)
-            base = ::stretch::stretched(source, stretch, pitch, reverse);
-        AudioPtr d = dsp::resample(base, sourceSr, sr);
+        AudioPtr d;
+        if (warp && source) {  // (warped: rendered for the song's tempo where its data starts: audio/warp.h)
+            TempoMapPtr map = clip_hooks::currentTempoMap();
+            d = warp::rendered(warpJob(map, start - offset, sr));
+            warpKey = std::make_shared<const WarpKey>(WarpKey{map, start - offset});
+        } else {
+            AudioPtr base = source;
+            if (source && (stretch != 1.0 || pitch != 0.0 || reverse))  // (at its own rate, so its pieces share it)
+                base = ::stretch::stretched(source, stretch, pitch, reverse);
+            d = dsp::resample(base, sourceSr, sr);
+            warpKey = nullptr;
+        }
         baseFrames = d ? d->frames() : 0;
         loopFrom = loopFor = 0;
         if (loop && loopLength > 0 && d && d->frames()) {
@@ -248,6 +269,22 @@ void Clip::prepare(int sr, int64_t reach) {
     }                                                                                          // at one moment)
     events = ev;
     played = std::make_shared<const std::vector<Note>>(std::move(notesPlayed));
+}
+
+warp::Job Clip::warpJob(const TempoMapPtr& map, int64_t origin, int sr) const {
+    warp::Job j;
+    j.source = source;
+    j.sourceSr = sourceSr;
+    j.markers = warpMarkers ? *warpMarkers : warp::Markers{};
+    j.bpm = sourceBpm > 0 ? sourceBpm : warp::DEFAULT_BPM;
+    j.mode = warpMode;
+    j.preserve = warpPreserve;
+    j.semitones = pitch;
+    j.reverse = reverse;
+    j.map = map;
+    j.origin = sr > 0 ? (double)origin / sr : 0;
+    j.sr = sr;
+    return j;
 }
 
 void Clip::fitWindow() {

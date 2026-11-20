@@ -167,6 +167,8 @@ public:
     void showAllAutomation(bool on);
     void buildOptionsMenu();
     void setExplorerVisible(bool on);    // View → Explorer, the dock's ✕
+    void showTempoLane(bool on);         // View → Tempo lane: the tempo lane under the ruler (timeline_tempo.cpp)
+    ui::Action* tempoLaneAction = nullptr;
     void setExplorerWidth(int w);
     // the timeline's frame (ScrollArea#timeline's border and padding): the track panel's rows moved down by its
     // top, its bottom kept free under the master row, so they still line up with the lanes
@@ -176,6 +178,9 @@ public:
     void showTimeEdit(const std::string& message);
     void useClipboard(const std::string& what);  // "cut", "copy", "paste"
     void noteChanges();                  // a change becomes an undo step (while no mouse button is held)
+    // warped clips rendered again for the song's tempo where it (or their place) changed (model/warping.h retime):
+    // after every tempo change (setTiming, the ruler's), and before each undo step is noted
+    void retimeWarped();
     bool rendersPending();
     void flushRenders();
     void showUndoState();

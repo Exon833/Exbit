@@ -52,6 +52,8 @@ public:
     Onsets(const float* stereo, int64_t frames, int sr);  // interleaved stereo
     std::vector<int64_t> find(double sensitivity) const;  // frames, in order
     int64_t frames() const { return (int64_t)mono_.size(); }
+    // per ONSET_HOP frames: how much the sound rose there (0…1), the onset strength tempo detection reads
+    const std::vector<double>& strength() const { return flux_; }
 private:
     std::vector<float> mono_;
     std::vector<double> flux_;  // per hop: the largest band's rise, against that band's largest (0…1)

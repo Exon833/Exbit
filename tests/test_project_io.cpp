@@ -217,7 +217,8 @@ static void testRoundTrip() {
     CHECK(text.find("\"bpm\": 133.5") != std::string::npos);
     CHECK(text.find("\"beats_per_bar\": 3,") != std::string::npos);
     CHECK((keys(j["timing"]) == std::vector<std::string>{"bpm", "beats_per_bar", "beats", "thirds", "loop_start", "loop_end",
-                                                         "looping", "changes", "grid", "snap_on", "key", "scale"}));
+                                                         "looping", "changes", "grid", "snap_on", "key", "scale",
+                                                         "timebase"}));  // (a new project: Beats)
     CHECK((keys(j["tracks_made"]) == std::vector<std::string>{"audio", "midi", "return", "group"}));
     CHECK(j["tracks_made"]["audio"].toInt() == 3 && j["tracks_made"]["midi"].toInt() == 2 && j["tracks_made"]["group"].toInt() == 1);
     CHECK((keys(j["groups"][size_t(0)]) == std::vector<std::string>{"name", "folded", "muted", "soloed", "color", "tone"}));

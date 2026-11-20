@@ -340,7 +340,7 @@ void Effect::reset() {
     changed_ = true;
 }
 
-void Effect::setTransport(double tempo, int numerator, int denominator, bool playing, int64_t positionFrames) {
+void Effect::setTransport(double tempo, int numerator, int denominator, bool playing, int64_t positionFrames, double) {
     tempo_.store(tempo, std::memory_order_relaxed);
     numerator_.store(numerator, std::memory_order_relaxed);
     denominator_.store(denominator, std::memory_order_relaxed);

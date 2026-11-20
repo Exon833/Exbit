@@ -40,6 +40,8 @@ NotesPtr shifted(const NotesPtr& ns, double by, double pass) {
     return out;
 }
 
+}  // namespace
+
 // clips prepared again (each to `reach` frames; -1 its window) on copies, on every core when there are many,
 // then swapped in (the audio thread atomic_loads them)
 void prepareAll(const std::vector<std::pair<ClipPtr, int64_t>>& todo, int sr) {
@@ -76,8 +78,6 @@ void prepareAll(const std::vector<std::pair<ClipPtr, int64_t>>& todo, int sr) {
     }
     if (todo.size() >= 4) util::debugf("clip_edits: %zu clips prepared again on %d worker threads (+1)\n", todo.size(), threads);
 }
-
-}  // namespace
 
 // --- slip ---
 

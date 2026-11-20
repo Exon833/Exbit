@@ -110,6 +110,7 @@ Preferences Preferences::load() {
     p.processingCores = std::max(0, getInt("processing_cores", p.processingCores));
     p.levelMeters = getBool("level_meters", p.levelMeters);
     p.trackCpu = getBool("track_cpu", p.trackCpu);
+    p.tempoLane = getBool("tempo_lane", p.tempoLane);
     p.loudnessMeters = getBool("loudness_meters", p.loudnessMeters);
     p.refreshFps = getInt("refresh_fps", p.refreshFps);
     p.metronome = getBool("metronome", p.metronome);
@@ -142,6 +143,7 @@ Preferences Preferences::load() {
     p.ghostNotes = getStr("ghost_notes", p.ghostNotes);
     p.reloadCrashedPlugins = getBool("reload_crashed_plugins", p.reloadCrashedPlugins);
     p.statusHints = getBool("status_hints", p.statusHints);
+    p.warpNewFiles = getBool("warp_new_files", p.warpNewFiles);
     p.windowFrames = prefs::ownWindowFrames() ? "own" : "system";
     p.transparency = prefs::transparentWindows();
     auto& sizes = prefs::bufferSizes();
@@ -154,6 +156,7 @@ Preferences Preferences::load() {
     p.known_["buffer_size"] = Json(p.bufferSize);
     p.known_["processing_cores"] = Json(p.processingCores);
     p.known_["track_cpu"] = Json(p.trackCpu);
+    p.known_["tempo_lane"] = Json(p.tempoLane);
     p.known_["level_meters"] = Json(p.levelMeters);
     p.known_["loudness_meters"] = Json(p.loudnessMeters);
     p.known_["refresh_fps"] = Json(p.refreshFps);
@@ -187,6 +190,7 @@ Preferences Preferences::load() {
     p.known_["ghost_notes"] = Json(p.ghostNotes);
     p.known_["reload_crashed_plugins"] = Json(p.reloadCrashedPlugins);
     p.known_["status_hints"] = Json(p.statusHints);
+    p.known_["warp_new_files"] = Json(p.warpNewFiles);
     p.known_["window_frames"] = Json(p.windowFrames);
     p.known_["transparency"] = Json(p.transparency);
     return p;
@@ -208,6 +212,7 @@ void Preferences::save() const {
     put("processing_cores", processingCores);
     put("level_meters", levelMeters);
     put("track_cpu", trackCpu);
+    put("tempo_lane", tempoLane);
     put("loudness_meters", loudnessMeters);
     put("refresh_fps", refreshFps);
     put("metronome", metronome);
@@ -240,6 +245,7 @@ void Preferences::save() const {
     put("ghost_notes", ghostNotes);
     put("reload_crashed_plugins", reloadCrashedPlugins);
     put("status_hints", statusHints);
+    put("warp_new_files", warpNewFiles);
     put("window_frames", windowFrames);
     put("transparency", transparency);
 }

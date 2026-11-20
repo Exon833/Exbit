@@ -212,16 +212,17 @@ public:
 
     // --- processing (audio thread) ---
 
-    void setTransport(double tempo, int num, int den, bool playing, int64_t position) override {
-        set_transport_now(tempo, num, den, playing, position);
+    void setTransport(double tempo, int num, int den, bool playing, int64_t position, double beats = -1) override {
+        set_transport_now(tempo, num, den, playing, position, beats);
     }
 
-    void set_transport_now(double tempo, int num, int den, bool playing, int64_t position) {
+    void set_transport_now(double tempo, int num, int den, bool playing, int64_t position, double beats = -1) {
         time.tempo = tempo;
         time.time_sig_numerator = num;
         time.time_sig_denominator = den;
         time.sample_pos = (double)position;
-        time.ppq_pos = position / std::max(1.0, rate) * tempo / 60.0;
+        // (the song's own beats: through its tempo changes and ramps)
+        time.ppq_pos = beats >= 0 ? beats : position / std::max(1.0, rate) * tempo / 60.0;
         time.flags = vst2::time_flag::TEMPO_VALID | vst2::time_flag::TIME_SIG_VALID | vst2::time_flag::PPQ_VALID |
                      (playing ? vst2::time_flag::PLAYING : 0);
     }

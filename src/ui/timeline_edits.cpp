@@ -9,7 +9,6 @@
 #include "model/edits.h"
 #include "model/song_time.h"
 #include "ui/clip_painter.h"
-#include "ui/stretch_dialog.h"
 #include "ui/tempo_dialog.h"
 #include "ui/theme.h"
 #include "ui/timeline.h"
@@ -43,7 +42,7 @@ std::string trimmed(const std::string& s) {
 // --- fades ----------------------------------------------------------------------------------------
 
 FadeHit Timeline::fadeHandleAt(PointF pos) const {
-    if (pos.y < lanes::rulerHeight()) return {};
+    if (pos.y < lanes::lanesTop()) return {};
     auto tops = trackTops();
     auto& clips = *project.clips;
     for (auto it = clips.rbegin(); it != clips.rend(); ++it) {
@@ -146,33 +145,6 @@ void Timeline::setGainSelected() {
         return;
     for (auto& clip : clips) clip->gainDb = std::nearbyint(gain * 10) / 10;
     update();
-}
-
-void Timeline::stretchSelected() {
-    auto clips = selectedAudio(project, selection);
-    if (clips.empty()) return;
-    StretchDialog dialog(dialogParent(), *clips[0], project.timing.bpmAt((double)clips[0]->start / engine.sr),
-                         (int)clips.size());
-    if (!dialog.run()) return;
-    std::map<ClipPtr, ClipPtr> made;
-    std::vector<ClipPtr> news;
-    for (auto& c : clips) {
-        ClipPtr n = edits::restretched(c, dialog.stretch, dialog.pitch, engine.sr);
-        n->sourceBpm = dialog.sourceBpm;
-        made[c] = n;
-        news.push_back(n);
-    }
-    std::vector<ClipPtr> all;
-    for (auto& c : project.clips) all.push_back(made.count(c) ? made[c] : c);
-    project.clips = all;  // (all at once: the audio thread)
-    edits::clearUnder(project, news);
-    std::set<ClipPtr> kept;
-    for (auto& c : selection.clips) {
-        ClipPtr n = made.count(c) ? made[c] : c;
-        if (project.clips.contains(n)) kept.insert(n);
-    }
-    selection.clips = kept;
-    relayout();
 }
 
 void Timeline::replaceClips(const std::map<ClipPtr, ClipPtr>& made) {
@@ -554,32 +526,23 @@ void Timeline::paintTempoChanges(Painter& p, const Rect& r) {
     // each tempo change after its bar's number on the ruler
     // (Ruler::tempo: after the bar's number, Ruler::label, by its margin-left)
     const TimelineLook& lk = look();
+    if (lanes::tempoLaneShown()) return;  // (the tempo lane under it shows them)
     const Timing& t = project.timing;
-    for (auto& change : t.changes) {
-        int x = (int)(t.barSeconds(change.bar - 1) * pps);
-        if (r.left() - 200 <= x && x <= r.right() - 1)
-            p.drawText(PointF((float)x + (lk.labelPadLeft + lk.tempoMargin) + lk.labelFont.width(std::to_string(change.bar)),
-                              (float)lk.tempoBaseline),
-                       g(change.bpm) + " BPM " + std::to_string(change.beatsPerBar) + "/4", lk.tempoFont, lk.tempoColor);
+    TempoMapPtr m = t.map();  // (once: a song may have thousands of changes)
+    for (auto& change : m->changes) {
+        if (!change.valid()) continue;
+        int x = (int)(m->secondsAt(m->beatOf(change)) * pps);
+        if (x < r.left() - 200 || x > r.right() - 1) continue;
+        // (a change inside a bar: no bar number there, nor a time signature; a ramp: an arrow)
+        float after = change.atBar() ? lk.labelFont.width(std::to_string(change.bar)) : 0.0f;
+        std::string text = g(change.bpm) + " BPM" + (change.atBar() ? " " + std::to_string(change.beatsPerBar) + "/4" : "") +
+                           (change.ramp ? " ↗" : "");
+        p.drawText(PointF((float)x + (lk.labelPadLeft + lk.tempoMargin) + after, (float)lk.tempoBaseline), text,
+                   lk.tempoFont, lk.tempoColor);
     }
 }
 
-void Timeline::editTempo(int bar) {
-    Timing& t = project.timing;
-    double at = t.barSeconds(bar - 1);
-    TempoDialog dialog(dialogParent(), bar, t.bpmAt(at), t.beatsPerBarAt(at), t.changeAtBar(bar) != nullptr);
-    if (!dialog.run()) return;
-    if (bar == 1) {
-        t.bpm = dialog.bpm;
-        t.beatsPerBar = dialog.beatsPerBar;
-    } else if (dialog.removed) {
-        t.removeChange(bar);
-    } else {
-        t.setChange(bar, dialog.bpm, dialog.beatsPerBar);
-    }
-    timingChanged.emit();
-    update();
-}
+void Timeline::editTempo(int bar) { editTempoPoint(TempoRef{std::max(1, bar), 0.0}); }  // (timeline_tempo.cpp)
 
 void Timeline::fillRulerMenu(ui::Menu& menu, PointF pos) {
     // right-click on the ruler: markers, the tempo from a bar, inserting and deleting time
@@ -601,6 +564,11 @@ void Timeline::fillRulerMenu(ui::Menu& menu, PointF pos) {
             (change ? "  (" + g(change->bpm) + " BPM " + std::to_string(change->beatsPerBar) + "/4)" : ""),
         [this, bar] { editTempo(bar + 1); });
     tempo->setEnabled(timing.beats);
+    {  // (the tempo lane's: a change near here, or one to add; the timebase)
+        double seconds = std::max(0.0, pos.x / pps);
+        ui::Menu* lane = menu.addMenu("Tempo changes");
+        fillTempoMenu(*lane, seconds, tempoPointNear(seconds, config::AUTOMATION_GRAB_PX));
+    }
     menu.addSeparator();
     menu.addAction(std::string("Insert time…") + (selection.range ? "  (as long as the range)" : ""),
                    [this] { timeEdited.emit(insertTime()); });

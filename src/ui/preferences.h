@@ -59,12 +59,14 @@ struct Preferences {
     std::string recentPlugins;              // …and the plugins chosen last, newest first
     std::string recordOffsets;              // Options → Recording offset: JSON {"driver|device": ms}
     bool trackCpu = false;                  // Options → CPU per track
+    bool tempoLane = false;                 // View → Tempo lane: the tempo lane shown under the ruler
     std::string scope;                      // the master scope's options: JSON (ScopeSettings::toJson); "" the defaults
     int interfaceScale = 100;               // % the whole interface is drawn at (from the next start: main.cpp)
     bool nativeWayland = true;              // (the Python program's Qt-on-Wayland choice; kept for its settings)
     bool reloadCrashedPlugins = false;      // a Windows plugin whose Wine host crashed is started afresh by itself
     std::string ghostNotes = "all";         // the MIDI editor shows other clips' notes: "all" tracks, this "track", or "off"
     bool statusHints = true;                // Options → Hints in the status bar: the first line of the tooltip under the pointer
+    bool warpNewFiles = false;              // Options → Warp new audio files: dropped in, their tempo detected and warp on
     std::string windowFrames = "own";       // Options → Window frames: "own" (drawn by Tiny DAW, as the skin says) or "system"
     bool transparency = true;               // Options → Window frames → Transparency: windows may be see-through
 

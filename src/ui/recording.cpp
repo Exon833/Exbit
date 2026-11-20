@@ -50,7 +50,10 @@ int64_t countInAudio(const metronome::MetronomeSettings& settings, const Timing&
     std::vector<float> mono((size_t)std::max<int64_t>(0, frames), 0.0f);
     std::vector<float> barClick = metronome::renderClick(settings.bar, sr);
     std::vector<float> beatClick = metronome::renderClick(settings.beat, sr);
-    double now = (at - timing.segmentAt(at).seconds) / beatS;  // (beats since the segment's first bar line)
+    int meterBar, meterPerBar;
+    double meterBeat;
+    timing.map()->meterAt(timing.beatAt(at), meterBar, meterBeat, meterPerBar);
+    double now = timing.beatAt(at) - meterBeat;  // (beats since the time signature's first bar line)
     double begin = now - beats;  // (where the count-in starts, in those beats)
     for (int64_t beat = (int64_t)std::ceil(begin - 1e-6); beat < (int64_t)std::ceil(now - 1e-6); beat++) {
         int64_t inBar = ((beat % perBar) + perBar) % perBar;  // (Python's %: never negative)

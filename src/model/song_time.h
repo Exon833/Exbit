@@ -10,9 +10,10 @@
 // - automation curves, which keep their shape on both sides (a point is added at the edit point);
 // - markers (those inside deleted time go);
 // - the loop range;
-// - tempo and time-signature changes, which are kept by bar: they move by whole bars when the time
+// - tempo and time-signature changes (steps and ramps), which are kept by bar: they move by whole bars when the time
 //   inserted or deleted is whole bars (both ends on bar lines), else they stay where they are (the
-//   note returned says so).
+//   note returned says so). Inserted bars hold the tempo before them, and a ramp the edit cuts goes on
+//   after it from the tempo it had there (deleted bars: the ramp before the cut goes to that tempo).
 //
 // A frozen track's rendering can't be cut: an edit that would cut through one isn't made (the
 // functions return false with the reason in `error`, Python's FrozenInTheWay).

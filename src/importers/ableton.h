@@ -76,5 +76,10 @@ double warpSeconds(const std::vector<std::pair<double, double>>& markers, double
 // An ADSR over n frames at SR: linear attack, then decay and release straight lines in dB down to FLOOR_DB
 // (Ableton's), the note released after `gate` frames
 std::vector<float> envelope(int64_t n, int64_t gate, double attackS, double decayS, double sustain, double releaseS);
+// A set's tempo automation ((beat, BPM) events by time, as Live keeps them: linear between events, a jump where
+// two share a time; before the first, its value) as the song's tempo changes: a ramp between two events of
+// different tempos, a step where they jump (the ramp then ends a thousandth of a beat before the jump). Bars of
+// `beatsPerBar` beats. Returns how many changes were made.
+int tempoFromEnvelope(Timing& timing, const std::vector<std::pair<double, double>>& events, int beatsPerBar);
 
 }  // namespace ableton

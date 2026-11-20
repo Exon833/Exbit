@@ -24,7 +24,7 @@
 #include "ui/timeline.h"
 #include "ui/waveform_cache.h"
 #include "ui/clipboard.h"
-#include "ui/stretch_dialog.h"
+#include "ui/warp_dialog.h"
 #include "ui/tempo_dialog.h"
 #include "ui/track_dialogs.h"
 #include "ui/toolkit/menu.h"
@@ -846,7 +846,7 @@ void testFadesAndGain() {
     CHECK(actionStarting(menu, "Crossfade…") && !actionStarting(menu, "Crossfade…")->enabled);
     CHECK(actionStarting(menu, "Export as MIDI file…") && !actionStarting(menu, "Export as MIDI file…")->enabled);
     CHECK(actionStarting(menu, "Reverse (play backwards)") && actionStarting(menu, "Join clips"));
-    CHECK(actionStarting(menu, "Stretch and pitch…") && actionStarting(menu, "Loop (it repeats"));
+    CHECK(actionStarting(menu, "Warp…") && actionStarting(menu, "Loop (it repeats"));
     tl.update();
     savePng(outDir2() + "/fades_gain.png", paintScroll(r.scroll));
     {  // at a 1.5x interface size: the tiles in device pixels (sharp)
@@ -956,21 +956,23 @@ void testClipEdits() {
     ui::Menu menu;
     tl.fillMenu(menu, Point(150, 60));
     CHECK(actionStarting(menu, "Play forwards again"));
-    // stretch and pitch (the dialog answered)
+    // Warp… not warped: stretch and pitch (the dialog answered)
     ClipPtr before = r.project.clips[0];
-    StretchDialog::testRun = [](StretchDialog& d) {
+    WarpDialog::testRun = [](WarpDialog& d) {
+        CHECK(!d.length->isEnabled() == d.warpBox->isChecked());
         d.length->setValue(150);
         d.semitones->setValue(2);
         d.bpm->setValue(100);
         return true;
     };
-    tl.stretchSelected();
-    StretchDialog::testRun = nullptr;
+    tl.warpSelected();
+    WarpDialog::testRun = nullptr;
     ClipPtr stretched = r.project.clips[0];
     CHECK(stretched != before && stretched->stretch == 1.5 && stretched->pitch == 2 && stretched->sourceBpm == 100);
+    CHECK(!stretched->warp);
     CHECK(std::llabs(stretched->frames() - (int64_t)(before->frames() * 1.5)) < SR / 50);
-    // the stretch dialog's Match: the length that plays the recorded tempo at the project's
-    StretchDialog d(nullptr, *stretched, 120, 1);
+    // the dialog's Match: the length that plays the recorded tempo at the project's
+    WarpDialog d(nullptr, *stretched, std::make_shared<const TempoMap>(120.0), 1, SR, 0, 0.25);
     d.bpm->setValue(90);
     d.match();
     CHECK_NEAR(d.length->value(), 75, 1e-9);

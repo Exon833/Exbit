@@ -18,6 +18,7 @@
 #include "config.h"
 #include "core/util.h"
 #include "model/project_io.h"
+#include "model/timebase.h"
 #include "plugins/library.h"
 #include "ui/audio_dialog.h"
 #include "ui/autosave.h"
@@ -59,6 +60,7 @@
 #include "ui/transport_bar.h"
 #include "ui/update_notice.h"
 #include "ui/widgets.h"
+#include "model/warping.h"
 
 using ui::App;
 
@@ -140,6 +142,7 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     // the master scope under the Master row (its options kept: options/scope); its height first
     ScopeSettings scopeSettings = ScopeSettings::fromJson(Json::parse(prefs.scope));
     lanes::setMasterScopeHeight(scopeSettings.shown ? theme::metric("scope-height", config::SCOPE_H) : 0);
+    lanes::setTempoLaneShown(prefs.tempoLane);  // (View → Tempo lane, as it was left)
     master = std::make_unique<MasterStrip>(engine, [this] { openMasterPlugins(); });
     master->scope->settings = scopeSettings;
     master->setScopeShown(scopeSettings.shown);
@@ -248,6 +251,8 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     noticeTimer_ = App::get().every(60 * 1000, [this] { master->refreshUpdate(); });  // ("how long ago" counts on)
     openFirstDevice();
     setUpMidi();
+    clip_hooks::tempoMap = [this] { return project.timing.audioMap(); };  // (warped clips follow its tempo: model/warping.h)
+    timeline->warpNewFiles = prefs.warpNewFiles;
     history = std::make_unique<history::History>(project, engine.sr);
     // writing automation by moving controls (automation_write.h): at the song time being heard
     automation::recorder().songTime = [this](double& seconds) {
@@ -294,6 +299,7 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
 
 MainWindow::~MainWindow() {
     *alive_ = false;
+    clip_hooks::tempoMap = nullptr;  // (it asked this window's project)
     automation::recorder().releaseAll();
     automation::recorder().songTime = nullptr;  // (it asked this window's engine)
     // (presets and MIDI learn: their hooks let go first)
@@ -538,7 +544,10 @@ void MainWindow::noteChanges() {
     // is one step), and once the clips a MIDI effects or sampler window changed are rendered again (the
     // change and how the clips then sound are one step). A curve being written by moving its control is
     // one step once the touch ends (automation_write.h).
-    if (history && !mouseHeld() && !rendersPending() && !automation::recorder().busy()) history->check(engine.sr);
+    if (history && !mouseHeld() && !rendersPending() && !automation::recorder().busy()) {
+        retimeWarped();  // (a warped clip moved along tempo changes: its new audio and the move are one step)
+        history->check(engine.sr);
+    }
     if (historyWindow && historyWindow->isWindowShown()) historyWindow->refresh();  // (it follows while open)
 }
 
@@ -611,9 +620,23 @@ void MainWindow::historyMoved(bool forward) {
 void MainWindow::buildViewMenu() {
     ui::Menu* menu = menuBar->addMenu("&View");
     explorerAction = menu->addCheckable("&Explorer", true, [this](bool on) { setExplorerVisible(on); }, "Ctrl+E");
+    tempoLaneAction = menu->addCheckable("&Tempo lane", lanes::tempoLaneShown(), [this](bool on) { showTempoLane(on); });
+    tempoLaneAction->tooltip = "A lane under the ruler with the tempo changes: click to add one, drag it, double-click "
+                               "to type its tempo, right-click for ramps and the timebase";
     menu->addSeparator();
     menu->addAction("Show all automation", [this] { showAllAutomation(true); });
     menu->addAction("Hide all automation", [this] { showAllAutomation(false); });
+}
+
+void MainWindow::showTempoLane(bool on) {
+    lanes::setTempoLaneShown(on);
+    prefs.tempoLane = on;
+    prefs.save();
+    if (tempoLaneAction) tempoLaneAction->setChecked(on);
+    cpuMonitor->fit();         // (as tall as the ruler and the tempo lane: the panel's rows still line up)
+    timeline->lanesChanged();  // (the lanes start lower; the panel rebuilds)
+    if (overview) overview->update();
+    util::debugf("main window: tempo lane %s\n", on ? "shown" : "hidden");
 }
 
 void MainWindow::showAllAutomation(bool on) {
@@ -638,6 +661,11 @@ void MainWindow::buildOptionsMenu() {
             prefs.save();
         })->tooltip = "A Windows plugin whose Wine host crashed starts again by itself, with the settings it last had "
                       "(at most 3 times a minute; then it stays stopped)";
+    menu->addCheckable("&Warp new audio files", prefs.warpNewFiles, [this](bool on) {
+            prefs.warpNewFiles = timeline->warpNewFiles = on;
+            prefs.save();
+        })->tooltip = "Audio files added to the song get their tempo found (from the file, else by listening) and "
+                      "follow the song's tempo (Warp…); off: they play as recorded";
     menu->addCheckable("&Hints in the status bar", prefs.statusHints, [this](bool on) {
             prefs.statusHints = on;
             prefs.save();
@@ -1231,7 +1259,7 @@ void MainWindow::setLooping(bool on) {
         if (timeline->selection.range) {
             timeline->setLoop(timeline->selection.range->start, timeline->selection.range->end);
         } else if (!t.loopRange(s0, s1)) {
-            int64_t bars = std::llround(4 * t.beatsPerBar * t.beatSeconds() * engine.sr);
+            int64_t bars = std::llround(t.barSeconds(4) * engine.sr);  // (4 bars of the tempo map)
             int64_t end = project.endFrame();
             timeline->setLoop(0, end ? end : bars);
         }
@@ -1257,10 +1285,13 @@ void MainWindow::syncLoop() {
 }
 
 void MainWindow::setTiming(const TimingChange& c) {
-    // change the tempo, time signature or grid view; clips keep their place in time
+    // change the tempo, time signature or grid view; what is placed in the song follows as its timebase says
+    // (model/timebase.h: Beats keeps its beats, Time its seconds)
     Timing& t = project.timing;
+    timebase::Before before = c.bpm || c.beatsPerBar ? timebase::remember(project) : timebase::Before();
     if (c.bpm) t.bpm = *c.bpm;
     if (c.beatsPerBar) t.beatsPerBar = *c.beatsPerBar;
+    if (!timebase::follow(project, before, engine.sr).empty()) timeline->relayout();
     if (c.beats) t.beats = *c.beats;
     if (c.thirds) t.thirds = *c.thirds;
     // (MIDI effects work in beats: an arpeggio follows the tempo; no changes: one on the ruler)
@@ -1271,8 +1302,16 @@ void MainWindow::setTiming(const TimingChange& c) {
             if (clip->kind == Kind::Midi && track && (!track->midiEffects.empty() || midi_effects::swings(*track)))
                 timeline->prepareLive(clip);  // (swing too: it is in beats)
         }
+    if (none || c.bpm || c.beatsPerBar) retimeWarped();  // (warped audio follows the tempo)
     transport->showTiming(t);
     timeline->update();
+}
+
+void MainWindow::retimeWarped() {
+    // (after every tempo edit: setTiming, and noteChanges before each undo step, so the tempo lane's drags and
+    // ramps re-render warped clips once the mouse is let go)
+    project.timing.publish();  // (the map warped clips are prepared with: clip_hooks::tempoMap)
+    if (warping::retime(project, engine.sr) > 0) timeline->relayout();
 }
 
 void MainWindow::startTimers() {

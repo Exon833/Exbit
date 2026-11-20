@@ -6,6 +6,7 @@
 
 #include "config.h"
 #include "model/clip_envelope.h"
+#include "model/warping.h"
 #include "ui/colors.h"
 #include "ui/paint_helpers.h"
 #include "ui/theme.h"
@@ -100,6 +101,7 @@ void paintClip(Painter& p, const Look& look, const Clip& clip, const RectF& rect
     if (clip.kind == Kind::Audio && !frozen && handles)
         paintFades(p, clip, body, pps, sr, cc.border, look.fadeShade, look.fadeStroke);
     if (clip.kind == Kind::Audio && clip.envelopeShown) paintEnvelope(p, clip, body, visible, pps, sr, cc.text);
+    if (warpShown(clip, body) && !frozen) paintWarp(p, clip, body, visible, pps, sr, cc.text);
     if (clip.loopingAudio()) paintLoopStarts(p, clip, rect, visible, pps, sr, cc.border, look.loopStroke, look.loopHeight);
     if (look.overlayShown) ui::style::box(p, pixels(rect), look.overlay);  // (a frozen track's: its icy tint)
     if (look.border > 0) p.strokeRect(rect, selected ? cc.selectedBorder : cc.border, look.border);  // square corners
@@ -236,6 +238,51 @@ void paintEnvelope(Painter& p, const Clip& clip, const RectF& body, const Rect& 
                 float x = (float)(body.x + (double)(f - clip.offset) / sr * pps), y = envelopeY(body, pt.v);
                 p.fillRect(RectF(x - ENVELOPE_DOT / 2.0f, y - ENVELOPE_DOT / 2.0f, ENVELOPE_DOT, ENVELOPE_DOT), color);
             }
+    }
+    p.restore();
+}
+
+// --- warp markers (model/warping.h) ---
+
+bool warpShown(const Clip& clip, const RectF& body) {
+    return clip.kind == Kind::Audio && clip.warp && clip.warpKey && !clip.reverse && body.h >= WARP_BODY_H;
+}
+
+std::vector<std::pair<int, float>> warpMarkerXs(const Clip& clip, const RectF& body, double pps, int sr) {
+    std::vector<std::pair<int, float>> out;
+    warp::Markers markers = warping::markersOf(clip);
+    for (size_t i = 0; i < markers.size(); i++) {
+        float x = (float)(body.x + (double)(warping::frameOfBeat(clip, markers[i].beat, sr) - clip.start) / sr * pps);
+        if (x >= body.x - 1 && x <= body.right() + 1) out.emplace_back((int)i, x);
+    }
+    return out;
+}
+
+std::vector<std::pair<int64_t, float>> transientXs(const Clip& clip, const RectF& body, double pps, int sr) {
+    std::vector<std::pair<int64_t, float>> out;
+    auto found = warp::transients(clip.source, clip.sourceSr);
+    for (int64_t f : *found) {
+        float x = (float)(body.x + (double)(warping::frameOfSource(clip, (double)f, sr) - clip.start) / sr * pps);
+        if (x >= body.x && x <= body.right()) out.emplace_back(f, x);
+    }
+    return out;
+}
+
+void paintWarp(Painter& p, const Clip& clip, const RectF& body, const Rect& visible, double pps, int sr, Color color) {
+    p.save();
+    p.setClip(pixels(body));
+    float top = body.y;
+    for (auto& [f, x] : transientXs(clip, body, pps, sr)) {
+        (void)f;
+        if (x < visible.left() - 1 || x > visible.right() + 1) continue;
+        p.fillRect(RectF(x - 0.5f, top, 1, WARP_TICK), color.withAlpha(90));
+    }
+    for (auto& [i, x] : warpMarkerXs(clip, body, pps, sr)) {
+        (void)i;
+        if (x < visible.left() - WARP_HANDLE || x > visible.right() + WARP_HANDLE) continue;
+        p.fillRect(RectF(x - 0.5f, top, 1, body.h), color.withAlpha(150));
+        p.fillPolygon({PointF(x - WARP_HANDLE / 2, top), PointF(x + WARP_HANDLE / 2, top), PointF(x, top + WARP_HANDLE)},
+                      color);
     }
     p.restore();
 }

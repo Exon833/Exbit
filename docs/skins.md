@@ -404,6 +404,7 @@ made from `default.css` by `tools/skins_reference.py`.
 | Name | Default | What it is |
 |---|---|---|
 | `--ruler-height` | `24px` | the timeline's ruler (and the CPU monitor beside it) |
+| `--tempo-lane-height` | `56px` | the tempo lane under the ruler (View → Tempo lane; drawn as an automation lane) |
 | `--master-height` | `86px` | the master lane and its row |
 | `--group-height` | `52px` | a group's header lane and row |
 | `--take-height` | `46px` | a take lane and its row |
@@ -611,7 +612,7 @@ from its style is `--layout-spacing` (rows and columns) and `--grid-spacing` (gr
   **`SamplerDialog`**.
 - **`PluginsDialog`** (a track's effects or instrument): parts `::header`, `::buttons`. **`MidiEffectsDialog`**:
   parts `::settings`, `::value`. **`PluginChooser`**, **`PluginFoldersDialog`**, **`WinePrefixesDialog`**,
-  **`StretchDialog`**: part `::row`. **`ParameterDialog`**, **`LinksDialog`** (MIDI learn's links).
+  **`WarpDialog`** (Warp…: warping, stretch and pitch): part `::row`. **`ParameterDialog`**, **`LinksDialog`** (MIDI learn's links).
 - **`FileDialog`** (opening and saving files): `width`, `height`, `min-width`, `min-height` (its size when it
   opens, and its least); parts `::path-row`, `::nav-button` (Up and Home: `width`, `height`), `::middle`,
   `::places` (the list of places: `width`), `::form`. Its list is a **`FileList`**.

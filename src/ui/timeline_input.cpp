@@ -236,6 +236,7 @@ bool Timeline::mousePress(ui::MouseEvent& e) {
     if (e.button != plat::LeftButton) return true;
     pressPos_ = pos;  // (moves, trims, markers… start past DRAG_THRESHOLD_PX)
     pastThreshold_ = false;
+    if (inTempoLane(pos.y)) return tempoPress(e);  // (a tempo point: timeline_tempo.cpp)
     TrackPtr under = trackAt(pos.y);
     setCurrentTrack(under ? under : currentTrack);
     auto edge = laneEdgeAt(pos.y);
@@ -282,6 +283,10 @@ bool Timeline::mousePress(ui::MouseEvent& e) {
         setCurrentTrack(lane->owner);
         int64_t frame = snappedFrameAt(pos.x, e.mods);
         drag = TakeDrag{*lane, frame, frame};
+        return true;
+    }
+    if (!ctrl && warpPress(e)) {  // a warped clip's warp marker's handle (not at its ends): drag it (timeline_warp.cpp)
+        update();
         return true;
     }
     FadeHit fade = fadeHandleAt(pos);
@@ -392,9 +397,14 @@ bool Timeline::mouseMove(ui::MouseEvent& e) {
          std::holds_alternative<PointDrag>(drag) || std::holds_alternative<LoopDrag>(drag) ||
          std::holds_alternative<CopyDrag>(drag) || std::holds_alternative<BendDrag>(drag) ||
          std::holds_alternative<EnvelopeDrag>(drag) || std::holds_alternative<EnvelopeBendDrag>(drag) ||
-         std::holds_alternative<SlipDrag>(drag)) &&
+         std::holds_alternative<SlipDrag>(drag) || std::holds_alternative<WarpDrag>(drag) ||
+         std::holds_alternative<TempoDrag>(drag)) &&
         stillAClick(pos))
         return true;
+    if (std::holds_alternative<TempoDrag>(drag)) {
+        dragTempo(pos, e.mods);
+        return true;
+    }
     if (std::holds_alternative<CopyDrag>(drag)) startCopyDrag();
     if (auto* d = std::get_if<HeightDrag>(&drag)) {
         double h = d->height + pos.y - d->y;
@@ -408,6 +418,8 @@ bool Timeline::mouseMove(ui::MouseEvent& e) {
         dragFade(pos);
     } else if (std::holds_alternative<SlipDrag>(drag)) {
         dragSlip(pos, e.mods);
+    } else if (std::holds_alternative<WarpDrag>(drag)) {
+        dragWarpMarker(pos, e.mods);
     } else if (auto* t = std::get_if<TakeDrag>(&drag)) {
         t->to = snappedFrameAt(pos.x, e.mods);
         update();
@@ -480,6 +492,8 @@ bool Timeline::mouseRelease(ui::MouseEvent& e) {
         relayout();
     }
     if (std::holds_alternative<EdgeDrag>(drag)) endEdgeDrag();
+    if (std::holds_alternative<WarpDrag>(drag)) releaseWarpMarker();
+    if (std::holds_alternative<TempoDrag>(drag)) endTempoDrag();
     if (auto* t = std::get_if<TakeDrag>(&drag)) {
         if (t->to != t->frame) {
             TakeDrag d = *t;
@@ -494,6 +508,13 @@ bool Timeline::mouseRelease(ui::MouseEvent& e) {
 
 bool Timeline::mouseDoubleClick(ui::MouseEvent& e) {
     PointF pos(e.pos);
+    if (inTempoLane(pos.y)) {  // a tempo point: type its tempo, ramp and time signature
+        std::optional<TempoRef> point = tempoPointAt(pos);
+        if (auto* d = std::get_if<TempoDrag>(&drag); d && d->moved) endTempoDrag();
+        drag = std::monostate();
+        if (point) editTempoPoint(*point);
+        return true;
+    }
     auto edge = laneEdgeAt(pos.y);
     auto lane = laneAt(pos.y);
     auto [clip, zone] = hit(pos);
@@ -525,6 +546,8 @@ bool Timeline::mouseDoubleClick(ui::MouseEvent& e) {
         }
     } else if (lane && lane->group) {  // double-click a group's header lane: fold or unfold it
         toggleFold(lane->group);
+    } else if (warpDoubleClick(pos)) {  // a warped clip's transient: a warp marker there (timeline_warp.cpp)
+        drag = std::monostate();
     } else if (ClipPtr env = envelopeClipAt(pos)) {  // a gain envelope's point: delete it (Ctrl, a segment: straighten it)
         drag = std::monostate();
         int index = envelopePointAt(env, pos);
@@ -562,12 +585,15 @@ void Timeline::updateCursor(PointF pos) {
         setCursor(ui::Cursor::SizeVer);
     } else if (std::holds_alternative<LoopDrag>(drag) || std::holds_alternative<EdgeDrag>(drag) ||
                std::holds_alternative<FadeDrag>(drag) || std::holds_alternative<MarkerDrag>(drag) ||
-               std::holds_alternative<SlipDrag>(drag) || loopEndAt(pos) >= 0) {
+               std::holds_alternative<SlipDrag>(drag) || std::holds_alternative<WarpDrag>(drag) || loopEndAt(pos) >= 0) {
         setCursor(ui::Cursor::SizeHor);
     } else if (std::holds_alternative<BendDrag>(drag) || std::holds_alternative<EnvelopeBendDrag>(drag)) {
         setCursor(ui::Cursor::SizeVer);  // (curving a segment: up or down)
     } else if (std::holds_alternative<EnvelopeDrag>(drag)) {
         setCursor(ui::Cursor::ClosedHand);
+    } else if (std::holds_alternative<TempoDrag>(drag) || inTempoLane(pos.y)) {
+        bool dragging = std::holds_alternative<TempoDrag>(drag);
+        setCursor(dragging ? ui::Cursor::ClosedHand : tempoPointAt(pos) ? ui::Cursor::OpenHand : ui::Cursor::Cross);
     } else if ((lane = laneAt(pos.y)) && lane->automation) {
         bool dragging = std::holds_alternative<PointDrag>(drag);
         bool grabbed = dragging || pointAt(*lane, pos) >= 0;
@@ -576,6 +602,9 @@ void Timeline::updateCursor(PointF pos) {
         setCursor(ui::Cursor::Hand);  // a marker: click to go there, drag to move it
     } else if (std::holds_alternative<std::monostate>(drag) && (fadeHandleAt(pos).clip || edgeAt(pos).first)) {
         setCursor(ui::Cursor::SizeHor);  // an end of a clip: drag to trim or lengthen it
+    } else if (ClipPtr w = std::holds_alternative<std::monostate>(drag) ? warpClipAt(pos) : nullptr;
+               w && warpMarkerAt(w, pos) >= 0) {
+        setCursor(ui::Cursor::SizeHor);  // a warp marker: drag it along
     } else if (ClipPtr env = std::holds_alternative<std::monostate>(drag) ? envelopeClipAt(pos) : nullptr) {
         setCursor(envelopePointAt(env, pos) >= 0 ? ui::Cursor::OpenHand : ui::Cursor::Cross);  // (a gain envelope's)
     } else if (zone == ClipZone::Handle) {
@@ -588,6 +617,12 @@ void Timeline::updateCursor(PointF pos) {
 }
 
 bool Timeline::contextMenu(ui::MouseEvent& e) {
+    if (inTempoLane(e.pos.y)) {  // a tempo point's menu (Remove, Ramp to the next change), or the lane's
+        ui::Menu menu;
+        fillTempoMenu(menu, std::max(0.0, e.pos.x / pps), tempoPointAt(PointF(e.pos)));
+        menu.exec(e.globalPos, this);
+        return true;
+    }
     if (e.pos.y < lanes::rulerHeight()) {
         rulerMenu(e.globalPos, PointF(e.pos));
         return true;
@@ -603,6 +638,7 @@ bool Timeline::contextMenu(ui::MouseEvent& e) {
         menu.exec(e.globalPos, this);
         return true;
     }
+    if (warpRightClick(PointF(e.pos))) return true;  // a warp marker: removed (timeline_warp.cpp)
     if (ClipPtr env = envelopeClipAt(PointF(e.pos))) {  // a gain envelope's point: removed
         int index = envelopePointAt(env, PointF(e.pos));
         if (index >= 0 && env->gainEnvelope) {
@@ -742,8 +778,18 @@ void Timeline::fillMenu(ui::Menu& menu, std::optional<Point> pos) {
     noFades->setEnabled(anyFades);
     addFadeShapeMenus(menu, audioClips);  // Fade-in shape ▸, Fade-out shape ▸ (model.h FADE SHAPES)
     addClipEditActions(menu);  // Slip contents…, Crop to the selection, Fades at every boundary… (timeline_slip.cpp)
-    ui::Action* stretch = menu.addAction("Stretch and pitch…", [this] { stretchSelected(); });
-    stretch->setEnabled(!audioClips.empty());
+    int64_t at = pos ? frameAt(pos->x) : cursor;  // (Warp from here: where it was right-clicked, else the cursor)
+    ui::Action* warpAction = menu.addAction("Warp…", [this, at] { warpSelected(at); });
+    warpAction->tooltip = "Its audio follows the song's tempo (Beats, Tones, Complex), its markers; or (not warped) "
+                          "its length and pitch";
+    warpAction->setEnabled(!audioClips.empty());
+    ClipPtr warpedHere = pos ? hit(PointF(*pos)).first : audioClips.size() == 1 ? audioClips[0] : nullptr;
+    if (!warpedHere || !warpedHere->warp || warpedHere->reverse || warpedHere->track->frozen || at < warpedHere->start ||
+        at >= warpedHere->end())
+        warpedHere = nullptr;
+    ui::Action* fromHereAction = menu.addAction("Warp from here", [this, warpedHere, at] { warpFromHere(warpedHere, at); });
+    fromHereAction->tooltip = "A warp marker here on the nearest bar, straight at the clip's tempo from here";
+    fromHereAction->setEnabled(warpedHere != nullptr);
     ui::Action* reverse = menu.addAction(allReversed ? "Play forwards again" : "Reverse (play backwards)",
                                          [this] { reverseSelected(); });
     reverse->setEnabled(!audioClips.empty());

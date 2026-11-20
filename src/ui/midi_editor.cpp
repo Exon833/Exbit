@@ -753,7 +753,7 @@ void MidiEditor::followCursors() {
     std::pair<int, std::string> sc(song_scale::keyOf(project, *clip), song_scale::scaleOf(project, *clip));
     std::vector<int64_t> clips = {  // (and the grid: Ctrl+1/2/4/5, the tempo, from the transport)
         (int64_t)std::llround(t.grid * 1e6), t.snapOn, t.beats, t.thirds, (int64_t)std::llround(t.bpm * 1e6),
-        t.beatsPerBar, (int64_t)t.changes.size()};
+        t.beatsPerBar, (int64_t)t.changes.size(), (int64_t)(intptr_t)t.map().get()};  // (the map: ramps too)
     for (const ClipPtr& k : project.clips) {
         if (k->kind != Kind::Midi) continue;
         clips.insert(clips.end(), {(int64_t)(intptr_t)k.get(), k->start, k->offset, k->frames(),
@@ -892,7 +892,7 @@ void MidiEditor::reload() {
 double MidiEditor::wholeBars(double t) const {
     const Timing& timing = project.timing;
     double o = originS(), at = o;
-    while (at < o + t - 1e-6) at += timing.beatsPerBarAt(at) * timing.beatSAt(at);
+    while (at < o + t - 1e-6) at = timing.secondsAt(timing.beatAt(at) + timing.beatsPerBarAt(at));  // (a bar of beats)
     return at - o;
 }
 

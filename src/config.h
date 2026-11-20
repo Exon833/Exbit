@@ -7,6 +7,7 @@ namespace config {
 // The sizes marked "skin" are the defaults of the stylesheets' :root variables (data/skins/default.css, read with
 // theme::metric): a skin may change them; these are used where no stylesheet sets them.
 constexpr int RULER_H = 24;           // (skin: --ruler-height) time ruler at the top; the CPU monitor uses the same height
+constexpr int TEMPO_LANE_H = 56;     // (skin: --tempo-lane-height) the tempo lane under the ruler (View → Tempo lane)
 constexpr int TRACK_H = 72;           // default lane height
 constexpr int MASTER_FOOTER_H = 14;   // under the master's controls: the update notice
 constexpr int SCOPE_H = 78;            // the master scope (ui/scope_view.h), under them while shown

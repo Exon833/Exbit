@@ -22,12 +22,13 @@ namespace history {
     X(kind) X(name) X(track) X(start) X(offset) X(length) X(color) X(tone) X(disabled) X(gainDb) X(fadeIn)     \
     X(fadeOut) X(fadeLead) X(fadeTail) X(fadeInShape) X(fadeOutShape) X(loop) X(source) X(sourceSr)            \
     X(sourcePath) X(stretch) X(pitch) X(sourceBpm) X(reverse) X(loopStart) X(loopLength) X(notes) X(lengthS)   \
-    X(mutedNotes) X(played) X(events) X(link) X(gainEnvelope) X(key) X(scale) X(effectsCommitted)
-#define CLIP_AUDIO_FIELDS(X) X(data) X(peaks) X(baseFrames)  // (not for looping audio clips)
+    X(mutedNotes) X(played) X(events) X(link) X(gainEnvelope) X(key) X(scale) X(effectsCommitted) X(warp)        \
+    X(warpMode) X(warpPreserve) X(warpMarkers)
+#define CLIP_AUDIO_FIELDS(X) X(data) X(peaks) X(baseFrames) X(warpKey)  // (not for looping audio clips)
 #define SLOT_FIELDS(X) X(path) X(name) X(kind) X(pluginName) X(bypass) X(placed) X(atX) X(atY) X(volumeDb) X(mix)
 #define LANE_FIELDS(X) X(slot) X(param) X(points)
 #define TIMING_FIELDS(X)                                                                                         \
-    X(bpm) X(beatsPerBar) X(loopStart) X(loopEnd) X(changes) X(key) X(scale) X(swing) X(swingGrid) X(automationFollows)
+    X(bpm) X(beatsPerBar) X(loopStart) X(loopEnd) X(changes) X(ramp) X(timebaseBeats) X(key) X(scale) X(swing) X(swingGrid) X(automationFollows)
 
 #define DECL_TRACK(f) decltype(Track::f) f;
 #define DECL_GROUP(f) decltype(Group::f) f;
@@ -106,7 +107,9 @@ void restore(const ClipData& d, Clip& o, int sr) {
     // a looping audio clip: its audio as its fields now say (built again only when they changed)
     bool shapes = o.loop == d.loop && o.loopStart == d.loopStart && o.loopLength == d.loopLength &&
                   o.offset == d.offset && o.stretch == d.stretch && o.pitch == d.pitch && o.reverse == d.reverse &&
-                  o.source == d.source;
+                  o.source == d.source && o.warp == d.warp && o.warpMode == d.warpMode &&
+                  o.warpPreserve == d.warpPreserve && o.warpMarkers == d.warpMarkers &&
+                  (!d.warp || o.start == d.start);  // (a warped one's audio is rendered for where it starts)
     CLIP_FIELDS(PUT)
     if (!o.data || !shapes || o.offset + o.frames() > o.data->frames()) o.prepare(sr);
 }
@@ -194,8 +197,8 @@ void Snapshot::restore(Project& p, int sr) const {
     for (auto& o : d.groupData) history::restore(o.second, *o.first);
     for (auto& o : d.slotData) history::restore(o.second, *o.first);
     for (auto& o : d.laneData) history::restore(o.second, *o.first);
+    history::restore(d.timing, p.timing);  // (first: warped clips prepared again follow its tempo)
     for (auto& o : d.clipData) history::restore(o.second, *o.first, sr);
-    history::restore(d.timing, p.timing);
     p.tracks = d.tracks;
     p.clips = d.clips;
     p.masterEffects = d.masterEffects;
@@ -245,6 +248,10 @@ const char* trackChange(const TrackData& d, const Track& o) {
 // the first of a clip's fields that changed, by name ({nullptr, nullptr}: none)
 Name clipChange(const ClipData& d, const Clip& o) {
     if (!same(d.track, o.track) || !same(d.start, o.start)) return {"Move clip", "Move clips"};
+    // (before the window: warping changes it too)
+    if (!same(d.warp, o.warp) || !same(d.warpMode, o.warpMode) || !same(d.warpPreserve, o.warpPreserve))
+        return {"Warp", "Warp"};
+    if (!same(d.warpMarkers, o.warpMarkers)) return {"Warp markers", "Warp markers"};
     if (!same(d.fadeIn, o.fadeIn) || !same(d.fadeOut, o.fadeOut) || !same(d.fadeLead, o.fadeLead) ||
         !same(d.fadeTail, o.fadeTail) || !same(d.fadeInShape, o.fadeInShape) || !same(d.fadeOutShape, o.fadeOutShape))
         return {"Fades", "Fades"};
@@ -307,11 +314,18 @@ std::string Snapshot::describe(const Project& p) const {
         // (the same clips in another order: their fields tell more, below)
     }
     if (d.masterEffects != p.masterEffects || d.masterCables != p.masterCables) return "Master effects";
+    {  // (before the markers: with the timebase in beats a tempo edit moves them too)
+        const TimingData& t = d.timing;
+        const Timing& o = p.timing;
+        if (!same(t.bpm, o.bpm) || !same(t.beatsPerBar, o.beatsPerBar) || !same(t.changes, o.changes) ||
+            !same(t.ramp, o.ramp))
+            return "Tempo";
+        if (!same(t.timebaseBeats, o.timebaseBeats)) return "Timebase";
+    }
     if (d.markers != p.markers) return "Markers";
     {
         const TimingData& t = d.timing;
         const Timing& o = p.timing;
-        if (!same(t.bpm, o.bpm) || !same(t.beatsPerBar, o.beatsPerBar) || !same(t.changes, o.changes)) return "Tempo";
         if (!same(t.loopStart, o.loopStart) || !same(t.loopEnd, o.loopEnd)) return "Loop range";
         if (!same(t.key, o.key) || !same(t.scale, o.scale)) return "Key";
         if (!same(t.swing, o.swing) || !same(t.swingGrid, o.swingGrid)) return "Swing";

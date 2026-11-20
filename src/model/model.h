@@ -42,6 +42,7 @@
 
 #include "audio/dsp.h"
 #include "audio/synth.h"
+#include "audio/warp.h"
 #include "config.h"
 #include "model/timing.h"
 
@@ -433,6 +434,12 @@ inline double fadeCurve(FadeShape s, double x, bool out) {
 // --- a clip: a window onto `data` ---
 // frames [offset, offset + frames()) of data play from timeline frame `start`.
 // Splitting makes copies (copyClip) that share data with different windows.
+// where a warped clip's data was rendered for (Clip::warpKey)
+struct WarpKey {
+    TempoMapPtr map;
+    int64_t origin = 0;  // timeline frame of its data's frame 0
+};
+
 struct Clip {
     Kind kind = Kind::Audio;
     std::string name;
@@ -471,6 +478,16 @@ struct Clip {
     // Points at frames of its audio as it plays (before looping), values 0…1: silence … +24 dB. Replaced whole.
     std::shared_ptr<const std::vector<AutoPoint>> gainEnvelope;
     bool envelopeShown = false;  // (view, not saved) its envelope's line is drawn over it and edited by the mouse
+    // WARPING (audio/warp.h, model/warping.h): warped, its audio follows the song's tempo (its `stretch` is then
+    // not used). Beat 0 of its beat time is where its data starts on the timeline (start - offset).
+    bool warp = false;
+    warp::Mode warpMode = warp::Mode::Beats;
+    int warpPreserve = warp::TRANSIENTS;  // what Beats cuts at (warp::Preserve)
+    // its warp markers (replaced whole); null: straight at sourceBpm (or warp::DEFAULT_BPM) from its first frame
+    std::shared_ptr<const warp::Markers> warpMarkers;
+    // (runtime) the tempo map and origin (start - offset, frames) its data was rendered for: model/warping.h
+    // renders it again when the song's tempo or its place changes; kept with `data` by undo
+    std::shared_ptr<const WarpKey> warpKey;
 
     // MIDI clips
     std::shared_ptr<const std::vector<Note>> notes;  // times relative to the clip start
@@ -494,6 +511,8 @@ struct Clip {
     // (re)build data (and peaks / events) for the engine's sample rate; a looping audio clip's as far as its
     // window reaches (or `reach` frames: further, while its end is being dragged)
     void prepare(int sr, int64_t reach = -1);
+    // a warped clip's rendering for `map`, its data starting at timeline frame `origin` (audio/warp.h)
+    warp::Job warpJob(const TempoMapPtr& map, int64_t origin, int sr) const;
     // an audio clip's window kept inside its audio (after it was prepared at another rate, rounded)
     void fitWindow();
     // (fade-in, fade-out) frames as they play: shortened in proportion when together they are longer than
@@ -530,6 +549,16 @@ namespace clip_hooks {
 // audio/midi_effects.apply: a clip's notes after the track's MIDI effects (origin: the timeline's seconds at
 // note time 0), sorted by start then pitch. Unset: the notes as they are.
 extern std::function<std::vector<Note>(const Track& track, const std::vector<Note>& notes, double origin)> midiEffects;
+// the song's tempo map, for warped audio clips (the main window: its project's timing.audioMap()). Unset: 120 BPM.
+extern std::function<TempoMapPtr()> tempoMap;
+// the tempo map warped clips are prepared with on this thread now: the one a UseTempoMap gave, else tempoMap()
+TempoMapPtr currentTempoMap();
+// while it lives, clips prepared on this thread use `map` (a project being opened: its own tempo)
+struct UseTempoMap {
+    explicit UseTempoMap(TempoMapPtr map);
+    ~UseTempoMap();
+    TempoMapPtr before;
+};
 // audio/sampler.render_notes: a MIDI clip's audio through its track's sampler (track->playsSampler()) or
 // Pad Kit (track->playsPadKit()). Unset: the built-in synth.
 extern std::function<AudioPtr(const Track& track, const std::vector<Note>& notes, int sr, double lengthS)> renderSampler;

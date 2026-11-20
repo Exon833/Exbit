@@ -1087,14 +1087,15 @@ public:
 
     // --- processing (audio thread) ---
 
-    void setTransport(double tempo, int num, int den, bool playing, int64_t position) override {
+    void setTransport(double tempo, int num, int den, bool playing, int64_t position, double beats = -1) override {
         context.tempo = tempo;
         context.timeSigNumerator = num;
         context.timeSigDenominator = den;
         context.projectTimeSamples = position;
         context.state = ProcessContext::kTempoValid | ProcessContext::kTimeSigValid |
                         ProcessContext::kProjectTimeMusicValid | (playing ? ProcessContext::kPlaying : 0);
-        context.projectTimeMusic = position / std::max(1.0, rate) * tempo / 60.0;
+        // (the song's own beats: through its tempo changes and ramps)
+        context.projectTimeMusic = beats >= 0 ? beats : position / std::max(1.0, rate) * tempo / 60.0;
     }
 
     void process(const float* const in[2], const float* const sidechain[2], float* const out[2], int frames) override {

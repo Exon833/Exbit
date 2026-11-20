@@ -59,7 +59,7 @@ public:
     double sampleRate() const override { return SR; }
     void prepare(double, int) override {}
     void reset() override { ring[0].clear(), ring[1].clear(); }
-    void setTransport(double, int, int, bool, int64_t) override {}
+    void setTransport(double, int, int, bool, int64_t, double) override {}
     void process(const float* const in[2], const float* const[2], float* const out[2], int frames) override {
         for (int c = 0; c < 2; c++)
             if ((int)ring[c].size() != lat) ring[c].assign(lat, 0.0f);

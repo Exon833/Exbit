@@ -98,7 +98,10 @@ AudioPtr countIn(const MetronomeSettings& settings, const Timing& timing, int ba
     double beatFrames = map->beatSAt(at) * sr;
     frames = (int64_t)std::nearbyint(beats * beatFrames);
     std::vector<float> mono((size_t)std::max<int64_t>(0, frames), 0.0f);
-    double now = (at - map->segmentAt(at).seconds) / map->beatSAt(at);  // (beats since the segment's first bar line)
+    int meterBar, meterPerBar;
+    double meterBeat;
+    map->meterAt(map->beatAt(at), meterBar, meterBeat, meterPerBar);
+    double now = map->beatAt(at) - meterBeat;  // (beats since the time signature's first bar line)
     double begin = now - beats;  // (where the count-in starts, in those beats)
     Clicks c = renderClicks(settings, sr);
     for (int64_t beat = (int64_t)std::ceil(begin - 1e-6); beat < (int64_t)std::ceil(now - 1e-6); beat++) {

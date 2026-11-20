@@ -5,6 +5,7 @@
 #include <cstdio>
 
 #include "config.h"
+#include "ui/lanes.h"
 #include "ui/theme.h"
 
 namespace cpu_monitor {
@@ -48,7 +49,7 @@ CpuMonitor::CpuMonitor() {
 }
 
 void CpuMonitor::fit() {
-    Point size(theme::metric("panel-width", config::PANEL_W), theme::metric("ruler-height", config::RULER_H));
+    Point size(theme::metric("panel-width", config::PANEL_W), lanes::lanesTop());  // (the ruler and the tempo lane)
     if (minimumSize() != size || maximumSize() != size) setFixedSize(size.x, size.y);
 }
 

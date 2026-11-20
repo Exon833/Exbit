@@ -60,14 +60,34 @@ bool saveMidi(const std::string& path, const std::vector<MidiPart>& parts, const
     std::vector<MidiOutTrack> tracks;
     MidiOutTrack tempo{"Tempo", {}};
     const std::vector<Segment>& segments = map->segments();
+    auto tickOf = [&](double beat) {
+        return beat <= beat0 ? int64_t(0) : (int64_t)std::nearbyint((beat - beat0) * MIDI_TICKS);
+    };
+    size_t ramps = 0;
     for (size_t i = 0; i < segments.size(); i++) {
         const Segment& s = segments[i];
         double ends = i + 1 < segments.size() ? segments[i + 1].seconds : std::numeric_limits<double>::infinity();
+        double endBeat = i + 1 < segments.size() ? segments[i + 1].beat : std::numeric_limits<double>::infinity();
         if (ends <= startS) continue;  // (over before the part written begins)
-        int64_t at = s.seconds <= startS ? 0 : (int64_t)std::nearbyint((s.beat - beat0) * MIDI_TICKS);
-        tempo.events.push_back(midi_out::tempo(at, s.bpm));
-        tempo.events.push_back(midi_out::timeSignature(at, s.beatsPerBar, 4));
+        int64_t at = s.seconds <= startS ? 0 : tickOf(s.beat);
+        if (at == 0 || s.beat == s.barBeat) tempo.events.push_back(midi_out::timeSignature(at, s.beatsPerBar, 4));
+        if (s.k == 0) {
+            tempo.events.push_back(midi_out::tempo(at, s.bpm));
+            continue;
+        }
+        // a ramp: a tempo event every MIDI_RAMP_STEP beats, each its step's average tempo (file_io.h)
+        ramps++;
+        double b = std::max(s.beat, beat0);
+        while (b < endBeat - 1e-9) {
+            double next = std::min(endBeat, s.beat + (std::floor((b - s.beat) / MIDI_RAMP_STEP + 1e-9) + 1) * MIDI_RAMP_STEP);
+            double seconds = map->secondsAt(next) - map->secondsAt(b);
+            tempo.events.push_back(midi_out::tempo(tickOf(b), seconds > 0 ? 60.0 * (next - b) / seconds : s.bpm));
+            b = next;
+        }
     }
+    if (ramps)
+        util::debugf("saveMidi: %zu tempo ramps written as stepped tempo events, one every %g beats\n", ramps,
+                     MIDI_RAMP_STEP);
     tracks.push_back(tempo);
     for (auto& part : parts) {
         MidiOutTrack track{part.name, {}};

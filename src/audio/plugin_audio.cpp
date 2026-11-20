@@ -57,7 +57,7 @@ bool processEffect(PluginSlot& slot, const float* const in[2], const float* cons
     if (!inst) return false;
     try {
         ensureRate(*inst, sr);
-        inst->setTransport(t.tempo, t.numerator, t.denominator, t.playing, t.position);
+        inst->setTransport(t.tempo, t.numerator, t.denominator, t.playing, t.position, t.beats);
         inst->process(in, side, out, frames);
         return true;
     } catch (const std::exception& e) {  // a failing plugin is switched off, never the whole audio stream
@@ -167,7 +167,7 @@ bool playInstrument(PluginSlot& slot, const MidiMsg* messages, size_t count, flo
         float* audio[2] = {scratch.audio.data(), scratch.audio.data() + frames};
         std::memset(audio[0], 0, sizeof(float) * frames * 2);
         ensureRate(*inst, sr);
-        inst->setTransport(t.tempo, t.numerator, t.denominator, t.playing, t.position);
+        inst->setTransport(t.tempo, t.numerator, t.denominator, t.playing, t.position, t.beats);
         inst->render(scratch.notes, audio, frames);
         for (int c = 0; c < channels && c < 2; c++)
             for (int i = 0; i < frames; i++) out[c][i] += audio[c][i];
@@ -251,11 +251,11 @@ void noteMessages(const Clip* const* clips, size_t count, bool hasStart, int64_t
 Transport Transport::at(const TempoMap& map, bool playing, int64_t start, int sr) {
     Transport t;
     double seconds = playing ? (double)start / sr : 0.0;
-    const Segment& s = map.segmentAt(seconds);
-    t.tempo = s.bpm;
-    t.numerator = s.beatsPerBar;
+    t.tempo = map.bpmAt(seconds);
+    t.numerator = map.beatsPerBarAt(seconds);
     t.playing = playing;
     t.position = playing ? start : 0;
+    t.beats = playing ? std::max(0.0, map.beatAt(seconds)) : 0.0;
     return t;
 }
 

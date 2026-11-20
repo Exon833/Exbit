@@ -223,7 +223,8 @@ public:
     double sampleRate() const override { return sr; }
     void prepare(double sampleRate, int maxBlock = 4096) override;
     void reset() override;
-    void setTransport(double tempo, int numerator, int denominator, bool playing, int64_t positionFrames) override;
+    void setTransport(double tempo, int numerator, int denominator, bool playing, int64_t positionFrames,
+                      double beats = -1) override;
     void process(const float* const in[2], const float* const sidechain[2], float* const out[2], int frames) override;
     void render(const std::vector<plug::NoteMessage>& notes, float* const out[2], int frames) override;
     void notesOff() override {}

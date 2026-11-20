@@ -9,6 +9,7 @@
 
 #include "audio/file_io.h"
 #include "audio/plugin_audio.h"
+#include "audio/tempo_detect.h"
 #include "core/util.h"
 #include "model/routing.h"
 #include "model/auto_follow.h"
@@ -95,7 +96,7 @@ int64_t Timeline::snappedFrameAt(double x, int mods) const {
     return (int64_t)std::nearbyint(t.snap(x / pps, pps) * engine.sr);
 }
 
-std::vector<Lane> Timeline::lanes() const { return lanes::layout(project, lanes::rulerHeight()); }
+std::vector<Lane> Timeline::lanes() const { return lanes::layout(project, lanes::lanesTop()); }
 
 std::map<const Track*, int> Timeline::trackTops() const {
     std::map<const Track*, int> tops;
@@ -112,7 +113,7 @@ std::vector<TrackPtr> Timeline::visibleTracks() const {
 }
 
 std::optional<Lane> Timeline::laneAt(double y) const {
-    if (y < lanes::rulerHeight()) return std::nullopt;
+    if (y < lanes::lanesTop()) return std::nullopt;
     auto ls = lanes();
     for (auto& lane : ls)
         if (y < lane.bottom()) return lane;
@@ -125,7 +126,7 @@ TrackPtr Timeline::trackAt(double y) const {
 }
 
 std::pair<TrackPtr, AutomationPtr> Timeline::laneEdgeAt(double y) const {
-    if (y < lanes::rulerHeight()) return {};
+    if (y < lanes::lanesTop()) return {};
     for (auto& lane : lanes())
         if ((lane.track || lane.automation) && std::fabs(y - lane.bottom()) <= config::LANE_EDGE_GRAB_PX)
             return {lane.track, lane.automation};
@@ -145,7 +146,7 @@ bool containsQt(const RectF& r, PointF p) { return p.x >= r.x && p.x <= r.right(
 }  // namespace
 
 std::pair<ClipPtr, ClipZone> Timeline::hit(PointF pos) const {
-    if (pos.y < lanes::rulerHeight()) return {nullptr, ClipZone::None};
+    if (pos.y < lanes::lanesTop()) return {nullptr, ClipZone::None};
     auto tops = trackTops();
     auto& clips = *project.clips;
     for (auto it = clips.rbegin(); it != clips.rend(); ++it) {
@@ -157,7 +158,7 @@ std::pair<ClipPtr, ClipZone> Timeline::hit(PointF pos) const {
 }
 
 std::pair<ClipPtr, ClipSide> Timeline::edgeAt(PointF pos) const {
-    if (pos.y < lanes::rulerHeight()) return {nullptr, ClipSide::None};
+    if (pos.y < lanes::lanesTop()) return {nullptr, ClipSide::None};
     auto tops = trackTops();
     const float grab = (float)clip_painter::edgeWidth();
     auto& clips = *project.clips;
@@ -423,6 +424,15 @@ ClipPtr Timeline::loadClip(const std::string& path) {
             clip->kind = Kind::Audio;
             clip->source = data;
             clip->sourceSr = sr;
+            if (warpNewFiles) {  // (its tempo from its file, else its sound: warped at it, placed on the song's beats)
+                tempo_detect::Found found = tempo_detect::detect(path, data, sr);
+                if (found.bpm > 0) {
+                    clip->sourceBpm = found.bpm;
+                    clip->warp = true;
+                    clip->warpMarkers = std::make_shared<const warp::Markers>(warp::straight(data->frames(), sr, found.bpm));
+                    util::debugf("timeline: %s warped at %.2f BPM (from its %s)\n", name.c_str(), found.bpm, found.from.c_str());
+                }
+            }
             return clip;
         }
     }
@@ -524,7 +534,8 @@ void Timeline::chooseColor() {
 ClipPtr Timeline::newMidiClip(const TrackPtr& track, int64_t frame, int64_t frames) {
     const Timing& t = project.timing;
     double at = (double)frame / engine.sr;
-    double seconds = frames ? (double)frames / engine.sr : (t.beats ? t.beatSAt(at) * t.beatsPerBarAt(at) : 2.0);
+    double seconds = frames ? (double)frames / engine.sr
+                            : (t.beats ? t.secondsAt(t.beatAt(at) + t.beatsPerBarAt(at)) - at : 2.0);  // (a bar of beats)
     auto clip = std::make_shared<Clip>();
     clip->kind = Kind::Midi;
     clip->name = "MIDI clip";

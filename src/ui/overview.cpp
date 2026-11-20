@@ -101,8 +101,8 @@ RectF Overview::viewRect(double span) const {
     double scale = rowScale();
     int lanesH = 0;
     for (auto& lane : lanes()) lanesH += lane.height;
-    int top = std::min(std::max(vbar->value() - lanes::rulerHeight(), 0), lanesH);
-    int bottom = std::min(std::max(vbar->value() + vp->height() - lanes::rulerHeight(), 0), lanesH);
+    int top = std::min(std::max(vbar->value() - lanes::lanesTop(), 0), lanesH);
+    int bottom = std::min(std::max(vbar->value() + vp->height() - lanes::lanesTop(), 0), lanesH);
     const int pad = padTop();
     double y0 = pad, y1 = height() - padBottom();
     if (scale) {
@@ -261,5 +261,5 @@ void Overview::moveView(PointF pos, double span) {
     ui::ScrollBar* vbar = scroll->verticalScrollBar();
     hbar->setValue((int)std::nearbyint((pos.x - grabX_) * span / width() * timeline->pps));
     double scale = rowScale();
-    if (scale) vbar->setValue((int)std::nearbyint((pos.y - grabY_ - padTop()) / scale + lanes::rulerHeight()));
+    if (scale) vbar->setValue((int)std::nearbyint((pos.y - grabY_ - padTop()) / scale + lanes::lanesTop()));
 }

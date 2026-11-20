@@ -19,9 +19,12 @@
 // A disabled clip stays where it is, drawn as an outline, but doesn't play (0, or right-click).
 // An audio clip has a fade handle at each top corner of its body: drag it inwards to fade in or out
 // (double-click it: no fade). Right-click → Clip gain… sets the selected audio clips' own volume, shown
-// after the clip's name; the waveform shows both. Right-click → Stretch and pitch… makes them longer or
-// shorter at the same pitch, or higher or lower at the same speed (stretch_dialog.h, audio/stretch.h),
-// and Reverse plays them backwards. Join clips (Ctrl+J) makes one clip of the selected clips on each
+// after the clip's name; the waveform shows both. Right-click → Warp… makes their audio follow the song's
+// tempo (warp_dialog.h, audio/warp.h), or (not warped) longer or shorter at the same pitch, and higher or
+// lower at the same speed (audio/stretch.h); Warp from here puts a warp marker there on the nearest bar.
+// A warped clip in a lane taller than a strip shows its warp markers (timeline_warp.cpp): drag one along
+// (snapping to the grid), double-click a transient (drawn faintly) to make it a marker, right-click a
+// marker to remove it. Reverse plays them backwards. Join clips (Ctrl+J) makes one clip of the selected clips on each
 // track (or of what lies in the selected range), as they play. Crossfade… overlaps two selected audio
 // clips that meet, one fading out as the other fades in. Loop (right-click): a looping clip repeats
 // when its end is dragged further (an audio clip's window becomes its loop; notches show the repeats).
@@ -78,8 +81,10 @@
 // Snapping follows the grid (Timing::snaps): the fixed grid's step or the zoom's, and only while
 // snapping is on (Ctrl+4); Alt does the opposite for one drag.
 //
-// Tempo and time-signature changes (timing.h) start at a bar: right-click the ruler → Tempo and time
-// signature from bar N…; each is shown after its bar's number ("140 BPM 3/4").
+// Tempo and time-signature changes (timing.h): right-click the ruler → Tempo and time signature from bar N… (a
+// step at that bar) or Tempo changes ▸ (the change there, the Timebase); each is shown after its bar's number
+// ("140 BPM 3/4"), or, with View → Tempo lane, as a point on the tempo lane under the ruler (timeline_tempo.cpp:
+// steps and ramps, at any beat, dragged and typed; see "the tempo lane" below).
 //
 // Take lanes (a track's recorded takes, shown with right-click its row → Show takes) lie under it:
 // drag across a part of a take to put that part on the track (comping), replacing what is there;
@@ -130,6 +135,7 @@
 #include "audio/engine.h"
 #include "model/clip_edits.h"
 #include "model/model.h"
+#include "model/timebase.h"
 #include "ui/clip_painter.h"
 #include "ui/lanes.h"
 #include "ui/paint_helpers.h"
@@ -235,9 +241,30 @@ struct EnvelopeBendDrag {       // Ctrl+dragging a segment of a clip's gain enve
     double y = 0;               // mouse y when the drag began
     double bend = 0;            // its bend then
 };
+struct WarpDrag {               // dragging a warped clip's warp marker along (model/warping.h)
+    ClipPtr clip;
+    int index = 0;              // the marker's place among its markers
+    warp::Markers markers;      // its markers as dragged so far
+    double grabBeat = 0;        // the clip beat under the mouse when it was grabbed…
+    double beat = 0;            // …and the marker's beat then
+};
+// a tempo point (timeline_tempo.cpp): the change at (bar, beat into it); bar 1, beat 0: the song's own tempo
+struct TempoRef {
+    int bar = 1;
+    double beat = 0;
+    bool song() const { return bar == 1 && beat == 0; }
+    bool operator==(const TempoRef& o) const { return bar == o.bar && beat == o.beat; }
+};
+struct TempoDrag {              // dragging a point of the tempo lane: its place (by the grid) and its tempo
+    TempoRef at;                // where it is now
+    double lo = 0, hi = 0;      // the lane's BPM range when the drag began (kept while dragging)
+    bool bars = false;          // it changes the time signature: it moves by whole bars
+    std::shared_ptr<timebase::Before> before;  // the song as the drag began (it follows from there: timebase.h)
+    bool moved = false;
+};
 using TimelineDrag = std::variant<std::monostate, MoveDrag, EdgeDrag, HeightDrag, PointDrag, LoopDrag, RangeDrag,
                                   CopyDrag, FadeDrag, TakeDrag, MarkerDrag, BendDrag, EnvelopeDrag, EnvelopeBendDrag,
-                                  SlipDrag>;
+                                  SlipDrag, WarpDrag, TempoDrag>;
 
 // an audio clip's fade handle (Timeline::fadeHandleAt)
 struct FadeHit {
@@ -354,6 +381,7 @@ public:
 
     // --- clips ---
     ClipPtr loadClip(const std::string& path);  // a not-yet-placed clip, or null after showing why not
+    bool warpNewFiles = false;  // Options → Warp new audio files: loadClip finds their tempo and warps them
     void placeClip(const ClipPtr& clip, int64_t frame, const TrackPtr& track);
     void addFile(const std::string& path, int64_t frame = 0);  // onto the first empty track of its kind, or a new one
     void deleteSelected();      // Del: cut the range out, or remove the selected clips
@@ -376,7 +404,19 @@ public:
     bool fillFadeMenu(ui::Menu& menu, PointF pos);
     // Fade-in shape ▸ and Fade-out shape ▸ (the clip menu)
     void addFadeShapeMenus(ui::Menu& menu, const std::vector<ClipPtr>& clips);
-    void stretchSelected();     // Stretch and pitch…: each replaced by a stretched one (replacing what it covers)
+    // --- warping (timeline_warp.cpp, model/warping.h) ---
+    // Warp…: the dialog for the selected audio clips, each replaced by one warped (or stretched) as it says
+    // (replacing what it covers); `at`: the frame clicked, for Warp from here (-1: the cursor)
+    void warpSelected(int64_t at = -1);
+    void warpFromHere(const ClipPtr& clip, int64_t frame);  // a marker at `frame` on the nearest bar
+    ClipPtr warpClipAt(PointF pos) const;   // the warped clip whose markers are shown under pos (its body), or null
+    int warpMarkerAt(const ClipPtr& clip, PointF pos) const;     // its marker's handle under pos (-1: none)
+    int64_t transientAt(const ClipPtr& clip, PointF pos) const;  // its transient's tick under pos (a source frame; -1)
+    bool warpPress(ui::MouseEvent& e);      // a marker's handle grabbed (false: none under the mouse)
+    void dragWarpMarker(PointF pos, int mods);
+    void releaseWarpMarker();
+    bool warpDoubleClick(PointF pos);       // a transient made a marker (false: none there)
+    bool warpRightClick(PointF pos);        // a marker removed (false: none there)
     void reverseSelected();     // Reverse (play backwards) / Play forwards again
     void joinSelected();        // Ctrl+J: per track, the selected clips (or what lies in the range) become one
     // --- linked MIDI clips (timeline_links.cpp) ---
@@ -465,6 +505,36 @@ public:
     std::string insertTime();   // Edit → Insert time…: as long as the selected range, or bars / seconds asked for
     std::string deleteTime();   // Edit → Delete time: the selected range's stretch out of the whole song
     void editTempo(int bar);    // the tempo and time signature from bar `bar` (1: the song's own)
+
+    // --- the tempo lane (timeline_tempo.cpp): under the ruler while View → Tempo lane is on ---
+    // A point per tempo change (bar 1's at the start), a line between them (flat for a step, sloped for a ramp)
+    // and each time signature written at its bar. Click the lane to add a point (dragged at once: its time by
+    // the grid, its tempo by the height); drag a point; double-click one to type its tempo, ramp and time
+    // signature; right-click one to remove it or switch its ramp; right-click the lane for the Timebase.
+    // Every edit is one undo step, with what the timebase moved (timebase.h).
+    bool inTempoLane(double y) const;
+    void tempoRange(double& lo, double& hi) const;     // the BPM from the lane's bottom to its top
+    double tempoY(double bpm) const;
+    double tempoBpmAt(double y) const;                // (within MIN_BPM…MAX_BPM)
+    // the tempo point near pos on the lane (within AUTOMATION_GRAB_PX), or near `seconds` (within `px` at the
+    // zoom: the ruler, the terminal's cursor)
+    std::optional<TempoRef> tempoPointAt(PointF pos) const;
+    std::optional<TempoRef> tempoPointNear(double seconds, double px) const;
+    double tempoSeconds(const TempoRef& at) const;    // where a point is
+    void paintTempoLane(Painter& p, const Rect& r, bool contents);  // (false: its box, under the grid)
+    bool tempoPress(ui::MouseEvent& e);
+    void dragTempo(PointF pos, int mods);
+    void endTempoDrag();
+    // the menu of a point (none: the lane at `seconds`): Edit…, Ramp to the next change, Remove, Add a tempo
+    // change here…, Timebase ▸ Beats / Time
+    void fillTempoMenu(ui::Menu& menu, double seconds, std::optional<TempoRef> point);
+    void editTempoPoint(const TempoRef& at);         // the dialog (tempo, ramp, time signature)
+    void addTempoPoint(double seconds);              // a step at the grid line there, at the tempo there…, then the dialog
+    void removeTempoPoint(const TempoRef& at);
+    void setTempoRamp(const TempoRef& at, bool on);
+    void setTimebase(bool beats);
+    // an edit of the tempo map: the song follows it as its timebase says (timebase.h), then timingChanged
+    void tempoEdit(const std::function<void()>& edit);
     // the right-click menu of the ruler (markers, tempo changes, inserting and deleting time)
     void fillRulerMenu(ui::Menu& menu, PointF pos);
     void rulerMenu(Point globalPos, PointF pos);

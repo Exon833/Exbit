@@ -89,7 +89,9 @@ public:
     virtual void reset() = 0;
 
     // (audio thread) before process()/render()
-    virtual void setTransport(double tempo, int numerator, int denominator, bool playing, int64_t positionFrames) = 0;
+    // beats: where positionFrames is in the song, in quarter notes (the tempo map's); < 0: worked out from the tempo
+    virtual void setTransport(double tempo, int numerator, int denominator, bool playing, int64_t positionFrames,
+                              double beats = -1) = 0;
     // an effect: input/sidechain (sidechain may be null: silence) → output; 2 channels each; frames ≤ maxBlock
     virtual void process(const float* const in[2], const float* const sidechain[2], float* const out[2], int frames) = 0;
     // an instrument: these notes (sorted by frame) into output

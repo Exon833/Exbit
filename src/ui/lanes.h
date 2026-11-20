@@ -34,7 +34,13 @@ int masterHeight();
 int groupHeight();   // --group-height (GROUP_H): a group's header lane and row
 int headerHeight(const Group& g);  // a group's header: groupHeight(), or as tall as its bus (Track::height) when it has one
 int takeHeight();    // --take-height (TAKE_H): a take lane and its row
-int rulerHeight();   // --ruler-height (RULER_H): the timeline's ruler (the lanes start under it)
+int rulerHeight();   // --ruler-height (RULER_H): the timeline's ruler
+// the tempo lane under the ruler (View → Tempo lane; the timeline's timeline_tempo.cpp): shown or not, and its
+// height (--tempo-lane-height, TEMPO_LANE_H; 0 while hidden)
+bool tempoLaneShown();
+void setTempoLaneShown(bool on);
+int tempoLaneHeight();
+int lanesTop();      // where the lanes start: under the ruler and the tempo lane (the CPU monitor is as tall)
 void setMasterScopeHeight(int px);  // (0: the scope hidden)
 
 }  // namespace lanes

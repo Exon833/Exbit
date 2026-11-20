@@ -82,8 +82,9 @@ Placement placement(const std::vector<PlayedNote>& notes, int sr, const Timing& 
         int bar = timing.barAt(end - 1e-6);
         length = timing.barSeconds(bar + 1) - out.start;
     } else {  // whole bars from the cursor
-        double barS = timing.beatsPerBarAt(out.start) * timing.beatSAt(out.start);
-        length = std::max(1.0, std::ceil((end - out.start) / barS - 1e-6)) * barS;
+        double b0 = timing.beatAt(out.start), perBar = timing.beatsPerBarAt(out.start);  // (in beats: ramps too)
+        double bars = std::max(1.0, std::ceil((timing.beatAt(end) - b0) / perBar - 1e-6));
+        length = timing.secondsAt(b0 + bars * perBar) - out.start;
     }
     out.lengthS = std::max(length, last);
     return out;

@@ -36,7 +36,7 @@
 
 namespace bridge {
 
-constexpr uint32_t VERSION = 6;  // (5: files dragged out in IDLE's news, DROP_FILES; 6: Note::kind, value)
+constexpr uint32_t VERSION = 7;  // (5: files dragged out in IDLE's news, DROP_FILES; 6: Note::kind, value; 7: beats)
 constexpr int MAX_FRAMES = 8192;       // the longest buffer (prepare()'s maxBlock is capped to it)
 constexpr int MAX_NOTES = 1024;        // notes per buffer
 constexpr int MAX_PARAM_CHANGES = 1024;  // parameter changes per buffer (more wait for the next)
@@ -276,6 +276,7 @@ struct AudioBlock {
     int32_t numerator, denominator, playing;
     alignas(8) double tempo;  // (alignas: the same layout for the 32-bit host, whose ABI aligns these to 4)
     alignas(8) int64_t position;
+    alignas(8) double beats;  // the song's beats at `position` (< 0: none given)
     // a new sample rate, asked for on the audio thread (prepare() there is no request: the host's
     // audio thread prepares the plugin before this buffer)
     int32_t prepareSet;
@@ -297,10 +298,11 @@ struct AudioBlock {
 // (the same layout in Tiny DAW, the 64-bit host and the 32-bit one, which share it)
 static_assert(sizeof(ParamChange) == 16 && offsetof(ParamChange, value) == 8, "ParamChange");
 static_assert(offsetof(AudioBlock, tempo) == 48 && offsetof(AudioBlock, position) == 56, "AudioBlock");
-static_assert(offsetof(AudioBlock, sampleRate) == 72 && offsetof(AudioBlock, notes) == 88, "AudioBlock");
+static_assert(offsetof(AudioBlock, beats) == 64, "AudioBlock");
+static_assert(offsetof(AudioBlock, sampleRate) == 80 && offsetof(AudioBlock, notes) == 96, "AudioBlock");
 static_assert(sizeof(Note) == 28, "Note");
-static_assert(offsetof(AudioBlock, params) == 28760 && offsetof(AudioBlock, in) == 45152, "AudioBlock");
-static_assert(sizeof(AudioBlock) == 241760, "AudioBlock");
+static_assert(offsetof(AudioBlock, params) == 28768 && offsetof(AudioBlock, in) == 45160, "AudioBlock");
+static_assert(sizeof(AudioBlock) == 241768, "AudioBlock");
 
 inline long futex(std::atomic<uint32_t>* word, int op, uint32_t value, const timespec* timeout = nullptr) {
     static_assert(sizeof(std::atomic<uint32_t>) == 4, "a futex is 32 bits");

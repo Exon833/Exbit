@@ -315,16 +315,17 @@ std::vector<Note> arpeggiate(const MidiEffect& e, const std::vector<Note>& notes
     double first = notes[0].start, end = notes[0].end;
     for (auto& n : notes) first = std::min(first, n.start), end = std::max(end, n.end);
     first += origin;
-    double t;
+    double t, gridBeat = 0;
     if (timing_)
-        t = timing_->secondsAt(std::ceil(timing_->beatAt(first) / stepBeats - 1e-9) * stepBeats) - origin;  // (on the grid)
+        t = timing_->secondsAt(gridBeat = std::ceil(timing_->beatAt(first) / stepBeats - 1e-9) * stepBeats) - origin;  // (on the grid)
     else
         t = std::ceil(first / (stepBeats * beatS(0)) - 1e-9) * stepBeats * beatS(0) - origin;
     int64_t index = 0;
     std::vector<Note> held;
     std::vector<std::pair<double, double>> pool;
     while (t < end) {
-        double step = stepBeats * beatS(origin + t);
+        // (on the song's beats: inside a ramp each step is as long as its beats are there)
+        double step = timing_ ? timing_->secondsAt(gridBeat + stepBeats) - (origin + t) : stepBeats * beatS(origin + t);
         held.clear();
         for (auto& n : notes)
             if (n.start <= t + 1e-9 && n.end > t + 1e-9) held.push_back(n);
@@ -350,6 +351,7 @@ std::vector<Note> arpeggiate(const MidiEffect& e, const std::vector<Note>& notes
             index = 0;
         }
         t += step;
+        gridBeat += stepBeats;
     }
     return out;
 }
@@ -448,7 +450,8 @@ std::vector<Note> process(const MidiEffect& e, const std::vector<Note>& notes, d
     if (e.kind == "Note Length") {
         std::vector<Note> out = notes;
         for (auto& n : out)
-            n.end = e.get("mode") < 0.5 ? n.start + e.get("beats") * beatS(origin + n.start)
+            n.end = e.get("mode") < 0.5 ? (timing_ ? timing_->secondsAt(timing_->beatAt(origin + n.start) + e.get("beats")) - origin
+                                                   : n.start + e.get("beats") * beatS(origin + n.start))
                                         : n.start + (n.end - n.start) * e.get("share") / 100;
         return out;
     }

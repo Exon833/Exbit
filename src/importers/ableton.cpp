@@ -23,6 +23,7 @@
 #include "importers/gzip.h"
 #include "model/project_io.h"
 #include "model/routing.h"
+#include "model/timebase.h"
 #include "plugins/plugin.h"
 
 namespace ableton {
@@ -222,6 +223,7 @@ public:
     double spb = 0.5;  // seconds per beat
     std::map<std::string, std::vector<std::string>> samples;  // file name -> paths, for every audio file in the set's folder
     std::vector<std::pair<double, std::string>> locators;
+    std::vector<std::pair<double, double>> tempoEvents;  // the tempo's automation: (beat, BPM), by time
 
     explicit SetReader(const std::string& alsPath) {
         folder = util::dirName(util::absolutePath(alsPath));
@@ -236,6 +238,21 @@ public:
         if (!main) throw Error("the set has no main track");
         bpm = needD(main, "DeviceChain/Mixer/Tempo/Manual");
         if (!(bpm > 0)) throw Error("the set's tempo isn't valid");
+        // the tempo's automation: an envelope on the main track's Tempo parameter (its AutomationTarget's Id), its
+        // FloatEvents (Time in beats, Value in BPM; Live goes linearly between them, and two at one time jump)
+        const Element* target = main->find("DeviceChain/Mixer/Tempo/AutomationTarget");
+        if (target && target->has("Id")) {
+            std::string id(target->get("Id"));
+            for (const Element* env : main->findAll("AutomationEnvelopes/Envelopes/AutomationEnvelope")) {
+                if (valS(env, "EnvelopeTarget/PointeeId") != id) continue;
+                for (const Element* ev : env->findAll("Automation/Events/FloatEvent"))
+                    if (ev->has("Time") && ev->has("Value"))
+                        tempoEvents.push_back({toDouble(std::string(ev->get("Time")), "FloatEvent/Time"),
+                                               toDouble(std::string(ev->get("Value")), "FloatEvent/Value")});
+            }
+            std::stable_sort(tempoEvents.begin(), tempoEvents.end(),
+                             [](const std::pair<double, double>& a, const std::pair<double, double>& b) { return a.first < b.first; });
+        }
         int sig = 201;  // (4/4)
         const Element* event = nullptr;
         main->walk([&](const Element& e) {
@@ -1687,6 +1704,17 @@ void convertSet(const std::string& als, const std::string& output, Project& proj
     std::vector<Marker> markers;
     for (auto& l : reader.locators) markers.push_back({std::max(0.0, l.first * reader.spb), l.second.empty() ? "Locator" : l.second});
     project.setMarkers(markers);
+    if (!reader.tempoEvents.empty()) {  // (everything was placed at the set's tempo: it moves to its beats on the new map)
+        timebase::Before before = timebase::remember(project);
+        int made = tempoFromEnvelope(project.timing, reader.tempoEvents, reader.beatsPerBar);
+        size_t moved = timebase::follow(project, before, SR).size();
+        util::debugf("ableton: tempo automation: %zu events → %d tempo changes; %zu clips moved to their beats\n",
+                     reader.tempoEvents.size(), made, moved);
+        if (made || project.timing.ramp)
+            report.push_back(util::format("the tempo automation came over as %d tempo change%s (ramps where Live ramps); "
+                                          "audio clips keep their own speed through it",
+                                          made, made == 1 ? "" : "s"));
+    }
 
     // the mix as Tiny DAW plays it (its effects too, returns, faders, pan): its peak sets the master volume
     progress("Measuring the mix", 0.86);
@@ -1760,6 +1788,49 @@ std::string frozenFile(const std::string& folder, const std::string& trackName, 
     std::string file = util::joinPath(folder, stem + " (frozen)" + ext);
     for (int n = 2; util::fileExists(file); n++) file = util::joinPath(folder, stem + " (frozen " + std::to_string(n) + ")" + ext);
     return file;
+}
+
+int tempoFromEnvelope(Timing& timing, const std::vector<std::pair<double, double>>& events, int beatsPerBar) {
+    if (events.empty()) return 0;
+    const double JUMP = 1e-3;  // beats: a ramp running into a jump ends this much before it
+    auto bpmOf = [](double v) { return std::min(config::MAX_BPM, std::max(config::MIN_BPM, v)); };
+    struct P {
+        double beat, bpm;
+        bool hold;  // (the end of a ramp right before a jump: it doesn't ramp on)
+    };
+    std::vector<P> ps;
+    for (size_t i = 0; i < events.size();) {
+        double at = std::max(0.0, events[i].first);  // (Live's first event lies far before the song)
+        size_t j = i;
+        while (j + 1 < events.size() && std::max(0.0, events[j + 1].first) == at) j++;
+        double first = bpmOf(events[i].second), last = bpmOf(events[j].second);
+        if (ps.empty() && at > 0) ps.push_back({0.0, first, false});  // (before the first event: its tempo)
+        if (first != last && !ps.empty() && at - JUMP > ps.back().beat + JUMP) ps.push_back({at - JUMP, first, true});
+        if (!ps.empty() && ps.back().beat >= at) ps.back() = {ps.back().beat, last, false};
+        else ps.push_back({at, last, false});
+        i = j + 1;
+    }
+    auto ramps = [&](size_t k) { return !ps[k].hold && k + 1 < ps.size() && ps[k + 1].bpm != ps[k].bpm; };
+    timing.bpm = ps[0].bpm;
+    timing.beatsPerBar = std::max(1, beatsPerBar);
+    timing.ramp = ramps(0);
+    timing.changes.clear();
+    int perBar = std::max(1, beatsPerBar);
+    double lastBpm = ps[0].bpm;
+    bool lastRamps = timing.ramp;
+    for (size_t k = 1; k < ps.size(); k++) {
+        bool ramp = ramps(k);
+        if (ps[k].bpm == lastBpm && !lastRamps && !ramp) continue;  // (no change)
+        int bar = (int)std::floor(ps[k].beat / perBar + 1e-9) + 1;
+        double in = ps[k].beat - (double)(bar - 1) * perBar;
+        if (in < 1e-9) in = 0;
+        timing.changes.push_back(TempoChange{bar, ps[k].bpm, perBar, in, ramp});
+        lastBpm = ps[k].bpm;
+        lastRamps = ramp;
+    }
+    std::sort(timing.changes.begin(), timing.changes.end());
+    timing.publish();
+    return (int)timing.changes.size();
 }
 
 double warpSeconds(const std::vector<std::pair<double, double>>& markers, double beat) {

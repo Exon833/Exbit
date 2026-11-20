@@ -25,7 +25,8 @@ std::string checkFrozen(const Project& project, const std::vector<int64_t>& fram
 
 bool wholeBars(const Timing& timing, double startS, double endS, int& first, int& count) {
     int a = timing.barAt(startS), b = timing.barAt(endS);
-    bool onLines = std::fabs(timing.barSeconds(a) - startS) < 1e-6 && std::fabs(timing.barSeconds(b) - endS) < 1e-6;
+    // (within a few frames: through a ramp, bar lines fall between frames)
+    bool onLines = std::fabs(timing.barSeconds(a) - startS) < 1e-4 && std::fabs(timing.barSeconds(b) - endS) < 1e-4;
     if (!onLines || !timing.beats) return false;
     first = a;
     count = b - a;
@@ -91,18 +92,66 @@ void moveLoop(Timing& timing, double atS, double shiftS, double cutTo) {
     }
 }
 
+namespace {
+// the tempo arriving at `beat` from before it (a ramp running into it: where it has got), and whether it ramps
+void arriving(const TempoMap& m, double beat, double& bpm, bool& ramps) {
+    const std::vector<TempoPoint>& ps = m.points();
+    size_t i = 0;
+    while (i + 1 < ps.size() && ps[i + 1].beat < beat - 1e-9) i++;
+    const TempoPoint& p = ps[i];
+    ramps = p.ramp && p.beat < beat - 1e-9;
+    bpm = ramps ? p.bpm + (ps[i + 1].bpm - p.bpm) * (beat - p.beat) / (ps[i + 1].beat - p.beat) : p.bpm;
+}
+// is there a tempo point at `beat`? Does the tempo ramp on from there (a point there ramping, or a ramp through it)?
+bool pointAt(const TempoMap& m, double beat) {
+    for (auto& p : m.points())
+        if (std::fabs(p.beat - beat) < 1e-9) return true;
+    return false;
+}
+bool rampsOn(const TempoMap& m, double beat) {
+    const std::vector<TempoPoint>& ps = m.points();
+    size_t i = 0;
+    while (i + 1 < ps.size() && ps[i + 1].beat <= beat + 1e-9) i++;
+    return ps[i].ramp;
+}
+int perBarAt(const TempoMap& m, double beat) {
+    int bar, perBar;
+    double at;
+    m.meterAt(beat, bar, at, perBar);
+    return perBar;
+}
+}  // namespace
+
 std::string moveTempo(Timing& timing, double atS, double lengthS, bool insert) {
-    if (timing.changes.empty()) return std::string();
+    if (timing.changes.empty() && !timing.ramp) return std::string();
     int first, count;
     if (!wholeBars(timing, atS, atS + lengthS, first, count))
         return "Tempo and time-signature changes stay at their bars (the time wasn't whole bars).";
+    TempoMapPtr was = timing.map();
+    double cut = was->barBeat(first);
     // (0-based bars; changes are kept by 1-based bar number: bar k is change k + 1)
-    if (insert) {  // (the new bars go on at the tempo before them)
+    if (insert) {  // (the new bars go on at the tempo before them; a ramp cut there goes on after them)
+        double before = 0;
+        bool rampIn = false;
+        if (first > 0) arriving(*was, cut, before, rampIn);
+        bool through = !pointAt(*was, cut) && rampsOn(*was, cut);  // (a ramp running through the cut)
         for (auto& c : timing.changes)
             if (c.bar - 1 >= first) c.bar += count;
+        if (rampIn)  // (the ramp ends at the cut, as it did; the new bars hold its tempo)
+            timing.setChange(TempoChange{first + 1, before, perBarAt(*was, cut - 0.5), 0.0, false});
+        if (through)  // (…and it goes on from where it was after them)
+            timing.setChange(TempoChange{first + count + 1, was->bpmAtBeat(cut), perBarAt(*was, cut), 0.0, true});
+        if (first == 0 && timing.ramp) {  // (bar 1's ramp starts after the new bars)
+            timing.setChange(TempoChange{count + 1, timing.bpm, timing.beatsPerBar, 0.0, true});
+            timing.ramp = false;
+        }
         return std::string();
     }
-    Segment after = timing.segmentAt(atS + lengthS);  // (what plays right after the deleted bars, at its tempo)
+    // (what plays right after the deleted bars, at its tempo: a ramp cut there goes on from its tempo there)
+    double end = was->barBeat(first + count);
+    double afterBpm = was->bpmAtBeat(end);
+    int afterPerBar = perBarAt(*was, end);
+    bool afterRamps = rampsOn(*was, end);
     std::vector<TempoChange> kept;
     for (auto c : timing.changes) {
         if (first <= c.bar - 1 && c.bar - 1 < first + count) continue;
@@ -111,22 +160,26 @@ std::string moveTempo(Timing& timing, double atS, double lengthS, bool insert) {
     }
     timing.changes.clear();
     for (auto& c : kept) {
-        if (c.bar >= 2) {
+        if (c.valid()) {
             timing.changes.push_back(c);
-        } else {  // (moved to bar 1: it is bar 1's tempo now; Python keeps it as a change at bar 1, which a
+        } else {  // (moved to bar 1's start: it is bar 1's tempo now; Python keeps it as a change at bar 1, which a
                   // project file can't hold)
             timing.bpm = c.bpm;
             timing.beatsPerBar = c.beatsPerBar;
+            timing.ramp = c.ramp;
         }
     }
-    Segment now = timing.segmentAt(timing.barSeconds(first));
-    if (now.bpm != after.bpm || now.beatsPerBar != after.beatsPerBar) {  // (a change was in the deleted bars)
-        if (first == 0) {
-            timing.bpm = after.bpm;
-            timing.beatsPerBar = after.beatsPerBar;
-        } else {
-            timing.setChange(first + 1, after.bpm, after.beatsPerBar);
-        }
+    TempoMapPtr now = timing.map();
+    if (first == 0) {
+        timing.bpm = afterBpm;
+        timing.beatsPerBar = afterPerBar;
+        timing.ramp = afterRamps;
+    } else if (!timing.changeAtBar(first + 1)) {
+        double in = 0;
+        bool rampIn = false;
+        arriving(*now, cut, in, rampIn);
+        if (rampIn || afterRamps || now->bpmAtBeat(cut) != afterBpm || perBarAt(*now, cut) != afterPerBar)
+            timing.setChange(TempoChange{first + 1, afterBpm, afterPerBar, 0.0, afterRamps});
     }
     return std::string();
 }
@@ -139,7 +192,7 @@ bool insertTime(Project& project, int64_t at, int64_t length, int sr, std::strin
     Timing& timing = project.timing;
     double atS = (double)at / sr, lengthS = (double)length / sr;
     int first = 0, count = 0;
-    bool bars = !timing.changes.empty() && wholeBars(timing, atS, atS + lengthS, first, count);
+    bool bars = (!timing.changes.empty() || timing.ramp) && wholeBars(timing, atS, atS + lengthS, first, count);
     note = moveTempo(timing, atS, lengthS, true);  // (first: bars are counted at the old tempo map)
     if (bars) {  // (the new bars play at the tempo before them: as long as that makes them, so what comes after
                  // lands on its bars again)

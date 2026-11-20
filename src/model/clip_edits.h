@@ -55,4 +55,8 @@ struct Fades {
 // the audio clips among `clips` (frozen tracks' left alone) fade in and out so; how many were changed
 int setFades(const std::vector<ClipPtr>& clips, const Fades& f);
 
+// clips prepared again (each to `reach` frames; -1 its window) on copies, on every core when there are many,
+// then swapped in (the audio thread atomic_loads them)
+void prepareAll(const std::vector<std::pair<ClipPtr, int64_t>>& todo, int sr);
+
 }  // namespace clip_edits

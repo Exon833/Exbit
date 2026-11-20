@@ -106,6 +106,16 @@ constexpr int ENVELOPE_DOT = 6;    // a point's square
 float envelopeY(const RectF& body, double v);      // y of value v (0…1) in the clip's body
 double envelopeValue(const RectF& body, double y); // …and back, within 0…1
 void paintEnvelope(Painter& p, const Clip& clip, const RectF& body, const Rect& visible, double pps, int sr, Color color);
+// --- warp markers (model/warping.h): a warped clip's, along the top of its body when it is at least WARP_BODY_H
+// tall (a lane taller than a strip): a line down from a handle per marker, its transients as faint ticks ---
+constexpr float WARP_BODY_H = 28;
+constexpr float WARP_HANDLE = 9;   // a marker's handle: a triangle this wide hanging from the body's top
+constexpr float WARP_TICK = 6;     // a transient's tick, this tall
+bool warpShown(const Clip& clip, const RectF& body);
+// the x of each marker (its index, x) and transient (its source frame, x) of the clip within the view
+std::vector<std::pair<int, float>> warpMarkerXs(const Clip& clip, const RectF& body, double pps, int sr);
+std::vector<std::pair<int64_t, float>> transientXs(const Clip& clip, const RectF& body, double pps, int sr);
+void paintWarp(Painter& p, const Clip& clip, const RectF& body, const Rect& visible, double pps, int sr, Color color);
 // its name, its gain when it has one, and "env" with a gain envelope ("Kick   -3.0 dB   env")
 std::string clipLabel(const Clip& clip);
 // name sticks to the view's left edge, but stays inside the clip

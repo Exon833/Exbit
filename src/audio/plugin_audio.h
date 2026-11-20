@@ -50,7 +50,9 @@ struct Transport {
     int numerator = 4, denominator = 4;
     bool playing = false;
     int64_t position = 0;
-    // the tempo and time signature where timeline frame `start` is (the tempo map), playing from there
+    double beats = -1;  // the song's beats at `position` (through tempo changes and ramps; < 0: none)
+    // the tempo and time signature where timeline frame `start` is (the tempo map: inside a ramp, the tempo at
+    // that frame), playing from there
     static Transport at(const TempoMap& map, bool playing, int64_t start, int sr);
 };
 

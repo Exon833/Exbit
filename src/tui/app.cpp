@@ -635,9 +635,13 @@ bool Front::timelineKey(const Key& k) {
     TrackPtr cur = current();
     int row = cur ? (int)(std::find(ts.begin(), ts.end(), cur) - ts.begin()) : 0;
     std::optional<Lane> lane = currentLane();
-    // the ruler's (Up from the first lane): Enter the tempo at the cursor's bar
+    // the ruler's (Up from the first lane): Enter edits the tempo change at the cursor (its tempo, ramp, time
+    // signature), else makes one at the cursor's bar
     if (laneRow < 0 && !k.mods && (k.key == plat::Key_Return || k.key == plat::Key_Enter)) {
-        tl.editTempo(t.barAt(cursorS + 1e-9) + 1);
+        if (auto point = tl.tempoPointNear(cursorS, std::max(0.5, secondsPerColumn / 2 * tl.pps)))
+            tl.editTempoPoint(*point);
+        else
+            tl.editTempo(t.barAt(cursorS + 1e-9) + 1);
         return true;
     }
     // an automation lane's, a take's, a group header's own keys
@@ -1324,6 +1328,8 @@ void Front::drawTimeline(Screen& s, int x, int y, int w, int h) {
     timelineCols_ = w;
     Timeline& tl = *w_.timeline;
     const Timing& t = w_.project.timing;
+    TempoMapPtr tmap = t.map();  // (once: the grid below asks it for every column)
+    const TempoMap& tm = *tmap;
     audio::Engine& e = w_.engine;
     int sr = e.sr;
     bool focused = pane == Pane::Timeline;
@@ -1353,26 +1359,33 @@ void Front::drawTimeline(Screen& s, int x, int y, int w, int h) {
         double a = viewStart + c * spc;
         if (loop && a + spc > loopA && a < loopB) s.set(x + c, ry, U'═', focused ? kFocusTitle : style(Yellow, Default, Bold));
     }
-    int firstBar = std::max(0, t.barAt(viewStart) - 1);
+    int firstBar = std::max(0, tm.barAt(viewStart) - 1);
     Style rs = focused ? kFocusTitle : kTitle;
     if (focused && laneRow < 0) {  // (the ruler has the keyboard: Enter a tempo change, F2 its menu)
         rs = style(Black, Yellow, Bold);
         s.fill(x, ry, w, 1, U' ', rs);
     }
     for (int b = firstBar;; b++) {
-        double bs = t.barSeconds(b);
+        double bs = tm.barSeconds(b);
         int c = colOf(bs);
         if (c >= w) break;
         if (c >= 0) s.text(x + c, ry, "|" + std::to_string(b + 1), rs, w - c);
         // (zoomed in, bars far apart: their beats too, as bar.beat)
-        double barCols = (t.barSeconds(b + 1) - bs) / spc;
-        int beats = std::max(1, (int)std::lround(t.beatAt(t.barSeconds(b + 1)) - t.beatAt(bs)));
+        double barCols = (tm.barSeconds(b + 1) - bs) / spc;
+        int beats = std::max(1, (int)std::lround(tm.beatAt(tm.barSeconds(b + 1)) - tm.beatAt(bs)));
         if (barCols / beats >= 6)
             for (int k = 1; k < beats; k++) {
-                int bc = colOf(t.secondsAt(t.beatAt(bs) + k));
+                int bc = colOf(tm.secondsAt(tm.beatAt(bs) + k));
                 if (bc >= 0 && bc < w) s.text(x + bc, ry, "'" + std::to_string(b + 1) + "." + std::to_string(k + 1), rs, w - bc);
             }
         if (b > firstBar + 2000) break;
+    }
+    // the tempo changes (the tempo lane's points): ♩ a step, ↗ a ramp to the next (Enter on one: its dialog)
+    for (const TempoPoint& p : tm.points()) {
+        int c = colOf(p.seconds);
+        if (c < 0 || c >= w || (p.change < 0 && !p.ramp)) continue;  // (bar 1's own: only when it ramps)
+        char32_t mark = utf8 ? (p.ramp ? U'↗' : U'♩') : (p.ramp ? U'/' : U'T');
+        s.set(x + c, ry, mark, focused && laneRow < 0 ? style(Black, Yellow, Bold) : style(Magenta, Default, Bold));
     }
     // the lanes: a row each (a track's, its automation lanes and takes, a group's header), the master's at the bottom
     std::vector<Lane> ls = lanes();
@@ -1389,8 +1402,8 @@ void Front::drawTimeline(Screen& s, int x, int y, int w, int h) {
         for (int c = 0; c < w; c++) {
             double a = viewStart + c * spc;
             // (a bar or beat starting in this column: between its left edge and the next's)
-            bool barLine = t.barAt(a + spc - 1e-9) != t.barAt(a - 1e-9) || a < 1e-9;
-            bool beat = std::floor(t.beatAt(a + spc - 1e-9)) != std::floor(t.beatAt(a - 1e-9));
+            bool barLine = tm.barAt(a + spc - 1e-9) != tm.barAt(a - 1e-9) || a < 1e-9;
+            bool beat = std::floor(tm.beatAt(a + spc - 1e-9)) != std::floor(tm.beatAt(a - 1e-9));
             char32_t ch = barLine ? U'¦' : beat ? U'·' : U' ';
             if (!utf8 && ch == U'¦') ch = U':';
             s.set(x + c, ly, ch, style(Blue));
@@ -1569,7 +1582,9 @@ void Front::drawStatus(Screen& s) {
             break;
         case Pane::Explorer: msg = "Enter: open / add at the cursor  Space or P: hear it  Backspace: up  Tab: next part"; break;
         case Pane::Timeline:
-            if (laneRow < 0) msg = "The ruler: Enter: a tempo change at this bar  F2: its menu (markers, loop)  Down: the lanes";
+            if (laneRow < 0)
+                msg = "The ruler: Enter: the tempo change at the cursor (tempo, ramp, time signature), or a new one at this "
+                      "bar  F2: its menu (tempo changes, Timebase, markers, loop)  Down: the lanes";
             else if (currentLane() && currentLane()->automation)
                 msg = "Automation: Enter: a point at the cursor  [ ]: lower / raise it  Del: remove it (or the range)  "
                       "I/O: range  Ctrl+C/X/V: its curve  F2: its menu";
@@ -1699,8 +1714,15 @@ void Front::drawHelp(Screen& s) {
         "  E  N              the MIDI editor of the clip (N: a new MIDI clip at the cursor, edited)",
         "  F2: Slip contents… the selected clips' audio or notes moved inside them (Left/Right: by the grid);",
         "                    Crop to the selection, Fades at every boundary… (every selected clip)",
+        "  F2: Warp…         an audio clip follows the song's tempo (Beats, Tones, Complex); its markers'",
+        "                    list: Left/Right move the chosen one by the grid, Del removes it;",
+        "                    Warp from here: a marker at the cursor on the nearest bar",
         "  automation lane   Enter, [ ]: a point; I then O: a range of its curve: Ctrl+C/X/V, Del clears it",
         "                    (Edit → Automation follows clips: moved and copied clips take it along)",
+        "  ruler (Up above   tempo changes: ♩ a step, ↗ a ramp. Enter: the one at the cursor (tempo, ramp to the",
+        "   the first lane)  next: yes/no, time signature), else a new one at the cursor's bar",
+        "  F2 on the ruler   Tempo changes ▸ add, edit, ramp, remove; Timebase: Beats (the song keeps its",
+        "                    bars when the tempo changes) or Time (it keeps its seconds); markers, the loop",
         "MIDI editor (Tab to its notes)",
         "  arrows            no note selected: the cursor (a grid step, a pitch); else move the notes",
         "  Enter             select the note at the cursor, or put one there   Esc: let them go",

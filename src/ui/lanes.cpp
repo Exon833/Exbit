@@ -78,7 +78,13 @@ std::vector<Lane> layout(const Project& project, int top) {
 
 namespace {
 int scopeHeight = 0;
+bool tempoShown = false;
 }
+
+bool tempoLaneShown() { return tempoShown; }
+void setTempoLaneShown(bool on) { tempoShown = on; }
+int tempoLaneHeight() { return tempoShown ? theme::metric("--tempo-lane-height", config::TEMPO_LANE_H) : 0; }
+int lanesTop() { return rulerHeight() + tempoLaneHeight(); }
 
 int masterHeight() { return theme::metric("--master-height", config::MASTER_H) + scopeHeight; }
 int groupHeight() { return theme::metric("--group-height", config::GROUP_H); }

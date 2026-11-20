@@ -243,8 +243,14 @@ public:
 
     // --- audio (audio thread) ---
 
-    void setTransport(double tempo, int numerator, int denominator, bool playing, int64_t positionFrames) override {
+    void setTransport(double tempo, int numerator, int denominator, bool playing, int64_t positionFrames,
+                      double beats = -1) override {
         t_tempo = tempo, t_num = numerator, t_den = denominator, t_playing = playing, t_position = positionFrames;
+        t_beats = beats;
+    }
+    void advanceTransport(int n) {  // (a long buffer goes in parts)
+        t_position += n;
+        if (t_beats >= 0) t_beats += n / std::max(1.0, sampleRate_.load()) * t_tempo / 60.0;
     }
 
     void process(const float* const in[2], const float* const sidechain[2], float* const out[2], int frames) override {
@@ -259,7 +265,7 @@ public:
                     if (o2[c] != i2[c])
                         std::memcpy(o2[c], i2[c], sizeof(float) * (size_t)n);  // (late: the input, unchanged)
             done += n;
-            t_position += n;  // (a long buffer goes in parts)
+            advanceTransport(n);
         }
         failIfEnded();
     }
@@ -273,7 +279,7 @@ public:
                 for (int c = 0; c < 2; c++)
                     std::memset(o2[c], 0, sizeof(float) * (size_t)n);  // (late: silence)
             done += n;
-            t_position += n;
+            advanceTransport(n);
         }
         failIfEnded();
     }
@@ -641,6 +647,7 @@ private:
     int t_num = 4, t_den = 4;
     bool t_playing = false;
     int64_t t_position = 0;
+    double t_beats = -1;  // (< 0: none given)
 
     // --- the window ---
     Display* dpy = nullptr;
@@ -1070,6 +1077,7 @@ private:
         block->denominator = t_den;
         block->playing = t_playing;
         block->position = t_position;
+        block->beats = t_beats;
         block->prepareSet = prepareWanted.exchange(false) ? 1 : 0;
         block->sampleRate = sampleRate_.load();
         block->maxBlock = preparedBlock;

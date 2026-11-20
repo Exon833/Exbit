@@ -2,18 +2,29 @@
 // to (timing.py).
 //
 // Bar 1 starts at 0 s. Beats are quarter notes; a bar has `beatsPerBar` of them (the time signature
-// is beatsPerBar / 4). The tempo and time signature can change at the start of any bar (`changes`:
-// (bar number, bpm, beats per bar), from bar 2 on; `bpm` and `beatsPerBar` are bar 1's): the song is
-// then a row of segments (segments()), each with a steady tempo, and beats are counted on through
-// them (beatAt / secondsAt). Clips and notes stay where they are in seconds; the grid, the ruler,
-// snapping, the metronome, MIDI effects and the tempo plugins are given follow the changes.
+// is beatsPerBar / 4). The tempo can change at any beat and the time signature at the start of any bar
+// (`changes`: TempoChange, at (bar, beat into it); `bpm`, `beatsPerBar` and `ramp` are bar 1's). A change
+// is a STEP (the new tempo from there) or, with `ramp`, a RAMP: the tempo goes linearly, in BPM over beats,
+// from the change's to the next change's (the last change can't ramp: it holds). A time signature belongs
+// to a change at the start of a bar (beat 0); a change inside a bar changes the tempo only.
+//
+// The song is then a row of segments (segments()): each a stretch of one time signature over which the
+// tempo is steady or goes linearly (bpm(b) = bpm + k·b, b beats into it). Beats are counted on through
+// them. Time over a segment is the closed form ∫60/bpm db: (60/k)·ln(1 + k·b/bpm) (60·b/bpm when steady),
+// and beatAt is its exact inverse (bpm/k)·(e^(k·t/60) − 1) (log1p / expm1 keep both exact for gentle
+// ramps): no numeric steps anywhere, so beatAt(secondsAt(b)) == b to rounding.
+//
+// What stays where when the map changes is the song's TIMEBASE (timebase.h): Beats keeps clips, notes,
+// automation and markers on their beats; Time keeps them in seconds. The grid, the ruler, snapping, the
+// metronome, MIDI effects and the tempo plugins are given follow the map either way.
 //
 // The grid is dynamic: its lines are always at least GRID_MIN_PX apart, so zooming in makes it
 // finer (bars → beats → 8ths → 16ths → 32nds) and zooming out coarser (2, 4, 8… bars). In thirds
 // view (triplets) the steps within a bar divide beats in three instead: half-note, quarter, 8th,
 // 16th and 32nd triplets. Grid positions are counted in beats as exact fractions, so thirds stay
 // exact; only steps that fit a whole number of times in a bar are used, so the grid always lines up
-// with the bars (and each segment starts on a bar).
+// with the bars (counted from the last change at a bar's start). Inside a ramp the lines stay on their
+// beats, closer together as the tempo rises.
 //
 // A fixed grid (the Grid button, `grid`) keeps its step at any zoom. Its "1 bar" is a bar of the
 // time signature where it is (3 beats in 3/4); a step that doesn't fit a whole number of times in a
@@ -21,7 +32,7 @@
 // last step is shorter).
 //
 // THREADS. The tempo map (TempoMap: the segments) is an immutable object. The GUI thread uses
-// Timing's own functions (each works on map(), rebuilt when bpm / beatsPerBar / changes changed).
+// Timing's own functions (each works on map(), rebuilt when bpm / beatsPerBar / ramp / changes changed).
 // The audio thread (metronome, MIDI effects, the transport given to plugins) reads
 // `timing.audioMap()`: the map as last published, an atomic snapshot. It is published whenever the
 // GUI thread calls map() (any of Timing's tempo or grid functions) or publish(): the engine's idle()
@@ -70,28 +81,51 @@ struct GridLine {
     std::string label;  // "5" for bar 5, "5.3" for its third beat, or "" (none)
 };
 
-// a change of tempo and time signature at the start of bar `bar` (1-based, ≥ 2)
+// a change of tempo (and, at a bar's start, of time signature) at `beat` beats into bar `bar` (1-based; in
+// bar 1 only after its start)
 struct TempoChange {
     int bar = 2;
     double bpm = 120;
-    int beatsPerBar = 4;
-    bool operator==(const TempoChange& o) const { return bar == o.bar && bpm == o.bpm && beatsPerBar == o.beatsPerBar; }
-    bool operator!=(const TempoChange& o) const { return !(*this == o); }
-    bool operator<(const TempoChange& o) const {  // (Python's tuple order)
-        if (bar != o.bar) return bar < o.bar;
-        if (bpm != o.bpm) return bpm < o.bpm;
-        return beatsPerBar < o.beatsPerBar;
+    int beatsPerBar = 4;  // from here on; only a change at a bar's start (beat 0) sets it
+    double beat = 0;      // beats into the bar (0: at its start); past its last beat: at the next bar's start
+    bool ramp = false;    // the tempo goes linearly from here to the next change's (in BPM over beats)
+    bool operator==(const TempoChange& o) const {
+        return bar == o.bar && bpm == o.bpm && beatsPerBar == o.beatsPerBar && beat == o.beat && ramp == o.ramp;
     }
+    bool operator!=(const TempoChange& o) const { return !(*this == o); }
+    bool operator<(const TempoChange& o) const {  // (by place, then Python's tuple order)
+        if (bar != o.bar) return bar < o.bar;
+        if (beat != o.beat) return beat < o.beat;
+        if (bpm != o.bpm) return bpm < o.bpm;
+        if (beatsPerBar != o.beatsPerBar) return beatsPerBar < o.beatsPerBar;
+        return ramp < o.ramp;
+    }
+    bool atBar() const { return beat == 0; }  // at a bar's start: it sets the time signature too
+    bool valid() const { return bar >= 1 && beat >= 0 && (bar >= 2 || beat > 0); }
 };
 
-// a stretch of steady tempo: from `seconds` (bar `bar`, 0-based; `beat` beats since 0 s) to the next one
+// a stretch of one time signature over which the tempo is steady or one linear ramp: from `seconds`
+// (`beat` beats since 0 s, in bar `bar`, 0-based, which starts at beat `barBeat`) to the next one
 struct Segment {
     double seconds = 0;
     double beat = 0;
     int bar = 0;
-    double bpm = 120;
+    double bpm = 120;      // at its start
     int beatsPerBar = 4;
-    double beatS() const { return 60.0 / bpm; }
+    double k = 0;          // BPM more per beat: 0 steady, else a ramp's slope
+    double barBeat = 0;    // where its bar starts (= beat when it starts on a bar line)
+    double beatS() const { return 60.0 / bpm; }  // seconds per beat at its start
+    double bpmAfter(double beats) const { return bpm + k * beats; }  // the tempo `beats` into it
+    // seconds from its start to `beats` into it, and back: the exact closed forms (before it: steady)
+    double secondsFor(double beats) const;
+    double beatsFor(double seconds) const;
+};
+
+// a tempo change as the map placed it (the tempo lane's points): bar 1's (change -1) and each of `changes`
+struct TempoPoint {
+    double beat = 0, seconds = 0, bpm = 120;
+    bool ramp = false;  // it ramps (and there is a next point to ramp to)
+    int change = -1;    // its index in TempoMap::changes; -1: bar 1's
 };
 
 struct BeatTime {
@@ -102,28 +136,45 @@ struct BeatTime {
 // The segments of a tempo map (immutable; see THREADS above). Any thread.
 class TempoMap {
 public:
-    TempoMap(double bpm = 120, int beatsPerBar = 4, std::vector<TempoChange> changes = {});
+    TempoMap(double bpm = 120, int beatsPerBar = 4, std::vector<TempoChange> changes = {}, bool ramp = false);
     const double bpm;       // bar 1's
     const int beatsPerBar;  // bar 1's
-    const std::vector<TempoChange> changes;  // sorted by bar
+    const std::vector<TempoChange> changes;  // sorted by place
+    const bool ramp;        // bar 1's tempo ramps to the first change's
     const std::vector<Segment>& segments() const { return segs_; }
+    const std::vector<TempoPoint>& points() const { return points_; }  // (by place; two at one place: the later)
     const Segment& segmentAt(double seconds) const;
+    const Segment& segmentAtBeat(double beat) const;
     const Segment* following(const Segment& s) const;  // the next segment, or null
     double beatAt(double seconds) const;  // beats since 0 s (through every segment) at `seconds`
     double secondsAt(double beat) const;
     double barSeconds(int bar) const;     // where bar `bar` (0-based) starts, in seconds
+    double barBeat(int bar) const;        // …and in beats
     int barAt(double seconds) const;      // the bar (0-based) `seconds` falls in
-    double bpmAt(double seconds) const { return segmentAt(seconds).bpm; }
-    double beatSAt(double seconds) const { return segmentAt(seconds).beatS(); }
+    int barAtBeat(double beat) const;
+    double bpmAt(double seconds) const;   // the tempo at that moment (inside a ramp: as far as it has got)
+    double bpmAtBeat(double beat) const;
+    double beatSAt(double seconds) const { return 60.0 / bpmAt(seconds); }
     int beatsPerBarAt(double seconds) const { return segmentAt(seconds).beatsPerBar; }
+    double beatOf(const TempoChange& c) const;  // where a change is, in beats since 0 s
+    // the time signature at `beat`: the bar (0-based) and beat where it began, and its beats per bar
+    void meterAt(double beat, int& bar, double& atBeat, int& beatsPerBar) const;
     // every beat from t0 to t1 seconds (the metronome); the audio thread passes a vector with room
     // (cleared first; it only allocates when it has to grow)
     void beatTimes(double t0, double t1, std::vector<BeatTime>& out) const;
     std::vector<BeatTime> beatTimes(double t0, double t1) const;
-    bool hasChanges() const { return segs_.size() > 1; }
+    bool hasChanges() const { return segs_.size() > 1 || segs_[0].k != 0; }
 
 private:
+    struct Meter {
+        int bar;
+        double beat;
+        int beatsPerBar;
+    };
+    std::vector<Meter> meters_;  // bar 1's, then each change at a bar's start
     std::vector<Segment> segs_;
+    std::vector<TempoPoint> points_;
+    const Meter& meterAtBeat(double beat) const;
 };
 using TempoMapPtr = std::shared_ptr<const TempoMap>;
 
@@ -135,7 +186,11 @@ struct Timing {
     double loopStart = 0;  // the loop range, in seconds (end <= start: none chosen yet)
     double loopEnd = 0;
     bool looping = false;  // playback jumps from the loop's end back to its start
-    std::vector<TempoChange> changes;  // by bar: the tempo and time signature from there (GUI thread)
+    std::vector<TempoChange> changes;  // by place: the tempo and time signature from there (GUI thread)
+    bool ramp = false;     // bar 1's tempo ramps to the first change's
+    // the song's timebase (timebase.h): true Beats (it stays on its beats when the tempo changes), false Time
+    // (it stays in seconds). New projects: Beats; project files from before the setting load as Time.
+    bool timebaseBeats = true;
     double grid = 0;       // a fixed grid step in beats (STRAIGHT_STEPS / THIRDS_STEPS / 4); 0 = it follows the zoom
     bool snapOn = true;    // clicks and drags snap to the grid (Ctrl+4); Alt does the opposite for one drag
     int key = 0;           // the song's key (0 = C … 11 = B), with `scale`: the MIDI editor's scale mode
@@ -157,15 +212,18 @@ struct Timing {
     TempoMapPtr audioMap() const;  // any thread: the map as last published
     const std::vector<Segment>& segments() const { return map()->segments(); }  // (valid until the next change)
     Segment segmentAt(double seconds) const { return map()->segmentAt(seconds); }
-    // the tempo and time signature from bar `bar` (≥ 2) on
+    // the tempo and time signature from bar `bar` (≥ 2) on (a ramp there stays one)
     void setChange(int bar, double bpm, int beatsPerBar);
-    void removeChange(int bar);  // no change at bar `bar` any more
-    const TempoChange* changeAtBar(int bar) const;  // null if none
+    void setChange(const TempoChange& c);  // (replacing the one at its place)
+    void removeChange(int bar, double beat = 0);  // no change at bar `bar` (`beat` into it) any more
+    const TempoChange* changeAtBar(int bar) const { return changeAt(bar, 0); }  // null if none
+    const TempoChange* changeAt(int bar, double beat) const;
     double beatAt(double seconds) const { return map()->beatAt(seconds); }
     double secondsAt(double beat) const { return map()->secondsAt(beat); }
     double barSeconds(int bar) const { return map()->barSeconds(bar); }
     int barAt(double seconds) const { return map()->barAt(seconds); }
     double bpmAt(double seconds) const { return map()->bpmAt(seconds); }
+    double barBeat(int bar) const { return map()->barBeat(bar); }
     double beatSAt(double seconds) const { return map()->beatSAt(seconds); }
     int beatsPerBarAt(double seconds) const { return map()->beatsPerBarAt(seconds); }
     std::vector<BeatTime> beatTimes(double t0, double t1) const { return map()->beatTimes(t0, t1); }
@@ -193,6 +251,9 @@ struct Timing {
 
 private:
     mutable TempoMapPtr map_;  // the last map made (read with atomic_load by the audio thread)
+    // (the same on a map already in hand: map() compares every change, so loops over many lines take it once)
+    Frac adaptiveStepOn(const TempoMap& m, double pps, double seconds) const;
+    Frac gridStepOn(const TempoMap& m, double pps, double seconds, bool drawing = false) const;
 };
 
 // Works out a tempo from taps (the Tap button): the average interval of the last TAP_COUNT taps.

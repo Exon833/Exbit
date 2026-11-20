@@ -35,7 +35,10 @@ struct MidiPart {
 };
 // Write a standard MIDI file (type 1): a track per part, times from `startS` seconds into the song. Its
 // tempo and time signature (and their changes after startS) go first, in a track of their own ("Tempo"),
-// so the notes land on the same beats elsewhere.
+// so the notes land on the same beats elsewhere. A MIDI file can't hold a ramp: it is written as a tempo
+// event every MIDI_RAMP_STEP beats (a 1/16), each the step's average tempo, so every step (and every note
+// after the ramp) ends exactly where it does in the song.
+constexpr double MIDI_RAMP_STEP = 0.25;
 bool saveMidi(const std::string& path, const std::vector<MidiPart>& parts, const Timing& timing, double startS,
               std::string& error);
 

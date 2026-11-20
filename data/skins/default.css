@@ -493,6 +493,7 @@ FileDialog::form { row-gap: 6px; }
 /* The layout's sizes (also where the mouse grabs things). */
 :root {
     --ruler-height: 24px;          /* the timeline's ruler (and the CPU monitor beside it) */
+    --tempo-lane-height: 56px;     /* the tempo lane under the ruler (View → Tempo lane) */
     --master-height: 86px;         /* the master lane and its row */
     --group-height: 52px;          /* a group's header lane and row */
     --take-height: 46px;           /* a take lane and its row */
@@ -1081,7 +1082,7 @@ HistoryWindow::undone { color: var(--disabled-text); }
    a row's: column-gap), min-width the least a window is made. ::row is a row of controls inside one (::header,
    ::buttons where a dialog has both). Dialog.group-tracks is Group tracks…, Dialog.recovery "Recover your work?"
    (::text its text's least width, ::buttons the room above its buttons: margin-top). */
-AudioPropertiesDialog, RecordOffsetDialog, RenderDialog, RecordSettingsDialog, TempoDialog, StretchDialog {
+AudioPropertiesDialog, RecordOffsetDialog, RenderDialog, RecordSettingsDialog, TempoDialog, WarpDialog {
     padding: 11px;
     row-gap: 6px;
 }
@@ -1089,7 +1090,7 @@ AudioPropertiesDialog { min-width: 480px; }
 RecordOffsetDialog { min-width: 460px; }
 RenderDialog { min-width: 420px; }
 RecordSettingsDialog { min-width: 380px; }
-StretchDialog::row { column-gap: 6px; }
+WarpDialog::row { column-gap: 6px; }
 ParameterDialog, PluginChooser, PluginFoldersDialog, WinePrefixesDialog { padding: 10px; row-gap: 6px; }
 PluginChooser::row, PluginFoldersDialog::row, WinePrefixesDialog::row { column-gap: 6px; }
 PluginsDialog { padding: 10px; row-gap: 6px; }
