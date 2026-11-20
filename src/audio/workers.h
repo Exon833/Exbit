@@ -66,6 +66,8 @@ private:
 // alone), n = that many cores in all): the cores this program may use less one (the audio thread), with
 // no other limit (CLAUDE.md, rule 13: every thread the machine has).
 int workersFor(int wanted);
+// is this thread running a pool's job now? (work that could make a pool of its own doesn't, inside another's)
+bool inJob();
 // the processor cores this program may run on (its CPU affinity: taskset, cgroups), at least 1
 int availableCores();
 // the user's choice (Options → Audio properties → Processing cores), for renders, which make a Pool of

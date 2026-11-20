@@ -492,6 +492,12 @@ bool Engine::hasPlugins() const {
         auto fx = t->effects.get();
         for (auto& s : *fx)
             if (aload(s->instance)) return true;
+        int depth = 0;  // (the buses of its groups: model.h GROUP BUSES)
+        for (Group* g = t->group.get(); g && depth < 4096; g = aload(g->parent).get(), depth++) {
+            auto busFx = g->bus->effects.get();
+            for (auto& s : *busFx)
+                if (aload(s->instance)) return true;
+        }
     }
     auto master = project.masterEffects.get();
     for (auto& s : *master)

@@ -1,3 +1,4 @@
+#include "model/routing.h"
 #include "ui/overview.h"
 
 #include <algorithm>
@@ -163,7 +164,7 @@ Image Overview::renderContent(double span) const {
             const LaneLook& g = laneLooks_.get(LaneKind::Group);
             Color own;
             box(p, pixels(area), paint::groupColor(*lane.group, own) ? g.recolored.get(g.box, own) : g.box);
-            auto members = project.members(lane.group);
+            auto members = routing::inside(project, lane.group.get());
             for (size_t i = 0; i < members.size(); ++i)
                 inHeader[members[i].get()] = {y + i * h / members.size(), h / members.size()};
         }

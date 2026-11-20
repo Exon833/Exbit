@@ -153,11 +153,12 @@ static void testChooseAndDrop() {
     float loud = 0;
     for (int64_t k = (int64_t)(0.5 * SR); k < (int64_t)(0.6 * SR); k++) loud = std::max(loud, std::fabs(clip->data->samples[(size_t)k * 2]));
     CHECK(loud > 0.1f);
-    // the right-click menu: Load sample…, Clear, Choke group ▸ None, 1…8
+    // the right-click menu: Load sample…, Clear, Choke group ▸ None, 1…8, Output ▸, Pads to tracks
     Menu padMenu;
     d->fillPadMenu(padMenu, 3);
-    CHECK(padMenu.actions().size() == 3 && padMenu.actions()[0]->text == "Load sample\xe2\x80\xa6" &&
-          padMenu.actions()[1]->text == "Clear");
+    CHECK(padMenu.actions().size() == 5 && padMenu.actions()[0]->text == "Load sample\xe2\x80\xa6" &&
+          padMenu.actions()[1]->text == "Clear" && padMenu.actions()[3]->text == "Output" &&
+          padMenu.actions()[4]->text == "Pads to tracks");
     Menu* groups = nullptr;
     for (auto& a : padMenu.actions())
         if (a->text == "Choke group") groups = a->submenu;

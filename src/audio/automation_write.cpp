@@ -28,7 +28,7 @@ AutomationPtr armedControlLane(const Track& track, const std::string& param) {
 
 AutomationPtr armedLane(const Project& project, const PluginSlot* slot, const std::string& param) {
     if (!slot) return nullptr;
-    for (auto& track : project.tracks)
+    for (auto& track : project.allTracks())
         for (auto& lane : track->automation)
             if (lane->armed && lane->slot.get() == slot && lane->param == param) return lane;
     return nullptr;
@@ -36,7 +36,7 @@ AutomationPtr armedLane(const Project& project, const PluginSlot* slot, const st
 
 double writtenValue(const Project& project, const PluginSlot* slot, uint32_t id, const std::string& param) {
     if (!slot) return -1;
-    for (auto& track : project.tracks)  // (modulated: the base, which the user moves: modulation::userEdited)
+    for (auto& track : project.allTracks())  // (modulated: the base, which the user moves: modulation::userEdited)
         for (auto& cable : track->modCables)
             if (cable.to == slot && cable.param == param && cable.state) {
                 double base = cable.state->base.load(std::memory_order_relaxed);

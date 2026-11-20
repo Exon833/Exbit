@@ -24,8 +24,12 @@
 // A take lane (Show takes, right-click the row) has a row with the take's name and length, Use (all
 // of it) and ✕ (delete it from the takes).
 //
-// A group has a header row above its tracks (fold ▾/▸, mute, solo, ungroup, and a meter showing
-// its tracks together); its tracks' rows have a bar in the group's colour down their left side.
+// A group has a header row above its tracks (fold ▾/▸, mute, solo, ungroup); its tracks' rows have a bar in the
+// group's colour down their left side. A group with a bus (model.h GROUP BUSES) has the bus's controls in its
+// header, as a track's row has them: FX, pan, fader and dB, meter, output pair, Auto (its automation lanes under
+// the header) and sends; drag its bottom edge to resize it. Its menu: Fold only (no bus), Output (where the bus
+// plays: model/routing.h), Put in group (nesting). A group without a bus has a meter showing its tracks together.
+// A track's menu has Output: Master, a group's bus or another track (greyed: it would make a loop).
 // The rows follow the same lanes as the timeline (lanes.h).
 //
 // TRACK SELECTION. Click a track's row to select it; Shift-click selects the tracks from the one clicked last to it,
@@ -150,6 +154,8 @@ public:
     // right-click menus
     void fillTrackMenu(ui::Menu& menu, const TrackPtr& track);
     void fillGroupMenu(ui::Menu& menu, const GroupPtr& group);
+    // Output: where the track (or a group's bus) plays (model/routing.h); a loop greyed out
+    void fillOutputMenu(ui::Menu& menu, const TrackPtr& track);
     void chooseColor(const TrackPtr& track);
     void chooseColor(const GroupPtr& group);
     void groupWith(const TrackPtr& track);
@@ -176,7 +182,8 @@ public:
     // fed by the main window every frame (meters) and every CPU_REFRESH_MS (loudness)
     std::map<TrackPtr, LevelMeter*> meters;
     std::map<TrackPtr, LoudnessDisplay*> loudness;
-    std::map<GroupPtr, LevelMeter*> groupMeters;  // a group's tracks together
+    std::map<GroupPtr, LevelMeter*> groupMeters;  // a group's tracks together (a group without a bus)
+    std::map<GroupPtr, LaneFrame*> groupFrames;   // a group's header row while it has a bus (its meter: meters[bus])
     std::map<TrackPtr, LaneFrame*> frames;        // each track's row
     std::map<AutomationPtr, LaneFrame*> automationFrames;
     struct Mixer {                                // a track row's fader, its dB and its pan knob
@@ -213,7 +220,8 @@ private:
     ui::Widget* rowsBox_ = nullptr;  // holds the rows (replaced on every rebuild)
     std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
     int styled_ = -1;                // the stylesheets' generation the rows were made with
-    LaneFrame* trackHeader(ui::Widget* parent, const TrackPtr& track, bool alternate);
+    // a track's row; with asGroup, that group's header row with its bus's controls (track: the bus)
+    LaneFrame* trackHeader(ui::Widget* parent, const TrackPtr& track, bool alternate, const GroupPtr& asGroup = nullptr);
     LaneFrame* automationHeader(ui::Widget* parent, const Lane& lane);
     LaneFrame* takeHeader(ui::Widget* parent, const Lane& lane);
     LaneFrame* groupHeader(ui::Widget* parent, const GroupPtr& group);

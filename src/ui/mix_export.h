@@ -13,7 +13,9 @@
 //
 // File → Export stems… renders each track to a file of its own (24-bit WAV; its sound after its
 // fader and pan, with what it sends to returns left out; a return's stem is what the tracks send it,
-// through its effects), all from 0 s to the same end, so they line up when put together elsewhere.
+// through its effects), all from 0 s to the same end, so they line up when put together elsewhere. A group bus
+// that does something (model/routing.h: not plain) is a stem of its own holding its tracks, and a track played into
+// another is in that one's, so the stems add up to the mix; a plain bus's tracks are stems each.
 // Mute and solo, the master's effects and volume are left out.
 //
 // Rendering calls the plugins from the main thread, so playback stops and the engine leaves plugins

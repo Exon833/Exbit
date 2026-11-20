@@ -3,11 +3,15 @@
 #include <cmath>
 #include <cstdint>
 #include <memory>
+#include <utility>
 #include <vector>
 
 // Stereo audio, interleaved (L R L R …): what clips play from. Shared between split clips.
 struct AudioBuffer {
     std::vector<float> samples;  // frames * 2
+    // a Pad Kit clip's rendering (model/pad_tracks.h): the sound of each pad playing on a track of its own, kept
+    // apart from `samples` (the rest of the kit), each as many frames; (pad, its sound), by pad; empty otherwise
+    std::vector<std::pair<int, std::shared_ptr<const AudioBuffer>>> pads;
     int64_t frames() const { return (int64_t)(samples.size() / 2); }
     float* frame(int64_t i) { return samples.data() + i * 2; }
     const float* frame(int64_t i) const { return samples.data() + i * 2; }

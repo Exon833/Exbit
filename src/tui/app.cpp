@@ -18,6 +18,7 @@
 #include "core/util.h"
 #include "model/auto_follow.h"
 #include "model/edits.h"
+#include "model/routing.h"
 #include "paths.h"
 #include "platform/platform.h"
 #include "ui/autosave.h"
@@ -834,8 +835,53 @@ bool Front::panelKey(const Key& k) {
         }
     }
     if (!master && ls[(size_t)laneRow].group) {
-        if (k.key == plat::Key_Return || k.key == plat::Key_Enter) w_.panel->rename(ls[(size_t)laneRow].group);
-        return k.key == plat::Key_Return || k.key == plat::Key_Enter;
+        GroupPtr g = ls[(size_t)laneRow].group;
+        if (k.key == plat::Key_Return || k.key == plat::Key_Enter) {
+            w_.panel->rename(g);
+            return true;
+        }
+        // a group's row as a track's (model.h GROUP BUSES): M S its mute and solo; with a bus, Left/Right its fader,
+        // [ ] its pan, E its effects, U its automation lanes, D its sends
+        if (k.mods) return false;
+        if (k.key == 'M' || k.key == 'S') {
+            bool& flag = k.key == 'M' ? g->muted : g->soloed;
+            flag = !flag;
+            util::debugf("tui: group %s %s %s", g->name.c_str(), k.key == 'M' ? "mute" : "solo", flag ? "on" : "off");
+            changed();
+            w_.showStatus(g->name + (k.key == 'M' ? (flag ? ": muted" : ": unmuted") : (flag ? ": soloed" : ": unsoloed")), 3000);
+            return true;
+        }
+        if (!routing::busOn(*g)) return false;
+        TrackPtr bus = g->bus;
+        switch (k.key) {
+        case plat::Key_Left:
+        case plat::Key_Right:
+            bus->volumeDb = std::clamp(std::round(bus->volumeDb) + (k.key == plat::Key_Left ? -1 : 1), (double)config::MIN_DB,
+                                       (double)config::MAX_DB);
+            changed();
+            w_.showStatus(g->name + " bus: " + dbText(bus->volumeDb) + " dB", 2000);
+            return true;
+        case '[':
+        case ']':
+            bus->pan = std::clamp(std::round(bus->pan * 10 + (k.key == '[' ? -1 : 1)) / 10, -1.0, 1.0);
+            changed();
+            return true;
+        case 'E': w_.openTrackPlugins(bus); return true;
+        case 'U': w_.panel->toggleAutomation(bus, !bus->showAutomation); return true;
+        case 'D': {
+            std::function<SendsButton*(ui::Widget*)> find = [&](ui::Widget* w) -> SendsButton* {
+                if (auto* b = dynamic_cast<SendsButton*>(w))
+                    if (b->track == bus) return b;
+                for (auto& c : w->children())
+                    if (SendsButton* b = find(c.get())) return b;
+                return nullptr;
+            };
+            if (SendsButton* b = find(w_.panel)) b->showSends();
+            else w_.showStatus("No return tracks to send to: + Return (Ctrl+Alt+T) makes one", 3000);
+            return true;
+        }
+        default: return false;
+        }
     }
     if (!master && ls[(size_t)laneRow].take) return false;
     TrackPtr t = master ? nullptr : ls[(size_t)laneRow].track;
@@ -1482,9 +1528,17 @@ void Front::drawPanel(Screen& s, int x, int y, int w, int h) {
                 sel, nearestColor(t->color, t->kind == Kind::Midi ? Green : Blue), false, t->soloSafe);
             continue;
         }
+        if (lane.group && routing::busOn(*lane.group)) {  // a group bus: its row as a track's (its group's M and S)
+            const Group& g = *lane.group;
+            auto it = w_.panel->meters.find(g.bus);
+            row(ry, std::string(g.folded ? "▸ " : "▾ ") + g.name, g.muted, g.soloed, g.bus->volumeDb, g.bus->pan,
+                it != w_.panel->meters.end() ? it->second : nullptr, sel, Magenta, false);
+            continue;
+        }
         if (sel) s.fill(x, ry, w, 1, U' ', st);
         if (lane.group) {
-            s.text(x, ry, std::string(lane.group->folded ? "▸ " : "▾ ") + lane.group->name, sel ? st : style(Magenta, Default, Bold), w);
+            s.text(x, ry, std::string(lane.group->folded ? "▸ " : "▾ ") + lane.group->name + "  (fold only)",
+                   sel ? st : style(Magenta, Default, Bold), w);
         } else if (lane.automation) {
             const Automation& au = *lane.automation;
             std::string text = "  ↳ " + au.param + "  " + laneText(lane, laneValue(lane, cursorS)) + (au.armed ? "  [W]" : "");
@@ -1525,7 +1579,12 @@ void Front::drawStatus(Screen& s) {
                       "S: split  Del  +/-: zoom  F2: menu";
             break;
         case Pane::Panel:
-            msg = "M S: mute solo  Shift+S: solo safe  Left/Right: volume  [/]: pan  E: effects  I: instrument  U: automation  K: takes  "
+            if (currentLane() && currentLane()->group)
+                msg = routing::busOn(*currentLane()->group)
+                          ? "A group bus: M S: mute solo  Left/Right: volume  [/]: pan  E: effects  U: automation  D: sends  "
+                            "Enter: rename  F2: menu (Fold only, Output, Put in group)"
+                          : "A group (fold only): M S: mute solo  Enter: rename  F2: menu (its bus back: Fold only off)";
+            else msg = "M S: mute solo  Shift+S: solo safe  Left/Right: volume  [/]: pan  E: effects  I: instrument  U: automation  K: takes  "
                   "Enter: rename  A/N: new  Shift+Up/Down: select  Alt+Up/Down: move  Ctrl+D: duplicate  F2: menu";
             break;
         }
@@ -1659,6 +1718,12 @@ void Front::drawHelp(Screen& s) {
         "  U  K  O  D        automation lanes, takes, the next output pair, sends to return tracks",
         "  Shift+Up/Down     select several tracks (changes then go to all of them)",
         "  Alt+Up/Down       move the track(s)   Ctrl+D: duplicate (F2: without clips)",
+        "  F2                its menu: Output (master, a group's bus or another track), groups, freezing",
+        "A group's row (its bus)",
+        "  M S               mute, solo everything in it    Enter: rename",
+        "  Left/Right  [ ]   its bus's fader (dB) and pan",
+        "  E  U  D           its bus's effects, automation lanes, sends to return tracks",
+        "  F2                its menu: Fold only (no bus), Output, Put in group (nesting), Ungroup",
         "Explorer",
         "  Enter             open a folder or project; add a sample at the cursor    Space: hear it",
         "Dialogs: Tab moves between controls, Enter is the default button, Esc cancels.",

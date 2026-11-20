@@ -1,5 +1,9 @@
 // The right-hand panel: one row per track, group and automation lane (lane_panel.py).
 #include "ui/lane_panel.h"
+#include "model/pad_tracks.h"
+#include "model/routing.h"
+#include "ui/pad_kit_dialog.h"
+#include "core/util.h"
 #include "ui/song_scale.h"
 
 #include <algorithm>
@@ -271,11 +275,12 @@ void LanePanel::rebuild() {
     frames.clear();
     loudness.clear();
     groupMeters.clear();
+    groupFrames.clear();
     automationFrames.clear();
     mixers.clear();
     takeFrames.clear();
     bool pruned = false;
-    for (auto& t : project.tracks) pruned = automation::prune(*t) || pruned;  // (lanes of plugins that are gone)
+    for (auto& t : project.allTracks()) pruned = automation::prune(*t) || pruned;  // (lanes of plugins that are gone)
     // (another skin: its sizes, the panel's width and the lanes' heights, may be others; the main window rebuilds
     // the rows after a skin change)
     bool restyled = styled_ != theme::styles().generation();
@@ -320,25 +325,33 @@ void LanePanel::rebuild() {
     fitHeight();
 }
 
-LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, bool alternate) {
+LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, bool alternate, const GroupPtr& asGroup) {
     std::vector<std::string> states;
     if (alternate) states.push_back("alternate");
-    RowStyle style(this, {"track", kindClass(track->kind)}, states);
-    Color color = style.background(theme::c(alternate ? "row_alt" : "row"));
+    // (a group's header with its bus: the group's look, the bus's controls)
+    RowStyle style(this, asGroup ? std::vector<std::string>{"group"} : std::vector<std::string>{"track", kindClass(track->kind)},
+                   states);
+    Color color = style.background(theme::c(asGroup ? "group_lane" : alternate ? "row_alt" : "row"));
     std::optional<Color> text;
-    if (!track->color.empty()) {
+    const std::string& ownColor = asGroup ? asGroup->color : track->color;
+    if (!ownColor.empty()) {
         Color bg, fg;
-        colors::trackColors(track->color, track->tone, bg, fg);
+        colors::trackColors(ownColor, asGroup ? asGroup->tone : track->tone, bg, fg);
         color = bg;
         text = fg;
     }
-    // (clicking the row selects the track, dragging it moves it: TrackRow)
-    auto* frame = parent->add<TrackRow>(*this, track, color, style.stripe().value_or(kindAccent(track->kind)),
-                                        track->height, text);
+    LaneFrame* frame;
+    if (asGroup) {
+        frame = parent->add<LaneFrame>(color, lane_panel::groupBarColor(*asGroup, this), lanes::headerHeight(*asGroup), text);
+        frame->fillMenu = [this, asGroup](ui::Menu& menu) { fillGroupMenu(menu, asGroup); };
+    } else {  // (clicking the row selects the track, dragging it moves it: TrackRow)
+        frame = parent->add<TrackRow>(*this, track, color, style.stripe().value_or(kindAccent(track->kind)), track->height,
+                                      text);
+        frame->fillMenu = [this, track](ui::Menu& menu) { fillTrackMenu(menu, track); };
+    }
     frame->setRowStyle(style.row);  // (its box: TrackRow's, in its colour)
-    frame->fillMenu = [this, track](ui::Menu& menu) { fillTrackMenu(menu, track); };
     ui::HBox* outer = ui::hbox(frame, 0, 0);
-    if (track->group) {
+    if (track->group && !asGroup) {
         auto* bar = frame->add<ui::Canvas>();
         GroupPtr group = track->group;
         // (TrackRow::group-bar: a box in the group's colour, else its own)
@@ -356,16 +369,32 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
     col->setSpacing(style.rowGap(4));
     auto* row = nest<ui::HBox>(col);
     row->setSpacing(style.columnGap(4));
-    std::string delay = track->delayMs ? "  (" + signedMs(track->delayMs) + " ms)" : "";
-    auto* name = frame->add<NameLabel>((track->frozen ? "❄ " + track->name : track->name) + delay);
-    name->doubleClicked.connect([this, track] { rename(track); });
-    name->setToolTip(track->frozen ? "Frozen: it plays its rendering; its clips and plugins are locked until you unfreeze "
-                                     "it (right-click)"
-                                   : "Double-click to rename. Right-click the row for the track colour, groups, freezing "
-                                     "and bouncing");
-    row->addWidget(name, 1);
     Timeline* tl = &timeline;
-    ui::Button* remove = widgets::iconButton(frame, "✕", [tl, track] { tl->removeTrack(track); }, "Remove " + track->name);
+    std::string delay = track->delayMs ? "  (" + signedMs(track->delayMs) + " ms)" : "";
+    if (asGroup) {
+        row->addWidget(widgets::iconButton(frame, asGroup->folded ? "▸" : "▾", [tl, asGroup] { tl->toggleFold(asGroup); },
+                                           asGroup->folded ? "Show its tracks" : "Fold its tracks away"));
+        auto* name = frame->add<NameLabel>(asGroup->name + delay, true);
+        name->doubleClicked.connect([this, asGroup] { rename(asGroup); });
+        name->setToolTip("A group bus: its tracks play through its effects, fader and pan. Double-click to rename; "
+                         "right-click for its colour, output, or Fold only (no bus)");
+        row->addWidget(name, 1);
+    } else {
+        auto* name = frame->add<NameLabel>((track->frozen ? "❄ " + track->name : track->name) + delay);
+        name->doubleClicked.connect([this, track] { rename(track); });
+        std::string input = pad_tracks::inputName(project, *track);  // (a Pad Kit's pad on its own track)
+        name->setToolTip(track->frozen ? "Frozen: it plays its rendering; its clips and plugins are locked until you unfreeze "
+                                         "it (right-click)"
+                         : !input.empty() ? "Input: " + input + " (that pad's sound, before its effects). Double-click to "
+                                            "rename; right-click the row for Back to the kit"
+                                          : "Double-click to rename. Right-click the row for the track colour, groups, freezing "
+                                            "and bouncing");
+        row->addWidget(name, 1);
+    }
+    ui::Button* remove = asGroup ? widgets::iconButton(frame, "✕", [tl, asGroup] { tl->ungroup(asGroup); },
+                                                       "Ungroup (the tracks stay)")
+                                 : widgets::iconButton(frame, "✕", [tl, track] { tl->removeTrack(track); },
+                                                       "Remove " + track->name);
     if (track->kind == Kind::Midi && track->needsInstrument) {  // nothing else until it has an instrument
         row->addWidget(remove);
         auto* choose = frame->add<ui::Button>("Choose instrument");
@@ -424,10 +453,23 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
         else automation::recorder().release(lane);
     };
     row->addWidget(pan);
-    row->addWidget(widgets::toggleButton(frame, "M", "mute", track->muted,
-                                         [setFlag](bool on) { setFlag(&Track::muted, on, on ? "Mute" : "Unmute"); },
-                                         "Mute"));
-    if (track->kind != Kind::Return)  // (soloing other tracks leaves the returns playing)
+    if (asGroup) {  // (the group's mute and solo: everything in it)
+        auto groupFlag = [tl](bool& flag, bool on) {
+            flag = on;
+            tl->update();  // silent clips are drawn grey
+        };
+        row->addWidget(widgets::toggleButton(frame, "M", "mute", asGroup->muted,
+                                             [groupFlag, asGroup](bool on) { groupFlag(asGroup->muted, on); },
+                                             "Mute the group"));
+        row->addWidget(widgets::toggleButton(frame, "S", "solo", asGroup->soloed,
+                                             [groupFlag, asGroup](bool on) { groupFlag(asGroup->soloed, on); },
+                                             "Solo the group"));
+    } else {
+        row->addWidget(widgets::toggleButton(frame, "M", "mute", track->muted,
+                                             [setFlag](bool on) { setFlag(&Track::muted, on, on ? "Mute" : "Unmute"); },
+                                             "Mute"));
+    }
+    if (track->kind != Kind::Return && !asGroup)  // (soloing other tracks leaves the returns playing)
         row->addWidget(frame->add<SoloButton>(track, [this, tl, track, setFlag](SoloButton::Change c) {
             if (c == SoloButton::Change::Exclusive) {
                 project.soloOnly(track);
@@ -616,6 +658,11 @@ LaneFrame* LanePanel::takeHeader(ui::Widget* parent, const Lane& lane) {
 }
 
 LaneFrame* LanePanel::groupHeader(ui::Widget* parent, const GroupPtr& group) {
+    if (routing::busOn(*group)) {  // a bus: its fader, pan, meter, effects, sends and automation, as a track's
+        LaneFrame* frame = trackHeader(parent, group->bus, false, group);
+        groupFrames[group] = frame;
+        return frame;
+    }
     RowStyle style(this, {"group"});
     Color fill = style.background(theme::c("group_lane"));
     std::optional<Color> text;
@@ -735,7 +782,7 @@ void LanePanel::showCurrentTrack() {
 void LanePanel::showUsedOutputs() {
     for (auto& [group, meter] : groupMeters) {
         std::vector<int> outs;
-        for (auto& t : project.members(group))
+        for (auto& t : routing::inside(project, group.get()))
             for (int c : lane_panel::trackOutputs(*t)) outs.push_back(c);
         meter->showChannels(outs);
     }
@@ -827,8 +874,63 @@ void LanePanel::fillTrackMenu(ui::Menu& menu, const TrackPtr& track) {
         ui::Menu* join = menu.addMenu("Add to group");
         for (auto& group : others) join->addAction(group->name, [tl, track, group] { tl->setGroup(track, group); });
     }
-    if (track->group) menu.addAction("Remove from " + track->group->name, [tl, track] { tl->setGroup(track, nullptr); });
+    if (track->group)  // (nested: into the group around it)
+        menu.addAction("Remove from " + track->group->name,
+                       [tl, track] { tl->setGroup(track, std::atomic_load(&track->group->parent)); });
+    std::string input = pad_tracks::inputName(project, *track);  // (a Pad Kit's pad on its own track: model/pad_tracks.h)
+    if (!input.empty()) {
+        ui::Menu* from = menu.addMenu("Input: " + input);
+        from->addAction("Back to the kit", [track] { pad_kit_dialog::backToKit(track); })->tooltip =
+            "The pad plays in its kit's own sound again (this track stays, without it)";
+    }
+    fillOutputMenu(*menu.addMenu("Output: " + routing::targetName(*track)), track);
     if (fillRenderMenu) fillRenderMenu(menu, track);
+}
+
+void LanePanel::fillOutputMenu(ui::Menu& menu, const TrackPtr& track) {
+    // OUTPUT ROUTING (model/routing.h): its default (its group's bus, or the master), a group's bus or another track;
+    // what would make a loop is greyed out
+    std::weak_ptr<bool> alive = alive_;
+    TrackPtr now = std::atomic_load(&track->into);
+    auto route = [this, alive, track](TrackPtr to) {
+        if (alive.expired()) return;
+        bool ok = routing::setInto(track, to);
+        if (status)
+            status(ok ? (track->busOf ? track->busOf->name : track->name) + " plays into " + routing::targetName(*track)
+                      : std::string("That would make a loop: its sound would come back to it"),
+                   3000);
+        rebuild();
+        timeline.update();
+    };
+    std::string byDefault = "Master";
+    {
+        TrackPtr was = now;
+        std::atomic_store(&track->into, TrackPtr());  // (what it plays into by default: asked of the model)
+        byDefault = routing::targetName(*track);
+        std::atomic_store(&track->into, was);
+    }
+    ui::Action* def = menu.addCheckable(byDefault == "Master" ? "Master" : byDefault + " (its group)", !now,
+                                        [route](bool) { route(nullptr); });
+    def->tooltip = "Where it plays by default: its group's bus, or the master";
+    std::vector<GroupPtr> buses;
+    for (auto& g : project.groups())
+        if (routing::busOn(*g) && g->bus != track) buses.push_back(g);
+    if (!buses.empty()) menu.addSection("Group buses");
+    for (auto& g : buses) {
+        TrackPtr bus = g->bus;
+        ui::Action* a = menu.addCheckable(g->name, now == bus, [route, bus](bool) { route(bus); });
+        a->setEnabled(routing::canRoute(*track, bus.get()));
+        if (!a->enabled) a->tooltip = "Its sound would come back to it";
+    }
+    std::vector<TrackPtr> others;
+    for (auto& t : project.tracks)
+        if (t != track && t->kind != Kind::Return && track->kind != Kind::Return) others.push_back(t);
+    if (!others.empty()) menu.addSection("Tracks (into their input, before their effects)");
+    for (auto& t : others) {
+        ui::Action* a = menu.addCheckable(t->name, now == t, [route, t](bool) { route(t); });
+        a->setEnabled(routing::canRoute(*track, t.get()));
+        if (!a->enabled) a->tooltip = "Its sound would come back to it";
+    }
 }
 
 void LanePanel::fillGroupMenu(ui::Menu& menu, const GroupPtr& group) {
@@ -837,6 +939,49 @@ void LanePanel::fillGroupMenu(ui::Menu& menu, const GroupPtr& group) {
     menu.addAction("Rename group…", [this, alive, group] { if (!alive.expired()) rename(group); });
     menu.addAction("Group colour…", [this, alive, group] { if (!alive.expired()) chooseColor(group); });
     menu.addAction(group->folded ? "Show its tracks" : "Fold its tracks away", [tl, group] { tl->toggleFold(group); });
+    // GROUP BUSES (model.h): its bus off ("Fold only") or on, where the bus plays, its effects and automation
+    ui::Action* only = menu.addCheckable("Fold only (no bus)", group->foldOnly, [this, alive, group](bool on) {
+        if (alive.expired()) return;
+        group->foldOnly = on;
+        routing::fixLoops(project);
+        util::debugf("group %s: %s", group->name.c_str(), on ? "fold only (no bus)" : "a bus");
+        if (status) status(group->name + (on ? ": fold only, its tracks play on without a bus" : ": a bus again"), 3000);
+        rebuild();
+        timeline.lanesChanged();
+    });
+    only->tooltip = "Fold, mute and solo its tracks only: no fader, effects or sends of its own";
+    if (routing::busOn(*group)) {
+        TrackPtr bus = group->bus;
+        auto open = openPlugins;
+        menu.addAction("Effects…", [open, bus] { if (open) open(bus); });
+        menu.addAction("Automate a parameter…", [this, alive, bus] { if (!alive.expired()) addAutomation(bus); });
+        if (!bus->automation.empty())
+            menu.addAction(bus->showAutomation ? "Hide automation" : "Show automation",
+                           [this, alive, bus] { if (!alive.expired()) toggleAutomation(bus, !bus->showAutomation); });
+        menu.addAction("Bus delay…" + (bus->delayMs ? " (" + signedMs(bus->delayMs) + " ms)" : std::string()),
+                       [this, alive, bus] { if (!alive.expired()) setDelay(bus); });
+        fillOutputMenu(*menu.addMenu("Output: " + routing::targetName(*bus)), bus);
+    }
+    // nesting: inside another group (not itself or one inside it), or out of the one it is in
+    ui::Menu* nest = menu.addMenu("Put in group");
+    GroupPtr parent = std::atomic_load(&group->parent);
+    for (auto& g : project.groups()) {
+        if (g == group || g == parent) continue;
+        ui::Action* a = nest->addAction(g->name, [this, alive, group, g] {
+            if (alive.expired()) return;
+            routing::setParent(project, group, g);
+            timeline.tracksRegrouped();
+        });
+        a->setEnabled(routing::canNest(group, g));
+        if (!a->enabled) a->tooltip = "It is inside " + group->name;
+    }
+    if (nest->actions().empty()) nest->addAction("(no other group)")->setEnabled(false);
+    if (parent)
+        menu.addAction("Take out of " + parent->name, [this, alive, group, parent] {
+            if (alive.expired()) return;
+            routing::setParent(project, group, std::atomic_load(&parent->parent));
+            timeline.tracksRegrouped();
+        });
     menu.addSeparator();
     menu.addAction("Ungroup (the tracks stay)", [tl, group] { tl->ungroup(group); });
 }
@@ -892,7 +1037,10 @@ void LanePanel::rename(const TrackPtr& track) {
 }
 
 void LanePanel::rename(const GroupPtr& group) {
-    if (askName(dialogParent(), "group", group->name)) rebuild();
+    if (askName(dialogParent(), "group", group->name)) {
+        group->bus->name = group->name;  // (its bus goes by its name: the effects window, sidechains)
+        rebuild();
+    }
 }
 
 void LanePanel::setMetersVisible(bool levels, bool loud) {
@@ -908,6 +1056,7 @@ void LanePanel::setMetersVisible(bool levels, bool loud) {
 void LanePanel::updateHeights() {
     for (auto& [track, frame] : frames) frame->setFixedHeight(track->height);
     for (auto& [a, frame] : automationFrames) frame->setFixedHeight(a->height);
+    for (auto& [g, frame] : groupFrames) frame->setFixedHeight(lanes::headerHeight(*g));
     fitHeight();
 }
 

@@ -1,4 +1,5 @@
 // The main window (main_window.py). See main_window.h.
+#include "model/routing.h"
 #include "ui/main_window.h"
 #include "audio/midi_effects.h"
 
@@ -1451,7 +1452,7 @@ void MainWindow::checkFxWindows() {
     // are gone or frozen (or not playing their panel); the others show their plugins afresh.
     project.forgetGoneTracks();  // (sidechains listening to a removed track)
     projectReplaced();           // (the MIDI effects and sampler windows of tracks that are gone)
-    engine.metering->forgetGone(*project.tracks);
+    engine.metering->forgetGone(project.allTracks());
     patch::ensureStates(project);
     std::vector<PluginsDialog*> windows;
     for (auto& [key, w] : fxWindows) {
@@ -1467,7 +1468,7 @@ void MainWindow::checkFxWindows() {
         if (!still) continue;  // (closed meanwhile)
         const TrackPtr& owner = w->owner;
         if (!owner) w->refresh();
-        else if (!project.tracks.contains(owner) || owner->frozen || (w->INSTRUMENTS && !owner->usesRack)) w->close();
+        else if ([&] { auto all = project.allTracks(); return std::find(all.begin(), all.end(), owner) == all.end(); }() || owner->frozen || (w->INSTRUMENTS && !owner->usesRack)) w->close();
         else w->refresh();
     }
 }
@@ -1774,16 +1775,13 @@ void MainWindow::onFrame() {
         };
         master->meter->push(masterPeaks);
         master->meter->pushRms(squaresOf(audio::MASTER));
-        for (auto& [track, meter] : panel->meters) {
-            auto it = trackPeaks.find(track.get());
-            meter->push(it != trackPeaks.end() ? &it->second : nullptr);  // null (silent) lets the meter fall back
-            meter->pushRms(squaresOf(track.get()));
-        }
-        for (auto& [group, meter] : panel->groupMeters) {  // a group's tracks together: the loudest
-            std::vector<const std::vector<float>*> peaks;
-            for (auto& t : project.members(group)) {
+        // a group's tracks together: the loudest (a group without a bus, or a plain one the mixer skips)
+        auto loudestOf = [&](const Group* group, LevelMeter* meter) {
+            std::vector<const std::vector<float>*> peaks, squares;
+            for (auto& t : routing::inside(project, group)) {
                 auto it = trackPeaks.find(t.get());
                 if (it != trackPeaks.end()) peaks.push_back(&it->second);
+                squares.push_back(squaresOf(t.get()));  // (its RMS bar: its loudest track's)
             }
             if (peaks.empty()) {
                 meter->push(nullptr);
@@ -1791,11 +1789,19 @@ void MainWindow::onFrame() {
                 std::vector<float> loudest = level_meter::loudest(peaks);
                 meter->push(&loudest);
             }
-            std::vector<const std::vector<float>*> squares;  // (its RMS bar: its loudest track's)
-            for (auto& t : project.members(group)) squares.push_back(squaresOf(t.get()));
             std::vector<float> loudestSquares = level_meter::loudest(squares);
             meter->pushRms(loudestSquares.empty() ? nullptr : &loudestSquares);
+        };
+        for (auto& [track, meter] : panel->meters) {
+            if (track->busOf && routing::isPlain(*track)) {
+                loudestOf(track->busOf, meter);
+                continue;
+            }
+            auto it = trackPeaks.find(track.get());
+            meter->push(it != trackPeaks.end() ? &it->second : nullptr);  // null (silent) lets the meter fall back
+            meter->pushRms(squaresOf(track.get()));
         }
+        for (auto& [group, meter] : panel->groupMeters) loudestOf(group.get(), meter);
     }
     panel->showMixerValues(engine.playing ? std::optional<int64_t>(heard) : std::nullopt, engine.sr);
     if (engine.playing) followPlayhead();

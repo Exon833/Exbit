@@ -59,6 +59,9 @@ ui::Menu* fillInstrumentMenu(ui::Menu* menu, ui::Window* parent, PluginHost& hos
         track->playsPadKit() && !track->needsInstrument,
         [parent, &host, track, chosen] { usePadKit(parent, host, track, chosen); });
     padded->tooltip = "Drums: a sound on each of 32 keys, each with its own settings and choke group";
+    if (kit && used && track->playsPadKit() && !track->needsInstrument)  // (model/pad_tracks.h)
+        menu->addAction("Pads to tracks", [track] { pad_kit_dialog::padsToTracks(track); })->tooltip =
+            "Every used pad on a track of its own (its own effects, fader, pan, sends and meter), grouped with this one";
     int count = (int)track->rack.size();
     ui::Action* rack =
         checkable(menu, count ? "Instrument patch panel (" + std::to_string(count) + " instrument" + (count == 1 ? "" : "s") + ")…"

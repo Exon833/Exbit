@@ -4,6 +4,7 @@
 
 #include "audio/engine.h"
 #include "audio/patch.h"
+#include "model/pad_tracks.h"
 #include "ui/recording.h"
 
 using namespace ui;
@@ -16,6 +17,9 @@ bool TrackRenderer::hasAudio(const TrackPtr& track) const {
     if (std::atomic_load(&track->frozen)) return true;
     for (auto& c : project().clipsOn(track))
         if (!c->disabled) return true;
+    if (TrackPtr kit = pad_tracks::kitOf(project(), *track))  // (a pad track: its kit's clips play its pad)
+        for (auto& c : project().clipsOn(kit))
+            if (!c->disabled) return true;
     return false;
 }
 
@@ -32,6 +36,14 @@ void TrackRenderer::fillMenu(Menu* menu, const TrackPtr& track) {
     bounceAction->setEnabled(has);
     Action* inPlace = menu->addAction("Bounce in place…", [this, track] { bounce(track, true); });
     inPlace->setEnabled(has);
+    // (pads on their own tracks, model/pad_tracks.h: a pad track's pad would still play into it, a kit's routed pads
+    // would be lost)
+    if (pad_tracks::kitOf(project(), *track) || pad_tracks::routedMask(*track)) {
+        inPlace->setEnabled(false);
+        inPlace->tooltip = pad_tracks::kitOf(project(), *track)
+                               ? "A pad's own track: bounce it to a new track, or freeze it"
+                               : "Its pads play on tracks of their own: bounce it to a new track, or freeze it";
+    }
 }
 
 std::optional<render::Rendered> TrackRenderer::render(const TrackPtr& track) {

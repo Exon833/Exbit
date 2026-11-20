@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdlib>
 
+#include "model/routing.h"
 #include "audio/patch.h"
 #include "core/util.h"
 #include "model/track_ops.h"
@@ -171,7 +172,7 @@ void LanePanel::dropAt(const TrackPtr& track, int y) {
         } else if (l.owner) {
             target = l.owner;
         } else if (l.group) {
-            auto members = project.members(l.group);
+            auto members = routing::inside(project, l.group.get());
             if (!members.empty()) target = members.front(), below = false;
         }
         break;

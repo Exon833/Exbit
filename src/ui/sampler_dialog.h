@@ -28,6 +28,8 @@ struct Host {
     Project* project = nullptr;
     audio::Engine* engine = nullptr;
     std::function<void()> relayout;  // timeline.relayout(): the clips' new renderings shown
+    std::function<void()> tracksChanged;  // tracks added (a Pad Kit's pads on their own tracks): the rows shown again
+    std::function<void(const std::string&)> status;  // a message in the main window's status bar
 };
 void setHost(const Host& host);
 const Host& host();

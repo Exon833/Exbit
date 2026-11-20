@@ -15,7 +15,8 @@
 //
 // MOVE. step(): tracks one lane up (-1) or down (1), as the lanes show them: in a group a track swaps with its
 // neighbour, and at the group's edge it steps out (above or below the group); a track next to a group steps into
-// it at that end, or over all of it when it is folded. Returns stay below the other tracks, among themselves.
+// it at that end, or over all of it when it is folded (nested groups: one level at a time). Returns stay below the
+// other tracks, among themselves.
 // Several tracks move together keeping their order; none moves past the top or bottom, nor past another of them
 // that cannot move. moveTo(): tracks put above or below another one, into its group (dragging a row onto
 // another). Each is one undo step (history.h: "Move tracks").

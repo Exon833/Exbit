@@ -1,42 +1,62 @@
 #include "ui/lanes.h"
 
+#include <algorithm>
+
+#include "model/routing.h"
 #include "ui/theme.h"
 
 namespace lanes {
 
+namespace {
+void automationLanes(std::vector<Lane>& out, int& y, const TrackPtr& track) {
+    if (!track->showAutomation) return;
+    for (auto& a : track->automation) {
+        Lane al;
+        al.top = y;
+        al.height = a->height;
+        al.automation = a;
+        al.owner = track;
+        out.push_back(al);
+        y += a->height;
+    }
+}
+}  // namespace
+
 std::vector<Lane> layout(const Project& project, int top) {
     std::vector<Lane> out;
     int y = top;
-    const int groupH = groupHeight(), takeH = takeHeight();
-    GroupPtr current;
+    const int takeH = takeHeight();
+    std::vector<GroupPtr> open;  // the headers above the track now: outer first (nested groups)
     for (auto& track : project.tracks) {
-        if (track->group && track->group != current) {
-            Lane l;
-            l.top = y;
-            l.height = groupH;
-            l.group = track->group;
-            out.push_back(l);
-            y += groupH;
+        std::vector<GroupPtr> path;  // its groups, outer first
+        for (GroupPtr g = track->group; g && path.size() < 1000; g = std::atomic_load(&g->parent)) path.insert(path.begin(), g);
+        size_t same = 0;
+        while (same < open.size() && same < path.size() && open[same] == path[same]) same++;
+        open.resize(same);
+        bool hidden = false;  // (inside a folded group)
+        for (size_t k = 0; k < same; k++) hidden = hidden || path[k]->folded;
+        for (size_t k = same; k < path.size(); k++) {
+            const GroupPtr& g = path[k];
+            open.push_back(g);
+            if (!hidden) {
+                Lane l;
+                l.top = y;
+                l.height = headerHeight(*g);
+                l.group = g;
+                out.push_back(l);
+                y += l.height;
+                if (routing::busOn(*g)) automationLanes(out, y, g->bus);  // (its bus's, under its header)
+            }
+            hidden = hidden || g->folded;
         }
-        current = track->group;
-        if (current && current->folded) continue;
+        if (hidden) continue;
         Lane l;
         l.top = y;
         l.height = track->height;
         l.track = track;
         out.push_back(l);
         y += track->height;
-        if (track->showAutomation) {
-            for (auto& a : track->automation) {
-                Lane al;
-                al.top = y;
-                al.height = a->height;
-                al.automation = a;
-                al.owner = track;
-                out.push_back(al);
-                y += a->height;
-            }
-        }
+        automationLanes(out, y, track);
         if (track->showTakes) {
             for (auto& take : track->takes) {
                 Lane tl;
@@ -62,6 +82,7 @@ int scopeHeight = 0;
 
 int masterHeight() { return theme::metric("--master-height", config::MASTER_H) + scopeHeight; }
 int groupHeight() { return theme::metric("--group-height", config::GROUP_H); }
+int headerHeight(const Group& g) { return routing::busOn(g) ? std::max(groupHeight(), g.bus->height) : groupHeight(); }
 int takeHeight() { return theme::metric("--take-height", config::TAKE_H); }
 int rulerHeight() { return theme::metric("--ruler-height", config::RULER_H); }
 

@@ -223,7 +223,7 @@ void ensureState(Track& track) {
 void ensureMasterState(Project& project) { ensureField(project.masterPatchState, project.masterCables.get(), false); }
 
 void ensureStates(Project& project) {
-    for (auto& t : project.tracks) ensureState(*t);
+    for (auto& t : project.allTracks()) ensureState(*t);
     ensureMasterState(project);
 }
 

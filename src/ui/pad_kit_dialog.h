@@ -7,15 +7,14 @@
 // to hear it and select it: its settings are shown on the right (its key, choke group, then the built-in
 // sampler's own controls: sampler_dialog::SoundControls, without the root key: a pad plays its sample at
 // its own pitch, Tune tuning it). Drop sound files on a pad (from the Explorer or the file manager): they
-// fill that pad and the ones after it. Right-click a pad: Load sample…, Clear, Choke group ▸ None / 1…8.
+// fill that pad and the ones after it. Right-click a pad: Load sample…, Clear, Choke group ▸ None / 1…8, Output ▸
+// The kit / Its own track, and Pads to tracks (every used pad on a track of its own: model/pad_tracks.h; also the
+// window's "Pads to tracks" button, and the track's instrument menu). A pad on its own track shows "→" by its key.
 // Every change replaces the track's kit as a whole (undo sees it; live notes play the new one at once) and
 // renders the track's clips again a moment after the last one, as the sampler's window does. Like the FX
 // windows it doesn't block anything; one per track.
 //
-// THE SLICE WINDOW. Finds the hits in the clip's sound (dsp::Onsets) with a sensitivity slider; while it is
-// open the timeline draws a line on the clip where each slice would start (hitsChanged → the timeline's
-// slicePreview). "Slice" accepts it (the timeline then makes the track: Timeline::makeSlicedKit), Cancel
-// leaves everything as it was.
+// THE SLICE WINDOW: slice_dialog.h (included here).
 //
 // THE MAIN WINDOW: uses sampler_dialog's Host (set once at start-up); after undo / redo:
 // pad_kit_dialog::reloadAll(); when tracks go away: pad_kit_dialog::closeGone(project).
@@ -28,6 +27,7 @@
 #include "model/model.h"
 #include "ui/sample_waveform.h"
 #include "ui/sampler_dialog.h"
+#include "ui/slice_dialog.h"
 #include "ui/toolkit/controls.h"
 #include "ui/toolkit/dialogs.h"
 #include "ui/toolkit/menu.h"
@@ -86,6 +86,7 @@ public:
     void loadSample(int pad);         // Load sample…: asks for one
     void clearPad(int pad);           // its sample gone (its key and choke group stay)
     void setChoke(int pad, int group);
+    void setOutput(int pad, bool own);  // Output: its own track (own) or the kit (model/pad_tracks.h)
     void fillPadMenu(ui::Menu& menu, int pad);  // a pad's right-click menu
     void renderClips();
     void done(int result) override;
@@ -114,22 +115,12 @@ PadKitDialog* openFor(const Track* track);  // the open one, or null
 void reloadAll();                            // every open window shows its track's kit again (undo / redo; none: closed)
 void closeGone(const Project& project);      // close the windows of tracks that are gone (or play no kit)
 
-// --- slicing an audio clip ---
-class SliceDialog : public ui::Dialog {
-public:
-    SliceDialog(ui::Window* parent, ClipPtr clip, int sr);  // sr: the rate the clip was prepared at
-    ClipPtr clip;
-    int sr;
-    std::vector<float> sound;      // the clip's sound as it plays (padkit::clipSound)
-    std::vector<int64_t> hits;     // where the slices start: frames into the clip's window (padkit::sliceStarts)
-    ui::Slider* sensitivity;       // 0…100 %
-    ui::Label* count;
-    ui::Button* sliceButton;
-    ui::Signal<> hitsChanged;      // the hits were found again (the sensitivity changed)
-    void findHits();
-
-private:
-    std::unique_ptr<dsp::Onsets> onsets_;
-};
+// --- pads on their own tracks (model/pad_tracks.h), with the kit's clips rendered again and the rows shown ---
+// "Pads to tracks": every used pad of the kit on a track of its own; the tracks made
+std::vector<TrackPtr> padsToTracks(const TrackPtr& kit);
+// pad on its own track (own) or back in the kit; false (a message) if the kit is frozen
+bool setPadOutput(const TrackPtr& kit, int pad, bool own);
+// a pad track's pads back in their kits ("Back to the kit")
+void backToKit(const TrackPtr& padTrack);
 
 }  // namespace pad_kit_dialog

@@ -317,7 +317,7 @@ void PluginsDialog::refresh(std::optional<int> current) {
 
     others.clear();
     if (!INSTRUMENTS)
-        for (auto& t : project.tracks)
+        for (auto& t : project.allTracks())
             if (t != owner && t->kind != Kind::Return) others.push_back(t);
     std::map<const Track*, int> otherIndex;
     for (int k = 0; k < (int)others.size(); ++k) otherIndex[others[k].get()] = k;

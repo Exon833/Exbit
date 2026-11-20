@@ -21,6 +21,7 @@
 // moved, rearranged, swapped, choked…). WAV cue markers aren't read (the sound file reader doesn't keep
 // them): the hits are found in the sound.
 #pragma once
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -51,7 +52,11 @@ PadKitPtr withFiles(const PadKit& kit, int first, const std::vector<std::string>
 
 // Stereo audio of the notes through the kit, as long as the clip plus the longest tail its pads may have
 // (sampler::MAX_TAIL_S at most), as sampler::render's is: notes on keys without a pad are silent.
-AudioPtr render(const PadKit& kit, const std::vector<Note>& notes, int sr, double lengthS);
+// apart: pads (bit i: pad i) playing on tracks of their own (model/pad_tracks.h): their sound kept apart, in the
+// result's `pads`, each as long as the rest; choke groups still cut across them. Every pad is rendered on its own
+// (on every core when there are several) and the sum made in pad order, so the kit's sound is the same, bit for
+// bit, as its pads' tracks summed in that order.
+AudioPtr render(const PadKit& kit, const std::vector<Note>& notes, int sr, double lengthS, uint32_t apart = 0);
 // how live notes play the kit: each key its pad (one-shot or held, its choke group)
 live::NoteRender noteRenderer(const PadKitPtr& kit);
 
@@ -66,8 +71,17 @@ struct Sliced {
 // left out). The sound before the first hit becomes a slice of its own unless it is silent. Slices are
 // named "<name> slice N.wav".
 Sliced slice(const float* stereo, int64_t frames, int sr, std::vector<int64_t> hits, const std::string& name);
-// where slice() would start the slices (Sliced::starts), without making them
-std::vector<int64_t> sliceStarts(const float* stereo, int64_t frames, std::vector<int64_t> hits);
+// where slice() would start the slices (Sliced::starts), without making them; `most` of them (the slice window
+// shows them all: MAX_SLICES become pads); top: the sound's loudest sample if known (< 0: found here)
+std::vector<int64_t> sliceStarts(const float* stereo, int64_t frames, std::vector<int64_t> hits,
+                                 int most = MAX_SLICES, float top = -1);
+// The slice window's Grid: where a grid of 1/`division` notes (4: quarters … 32: 32nds) falls in an audio clip's
+// window of `frames` frames (frames into it). At the clip's own tempo when it has one (sourceBpm, as stretched),
+// counted from the start of its audio; else on the song's grid where the clip is (its tempo changes and time
+// signatures: timing.h), sr: the engine's.
+std::vector<int64_t> gridStarts(const Clip& clip, int64_t frames, const Timing& timing, int sr, int division);
+// the hit (sorted frames) nearest `frame` within `reach` frames, else `frame` (a dragged line snapping to a hit)
+int64_t snapToHit(int64_t frame, const std::vector<int64_t>& hits, int64_t reach);
 // the sound of an audio clip as it plays (its window of its prepared audio, with its gain and fades):
 // interleaved stereo at the rate it was prepared for
 std::vector<float> clipSound(const Clip& clip);

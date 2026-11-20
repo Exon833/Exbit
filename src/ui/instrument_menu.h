@@ -12,7 +12,8 @@
 //
 // "Pad Kit…" plays a sample on each of 32 keys (drums: audio/padkit.h; its window: pad_kit_dialog.h),
 // starting with an empty kit to drop sounds on; 🎹 then opens its window. Another instrument plugin keeps
-// it, to come back to; the built-in synth and the built-in sampler forget it (undo brings it back).
+// it, to come back to; the built-in synth and the built-in sampler forget it (undo brings it back). "Pads to tracks"
+// (once it has pads) gives every used pad a track of its own (model/pad_tracks.h).
 //
 // "Instrument patch panel…" makes the track play several instruments at once instead, from its
 // instrument patch panel (InstrumentPanelDialog; 🎹 then opens it). Its one instrument goes in it

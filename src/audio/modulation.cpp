@@ -72,7 +72,7 @@ void resolve(Track& track) {
 }
 
 void resolve(Project& project) {
-    for (auto& t : project.tracks)
+    for (auto& t : project.allTracks())
         if (!t->modCables.empty()) resolve(*t);
 }
 
@@ -88,7 +88,7 @@ void userEdited(Project& project, const PluginSlot* slot, const std::vector<uint
     if (ids.empty() || !slot) return;
     auto inst = aload(slot->instance);
     if (!inst) return;
-    for (auto& t : project.tracks)
+    for (auto& t : project.allTracks())
         for (auto& c : t->modCables) {
             if (c.to != slot || !c.state->hasTarget || std::atomic_load(&c.state->target) != inst) continue;
             uint32_t id = c.state->paramId;

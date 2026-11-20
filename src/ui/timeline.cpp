@@ -10,6 +10,7 @@
 #include "audio/file_io.h"
 #include "audio/plugin_audio.h"
 #include "core/util.h"
+#include "model/routing.h"
 #include "model/auto_follow.h"
 #include "model/edits.h"
 #include "ui/clipboard.h"
@@ -319,6 +320,7 @@ TrackPtr Timeline::addTrack(Kind kind, GroupPtr group, TrackPtr after) {
 }
 
 void Timeline::tracksRegrouped() {
+    routing::fixLoops(project);  // (a track put in a group whose bus plays into it: model/routing.h)
     std::set<const Track*> shown;
     for (auto& t : visibleTracks())
         if (!t->frozen) shown.insert(t.get());
@@ -612,6 +614,7 @@ void Timeline::zoom(double factor, double anchorX) {
 }
 
 void Timeline::setCurrentTrack(const TrackPtr& track) {
+    if (track && track->busOf) return;  // (a group's bus has no clips: never the track recorded onto)
     if (track != currentTrack) {
         currentTrack = track;
         currentTrackChanged.emit();

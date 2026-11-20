@@ -59,6 +59,11 @@ Pool::~Pool() {
     for (auto& t : threads_) t.join();
 }
 
+namespace {
+thread_local int tlJobs = 0;  // (inJob: the pool jobs this thread is running, nested)
+}
+bool inJob() { return tlJobs > 0; }
+
 bool Pool::claimAndRun() {
     uint64_t s = state_.load(std::memory_order_acquire);
     for (;;) {
@@ -67,7 +72,9 @@ bool Pool::claimAndRun() {
         Job fn = fn_.load(std::memory_order_relaxed);
         void* ctx = ctx_.load(std::memory_order_relaxed);
         if (state_.compare_exchange_weak(s, s + 1, std::memory_order_acq_rel, std::memory_order_acquire)) {
+            tlJobs++;
             fn(ctx, next);
+            tlJobs--;
             done_.fetch_add(1, std::memory_order_acq_rel);
             return true;
         }
@@ -78,7 +85,9 @@ bool Pool::claimAndRun() {
 void Pool::run(int jobs, Job fn, void* ctx) {
     if (jobs <= 0) return;
     if (threads_.empty() || jobs == 1 || jobs > MAX_JOBS) {  // (nothing to share)
+        tlJobs++;
         for (int i = 0; i < jobs; i++) fn(ctx, i);
+        tlJobs--;
         return;
     }
     uint64_t gen = (genOf(state_.load(std::memory_order_relaxed)) + 1) & ((1ull << (64 - GEN_SHIFT)) - 1);

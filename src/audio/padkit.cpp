@@ -8,6 +8,7 @@
 #include "audio/file_io.h"
 #include "audio/sampler.h"
 #include "audio/synth.h"
+#include "audio/workers.h"
 #include "core/util.h"
 
 namespace padkit {
@@ -89,7 +90,7 @@ void addInto(std::vector<float>& out, const AudioBuffer& sound, int64_t at, int6
 }
 }  // namespace
 
-AudioPtr render(const PadKit& kit, const std::vector<Note>& notes, int sr, double lengthS) {
+AudioPtr render(const PadKit& kit, const std::vector<Note>& notes, int sr, double lengthS, uint32_t apart) {
     // the notes of each pad, on its root (the sample at its own pitch, `transpose` tuning it)
     std::map<int, std::vector<Note>> byPad;
     for (const Note& n : notes) {
@@ -104,7 +105,7 @@ AudioPtr render(const PadKit& kit, const std::vector<Note>& notes, int sr, doubl
     int64_t total = (int64_t)((lengthS + tail) * sr) + 1;
     auto out = std::make_shared<AudioBuffer>();
     out->samples.assign((size_t)std::max<int64_t>(0, total) * 2, 0.0f);
-    // choke groups: when each group's notes start (seconds, sorted)
+    // choke groups: when each group's notes start (seconds, sorted; every pad's, routed apart or not)
     std::map<int, std::vector<double>> groupStarts;
     for (auto& kv : byPad) {
         int group = kit.pads[(size_t)kv.first].choke;
@@ -113,13 +114,16 @@ AudioPtr render(const PadKit& kit, const std::vector<Note>& notes, int sr, doubl
     }
     for (auto& kv : groupStarts) std::sort(kv.second.begin(), kv.second.end());
     const int64_t fade = std::max<int64_t>(1, (int64_t)(live::CHOKE_S * sr));
-    for (auto& kv : byPad) {
-        const Pad& pad = kit.pads[(size_t)kv.first];
+    // one pad's sound on its own, as long as the kit's
+    auto padSound = [&](int index, const std::vector<Note>& padNotes) {
+        auto own = std::make_shared<AudioBuffer>();
+        own->samples.assign(out->samples.size(), 0.0f);
+        const Pad& pad = kit.pads[(size_t)index];
         std::vector<Note> whole;  // (notes no other note of their choke group cuts off: rendered together)
-        for (const Note& n : kv.second) {
+        for (const Note& n : padNotes) {
             double cut = -1;  // when a later note of its group starts
             if (pad.choke > 0) {
-                const std::vector<double>& starts = groupStarts[pad.choke];
+                const std::vector<double>& starts = groupStarts.at(pad.choke);
                 auto later = std::upper_bound(starts.begin(), starts.end(), n.start);
                 if (later != starts.end()) cut = *later;
             }
@@ -137,7 +141,7 @@ AudioPtr render(const PadKit& kit, const std::vector<Note>& notes, int sr, doubl
             AudioPtr sound = sampler::render(pad.sound, {alone}, sr, lengthS - n.start);
             int64_t stop = (int64_t)(cut * sr) - at;  // (frames into the note, where it is let go)
             int64_t n2 = std::min<int64_t>(std::min(sound->frames(), stop + fade), total - at);
-            float* o = out->samples.data() + at * 2;
+            float* o = own->samples.data() + at * 2;
             const float* d = sound->samples.data();
             for (int64_t k = 0; k < n2; k++) {
                 float gain = k < stop ? 1.0f : (float)std::max(0.0, 1.0 - (double)(k - stop) / (double)fade);
@@ -145,10 +149,48 @@ AudioPtr render(const PadKit& kit, const std::vector<Note>& notes, int sr, doubl
                 o[2 * k + 1] += d[2 * k + 1] * gain;
             }
         }
-        if (whole.empty()) continue;
-        AudioPtr sound = sampler::render(pad.sound, whole, sr, lengthS);
-        addInto(out->samples, *sound, 0, sound->frames());
+        if (!whole.empty()) {
+            AudioPtr sound = sampler::render(pad.sound, whole, sr, lengthS);
+            addInto(own->samples, *sound, 0, sound->frames());
+        }
+        return own;
+    };
+    // Each pad rendered on its own, on every core when there are several (a batch at a time: at most one sound per
+    // thread held at once), then the kit's sound summed in pad order: the same, bit for bit, however many threads,
+    // and the same as its pads' tracks summed in that order. The pads in `apart` are kept apart (out->pads).
+    std::vector<std::pair<int, const std::vector<Note>*>> used;
+    for (auto& kv : byPad) used.emplace_back(kv.first, &kv.second);
+    int threads = used.size() >= 4 && total > sr && !workers::inJob() ? workers::workersFor(workers::chosenCores()) : 0;
+    threads = std::min(threads, (int)used.size() - 1);
+    struct Work {
+        decltype(padSound)* make;
+        const std::vector<std::pair<int, const std::vector<Note>*>>* used;
+        size_t from;
+        std::vector<std::shared_ptr<AudioBuffer>> made;
+    } work{&padSound, &used, 0, {}};
+    std::unique_ptr<workers::Pool> pool;
+    if (threads > 0) pool = std::make_unique<workers::Pool>(threads, false);  // (as a render's: never outranking playback)
+    size_t batch = (size_t)threads + 1;
+    for (size_t from = 0; from < used.size(); from += batch) {
+        size_t count = std::min(batch, used.size() - from);
+        work.from = from;
+        work.made.assign(count, nullptr);
+        auto job = [](void* ctx, int i) {
+            Work& w = *static_cast<Work*>(ctx);
+            auto& [index, padNotes] = (*w.used)[w.from + (size_t)i];
+            w.made[(size_t)i] = (*w.make)(index, *padNotes);
+        };
+        if (pool) pool->run((int)count, job, &work);
+        else
+            for (size_t i = 0; i < count; i++) job(&work, (int)i);
+        for (size_t i = 0; i < count; i++) {
+            int index = used[from + i].first;
+            if (index < 32 && (apart >> index & 1u)) out->pads.emplace_back(index, std::move(work.made[i]));
+            else addInto(out->samples, *work.made[i], 0, work.made[i]->frames());
+        }
     }
+    if (apart) util::debugf("padkit: %zu pads rendered (%d worker threads +1), %zu of them apart for their own tracks\n",
+                            used.size(), threads, out->pads.size());
     return out;
 }
 
@@ -203,20 +245,57 @@ std::vector<float> clipSound(const Clip& clip) {
     return out;
 }
 
-std::vector<int64_t> sliceStarts(const float* stereo, int64_t frames, std::vector<int64_t> hits) {
+std::vector<int64_t> sliceStarts(const float* stereo, int64_t frames, std::vector<int64_t> hits, int most, float top) {
     if (frames <= 0) return {};
     std::sort(hits.begin(), hits.end());
     hits.erase(std::unique(hits.begin(), hits.end()), hits.end());
     std::vector<int64_t> starts;
     for (int64_t h : hits)
         if (h >= 0 && h < frames) starts.push_back(h);
-    float top = 0, before = 0;
-    for (int64_t i = 0; i < frames * 2; i++) top = std::max(top, std::fabs(stereo[i]));
+    float before = 0;
+    if (top < 0) {
+        top = 0;
+        for (int64_t i = 0; i < frames * 2; i++) top = std::max(top, std::fabs(stereo[i]));
+    }
     for (int64_t i = 0; i < (starts.empty() ? 0 : starts[0]) * 2; i++) before = std::max(before, std::fabs(stereo[i]));
     if (starts.empty() || (starts[0] > 0 && before > 0.01f * top))  // (sound before the first hit: a slice too)
         starts.insert(starts.begin(), 0);
-    if ((int)starts.size() > MAX_SLICES) starts.resize(MAX_SLICES);  // (the rest stay in the last slice)
+    if ((int)starts.size() > std::max(1, most)) starts.resize((size_t)std::max(1, most));  // (the rest stay in the last slice)
     return starts;
+}
+
+std::vector<int64_t> gridStarts(const Clip& clip, int64_t frames, const Timing& timing, int sr, int division) {
+    std::vector<int64_t> out;
+    if (frames <= 0 || sr <= 0 || division <= 0) return out;
+    double steps = 4.0 / division;  // beats (quarter notes) per step
+    if (clip.sourceBpm > 0) {       // the clip's own tempo, from its audio's start (its window may start later)
+        double step = 60.0 / clip.sourceBpm * std::max(1e-6, clip.stretch) * sr * steps;
+        for (int64_t k = (int64_t)std::ceil(clip.offset / step - 1e-9);; k++) {
+            int64_t f = std::llround(k * step) - clip.offset;
+            if (f >= frames) break;
+            if (f >= 0) out.push_back(f);
+        }
+    } else {  // the song's grid (beats counted on through its tempo changes, so every bar line is a grid line)
+        TempoMapPtr map = timing.map();
+        double s0 = (double)clip.start / sr, s1 = s0 + (double)frames / sr;
+        for (int64_t k = (int64_t)std::ceil(map->beatAt(s0) / steps - 1e-9);; k++) {
+            double s = map->secondsAt(k * steps);
+            if (s >= s1) break;
+            int64_t f = std::llround((s - s0) * sr);
+            if (f >= 0 && f < frames && (out.empty() || f > out.back())) out.push_back(f);
+        }
+    }
+    util::debugf("slicing: a 1/%d grid (%s) gives %zu slices", division,
+                 clip.sourceBpm > 0 ? "the clip's tempo" : "the song's", out.size());
+    return out;
+}
+
+int64_t snapToHit(int64_t frame, const std::vector<int64_t>& hits, int64_t reach) {
+    auto it = std::lower_bound(hits.begin(), hits.end(), frame);
+    int64_t best = frame, gap = reach + 1;
+    if (it != hits.end() && *it - frame < gap) best = *it, gap = *it - frame;
+    if (it != hits.begin() && frame - *(it - 1) < gap) best = *(it - 1);
+    return best;
 }
 
 Sliced slice(const float* stereo, int64_t frames, int sr, std::vector<int64_t> hits, const std::string& name) {

@@ -1,6 +1,7 @@
 // The editor's lanes from top to bottom (lanes.py), shared by the timeline, the lane panel and the
 // overview so they always line up:
-//   a header lane for each group, right above its tracks (groupHeight(): --group-height)
+//   a header lane for each group, right above its tracks (headerHeight()); a nested group's inside its parent's;
+//   under a group's header, its bus's automation lanes while shown (model.h GROUP BUSES)
 //   a lane for each track, as tall as the track; none for the tracks of a folded group
 //   under a track showing its automation, a lane for each of its automation lanes
 //   under a track showing its takes, a lane for each recorded take (takeHeight(): --take-height), latest last
@@ -31,6 +32,7 @@ std::vector<Lane> layout(const Project& project, int top = 0);
 // the master lane's and row's height: --master-height (MASTER_H), and the master scope's (ui/scope_view.h) while shown
 int masterHeight();
 int groupHeight();   // --group-height (GROUP_H): a group's header lane and row
+int headerHeight(const Group& g);  // a group's header: groupHeight(), or as tall as its bus (Track::height) when it has one
 int takeHeight();    // --take-height (TAKE_H): a take lane and its row
 int rulerHeight();   // --ruler-height (RULER_H): the timeline's ruler (the lanes start under it)
 void setMasterScopeHeight(int px);  // (0: the scope hidden)

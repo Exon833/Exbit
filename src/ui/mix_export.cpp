@@ -5,6 +5,7 @@
 #include <exception>
 #include <limits>
 #include <stdexcept>
+#include <set>
 
 #include "audio/engine.h"
 #include "audio/loudness.h"
@@ -13,6 +14,7 @@
 #include "audio/vorbis_encoder.h"
 #include "core/json.h"
 #include "core/util.h"
+#include "model/routing.h"
 #include "ui/toolkit/layout.h"
 #include "ui/toolkit/style.h"
 
@@ -328,9 +330,25 @@ std::string MixExporter::exportMix(int64_t start, int64_t end, bool tail, const 
 std::vector<std::string> MixExporter::exportStems() {
     Project& project = engine_.project;
     int64_t end = project.endFrame();
+    // the stems add up to the mix: what reaches the master, each on its own; a group's bus that does something (not
+    // plain: model/routing.h) is a stem with its tracks in it, where its first track is; a track played into another
+    // is in that one's
+    auto reachesMaster = [](const Track& t) {
+        const Track* to = routing::target(t);
+        for (int steps = 0; to && steps < 4096; to = routing::target(*to), steps++)
+            if (!(to->busOf && routing::isPlain(*to))) return false;
+        return true;
+    };
     std::vector<TrackPtr> tracks;
-    for (auto& t : project.tracks)
-        if (!t->needsInstrument) tracks.push_back(t);
+    std::set<const Group*> buses;
+    for (auto& t : project.tracks) {
+        auto groups = routing::groupsOf(*t);
+        for (auto g = groups.rbegin(); g != groups.rend(); ++g)  // (outer first)
+            if (routing::busOn(**g) && !routing::isPlain(*(*g)->bus) && reachesMaster(*(*g)->bus) && buses.insert(*g).second)
+                tracks.push_back((*g)->bus);
+        if (!t->needsInstrument && reachesMaster(*t)) tracks.push_back(t);
+    }
+    util::debugf("export stems: %zu stem(s), %zu of them group buses", tracks.size(), buses.size());
     if (end == 0 || tracks.empty()) {
         msg::information(host.window, "Export stems", "There is nothing to export yet: the project has no clips.");
         return {};

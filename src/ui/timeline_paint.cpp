@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "model/routing.h"
 #include "audio/automation.h"
 #include "audio/plugin_audio.h"
 #include "core/util.h"
@@ -354,7 +355,7 @@ void Timeline::paintMaster(Painter& p, const Rect& r, int top, int bottom, const
 
 void Timeline::paintGroupContents(Painter& p, const Rect& r, const Lane& lane) {
     // a group's header lane: every clip of its tracks in miniature, one thin row per track
-    auto members = project.members(lane.group);
+    auto members = routing::inside(project, lane.group.get());
     if (members.empty()) return;
     const LaneLook& lk = look().lanes->get(LaneKind::Group);  // (its padding: above and below them)
     double rowH = (double)(lane.height - lk.padTop - lk.padBottom) / members.size();

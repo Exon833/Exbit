@@ -826,16 +826,16 @@ static void testPanel() {
     ui::App::get().doLayouts();
     // rows: group header, its two tracks, the other tracks, the automation lane under Vocals
     CHECK(panel->frames.size() == 6);
-    CHECK(panel->groupMeters.size() == 1);
+    CHECK(panel->groupFrames.size() == 1 && panel->groupMeters.empty());  // (a bus: its controls in its header)
     CHECK(panel->automationFrames.size() == 1);
-    CHECK(panel->meters.size() == 5 && !panel->meters.count(fresh));  // (waiting for its instrument: no meter)
+    CHECK(panel->meters.size() == 6 && panel->meters.count(group->bus) && !panel->meters.count(fresh));  // (waiting for its instrument: no meter)
     int expectH = lanes::layout(project).back().bottom() + theme::SCROLLBAR_W;
     CHECK(panel->height() == expectH);
     CHECK(panel->width() == config::PANEL_W);
     CHECK(panel->frames[drums]->height() == drums->height);
     // outputs: the master meter shows every output in use, a group meter its tracks'
     CHECK(master.meter->shown() == std::vector<int>({0, 1, 2, 3}));
-    CHECK(panel->groupMeters[group]->shown() == std::vector<int>({0, 1}));
+    CHECK(panel->meters[group->bus]->shown() == std::vector<int>({0, 1}));
     CHECK(panel->meters[vox]->shown() == std::vector<int>({2, 3}));
     // the selected track's row is outlined
     timeline->setCurrentTrack(keys);
@@ -869,7 +869,9 @@ static void testPanel() {
     CHECK(hasText(texts, "Remove from Rhythm") && !hasText(texts, "Add to group") && !hasText(texts, "Show automation"));
     ui::Menu menu3;
     panel->fillGroupMenu(menu3, group);
-    CHECK(menuTexts(menu3) == std::vector<std::string>({"Rename group…", "Group colour…", "Fold its tracks away", "---",
+    CHECK(menuTexts(menu3) == std::vector<std::string>({"Rename group…", "Group colour…", "Fold its tracks away",
+                                                        "Fold only (no bus)", "Effects…", "Automate a parameter…",
+                                                        "Bus delay…", "Output: Master", "Put in group", "---",
                                                         "Ungroup (the tracks stay)"}));
 
     // meters at various levels, LUFS readouts
@@ -878,7 +880,7 @@ static void testPanel() {
     panel->meters[bass]->push(quiet);
     panel->meters[keys]->push(loud);
     panel->meters[vox]->push(out34);
-    panel->groupMeters[group]->push(level_meter::loudest({&hot, &quiet}));
+    panel->meters[group->bus]->push(level_meter::loudest({&hot, &quiet}));
     panel->loudness[drums]->showValues(-8, -9.4, -11.2);
     panel->loudness[keys]->showValues(-20, -18.3, -21.0);
     std::vector<float> all{0.7f, 0.9f, 0.25f, 0.6f};
@@ -936,7 +938,7 @@ static void testPanel() {
     group->folded = true;
     panel->rebuild();
     ui::App::get().collectGarbage();
-    CHECK(panel->frames.size() == 4 && panel->groupMeters.size() == 1);
+    CHECK(panel->frames.size() == 4 && panel->groupFrames.size() == 1);
     save(panel, "panel-folded");
     win.hideWindow();
 }

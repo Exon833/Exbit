@@ -9,6 +9,7 @@
 
 #include "audio/automation.h"
 #include "audio/modulation.h"
+#include "model/routing.h"
 #include "model/clip_envelope.h"
 #include "config.h"
 
@@ -24,6 +25,8 @@ void MixState::reserve(int frames, int tracks) {
         for (auto& f : sentBuf) f.assign((size_t)frames * 2, 0.0f);
         for (auto& f : trackBuf) f.assign((size_t)frames * 2, 0.0f);
         for (auto& f : preBuf) f.assign((size_t)frames * 2, 0.0f);
+        for (auto& f : sendBuf) f.assign((size_t)frames * 2, 0.0f);
+        for (auto& f : padBuf) f.assign((size_t)frames * 2, 0.0f);
     }
     if (tracks > trackCapacity) {
         trackCapacity = tracks;
@@ -46,10 +49,20 @@ void MixState::reserve(int frames, int tracks) {
         heldOf.reserve(tracks);
         position.reserve(tracks);
         jobs.reserve(tracks);
+        all.reserve(tracks);
+        for (auto* v : {&dest, &level, &firstOut, &own, &needOut, &inLate, &sendExtra, &pathLat}) v->reserve(tracks);
+        for (auto* v : {&plain, &hasInput, &reachesOnly}) v->reserve(tracks);
+        sendDelays.reserve(tracks);
+        sendLines.reserve(tracks);
         while ((int)feedBuf.size() < tracks) feedBuf.emplace_back((size_t)capacity * 2, 0.0f);
         while ((int)sentBuf.size() < tracks) sentBuf.emplace_back((size_t)capacity * 2, 0.0f);
         while ((int)trackBuf.size() < tracks) trackBuf.emplace_back((size_t)capacity * 2, 0.0f);
         while ((int)preBuf.size() < tracks) preBuf.emplace_back((size_t)capacity * 2, 0.0f);
+        while ((int)sendBuf.size() < tracks) sendBuf.emplace_back((size_t)capacity * 2, 0.0f);
+        while ((int)padBuf.size() < tracks) padBuf.emplace_back((size_t)capacity * 2, 0.0f);
+        padDest.reserve((size_t)tracks * PadKit::MAX_PADS);
+        for (auto* v : {&padFrom}) v->reserve(tracks);
+        for (auto* v : {&padsOut, &padFilled}) v->reserve(tracks);
         if (finishedSize < tracks) {
             finished.reset(new std::atomic<char>[(size_t)tracks]);
             finishedSize = tracks;
@@ -79,18 +92,18 @@ bool listensTo(const std::vector<Cable>& cables, const Track* track) {
 
 static void visitTrack(MixState& st, size_t n, size_t i) {
     st.visit[i] = 1;
-    for (size_t j = 0; j < n; j++)  // (in their own order)
-        if (st.listens[i * n + j] && !st.visit[j]) visitTrack(st, n, j);
+    for (size_t j = 0; j < n; j++)  // (in their own order: what it listens to, and what plays into it)
+        if ((st.listens[i * n + j] || st.dest[j] == (int)i) && !st.visit[j]) visitTrack(st, n, j);
     st.visit[i] = 2;
     st.order.push_back((int)i);
 }
 
+// which tracks listen to which (st.listens) and which some sidechain listens to (st.feeder); true if any listens
 // (st.cables: the tracks' cables, snapshots taken for this buffer)
-static void orderTracks(const TrackList& tracks, const std::vector<Cable>& masterCables, MixState& st) {
+static bool listening(const TrackList& tracks, const std::vector<Cable>& masterCables, MixState& st) {
     size_t n = tracks.size();
     st.listens.assign(n * n, 0);
     st.feeder.assign(n, 0);
-    st.order.clear();
     bool any = false;
     for (size_t i = 0; i < n; i++)
         for (auto& c : *st.cables[i]) {
@@ -106,23 +119,123 @@ static void orderTracks(const TrackList& tracks, const std::vector<Cable>& maste
         if (c.first.type == End::TrackSource)
             for (size_t j = 0; j < n; j++)
                 if (tracks[j].get() == c.first.track) st.feeder[j] = 1;
-    if (!any) {
+    // PADS ON THEIR OWN TRACKS: a pad track listens to its kit (one kit per track: the first claiming it)
+    const size_t P = PadKit::MAX_PADS;
+    st.padDest.assign(n * P, -1);
+    st.padFrom.assign(n, -1);
+    st.padsOut.assign(n, 0);
+    for (size_t i = 0; i < n; i++) {
+        auto outs = std::atomic_load(&tracks[i]->padOut);
+        if (!outs || !tracks[i]->playsPadKit()) continue;
+        for (size_t pad = 0; pad < outs->size() && pad < P; pad++) {
+            const Track* to = (*outs)[pad].get();
+            if (!to) continue;
+            for (size_t j = 0; j < n; j++) {
+                if (tracks[j].get() != to || j == i || to->kind == Kind::Return || to->busOf) continue;
+                if (st.padFrom[j] >= 0 && st.padFrom[j] != (int)i) break;
+                st.padFrom[j] = (int)i;
+                st.padDest[i * P + pad] = (int)j;
+                st.padsOut[i] = 1;
+                st.listens[j * n + i] = 1;
+                st.feeder[i] = 1;  // (worked out even unheard; never put in the last wave after its pad tracks)
+                any = true;
+            }
+        }
+    }
+    return any;
+}
+
+// GROUP BUSES AND ROUTING (mixer.h): where each track's sound goes (plain buses skipped), and the output pair it
+// reaches; true if any track plays into another
+static bool routeTracks(const TrackList& tracks, MixState& st, const Track* only) {
+    size_t n = tracks.size();
+    auto indexOf = [&](const Track* t) -> int {
+        for (size_t j = 0; j < n; j++)
+            if (tracks[j].get() == t) return (int)j;
+        return -1;
+    };
+    st.plain.assign(n, 0);
+    for (size_t i = 0; i < n; i++) {
+        const Track& t = *tracks[i];
+        st.plain[i] = t.busOf && routing::isPlain(t) && !st.feeder[i] && &t != only && !Project::mutedIn(t);
+    }
+    st.dest.assign(n, -1);
+    st.firstOut.assign(n, 0);
+    bool any = false;
+    for (size_t i = 0; i < n; i++) {
+        const Track& t = *tracks[i];
+        int pair = t.output, d = -1;
+        const Track* to = routing::target(t);
+        for (size_t steps = 0; to && steps <= n; steps++) {  // (past plain buses: to where they go)
+            d = indexOf(to);
+            if (d < 0 || !st.plain[d]) break;
+            pair = to->output;
+            to = routing::target(*to);
+            d = -1;
+        }
+        if (st.plain[i] || d == (int)i) d = -1;  // (a plain bus itself gets nothing)
+        st.dest[i] = d;
+        st.firstOut[i] = d >= 0 ? 0 : pair;
+        any = any || d >= 0;
+    }
+    return any;
+}
+
+// a sidechain listening to a bus (or track) its own sound plays into would be a loop: it hears nothing instead, and
+// its sound still goes where it goes
+static void dropFeedback(MixState& st, size_t n) {
+    for (size_t i = 0; i < n; i++)
+        for (int d = st.dest[i], steps = 0; d >= 0 && steps <= (int)n; d = st.dest[d], steps++) st.listens[i * n + d] = 0;
+}
+
+// The feeding order (st.order): each track after the ones its sidechains listen to and the ones playing into it,
+// in waves (st.level); the returns last.
+static void orderTracks(const TrackList& tracks, bool listens, bool routes, MixState& st) {
+    size_t n = tracks.size();
+    st.order.clear();
+    if (!listens && !routes) {
         for (size_t i = 0; i < n; i++) st.order.push_back((int)i);
     } else {
         st.visit.assign(n, 0);
         for (size_t i = 0; i < n; i++)
             if (!st.visit[i]) visitTrack(st, n, i);
     }
-    st.mixOrder.clear();  // (the returns last)
-    for (int i : st.order)
-        if (tracks[i]->kind != Kind::Return) st.mixOrder.push_back(i);
+    st.level.assign(n, 0);
+    int deepest = 0;
+    if (routes) {
+        st.position.assign(n, 0);
+        for (size_t k = 0; k < st.order.size(); k++) st.position[st.order[k]] = (int)k;
+        for (size_t j = 0; j < n; j++)  // (a loop being edited: what would come back plays to the outputs)
+            if (st.dest[j] >= 0 && st.position[st.dest[j]] <= st.position[j]) st.dest[j] = -1;
+        // a track's wave: after every wave a track playing into it was in; with what it listens to, or after
+        for (int i : st.order) {
+            int lv = 0;
+            for (size_t j = 0; j < n; j++) {
+                if (st.position[j] >= st.position[i]) continue;
+                if (st.dest[j] == i) lv = std::max(lv, st.level[j] + 1);
+                if (listens && st.listens[(size_t)i * n + j]) lv = std::max(lv, st.level[j]);
+            }
+            st.level[i] = lv;
+            deepest = std::max(deepest, lv);
+        }
+        // what nothing waits for (playing to the outputs, no sidechain listening to it) goes in the last wave: the
+        // cores work on it alongside the buses there rather than all at once before them
+        for (size_t i = 0; i < n; i++)
+            if (st.dest[i] < 0 && !st.feeder[i] && tracks[i]->kind != Kind::Return) st.level[i] = deepest;
+    }
+    st.mixOrder.clear();  // (wave by wave; the returns last)
+    for (int lv = 0; lv <= deepest; lv++)
+        for (int i : st.order)
+            if (tracks[i]->kind != Kind::Return && st.level[i] == lv) st.mixOrder.push_back(i);
     for (int i : st.order)
         if (tracks[i]->kind == Kind::Return) st.mixOrder.push_back(i);
     st.order.swap(st.mixOrder);
 }
 
-void addClip(float* const buf[2], int channels, int64_t bufFrames, const Clip& clip, int64_t start) {
-    AudioPtr data = aload(clip.data);
+void addClip(float* const buf[2], int channels, int64_t bufFrames, const Clip& clip, int64_t start,
+             const AudioBuffer* instead) {
+    AudioPtr own = instead ? nullptr : aload(clip.data);
+    const AudioBuffer* data = instead ? instead : own.get();
     if (!data) return;
     int64_t cs = clip.start, frames = clip.frames();
     int64_t a = std::max(start, cs), b = std::min(start + bufFrames, cs + frames);
@@ -217,7 +330,10 @@ void applyFader(float* const signal[2], int channels, int frames, const Track& t
 void feedingOrder(const TrackList& tracks, const std::vector<Cable>& masterCables, MixState& st) {
     st.cables.clear();
     for (auto& t : tracks) st.cables.push_back(t->cables.get());
-    orderTracks(tracks, masterCables, st);
+    bool listens = listening(tracks, masterCables, st);
+    bool routes = routeTracks(tracks, st, nullptr);
+    if (routes) dropFeedback(st, tracks.size());
+    orderTracks(tracks, listens, routes, st);
 }
 
 namespace {
@@ -227,6 +343,13 @@ bool hasPreFaderSend(const Track& track) {
     auto sends = track.sends.get();
     for (auto& s : *sends)
         if (s.preFader && s.db > config::MIN_DB && s.track && s.track->kind == Kind::Return) return true;
+    return false;
+}
+// …or after it
+bool hasPostFaderSend(const Track& track) {
+    auto sends = track.sends.get();
+    for (auto& s : *sends)
+        if (!s.preFader && s.db > config::MIN_DB && s.track && s.track->kind == Kind::Return) return true;
     return false;
 }
 
@@ -284,12 +407,14 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
     res = MixState::Result();
     Track& track = *tracks[ti];
     bool isReturn = track.kind == Kind::Return;
-    bool into = isReturn && st.sentUsed[ti];  // (a return's input: what the tracks send it)
+    // (its input: what the tracks send it, a return's; what plays into it, a bus's or a routed-into track's)
+    bool into = st.sentUsed[ti];
     const Clip* const* clips = st.trackClips.data() + st.clipFrom[ti];
     size_t clipCount = (size_t)(st.clipFrom[ti + 1] - st.clipFrom[ti]);
     ClipPtr frozen = aload(track.frozen);
+    // its automated parameters, for this buffer (in time: automation.h; a bus's as late as its input comes)
     if (plugins && hasStart && !frozen && !track.automation.empty())
-        automation::apply(track, start, sr, &tracks);  // its automated parameters, for this buffer (in time: automation.h)
+        automation::apply(track, start - st.inLate[ti], sr, &tracks);
     bool vstInstrument = playsPlugins(track);
     bool instrument = vstInstrument && plugins;  // its instrument plugins play the notes
     auto effects = track.effects.get();
@@ -299,6 +424,8 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
         for (auto& s : *effects)
             if (active(s.get())) hasPlugins = true;
     }
+    const Clip* const* ownClips = clips;  // (a kit's pads on their own tracks: from its clips, even frozen)
+    const size_t ownCount = clipCount;
     const Clip* frozenClip[1] = {nullptr};
     if (frozen) {  // frozen: its rendering plays instead of its clips and plugins
         clipCount = 0;
@@ -309,31 +436,50 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
         }
         vstInstrument = instrument = hasPlugins = false;
     }
-    int first = track.output < b.outChannels ? track.output : 0;  // device lacks that output: use 1/2
+    // (the output pair it reaches: its own, or the outermost bus's it passes; device lacks that output: use 1/2)
+    int first = st.firstOut[ti] < b.outChannels ? st.firstOut[ti] : 0;
     int channels = std::min(2, b.outChannels - first);
     patch::DelayLine* line = st.lines[ti];
     if (line && b.restart) line->clear();  // what it held belongs to where playback was
     patch::DelayLine* preLine = st.preLines[ti];  // (pre-fader sends: mixer.h)
     if (preLine && b.restart) preLine->clear();
+    patch::DelayLine* sendLine = st.sendLines[ti];  // (its sends held back further: GROUP BUSES AND ROUTING)
+    if (sendLine && b.restart) sendLine->clear();
     const Track* only = b.only;
-    bool audible = only ? !track.needsInstrument && (&track == only || [&] {  // (a stem: it, and what sends to it)
+    // a stem: it, what sends to it and what plays into it. Otherwise as mute and solo say; a bus (or a track played
+    // into) also while a heard track plays into it (soloing a track keeps its bus heard), unless muted
+    bool audible = only ? !track.needsInstrument && (&track == only || st.reachesOnly[ti] || [&] {
         auto sends = track.sends.get();
         for (auto& s : *sends)
             if (s.track.get() == only) return true;
         return false;
     }())
-                        : Project::audibleIn(track, tracks);
+                        : Project::audibleIn(track, tracks) || (into && !Project::mutedIn(track) && !track.needsInstrument);
     bool feeds = st.feeder[ti] && plugins;  // (a sidechain listens to it: worked out even if not heard)
+    // PADS ON THEIR OWN TRACKS (see the top): a pad track's input from its kit, processed before it (waited for);
+    // a kit hands its pads on even when not heard
+    const bool padsOut = st.padsOut[ti];
+    bool padIn = false;
+    if (int kit = st.padFrom[ti]; kit >= 0 && !frozen && st.position[kit] < st.position[ti]) {
+        if (!st.finished[kit].load(std::memory_order_acquire)) {
+            auto w0 = std::chrono::steady_clock::now();
+            spinUntil(st.finished[kit]);
+            waited += secondsSince(w0);
+        }
+        padIn = st.padFilled[ti];
+    }
     if (!audible && line) line->clear();
     if (!audible && preLine) preLine->clear();
+    if (!audible && sendLine) sendLine->clear();
     live::LiveNotes* notes = live::find(b.live, &track);
-    if (notes && (!audible || frozen || (vstInstrument && !plugins))) notes->clear();  // nothing to hear them through now
+    if (notes && (!(audible || padsOut) || frozen || (vstInstrument && !plugins))) notes->clear();  // nothing to hear them through now
     bool playingLive = notes && notes->active();
     // (the song's beats for the MIDI effects that time notes played live: live_fx)
     live::Clock liveClock = playingLive ? live::clockAt(*b.tempoMap, hasStart, start, sr) : live::Clock();
     // (an instrument chosen this very moment, after the buffer's preparation: it starts with the next one, so
     // no note is sent it without its held notes being kept: instrument && !heldOf)
-    if (!(audible || feeds) || !(clipCount || hasPlugins || playingLive || into || (line && line->sounding)) ||
+    if (!(audible || feeds || padsOut) || !(clipCount || (padsOut && ownCount) || hasPlugins || playingLive || into || padIn ||
+                                            (line && line->sounding) || (sendLine && sendLine->sounding)) ||
         (vstInstrument && !plugins) || (instrument && !st.heldOf[ti])) {
         res.seconds = secondsSince(t0);
         return;  // Skipped
@@ -354,6 +500,18 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
     float* sig[2] = {buf.data(), buf.data() + cap};
     std::memset(sig[0], 0, sizeof(float) * frames);
     std::memset(sig[1], 0, sizeof(float) * frames);
+    auto addInput = [&] {  // (its input: before its effects)
+        if (into) {
+            const float* in = st.sentBuf[ti].data();
+            for (int c = 0; c < channels; c++)
+                for (int i = 0; i < frames; i++) sig[c][i] += in[(size_t)c * cap + i];
+        }
+        if (padIn) {  // (a pad track: its pad's sound)
+            const float* in = st.padBuf[ti].data();
+            for (int c = 0; c < channels; c++)
+                for (int i = 0; i < frames; i++) sig[c][i] += in[(size_t)c * cap + i];
+        }
+    };
     if (instrument) {  // keeps rendering even without notes, so releases ring out
         noteMessages(clips, clipCount, hasStart, start, frames, b.restart, scratch.messages, scratch.events,
                      st.heldOf[ti]);
@@ -361,6 +519,7 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
         auto rack = patch::rackStateOf(track.rackState);
         patch::playInstruments(track, scratch.messages.data(), scratch.messages.size(), sig, channels, frames, sr,
                                *rack, b.transport);
+        addInput();
         if (!hasStart && !(notes && notes->holding())) {
             // stopped, nothing played live, yet a note is on: let it go
             auto letGo = [](const SlotPtr& slot) {
@@ -377,15 +536,45 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
         }
     } else {
         for (size_t k = 0; k < clipCount; k++) addClip(sig, channels, frames, *clips[k], start);
-        if (into) {
-            const float* in = st.sentBuf[ti].data();
-            for (int c = 0; c < channels; c++)
-                for (int i = 0; i < frames; i++) sig[c][i] += in[(size_t)c * cap + i];
+        // a kit's pads kept apart: into their tracks' input (one whose track isn't there: into its own sound)
+        const int* dest = padsOut ? st.padDest.data() + (size_t)ti * PadKit::MAX_PADS : nullptr;
+        float* padSig[PadKit::MAX_PADS][2] = {};
+        if (dest)
+            for (int pad = 0; pad < PadKit::MAX_PADS; pad++) {
+                int d = dest[pad];
+                if (d < 0) continue;
+                padSig[pad][0] = st.padBuf[d].data();
+                padSig[pad][1] = channels > 1 ? st.padBuf[d].data() + cap : st.padBuf[d].data();
+                if (!st.padFilled[d]) {
+                    std::memset(padSig[pad][0], 0, sizeof(float) * frames);
+                    std::memset(st.padBuf[d].data() + cap, 0, sizeof(float) * frames);
+                    st.padFilled[d] = 1;
+                }
+            }
+        for (size_t k = 0; k < ownCount; k++) {
+            const Clip& clip = *ownClips[k];
+            if (clip.kind != Kind::Midi) continue;
+            AudioPtr data = aload(clip.data);
+            if (!data) continue;
+            for (auto& [pad, sound] : data->pads) {
+                bool routed = dest && pad >= 0 && pad < PadKit::MAX_PADS && dest[pad] >= 0;
+                if (routed) addClip(padSig[pad], channels, frames, clip, start, sound.get());
+                else if (!frozen) addClip(sig, channels, frames, clip, start, sound.get());  // (frozen: in its rendering)
+            }
         }
+        addInput();
         if (notes) {
             scratch.messages.clear();
             notes->take(frames, sr, scratch.messages, &liveClock);
-            notes->addVoices(sig, channels, frames, sr);
+            float* const* byPitch[128] = {};
+            PadKitPtr kit = dest ? aload(track.padKit) : nullptr;
+            if (kit)  // (each key the pad it plays: padkit::padFor)
+                for (int pad = PadKit::MAX_PADS; pad-- > 0;)
+                    if (!kit->pads[(size_t)pad].empty()) {
+                        int key = kit->pads[(size_t)pad].note;
+                        if (key >= 0 && key < 128) byPitch[key] = dest[pad] >= 0 ? padSig[pad] : nullptr;
+                    }
+            notes->addVoices(sig, channels, frames, sr, kit ? byPitch : nullptr);
         }
     }
     if (plugins && !frozen) {
@@ -454,7 +643,14 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
     res.first = first;
     if (audible) {
         if (line) line->process(sig, frames);
-        if (res.pre && preLine) preLine->process(pre, frames);  // (held back just as much)
+        if (res.pre && preLine) preLine->process(pre, frames);  // (held back just as much, and its sends' extra)
+        if (sendLine) {  // (playing into a bus: its post-fader sends reach the returns with everything else)
+            std::vector<float>& sb = st.sendBuf[ti];
+            float* sent[2] = {sb.data(), sb.data() + cap};
+            for (int c = 0; c < channels; c++) std::memcpy(sent[c], sig[c], sizeof(float) * frames);
+            sendLine->process(sent, frames);
+            res.sent = true;
+        }
         res.kind = MixState::Result::Heard;
     } else {
         res.kind = MixState::Result::Unheard;
@@ -482,11 +678,14 @@ void commitTrack(Buffer& b, int ti) {
     float* sig[2] = {tb.data(), tb.data() + cap};
     std::vector<float>& pb = st.preBuf[ti];
     float* pre[2] = {pb.data(), pb.data() + cap};  // (pre-fader sends: its sound before the fader, if kept)
+    std::vector<float>& sb = st.sendBuf[ti];
+    float* sent[2] = {sb.data(), sb.data() + cap};  // (post-fader sends of a bus's track: held back further)
+    float* const* post = res.sent ? sent : sig;
     auto sends = track.sends.get();
     for (auto& send : *sends) {  // (to returns: after the fader and pan, or before them; in time with the others)
         if (!(send.db > config::MIN_DB) || !send.track || send.track->kind != Kind::Return) continue;
         if (send.preFader && !res.pre) continue;  // (made one a moment ago: from the next buffer)
-        float* const* from = send.preFader ? pre : sig;
+        float* const* from = send.preFader ? pre : post;
         int target = -1;
         for (size_t j = 0; j < n; j++)
             if (tracks[j] == send.track) target = (int)j;
@@ -504,7 +703,22 @@ void commitTrack(Buffer& b, int ti) {
         }
     }
     if (b.tap) b.tap->sound(&track, sig, channels, res.first, frames);
-    if (b.only && &track != b.only) return;
+    // into the bus or track it plays into (GROUP BUSES AND ROUTING: processed in a later wave), or the outputs
+    int d = st.dest[ti];
+    if (b.only ? &track != b.only : d >= 0) {
+        if (d < 0 || (b.only && !st.reachesOnly[ti])) return;
+        std::vector<float>& buf = st.sentBuf[d];
+        if (!st.sentUsed[d]) {
+            std::memset(buf.data(), 0, sizeof(float) * frames);
+            std::memset(buf.data() + cap, 0, sizeof(float) * frames);
+            st.sentUsed[d] = 1;
+        }
+        for (int c = 0; c < channels; c++) {
+            float* to = buf.data() + (size_t)c * cap;
+            for (int i = 0; i < frames; i++) to[i] += sig[c][i];
+        }
+        return;
+    }
     for (int c = 0; c < channels; c++) {
         float* o = b.out + res.first + c;
         const float* s = sig[c];
@@ -558,7 +772,21 @@ void runParallel(Buffer& b) {
 int mixClips(Project& project, float* out, int outChannels, int frames, bool hasStart, int64_t start, MixState& st,
              TrackTap* tap, int sr, bool restart, bool plugins, const live::LiveMap* live, const Track* only) {
     auto tracksPtr = project.tracks.get();
-    const TrackList& tracks = *tracksPtr;
+    // the tracks mixed: the project's, then the bus of every group they are in that has one (GROUP BUSES AND ROUTING)
+    st.all.clear();
+    for (auto& t : *tracksPtr) st.all.push_back(t);
+    const size_t projectTracks = st.all.size();
+    for (size_t i = 0; i < projectTracks; i++) {
+        if (st.all[i]->kind == Kind::Return) continue;
+        int depth = 0;  // (its groups, innermost first; parents never loop, but a guard all the same)
+        for (Group* g = st.all[i]->group.get(); g && depth < 4096; g = aload(g->parent).get(), depth++) {
+            if (!routing::busOn(*g)) continue;
+            bool known = false;
+            for (size_t j = projectTracks; j < st.all.size() && !known; j++) known = st.all[j] == g->bus;
+            if (!known) st.all.push_back(g->bus);
+        }
+    }
+    const TrackList& tracks = st.all;
     auto clipsPtr = project.clips.get();
     auto masterCables = project.masterCables.get();
     auto masterEffects = project.masterEffects.get();
@@ -571,22 +799,62 @@ int mixClips(Project& project, float* out, int outChannels, int frames, bool has
 
     st.cables.clear();
     for (auto& t : tracks) st.cables.push_back(t->cables.get());
-    st.latency.assign(n, 0);
     if (plugins) {
         // (every patch keeps its plan in its state: made once here if the GUI didn't, see patch.h STATES)
         for (auto& t : tracks) patch::stateOf(t->patchState);
         patch::stateOf(project.masterPatchState);
     }
-    int latest = 0;
+    bool listens = listening(tracks, *masterCables, st);
+    bool routes = routeTracks(tracks, st, only);
+    if (routes) dropFeedback(st, n);
+    orderTracks(tracks, listens, routes, st);
+    st.own.assign(n, 0);
     for (size_t i = 0; i < n; i++) {  // (a track's delay: to play later, it counts as less late)
         const Track& t = *tracks[i];
-        st.latency[i] = (plugins ? trackLatency(t, tracks) : 0) - (t.kind != Kind::Return ? (int)delayFrames(t, sr) : 0);
-        latest = std::max(latest, st.latency[i]);
+        st.own[i] = (plugins ? trackLatency(t, tracks) : 0) - (t.kind != Kind::Return ? (int)delayFrames(t, sr) : 0);
     }
+    // delay compensation along the paths (GROUP BUSES AND ROUTING): how late each one's sound comes out (pathLat:
+    // a target's input lined up with the latest of its sources), the latest of those reaching the outputs, then how
+    // late each must reach where it goes (needOut) to line up there
+    st.hasInput.assign(n, 0);
+    for (size_t j = 0; j < n; j++)
+        if (st.dest[j] >= 0) st.hasInput[st.dest[j]] = 1;
+    st.pathLat.assign(n, 0);
+    for (int i : st.order) {
+        int base = 0;
+        if (st.hasInput[i]) {
+            bool firstSource = true;
+            for (size_t j = 0; j < n; j++)
+                if (st.dest[j] == i) {
+                    base = firstSource ? st.pathLat[j] : std::max(base, st.pathLat[j]);
+                    firstSource = false;
+                }
+            if (!tracks[i]->busOf) base = std::max(base, 0);  // (a track's own clips come in time)
+        }
+        st.pathLat[i] = base + st.own[i];
+    }
+    int latest = 0;
+    for (size_t i = 0; i < n; i++)
+        if (st.dest[i] < 0 || tracks[i].get() == only) latest = std::max(latest, st.pathLat[i]);
+    st.needOut.assign(n, 0);
+    st.latency.assign(n, 0);
+    st.inLate.assign(n, 0);
+    st.sendExtra.assign(n, 0);
+    for (size_t k = st.order.size(); k-- > 0;) {
+        int i = st.order[k], d = st.dest[i];
+        st.needOut[i] = d < 0 || tracks[i].get() == only ? latest : st.needOut[d] - st.own[d];
+        st.inLate[i] = st.hasInput[i] ? st.needOut[i] - st.own[i] : 0;
+        st.latency[i] = st.hasInput[i] ? st.needOut[i] : st.own[i];  // (its sound's lateness, before its line)
+        st.sendExtra[i] = std::max(0, latest - st.needOut[i]);
+    }
+    st.reachesOnly.assign(n, 0);
+    if (only)
+        for (size_t i = 0; i < n; i++)
+            for (int d = st.dest[i], steps = 0; d >= 0 && steps <= (int)n; d = st.dest[d], steps++)
+                if (tracks[d].get() == only) st.reachesOnly[i] = 1;
     int master = plugins && !only ? patch::patchLatency(masterCables, *masterEffects, latest, tracks, nullptr,
                                                          project.masterPatchState) - latest
                                   : 0;
-    orderTracks(tracks, *masterCables, st);
     st.feeds.clear();
     st.sentUsed.assign(n, 0);
     if (st.compensate) {
@@ -600,6 +868,16 @@ int mixClips(Project& project, float* out, int outChannels, int frames, bool has
             const Track* t = st.preDelays[i].first;
             if (!inList(t, tracks) || !hasPreFaderSend(*t))
                 st.preDelays.erase(st.preDelays.begin() + i);
+            else
+                i++;
+        }
+        for (size_t i = 0; i < st.sendDelays.size();) {  // (sends held back further: gone, or not now)
+            const Track* t = st.sendDelays[i].first;
+            int at = -1;
+            for (size_t j = 0; j < n; j++)
+                if (tracks[j].get() == t) at = (int)j;
+            if (at < 0 || !st.sendExtra[at] || !hasPostFaderSend(*t))
+                st.sendDelays.erase(st.sendDelays.begin() + i);
             else
                 i++;
         }
@@ -632,6 +910,7 @@ int mixClips(Project& project, float* out, int outChannels, int frames, bool has
     st.clipFrom[n] = (int)st.trackClips.size();
     st.lines.assign(n, nullptr);
     st.preLines.assign(n, nullptr);
+    st.sendLines.assign(n, nullptr);
     if (st.compensate) {  // each track held back to line up with the latest one (a return: by its own delay)
         for (size_t ti = 0; ti < n; ti++) {
             const Track& track = *tracks[ti];
@@ -642,11 +921,11 @@ int mixClips(Project& project, float* out, int outChannels, int frames, bool has
         }
         for (size_t ti = 0; ti < n; ti++) {  // (pointers taken once `delays` stops growing)
             const Track& track = *tracks[ti];
-            int first = track.output < outChannels ? track.output : 0;
+            int first = st.firstOut[ti] < outChannels ? st.firstOut[ti] : 0;
             int channels = std::min(2, outChannels - first);
             int wanted = (track.kind == Kind::Return ? (int)std::max<int64_t>(0, delayFrames(track, sr))
-                                                     : latest - st.latency[ti]) +
-                         (first >= 2 ? master : 0);
+                                                     : std::max(0, st.needOut[ti] - st.latency[ti])) +
+                         (first >= 2 && st.dest[ti] < 0 ? master : 0);
             patch::DelayLine* line = nullptr;
             for (auto& d : st.delays)
                 if (d.first == &track) line = &d.second;
@@ -664,11 +943,31 @@ int mixClips(Project& project, float* out, int outChannels, int frames, bool has
         }
         for (size_t ti = 0; ti < n; ti++) {  // (pointers taken once `preDelays` stops growing)
             const patch::DelayLine* main = st.lines[ti];
+            int length = main->frames + st.sendExtra[ti];  // (a bus's track: its sends later still)
             for (auto& d : st.preDelays)
                 if (d.first == tracks[ti].get()) {
-                    if (d.second.frames != main->frames || d.second.channels != main->channels)
-                        d.second.init(main->frames, main->channels);
+                    if (d.second.frames != length || d.second.channels != main->channels)
+                        d.second.init(length, main->channels);
                     st.preLines[ti] = &d.second;
+                }
+        }
+        // post-fader sends of a track playing into a bus that makes it later: a line of their own (GROUP BUSES)
+        for (size_t ti = 0; ti < n; ti++) {
+            const Track& track = *tracks[ti];
+            if (!st.sendExtra[ti] || !hasPostFaderSend(track)) continue;
+            bool known = false;
+            for (auto& d : st.sendDelays)
+                if (d.first == &track) known = true;
+            if (!known) st.sendDelays.emplace_back(&track, patch::DelayLine());
+        }
+        for (size_t ti = 0; ti < n; ti++) {  // (pointers taken once `sendDelays` stops growing)
+            if (!st.sendExtra[ti]) continue;
+            const patch::DelayLine* main = st.lines[ti];
+            for (auto& d : st.sendDelays)
+                if (d.first == tracks[ti].get()) {
+                    if (d.second.frames != st.sendExtra[ti] || d.second.channels != main->channels)
+                        d.second.init(st.sendExtra[ti], main->channels);
+                    st.sendLines[ti] = &d.second;
                 }
         }
     }
@@ -688,6 +987,7 @@ int mixClips(Project& project, float* out, int outChannels, int frames, bool has
                 if (h.first == tracks[ti].get()) st.heldOf[ti] = h.second.data();
     }
     for (size_t ti = 0; ti < n; ti++) st.finished[ti].store(0, std::memory_order_relaxed);
+    st.padFilled.assign(n, 0);
 
     Buffer b;
     b.tracks = &tracks;
@@ -717,10 +1017,16 @@ int mixClips(Project& project, float* out, int outChannels, int frames, bool has
             commitTrack(b, ti);
         }
     } else {
-        st.jobs.clear();  // every track but the returns, at once
-        for (int ti : st.order)
-            if (tracks[ti]->kind != Kind::Return) st.jobs.push_back(ti);
-        runParallel(b);
+        st.jobs.clear();  // every track but the returns, at once: a wave at a time (GROUP BUSES AND ROUTING)
+        for (int ti : st.order) {
+            if (tracks[ti]->kind == Kind::Return) continue;
+            if (!st.jobs.empty() && st.level[ti] != st.level[st.jobs.back()]) {
+                runParallel(b);
+                st.jobs.clear();
+            }
+            st.jobs.push_back(ti);
+        }
+        if (!st.jobs.empty()) runParallel(b);
         // the returns: at once too, unless one sends to or listens to another (then in order, as on one thread)
         bool linked = false;
         for (int ti : st.order) {

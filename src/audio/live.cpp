@@ -385,8 +385,11 @@ void LiveNotes::take(int frames, int sr, plugin_audio::Messages& out, const Cloc
     timedOffs_.resize(keep);
 }
 
-void LiveNotes::addVoices(float* const signal[2], int channels, int frames, int sr) {
+void LiveNotes::addVoices(float* const signal[2], int channels, int frames, int sr, float* const* const* byPitch) {
     int fade = std::max(1, (int)(synth::RELEASE_S * sr));
+    auto intoOf = [&](int pitch) -> float* const* {
+        return byPitch && pitch >= 0 && pitch < 128 && byPitch[pitch] ? byPitch[pitch] : signal;
+    };
     if (voices_.empty()) {
         bendNow_ = bendTarget_;
         return;
@@ -401,9 +404,11 @@ void LiveNotes::addVoices(float* const signal[2], int channels, int frames, int 
                 if (std::fabs(bendTarget_ - bendNow_) < 1e-6) bendNow_ = bendTarget_;
                 rates_[i] = (float)std::exp2(bendNow_ / 12.0);
             }
-            float* part[2] = {signal[0] + done, channels > 1 ? signal[1] + done : nullptr};
-            for (size_t v = 0; v < voices_.size(); v++)
+            for (size_t v = 0; v < voices_.size(); v++) {
+                float* const* to = intoOf(voices_[v].pitch);
+                float* part[2] = {to[0] + done, channels > 1 ? to[1] + done : nullptr};
                 if (!finished_[v] && !voices_[v].addTo(part, channels, n, fade, rates_)) finished_[v] = 1;
+            }
         }
         size_t keep = 0;
         for (size_t i = 0; i < voices_.size(); i++) {
@@ -419,7 +424,7 @@ void LiveNotes::addVoices(float* const signal[2], int channels, int frames, int 
     }
     size_t keep = 0;
     for (size_t i = 0; i < voices_.size(); i++) {
-        if (voices_[i].addTo(signal, channels, frames, fade)) {
+        if (voices_[i].addTo(intoOf(voices_[i].pitch), channels, frames, fade)) {
             if (keep != i) voices_[keep] = std::move(voices_[i]);
             keep++;
         } else {

@@ -16,8 +16,8 @@ namespace history {
     X(name) X(kind) X(muted) X(soloed) X(soloSafe) X(output) X(volumeDb) X(delayMs) X(pan) X(sends) X(instrument)          \
     X(midiEffects) X(sampler) X(padKit) X(needsInstrument) X(effects) X(cables) X(modCables) X(color) X(tone)     \
     X(group) X(frozen) X(automation) X(takes) X(usesRack) X(rack) X(rackCables) X(bendRange) \
-    X(swing)
-#define GROUP_FIELDS(X) X(name) X(muted) X(soloed) X(color) X(tone)
+    X(swing) X(into) X(padOut)
+#define GROUP_FIELDS(X) X(name) X(muted) X(soloed) X(color) X(tone) X(foldOnly) X(parent)
 #define CLIP_FIELDS(X)                                                                                          \
     X(kind) X(name) X(track) X(start) X(offset) X(length) X(color) X(tone) X(disabled) X(gainDb) X(fadeIn)     \
     X(fadeOut) X(fadeLead) X(fadeTail) X(fadeInShape) X(fadeOutShape) X(loop) X(source) X(sourceSr)            \
@@ -149,9 +149,10 @@ Snapshot::Snapshot(const Project& p) : d_(std::make_unique<SnapshotData>()) {
     auto clip = [&](const ClipPtr& c) {
         if (first(c.get())) d.clipData.emplace_back(c, take(*c));
     };
-    for (auto& t : p.tracks) {
+    for (auto& g : p.groups())  // (nested groups too, and their buses below as tracks: model.h GROUP BUSES)
+        if (first(g.get())) d.groupData.emplace_back(g, take(*g));
+    for (auto& t : p.allTracks()) {
         if (first(t.get())) d.trackData.emplace_back(t, take(*t));
-        if (t->group && first(t->group.get())) d.groupData.emplace_back(t->group, take(*t->group));
         if (t->frozen) clip(t->frozen);
         for (auto& lane : t->automation)
             if (first(lane.get())) d.laneData.emplace_back(lane, take(*lane));
@@ -231,6 +232,8 @@ const char* trackChange(const TrackData& d, const Track& o) {
     if (!same(d.midiEffects, o.midiEffects)) return "MIDI effects";
     if (!same(d.color, o.color) || !same(d.tone, o.tone)) return "Track colour";
     if (!same(d.group, o.group)) return "Group tracks";
+    if (!same(d.into, o.into)) return "Track output";
+    if (!same(d.padOut, o.padOut)) return "Pad output";
     if (!same(d.takes, o.takes)) return "Takes";
     if (!same(d.output, o.output)) return "Track output";
     if (!same(d.delayMs, o.delayMs)) return "Track delay";
@@ -334,6 +337,8 @@ std::string Snapshot::describe(const Project& p) const {
         if (!same(gd.muted, o.muted)) return "Mute";
         if (!same(gd.soloed, o.soloed)) return "Solo";
         if (!same(gd.name, o.name)) return "Rename group";
+        if (!same(gd.foldOnly, o.foldOnly)) return o.foldOnly ? "Fold only" : "Group bus";
+        if (!same(gd.parent, o.parent)) return "Group tracks";
         if (!history::matches(gd, o)) return "Group colour";
     }
     for (auto& s : d.slotData)

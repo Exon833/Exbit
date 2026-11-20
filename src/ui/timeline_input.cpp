@@ -258,7 +258,7 @@ bool Timeline::mousePress(ui::MouseEvent& e) {
     }
     auto lane = laneAt(pos.y);
     currentAutomation = lane && lane->automation ? lane->automation : nullptr;
-    if (lane && lane->automation && (e.mods & plat::ModShift) && !lane->owner->frozen) {
+    if (lane && lane->automation && (e.mods & plat::ModShift) && !lane->owner->frozen && !lane->owner->busOf) {
         // Shift+drag in an automation lane: a time range on its track (the lane's own: Ctrl+C / V, Del)
         setCurrentTrack(lane->owner);
         int64_t frame = snappedFrameAt(pos.x, e.mods);

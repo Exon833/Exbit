@@ -155,6 +155,11 @@ void MainWindow::setUpMidi() {
     sh.project = &project;
     sh.engine = &engine;
     sh.relayout = [this] { timeline->relayout(); };
+    sh.tracksChanged = [this] {
+        timeline->relayout();
+        timeline->tracksChanged.emit();
+    };
+    sh.status = [this](const std::string& text) { showStatus(text, 5000); };
     sampler_dialog::setHost(sh);
     midi_effects::install(&project.timing);
     midi_effects_dialog::Hooks fx;  // (Commit to notes)

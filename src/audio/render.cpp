@@ -9,6 +9,7 @@
 #include "audio/mixer.h"
 #include "audio/patch.h"
 #include "config.h"
+#include "model/pad_tracks.h"
 
 using namespace plugin_audio;
 
@@ -75,7 +76,17 @@ std::optional<Rendered> renderTrack(Project& project, const TrackPtr& track, int
     std::vector<ClipPtr> clips;
     for (auto& c : project.clipsOn(track))
         if (!c->disabled) clips.push_back(c);
-    if (clips.empty()) return std::nullopt;
+    // a pad track (model/pad_tracks.h): its kit's clips, playing its pads' sound kept apart
+    std::vector<std::pair<ClipPtr, AudioPtr>> padClips;
+    std::vector<int> pads;
+    if (TrackPtr kit = pad_tracks::kitOf(project, *track, &pads); kit && kit->playsPadKit())
+        for (auto& c : project.clipsOn(kit)) {
+            AudioPtr data = c->disabled ? nullptr : aload(c->data);
+            if (data)
+                for (auto& [pad, sound] : data->pads)
+                    if (std::find(pads.begin(), pads.end(), pad) != pads.end()) padClips.emplace_back(c, sound);
+        }
+    if (clips.empty() && padClips.empty()) return std::nullopt;
     bool instrument = playsPlugins(*track);  // its instrument plugins play the notes (else the built-in synth)
     std::vector<SlotPtr> instruments, plugins;
     if (instrument)
@@ -87,8 +98,10 @@ std::optional<Rendered> renderTrack(Project& project, const TrackPtr& track, int
     // EDGE_FADE_FRAMES of silence on both sides: a clip made of the rendering fades in and out over
     // them (mixer::addClip), so it plays exactly like the track did (unless it starts at 0 s)
     const int64_t pad = config::EDGE_FADE_FRAMES;
-    int64_t first = clips[0]->start, lastNote = clips[0]->end();
+    const Clip& one = clips.empty() ? *padClips[0].first : *clips[0];
+    int64_t first = one.start, lastNote = one.end();
     for (auto& c : clips) first = std::min(first, c->start), lastNote = std::max(lastNote, c->end());
+    for (auto& [c, sound] : padClips) first = std::min(first, c->start), lastNote = std::max(lastNote, c->end());
     int64_t start = std::max<int64_t>(0, first - pad);
     TrackList tracks = project.tracks.copy();
     int late = trackLatency(*track, tracks);  // its plugins hold the sound back up to this long: render that much more, drop it
@@ -137,6 +150,7 @@ std::optional<Rendered> renderTrack(Project& project, const TrackPtr& track, int
                 if (slot->failed) throw std::runtime_error(slot->name + " stopped: " + slot->error);
         } else {
             for (const Clip* c : clipPtrs) mixer::addClip(buf, 2, n, *c, pos);
+            for (auto& [c, sound] : padClips) mixer::addClip(buf, 2, n, *c, pos, sound.get());
         }
         for (size_t k = 0; k < sources.size(); k++) {  // (in time: 0 late)
             float* w[2] = {windows[k].data(), windows[k].data() + block};
@@ -161,7 +175,7 @@ std::optional<Rendered> renderTrack(Project& project, const TrackPtr& track, int
 }
 
 void clearPatchStates(Project& project) {
-    for (auto& t : project.tracks) patch::freshState(*t, false);
+    for (auto& t : project.allTracks()) patch::freshState(*t, false);
     patch::freshMasterState(project);
 }
 

@@ -96,7 +96,7 @@ TweakWatcher::TweakWatcher(SlotPtr s, Project& project) : slot(std::move(s)), pr
 
 std::set<std::string> TweakWatcher::automated() const {
     std::set<std::string> out;
-    for (auto& t : project_.tracks)
+    for (auto& t : project_.allTracks())
         for (auto& a : t->automation)
             if (a->slot == slot && !a->points.empty()) out.insert(a->param);
     return out;
@@ -141,7 +141,7 @@ bool prune(Track& track) {
 }
 
 void resolve(Project& project) {
-    for (auto& track : project.tracks)
+    for (auto& track : project.allTracks())
         for (auto& lane : track->automation) {
             if (!lane->slot || lane->slot->isControls()) continue;  // (the mixer applies volume and pan)
             auto instance = aload(lane->slot->instance);

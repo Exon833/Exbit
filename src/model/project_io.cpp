@@ -19,6 +19,8 @@
 #include "audio/sound_file.h"
 #include "core/util.h"
 #include "model/clip_envelope.h"
+#include "model/pad_tracks.h"
+#include "model/routing.h"
 
 namespace project_io {
 
@@ -442,6 +444,16 @@ Json describeTrack(const Track& track, const std::vector<GroupPtr>& groups, int 
     if (track.swing >= 0) entry.set("swing", Json(track.swing));  // (likewise: none = the song's)
     if (track.padKit) entry.set("pad_kit", describePadKit(*track.padKit, audioFile));  // (likewise)
     if (track.soloSafe) entry.set("solo_safe", Json(true));  // (likewise)
+    if (TrackPtr to = std::atomic_load(&track.into))  // (output routing, model/routing.h: likewise)
+        for (size_t i = 0; i < tracks.size(); i++)
+            if (tracks[i] == to) entry.set("output_to", Json((int)i));
+    if (auto outs = std::atomic_load(&track.padOut)) {  // (pads on their own tracks, model/pad_tracks.h: likewise)
+        Json pads = Json::array();
+        for (size_t pad = 0; pad < outs->size(); pad++)
+            for (size_t i = 0; i < tracks.size(); i++)
+                if ((*outs)[pad] && tracks[i] == (*outs)[pad]) pads.push(Json::array({Json((int)pad), Json((int)i)}));
+        if (pads.size()) entry.set("pad_tracks", pads);
+    }
     return entry;
 }
 
@@ -700,6 +712,9 @@ Json describe(const Project& project, int sr, const MasterSettings& master, Audi
         audioFile = [](const Clip& clip) { return util::format("%p", (const void*)clip.source.get()); };
     std::vector<GroupPtr> groups = project.groups();
     std::vector<TrackPtr> tracks = *project.tracks;
+    // (cables, sends and output routing name tracks by index: the tracks', then each group's bus, in groups order)
+    std::vector<TrackPtr> all = tracks;
+    for (auto& g : groups) all.push_back(g->bus);
     Json clips = Json::array();
     // linked MIDI clips (model.h): a "link" number per clip sharing its link with another one saved
     std::map<const ClipLink*, int> linkSize, linkNumber;
@@ -775,15 +790,26 @@ Json describe(const Project& project, int sr, const MasterSettings& master, Audi
     Json markers = Json::array();
     for (auto& m : project.markers) markers.push(Json::array({Json(m.seconds), Json(m.name)}));
     Json groupList = Json::array();
-    for (auto& g : groups)
-        groupList.push(Json::object({{"name", Json(g->name)},
-                                     {"folded", Json(g->folded)},
-                                     {"muted", Json(g->muted)},
-                                     {"soloed", Json(g->soloed)},
-                                     {"color", nullOr(g->color)},
-                                     {"tone", nullOr(g->tone)}}));
+    for (auto& g : groups) {
+        Json entry = Json::object({{"name", Json(g->name)},
+                                   {"folded", Json(g->folded)},
+                                   {"muted", Json(g->muted)},
+                                   {"soloed", Json(g->soloed)},
+                                   {"color", nullOr(g->color)},
+                                   {"tone", nullOr(g->tone)}});
+        // GROUP BUSES (model.h): keys only when set, so projects with plain groups save as before
+        GroupPtr parent = std::atomic_load(&g->parent);
+        for (size_t i = 0; i < groups.size(); i++)
+            if (parent && groups[i] == parent) entry.set("parent", Json((int)i));
+        if (g->foldOnly) entry.set("fold_only", Json(true));
+        const Track& bus = *g->bus;
+        if (!routing::isPlain(bus) || !bus.effects.empty() || !bus.automation.empty() || std::atomic_load(&bus.into) ||
+            bus.output != 0 || bus.height != config::TRACK_H || bus.soloSafe)
+            entry.set("bus", describeTrack(bus, groups, sr, audioFile, states, all));
+        groupList.push(entry);
+    }
     Json trackList = Json::array();
-    for (auto& t : tracks) trackList.push(describeTrack(*t, groups, sr, audioFile, states, tracks));
+    for (auto& t : tracks) trackList.push(describeTrack(*t, groups, sr, audioFile, states, all));
     Json masterEffects = Json::array();
     for (auto& s : project.masterEffects) masterEffects.push(describeSlot(*s, states));
     Json out = Json::object({
@@ -797,7 +823,7 @@ Json describe(const Project& project, int sr, const MasterSettings& master, Audi
         {"tracks", trackList},
         {"clips", clips},
         {"master_effects", masterEffects},
-        {"master_cables", describeCables(*project.masterCables, *project.masterEffects, tracks)},
+        {"master_cables", describeCables(*project.masterCables, *project.masterEffects, all)},
     });
     if (!project.midiLinks.empty()) {  // (MIDI controller links: only then, so other projects save as before)
         Json links = describeMidiLinks(project);
@@ -1113,14 +1139,19 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
             group->soloed = g.flag("soloed", false);
             group->color = g.str("color");
             group->tone = g.str("tone");
+            group->foldOnly = g.flag("fold_only", false);  // (older files: every group a bus, plain: as they sounded)
+            group->bus->name = group->name;
             groups.push_back(group);
+        }
+        for (size_t k = 0; k < groups.size(); k++) {  // (nested groups; loops are cut below: routing::fixLoops)
+            size_t i;
+            if (isIndex(field(data, "groups")[k]["parent"], groups.size(), i) && i != k) groups[k]->parent = groups[i];
         }
         const Json& trackEntries = need(data, "tracks");
         if (!trackEntries.isArray()) throw Damaged{"'tracks' is not a list"};
         std::vector<TrackPtr> tracks;
-        for (const Json& t : trackEntries.items()) {
-            if (!t.isObject()) throw Damaged{"a track is not an object"};
-            auto track = std::make_shared<Track>(strOf(need(t, "name")), kindFromName(t.str("kind", "audio")));
+        // a track's own settings and plugins (a group's bus too: its entry is a track's)
+        auto readTrack = [&](const Json& t, const TrackPtr& track) {
             track->muted = t.flag("muted", false);
             track->soloed = t.flag("soloed", false);
             track->soloSafe = t.flag("solo_safe", false);
@@ -1150,11 +1181,34 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
                 if (s.isObject()) rack.push_back(readSlot(s));
             track->effects = effects;
             track->rack = rack;
+        };
+        for (const Json& t : trackEntries.items()) {
+            if (!t.isObject()) throw Damaged{"a track is not an object"};
+            auto track = std::make_shared<Track>(strOf(need(t, "name")), kindFromName(t.str("kind", "audio")));
+            readTrack(t, track);
             tracks.push_back(track);
         }
-        for (size_t k = 0; k < tracks.size(); k++) {
-            Track& track = *tracks[k];
-            const Json& entry = trackEntries[k];
+        // every track and its entry: the tracks', then the groups' buses (cables, sends and routing name them by
+        // index in this order)
+        std::vector<TrackPtr> everyTrack = tracks;
+        std::vector<const Json*> entries;
+        for (size_t k = 0; k < tracks.size(); k++) entries.push_back(&trackEntries[k]);
+        static const Json plainBus = Json::object();
+        for (size_t k = 0; k < groups.size(); k++) {
+            const Json& bus = field(data, "groups")[k]["bus"];
+            if (bus.isObject()) {
+                readTrack(bus, groups[k]->bus);
+                groups[k]->bus->group = nullptr;
+                groups[k]->bus->kind = Kind::Audio;
+            }
+            everyTrack.push_back(groups[k]->bus);
+            entries.push_back(bus.isObject() ? &bus : &plainBus);
+        }
+        for (size_t k = 0; k < everyTrack.size(); k++) {
+            Track& track = *everyTrack[k];
+            const Json& entry = *entries[k];
+            const std::vector<TrackPtr>& tracks = everyTrack;  // (sidechains and sends may name a bus)
+            if (k >= trackEntries.size() && !entry.size()) continue;  // (a plain bus: as made)
             track.cables = readCables(entry["cables"], *track.effects, tracks);
             const Json& rc = entry["rack_cables"];
             std::vector<Cable> rackCables;
@@ -1237,6 +1291,24 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
                     clip->prepare(sr);
                     track.frozen = clip;
                 }
+            }
+            size_t to;  // (output routing: a track or bus; never a return, nor itself)
+            if (isIndex(entry["output_to"], everyTrack.size(), to) && to != k && everyTrack[to]->kind != Kind::Return &&
+                track.kind != Kind::Return)
+                track.into = everyTrack[to];
+            const Json& padTracks = entry["pad_tracks"];  // (pads on their own tracks: [pad, track]; checked below too)
+            if (padTracks.isArray() && padTracks.size()) {
+                std::vector<TrackPtr> outs((size_t)PadKit::MAX_PADS);
+                for (const Json& pair : padTracks.items()) {
+                    size_t pad, at;
+                    if (pair.isArray() && pair.size() == 2 && isIndex(pair[(size_t)0], outs.size(), pad) &&
+                        isIndex(pair[(size_t)1], everyTrack.size(), at) && at != k && !everyTrack[at]->busOf &&
+                        everyTrack[at]->kind != Kind::Return)
+                        outs[pad] = everyTrack[at];
+                    else
+                        util::debugf("project: a pad's track reference left out (damaged)\n");
+                }
+                track.padOut = std::make_shared<const std::vector<TrackPtr>>(outs);
             }
         }
 
@@ -1332,7 +1404,7 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
         std::vector<SlotPtr> masterEffects;
         for (const Json& s : field(data, "master_effects").items())
             if (s.isObject()) masterEffects.push_back(readSlot(s));
-        std::vector<Cable> masterCables = readCables(field(data, "master_cables"), masterEffects, tracks);
+        std::vector<Cable> masterCables = readCables(field(data, "master_cables"), masterEffects, everyTrack);
         std::vector<MidiLink> midiLinks = readMidiLinks(field(data, "midi_links"), tracks, masterEffects);
 
         // all read: now the project is replaced (its plugins retired, never destroyed under the audio thread)
@@ -1350,6 +1422,8 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
                               {"midi", made.integer("midi", 0)},
                               {"group", made.integer("group", (int)groups.size())},
                               {"return", made.integer("return", returns)}};
+        if (int cut = routing::fixLoops(project)) util::debugf("project: %d routing loop(s) cut on loading", cut);
+        pad_tracks::forgetGone(project);  // (pads on tracks that can't take them: back in their kits)
         project.gatherGroups();
         project.timing = timing;
         project.setMarkers(markers);

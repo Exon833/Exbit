@@ -163,6 +163,12 @@ struct PluginSlot {
 };
 
 // --- a group of tracks under a header lane ---
+// GROUP BUSES (model/routing.h). A group is a bus: its tracks (and the groups inside it) play into its `bus`, a
+// track of its own (never a lane: reached through the group's header row) with a fader, pan, effects, sends,
+// automation and a meter; the bus plays into its parent group's bus, or the master. "Fold only" (foldOnly) turns
+// the bus off: the group then only folds, mutes and solos its tracks, which play on as if it weren't there (into
+// the next bus up, or the master). Muting or soloing a group mutes or solos everything inside it, nested groups
+// too. A bus that changes nothing (routing::isPlain) is skipped by the mixer: its tracks go straight on.
 struct Group {
     std::string name;
     bool folded = false;  // member lanes hidden; the header lane shows their clips in miniature
@@ -170,6 +176,12 @@ struct Group {
     bool soloed = false;
     std::string color;    // "#rrggbb" for its header row; "" = the standard look
     std::string tone;     // as Track::tone
+    bool foldOnly = false;  // no bus: it only folds, mutes and solos its tracks
+    GroupPtr parent;        // the group it is in (null: none); never a loop (routing::setParent); std::atomic_store
+    const TrackPtr bus;     // its bus (Track::busOf is this group); always the same one
+    Group();
+    Group(const Group&) = delete;
+    Group& operator=(const Group&) = delete;
 };
 
 // --- a named place in the song (Intro, Chorus…), shown on the ruler ---
@@ -330,6 +342,9 @@ struct Track {
     SamplerPtr sampler;       // MIDI tracks: the built-in sampler, played when there is no instrument plugin
                               // (nor Pad Kit); null = the built-in synth
     PadKitPtr padKit;         // MIDI tracks: a Pad Kit (PAD KIT above), played when there is no instrument plugin
+    // PADS ON THEIR OWN TRACKS (model/pad_tracks.h): a Pad Kit's track: the track each pad plays on (PadKit::MAX_PADS
+    // of them; null: in the kit's own sound); null: every pad in the kit. Replaced whole (std::atomic_store)
+    std::shared_ptr<const std::vector<TrackPtr>> padOut;
     bool needsInstrument = false;  // a new MIDI track: silent until an instrument is chosen
     int bendRange = 2;        // MIDI tracks: semitones the bend wheel bends its built-in synth or sampler played live,
                               // all the way up or down (1…24; right-click its row → Pitch bend range…)
@@ -339,7 +354,10 @@ struct Track {
     List<ModCable> modCables; // modulators moving its units' knobs (see ModCable)
     std::string color;        // "#rrggbb" for its row; "" = the standard look
     std::string tone;         // "light" / "dark": fixed text colour on its row; "" = automatic
-    GroupPtr group;
+    GroupPtr group;           // its group (the innermost one, when groups are nested)
+    TrackPtr into;            // OUTPUT ROUTING (model/routing.h): the track or group bus its sound goes into, before that
+                              // one's effects; null: its group's bus (or the master); never a loop; std::atomic_store
+    Group* busOf = nullptr;   // a group's bus: that group (it then has no clips and isn't in Project::tracks)
     std::shared_ptr<Clip> frozen;  // the track rendered, played instead of its clips and plugins while frozen
                                    // (its `track` stays null: a back pointer would be a shared_ptr cycle)
     List<AutomationPtr> automation;
@@ -554,7 +572,9 @@ public:
     // a return goes at the very bottom
     TrackPtr addTrack(Kind kind = Kind::Audio, GroupPtr group = nullptr, TrackPtr after = nullptr);
     std::vector<TrackPtr> returns() const;
-    std::vector<GroupPtr> groups() const;            // in use, top to bottom
+    std::vector<GroupPtr> groups() const;            // in use (and the groups they are in), top to bottom, outer first
+    // every track the mixer may play: `tracks`, then every group's bus (groups() order); GUI thread
+    std::vector<TrackPtr> allTracks() const;
     std::vector<TrackPtr> members(const GroupPtr& g) const;
     GroupPtr groupTracks(const std::vector<TrackPtr>& tracks);
     void ungroup(const GroupPtr& g);
@@ -564,6 +584,7 @@ public:
     TrackPtr firstEmptyTrack(Kind kind) const;
     bool audible(const Track& t) const;               // GUI thread (uses `tracks` directly)
     static bool audibleIn(const Track& t, const std::vector<TrackPtr>& tracks);  // audio thread, on a snapshot
+    static bool mutedIn(const Track& t);  // muted: itself, a group it is in, or (a bus) its group or one around it
     // exclusive solo (Alt-click on S): `t` soloed, every other track and group unsoloed
     void soloOnly(const TrackPtr& t);
 

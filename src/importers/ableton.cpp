@@ -22,6 +22,7 @@
 #include "effects/effects.h"
 #include "importers/gzip.h"
 #include "model/project_io.h"
+#include "model/routing.h"
 #include "plugins/plugin.h"
 
 namespace ableton {
@@ -1487,47 +1488,40 @@ void convertSet(const std::string& als, const std::string& output, Project& proj
         returns.push_back(track);
     }
 
-    // group tracks: a Tiny DAW group each (groups don't nest: a track goes in its innermost one); a group's
-    // fader, pan and mute act on its tracks (Tiny DAW's groups have no fader or effects of their own)
+    // group tracks: a Tiny DAW group each, a bus (model.h GROUP BUSES) with the group's own effects, fader, pan,
+    // mute and sends, nested as in Live
     auto groupTracks = reader.groups();
-    auto groupById = [&](const std::string& id) -> const Element* {
-        for (auto& g : groupTracks)
-            if (g.first == id) return g.second;
-        return nullptr;
-    };
     std::map<std::string, GroupPtr> madeGroups;
     for (auto& [gid, g] : groupTracks) {
         std::string gname = valS(g, "Name/EffectiveName", "Group");
-        const Element* mixer = g->find("DeviceChain/Mixer");
         auto group = std::make_shared<Group>();
         group->name = gname;
         group->color = colorOf(g);
         group->folded = !valB(g, "TrackUnfolded", true);
-        group->soloed = mixer ? valB(mixer, "SoloSink", false) : false;
-        madeGroups[gid] = group;
-        std::string about = "its volume and pan are in its tracks' faders";
-        std::vector<std::string> ignored;
-        bool anyOn = false;
-        for (const Element* d : devicesOf(g->find("DeviceChain/DeviceChain/Devices"), ignored, gname)) anyOn = anyOn || isOn(d);
-        if (anyOn) about += "; its effects not carried over (Tiny DAW's groups have none)";
-        if (groupById(valS(g, "TrackGroupId", "-1"))) about += "; it was inside another group: its tracks are in this one";
-        report.push_back(gname + ": a group (" + about + ")");
-    }
-    // the group tracks `t` is in, innermost first
-    auto ancestors = [&](const Element* t) {
-        std::vector<std::pair<std::string, const Element*>> found;
-        std::string gid = valS(t, "TrackGroupId", "-1");
-        for (;;) {
-            const Element* g = groupById(gid);
-            if (!g) break;
-            bool seen = false;
-            for (auto& f : found) seen = seen || f.second == g;
-            if (seen) break;
-            found.push_back({std::string(g->get("Id")), g});
-            gid = valS(g, "TrackGroupId", "-1");
+        Track& bus = *group->bus;
+        bus.name = gname;
+        if (g->find("DeviceChain/Mixer")) {
+            std::vector<double> sends = mixerOf(g, bus);
+            group->muted = bus.muted;  // (mute and solo are the group's: they reach its tracks)
+            group->soloed = bus.soloed;
+            bus.muted = bus.soloed = false;
+            std::vector<Send> busSends;
+            for (size_t i = 0; i < std::min(returns.size(), sends.size()); i++)
+                if (db(sends[i]) > SEND_FLOOR_DB) busSends.push_back({returns[i], round1(db(sends[i]))});
+            bus.sends = busSends;
         }
-        return found;
-    };
+        auto fx = audioEffects(g, report, gname);
+        bus.effects = fx;
+        bus.cables = chain(fx);
+        madeGroups[gid] = group;
+        report.push_back(gname + ": a group bus (its effects, fader, pan, mute and sends)");
+    }
+    for (auto& [gid, g] : groupTracks) {  // (inside another group, as in Live)
+        auto parent = madeGroups.find(valS(g, "TrackGroupId", "-1"));
+        if (parent != madeGroups.end() && parent->second != madeGroups[gid] &&
+            routing::canNest(madeGroups[gid], parent->second))
+            madeGroups[gid]->parent = parent->second;
+    }
 
     auto sources = reader.tracks();
     for (size_t number = 0; number < sources.size(); number++) {
@@ -1542,20 +1536,8 @@ void convertSet(const std::string& als, const std::string& output, Project& proj
         for (size_t i = 0; i < std::min(returns.size(), sends.size()); i++)
             if (db(sends[i]) > SEND_FLOOR_DB) trackSends.push_back({returns[i], round1(db(sends[i]))});
         track->sends = trackSends;
-        auto groups = ancestors(t);
-        for (size_t depth = 0; depth < groups.size(); depth++) {
-            const Element* mixer = groups[depth].second->find("DeviceChain/Mixer");
-            if (!mixer) continue;
-            track->volumeDb = round1(track->volumeDb + db(manualD(mixer, "Volume", 1.0)));
-            track->pan = clamp(track->pan + manualD(mixer, "Pan", 0.0), -1.0, 1.0);
-            bool muted = !manualB(mixer, "Speaker", true);
-            if (depth == 0) {
-                track->group = madeGroups[groups[depth].first];
-                track->group->muted = muted;
-            } else if (muted) {
-                track->muted = true;
-            }
-        }
+        auto inGroup = madeGroups.find(valS(t, "TrackGroupId", "-1"));  // (its innermost group)
+        if (inGroup != madeGroups.end()) track->group = inGroup->second;
         tracks.push_back(track);
         if (track->kind == Kind::Audio) {
             auto fx = audioEffects(t, report, name);
@@ -1712,7 +1694,7 @@ void convertSet(const std::string& als, const std::string& output, Project& proj
     int64_t end = project.endFrame();
     if (end) {
         std::vector<SlotPtr> slots;
-        for (auto& t : *project.tracks)
+        for (auto& t : project.allTracks())
             for (auto& s : *t->effects) slots.push_back(s);
         for (auto& slot : slots) {
             std::string error;

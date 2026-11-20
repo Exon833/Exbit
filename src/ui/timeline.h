@@ -36,9 +36,9 @@
 // (links::notesChanged). A linked clip shows a chain mark at the right of its name strip; the tooltip
 // there says how many clips share its notes. Splitting a linked clip (S) makes its pieces unique, and so
 // does joining (Ctrl+J: a new clip); Ctrl-drag, Ctrl+D and paste make independent copies.
-// Right-click an audio clip → Slice to a Pad Kit… finds the hits in its sound (the slice window,
-// pad_kit_dialog.h, with a sensitivity slider; lines on the clip show where the slices start while it is
-// open: slicePreview) and, on Slice, makes a new MIDI track under the clip's with a Pad Kit holding a slice
+// Right-click an audio clip → Slice to a Pad Kit… cuts it at its hits, on a grid or by hand (the slice
+// window, slice_dialog.h; lines on the clip show where the slices start while it is open, following every
+// change: slicePreview) and, on Slice, makes a new MIDI track under the clip's with a Pad Kit holding a slice
 // per pad and a MIDI clip playing them where the clip had them (makeSlicedKit; audio/padkit.h SLICING). The
 // audio clip stays as it was (mute or delete it to hear only the kit).
 // Editing every selected clip at once (timeline_slip.cpp, model/clip_edits.h): Ctrl+Alt+drag a clip (anywhere on

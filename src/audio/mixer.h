@@ -36,6 +36,31 @@
 // the faded sound. No allocation: preBuf grows with the other buffers (MixState::reserve), and the delay
 // lines are made on the calling thread before the tracks, like the main ones.
 //
+// GROUP BUSES AND ROUTING (model/routing.h). Besides the project's tracks, the mixer plays the bus of every group
+// the tracks are in (unless fold only). A track's sound goes to its target (routing::target): a group's bus or a
+// track it is routed into, summed into that one's input (as a return's: before its effects), or the outputs. A
+// target comes after everything feeding it in the feeding order, and is processed in a later WAVE: the tracks of
+// one wave are processed in parallel, then committed in order (so its input is whole, summed in the same order
+// with or without workers), then the next wave's; what nothing waits for goes in the last wave, alongside the
+// outermost buses. A sidechain listening to the bus its own sound plays into hears nothing. A plain bus (routing::isPlain: changes nothing) is skipped, its
+// tracks going straight on, so a group that is only a folder sounds exactly as without it. A track reaching the
+// outputs through buses plays on the output pair of the outermost bus it passes.
+// Delay compensation follows the paths: everything reaching the outputs lines up. A target's input lines up its
+// sources (each held back to the latest of them); a bus's effects then make it later, and whatever reaches the
+// outputs some other way is held back to match. A track's sends to the returns are held back further when it
+// plays into a bus (sendExtra), so they too reach the returns with everything else. (A track routed into another
+// track that has clips of its own: those clips aren't held back to its input's lateness.)
+// Mute and solo: a muted group mutes its bus; under solo, a bus (or a track routed into) is heard when a heard
+// track plays into it, or its group is soloed. A stem (`only`) is that track's sound alone; a bus's stem holds its
+// tracks.
+//
+// PADS ON THEIR OWN TRACKS (model/pad_tracks.h). A Pad Kit's track whose pads play on tracks of their own hands each
+// such pad's sound to its track's input (padBuf, before its effects): its clips' sound kept apart for that pad
+// (AudioBuffer::pads) and its live voices of that pad's key. A pad track listens to its kit as a sidechain does:
+// after it in the feeding order, in the same wave or a later one, waiting for it to be processed; the kit is worked
+// out even when muted or not soloed (its pads may be heard), and a frozen kit still hands its pads on. A pad's sound
+// whose track isn't there plays in the kit's own. The sums stay in the same order with or without workers.
+//
 // This is the one mixer: playback (Engine::callback) and renders (render.h) both run it, so a render
 // is what playback sounds like, sample for sample, when buffers fall the same way.
 //
@@ -107,6 +132,7 @@ struct MixState {
         Kind kind = Skipped;
         bool fed = false;  // its sound was kept for sidechains (in feedBuf)
         bool pre = false;  // its sound before its fader was kept for pre-fader sends (in preBuf)
+        bool sent = false; // its sound for post-fader sends was held back further (in sendBuf: a bus's track)
         int channels = 0, first = 0;
         double seconds = 0;  // how long processing it took
     };
@@ -117,6 +143,22 @@ struct MixState {
     std::vector<std::vector<float>> preBuf;
     std::vector<std::pair<const Track*, patch::DelayLine>> preDelays;
     std::vector<patch::DelayLine*> preLines;
+    // GROUP BUSES AND ROUTING (see the top): the tracks mixed (the project's, then the buses of their groups), where
+    // each one's sound goes (an index; -1: the outputs), its wave, the output pair it reaches, and the delay
+    // compensation worked out along the paths (own: its own lateness; needOut: how late it must reach where it
+    // goes; inLate: how late its input comes; sendExtra: how much more its sends to the returns are held back)
+    std::vector<TrackPtr> all;
+    std::vector<int> dest, level, firstOut, own, needOut, inLate, sendExtra, pathLat;
+    std::vector<char> plain, hasInput, reachesOnly;
+    std::vector<std::vector<float>> sendBuf;  // its sound for its post-fader sends, held back by sendExtra
+    // PADS ON THEIR OWN TRACKS (see the top): a kit's track: the track each of its pads plays on (padDest[i * MAX_PADS
+    // + pad], -1: the kit), and whether it has any (padsOut); a pad track: its kit (padFrom, -1: none), its input
+    // (padBuf, 2 rows of `capacity`) and whether the kit filled it in this buffer (padFilled)
+    std::vector<int> padDest, padFrom;
+    std::vector<char> padsOut, padFilled;
+    std::vector<std::vector<float>> padBuf;
+    std::vector<std::pair<const Track*, patch::DelayLine>> sendDelays;
+    std::vector<patch::DelayLine*> sendLines;
     std::vector<int> clipFrom;                 // its clips: trackClips[clipFrom[i] … clipFrom[i + 1])
     std::vector<const Clip*> trackClips;
     std::vector<patch::DelayLine*> lines;      // its delay compensation line (null: none)
@@ -172,7 +214,8 @@ int mixClips(Project& project, float* out, int outChannels, int frames, bool has
 
 // Add the part of clip that falls in buf (`channels` planar channels of bufFrames frames, starting at
 // timeline frame `start`), at its gain and fades (Clip::level), with the short fade at the clip's edges so
-// cuts don't click.
-void addClip(float* const buf[2], int channels, int64_t bufFrames, const Clip& clip, int64_t start);
+// cuts don't click. data: played instead of the clip's own (a pad's sound kept apart: AudioBuffer::pads)
+void addClip(float* const buf[2], int channels, int64_t bufFrames, const Clip& clip, int64_t start,
+             const AudioBuffer* data = nullptr);
 
 }  // namespace mixer

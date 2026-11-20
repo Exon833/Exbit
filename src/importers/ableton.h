@@ -9,8 +9,8 @@
 // Dynamics, Gate and Redux become Tiny DAW's built-in effects (on audio and return tracks), set as near as
 // their controls allow. What can't be carried over, or only approximately, is listed in the report.
 //
-// Group tracks become Tiny DAW groups (groups don't nest: a track goes in its innermost one); a group's
-// fader, pan and mute act on its tracks (Tiny DAW's groups have no fader or effects of their own). Clips
+// Group tracks become Tiny DAW groups with a bus each (model.h GROUP BUSES): the group's own effects, fader, pan,
+// mute and sends, nested as in Live (a track goes in its innermost group). Clips
 // deactivated in Live come in disabled. A clip's transpose: warped, the pitch alone; unwarped, like a tape.
 // Its fades and loop come along.
 //

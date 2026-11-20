@@ -10,6 +10,7 @@
 #include "audio/padkit.h"
 #include "audio/sampler.h"
 #include "core/util.h"
+#include "model/pad_tracks.h"
 #include "ui/theme.h"
 #include "ui/toolkit/layout.h"
 
@@ -101,7 +102,9 @@ bool PadView::listRows(std::vector<std::string>& rows, int& current) const {
     PadKitPtr kit = dialog_->kit();
     const Pad& p = kit->pads[(size_t)i];
     rows.push_back(std::to_string(i + 1) + " " + (p.empty() || !p.sound.sample ? "empty" : p.sound.sample->name));
-    rows.push_back("  " + sampler_dialog::noteName(p.note) + (p.choke ? "  choke " + std::to_string(p.choke) : ""));
+    TrackPtr own = pad_tracks::trackOf(*dialog_->track, i);
+    rows.push_back("  " + sampler_dialog::noteName(p.note) + (p.choke ? "  choke " + std::to_string(p.choke) : "") +
+                   (own ? "  -> " + own->name : ""));
     current = dialog_->selected == i ? 0 : -1;
     return true;
 }
@@ -117,6 +120,8 @@ void PadView::refresh() {
     std::string tip = padNumber(i) + " on " + sampler::noteName(p.note) +
                       (p.empty() ? ": empty" : ": " + p.sound.sample->name) +
                       (p.choke ? ", choke group " + std::to_string(p.choke) : std::string()) +
+                      (pad_tracks::trackOf(*dialog_->track, i) ? "\nPlays on its own track: " + pad_tracks::trackOf(*dialog_->track, i)->name
+                                                               : std::string()) +
                       "\nClick to hear it and see its settings; drop sound files on it; right-click for more";
     setToolTip(tip);
     update();
@@ -157,7 +162,8 @@ void PadView::paint(Painter& p) {
     // its name (left) and key (right), and its choke group
     const css::Style& name = computedStyle("name");
     Color text = ui::style::foreground(name);
-    std::string keyText = sampler::noteName(pad.note) + (pad.choke ? "  \xe2\x9c\x95" + std::to_string(pad.choke) : "");
+    std::string keyText = (pad_tracks::trackOf(*dialog_->track, i) ? "\xe2\x86\x92 " : "") +  // (→: on its own track)
+                          sampler::noteName(pad.note) + (pad.choke ? "  \xe2\x9c\x95" + std::to_string(pad.choke) : "");
     float keyW = font.width(keyText);
     p.drawText(RectF((float)w - keyW - 6, 1, keyW + 2, 14), AlignRight | AlignVCenter, keyText, font,
                pad.choke ? group : text);
@@ -296,6 +302,10 @@ PadKitDialog::PadKitDialog(ui::Window* window, TrackPtr track_)
     ui::Button* playButton = ui::pushButton(this, "Play the pad", [this] { play(selected); });
     playButton->setToolTip("Hear it on the track (also: the MIDI editor's keys, or a MIDI keyboard)");
     buttons->addWidget(playButton);
+    ui::Button* toTracks = ui::pushButton(this, "Pads to tracks", [this] { padsToTracks(track); });
+    toTracks->setToolTip("Every used pad on a track of its own (its own effects, fader, pan, sends and meter), "
+                         "below this one, grouped with it");
+    buttons->addWidget(toTracks);
     buttons->addStretch(1);
     buttons->addWidget(ui::pushButton(this, "Close", [this] { close(); }));
     col->addLayout(std::move(buttons));
@@ -452,6 +462,23 @@ void PadKitDialog::fillPadMenu(ui::Menu& menu, int pad) {
         a->checkable = true;
         a->checked = p.choke == g;
     }
+    // pads on their own tracks (model/pad_tracks.h)
+    TrackPtr own = pad_tracks::trackOf(*track, pad);
+    ui::Menu* output = menu.addMenu("Output");
+    ui::Action* inKit = output->addAction("The kit", [this, pad] { setOutput(pad, false); });
+    inKit->checkable = true;
+    inKit->checked = !own;
+    ui::Action* ownTrack = output->addAction(own ? "Its own track: " + own->name : std::string("Its own track"),
+                                             [this, pad] { setOutput(pad, true); });
+    ownTrack->checkable = true;
+    ownTrack->checked = (bool)own;
+    ownTrack->setEnabled(!p.empty() || own);
+    menu.addAction("Pads to tracks", [this] { padsToTracks(track); })->tooltip =
+        "Every used pad on a track of its own, below this one, grouped with it";
+}
+
+void PadKitDialog::setOutput(int pad, bool own) {
+    if (setPadOutput(track, pad, own)) reload();
 }
 
 void PadKitDialog::renderClips() { sampler_dialog::renderTrackClips(track); }
@@ -491,58 +518,65 @@ void reloadAll() {
     for (PadKitDialog* d : gone) d->close();  // (undone: the track has no kit now)
 }
 
+namespace {
+// after a pad's output changed: the kits' clips rendered again (their pads kept apart, or not), the rows shown
+void routed(const std::vector<TrackPtr>& kits, bool rows) {
+    for (const TrackPtr& kit : kits) {
+        sampler_dialog::renderTrackClips(kit);
+        if (PadKitDialog* d = openFor(kit.get())) d->reload();
+    }
+    const sampler_dialog::Host& host = sampler_dialog::host();
+    if (rows && host.tracksChanged) host.tracksChanged();
+}
+bool frozenKit(const TrackPtr& kit) {
+    if (!aload(kit->frozen)) return false;
+    const sampler_dialog::Host& host = sampler_dialog::host();
+    if (host.status) host.status(kit->name + " is frozen: unfreeze it to change where its pads play");
+    return true;
+}
+}  // namespace
+
+std::vector<TrackPtr> padsToTracks(const TrackPtr& kit) {
+    const sampler_dialog::Host& host = sampler_dialog::host();
+    if (!host.project || !kit || !kit->playsPadKit() || frozenKit(kit)) return {};
+    std::vector<TrackPtr> made = pad_tracks::padsToTracks(*host.project, kit);
+    routed({kit}, true);
+    if (host.status)
+        host.status(made.empty() ? "Every used pad of " + kit->name + " has a track of its own already"
+                                 : std::to_string(made.size()) + " pad" + (made.size() == 1 ? "" : "s") + " of " + kit->name +
+                                       " on tracks of their own, in the group " + kit->name);
+    return made;
+}
+
+bool setPadOutput(const TrackPtr& kit, int pad, bool own) {
+    const sampler_dialog::Host& host = sampler_dialog::host();
+    if (!host.project || !kit || frozenKit(kit)) return false;
+    bool had = (bool)pad_tracks::trackOf(*kit, pad);
+    if (own == had) return true;
+    TrackPtr made = own ? pad_tracks::giveTrack(*host.project, kit, pad) : nullptr;
+    if (!own) pad_tracks::setTrack(kit, pad, nullptr);
+    if (own && !made) return false;
+    routed({kit}, own);
+    if (host.status)
+        host.status(own ? "Pad " + std::to_string(pad + 1) + " plays on its own track: " + made->name
+                        : "Pad " + std::to_string(pad + 1) + " plays in " + kit->name + " again");
+    return true;
+}
+
+void backToKit(const TrackPtr& padTrack) {
+    const sampler_dialog::Host& host = sampler_dialog::host();
+    if (!host.project || !padTrack) return;
+    TrackPtr kit = pad_tracks::kitOf(*host.project, *padTrack);
+    if (!kit || frozenKit(kit)) return;
+    routed(pad_tracks::backToKit(*host.project, *padTrack), true);
+    if (host.status) host.status(padTrack->name + ": its pad plays in " + kit->name + " again");
+}
+
 void closeGone(const Project& project) {
     std::vector<PadKitDialog*> gone;
     for (auto& kv : gWindows)
         if (!project.tracks.contains(kv.second->track) || !kv.second->track->padKit) gone.push_back(kv.second);
     for (PadKitDialog* d : gone) d->close();
-}
-
-// =================================================================================================
-
-SliceDialog::SliceDialog(ui::Window* parent, ClipPtr clip_, int sr_)
-    : ui::Dialog(parent, "Slice to a Pad Kit", 420, 170), clip(std::move(clip_)), sr(sr_) {
-    deleteOnClose = true;
-    setStyleType("SliceDialog");
-    ui::VBox* col = ui::styleRoom(ui::vbox(this, 12, 8), computedStyle());
-    ui::Label* what = add<ui::Label>("Cuts " + clip->name + " at its hits: a new MIDI track with a Pad Kit, a slice "
-                                     "on each pad, and a clip playing them where they were. The lines on the clip "
-                                     "show where the slices start.");
-    what->setWordWrap(true);
-    col->addWidget(what);
-    auto row = std::make_unique<ui::HBox>();
-    row->addWidget(add<ui::Label>("Sensitivity"));
-    sensitivity = add<ui::Slider>();
-    sensitivity->setRange(0, 100);
-    sensitivity->setValueSilently((int)std::lround(padkit::DEFAULT_SENSITIVITY * 100));
-    sensitivity->setToolTip("Higher finds quieter hits too");
-    row->addWidget(sensitivity, 1);
-    count = add<ui::Label>();
-    count->setMinimumWidth(std::max(0, ui::style::px(computedStyle("count"), "min-width", 90)));
-    row->addWidget(count);
-    col->addLayout(std::move(row));
-    col->addStretch(1);
-    auto buttons = std::make_unique<ui::HBox>();
-    buttons->addStretch(1);
-    sliceButton = ui::pushButton(this, "Slice", [this] { accept(); });
-    sliceButton->setDefault(true);
-    buttons->addWidget(sliceButton);
-    buttons->addWidget(ui::pushButton(this, "Cancel", [this] { reject(); }));
-    col->addLayout(std::move(buttons));
-    sound = padkit::clipSound(*clip);
-    onsets_ = std::make_unique<dsp::Onsets>(sound.data(), (int64_t)sound.size() / 2, sr);
-    sensitivity->valueChanged.connect([this](int) { findHits(); });
-    findHits();
-}
-
-void SliceDialog::findHits() {
-    std::vector<int64_t> found = onsets_ ? onsets_->find(sensitivity->value() / 100.0) : std::vector<int64_t>();
-    hits = padkit::sliceStarts(sound.data(), (int64_t)sound.size() / 2, found);
-    int n = (int)hits.size();
-    count->setText(std::to_string(n) + (n == 1 ? " slice" : " slices") +
-                   ((int)found.size() > padkit::MAX_SLICES ? " (the most)" : ""));
-    sliceButton->setEnabled(!sound.empty());
-    hitsChanged.emit();
 }
 
 }  // namespace pad_kit_dialog

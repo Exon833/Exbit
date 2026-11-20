@@ -3,8 +3,8 @@
 // in the set's folder; then converts them and checks the project (as returned, and as saved and loaded).
 //
 // Covered: tempo, time signature (and the report for a non-quarter one), locators, tracks (name, colour,
-// fader, pan, mute, solo), return tracks and sends, groups (fader and pan folded into their tracks, mute,
-// fold, solo, nested groups, their effects reported), audio clips (place, offset, gain, fades, warping →
+// fader, pan, mute, solo), return tracks and sends, groups (buses with their own fader, pan, effects and sends;
+// mute, fold, solo, nested groups), audio clips (place, offset, gain, fades, warping →
 // stretch, unwarped transpose → tape-like, loops, deactivated), sample lookup (relative path, by name with
 // the best-matching folders, same-named files copied once each), MIDI clips (notes, switched-off notes,
 // loops, deactivated), MIDI effects (Arpeggiator, Note Length, Scale; others reported), the built-in effects
@@ -24,6 +24,7 @@
 #include "core/json.h"
 #include "core/util.h"
 #include "importers/ableton.h"
+#include "model/routing.h"
 #include "importers/gzip.h"
 #include "model/project_io.h"
 #include "plugins/plugin.h"
@@ -440,22 +441,33 @@ static void testFullSet() {
     CHECK(drums && drums->kind == Kind::Audio);
     if (!drums) return;
     CHECK(drums->color == "#f7f47c");  // (palette 3)
-    CHECK_NEAR(drums->volumeDb, -12.0, 1e-9);  // its fader -6 dB, its groups' -6 and 0 dB
-    CHECK_NEAR(drums->pan, -0.25, 1e-9);       // -0.5 + 0.25 + 0
-    CHECK(drums->muted);  // (its innermost group, its Tiny DAW group, isn't muted; the outer one is: the track is)
+    CHECK_NEAR(drums->volumeDb, -6.0, 1e-9);  // its own fader (its groups' are their buses')
+    CHECK_NEAR(drums->pan, -0.5, 1e-9);
+    CHECK(!drums->muted);  // (its outer group is muted: that mutes it, as a group)
+    CHECK(Project::mutedIn(*drums));
     CHECK(drums->sends.size() == 1);            // (the second send is below -60 dB)
     CHECK(drums->sends.size() == 1 && drums->sends[0].track == returns[0] && drums->sends[0].db == -6.0);
-    // groups: Drums is in "Inner" (groups don't nest); "Band" is muted, so Drums is too
+    // groups: Drums is in "Inner", which is inside "Band" (muted, soloed, folded, a Saturator on its bus)
     CHECK(drums->group && drums->group->name == "Inner");
     CHECK(drums->group && drums->group->folded == false && !drums->group->muted && !drums->group->soloed);
-    CHECK(reportHas(result, "Band: a group (its volume and pan are in its tracks' faders; its effects not carried over (Tiny DAW's groups have none))"));
-    CHECK(reportHas(result, "Inner: a group (its volume and pan are in its tracks' faders; it was inside another group: its tracks are in this one)"));
+    CHECK(drums->group && drums->group->bus->volumeDb == 0 && drums->group->bus->pan == 0 && !drums->group->foldOnly);
+    CHECK(reportHas(result, "Band: a group bus (its effects, fader, pan, mute and sends)"));
+    CHECK(reportHas(result, "Inner: a group bus (its effects, fader, pan, mute and sends)"));
     TrackPtr snares = trackNamed(project, "Snares");
     CHECK(snares && snares->muted && snares->soloed && snares->color.empty());
     CHECK(snares && snares->group && snares->group->name == "Band" && snares->group->muted && snares->group->folded &&
           snares->group->soloed && snares->group->color == "#00bfaf");
-    CHECK(snares && snares->volumeDb == -6.0 && snares->pan == 0.25);
+    CHECK(snares && snares->volumeDb == 0 && snares->pan == 0);
     CHECK(snares && drums->group != snares->group);
+    CHECK(snares && drums->group && drums->group->parent == snares->group);  // (nested as in Live)
+    if (snares && snares->group) {
+        const Track& band = *snares->group->bus;
+        CHECK(band.volumeDb == -6.0 && band.pan == 0.25 && !band.muted && band.name == "Band");
+        CHECK(band.effects.size() == 1 && band.effects[0]->name == "Saturation");
+        CHECK(routing::target(*drums) == drums->group->bus.get());
+        CHECK(routing::target(*drums->group->bus) == &band);
+        CHECK(routing::target(band) == nullptr);
+    }
     TrackPtr keys = trackNamed(project, "Keys");
     CHECK(keys && keys->kind == Kind::Midi && keys->color == "#e553a0");
     CHECK(keys && keys->pan == 0.3 && keys->volumeDb == 0);
@@ -720,6 +732,9 @@ static void testFullSet() {
     CHECK(lkeys && lkeys->frozen && lkeys->sampler && lkeys->midiEffects.size() == 3);
     TrackPtr ldrums = trackNamed(loaded, "Drums");
     CHECK(ldrums && ldrums->effects.size() == 11 && ldrums->sends.size() == 1 && ldrums->group && ldrums->group->name == "Inner");
+    CHECK(ldrums && ldrums->group && ldrums->group->parent && ldrums->group->parent->name == "Band" &&
+          ldrums->group->parent->bus->effects.size() == 1 && ldrums->group->parent->bus->volumeDb == -6.0 &&
+          ldrums->group->parent->muted);  // (the buses saved and loaded)
     ClipPtr lch = clipNamed(loaded, "Chords");
     CHECK(lch && lch->mutedNotes && lch->mutedNotes->size() == 1);
     ClipPtr llp = clipNamed(loaded, "Looping");

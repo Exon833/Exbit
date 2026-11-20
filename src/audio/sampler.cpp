@@ -8,6 +8,7 @@
 
 #include "audio/padkit.h"
 #include "audio/synth.h"
+#include "model/pad_tracks.h"
 
 namespace sampler {
 
@@ -303,7 +304,8 @@ live::NoteRender noteRenderer(const Track& track) {
 void install() {
     clip_hooks::renderSampler = [](const Track& track, const std::vector<Note>& notes, int sr, double lengthS) {
         PadKitPtr kit = std::atomic_load(&track.padKit);
-        if (kit && track.playsPadKit()) return padkit::render(*kit, notes, sr, lengthS);
+        // (its pads playing on tracks of their own kept apart: model/pad_tracks.h)
+        if (kit && track.playsPadKit()) return padkit::render(*kit, notes, sr, lengthS, pad_tracks::routedMask(track));
         SamplerPtr s = std::atomic_load(&track.sampler);
         return s ? render(*s, notes, sr, lengthS) : synth::render(notes, sr, lengthS);
     };

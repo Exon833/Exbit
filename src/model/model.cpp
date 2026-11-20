@@ -1,4 +1,5 @@
 #include "model/model.h"
+#include "model/pad_tracks.h"
 
 #include <algorithm>
 #include <cmath>
@@ -131,6 +132,8 @@ Track::Track(std::string n, Kind k)
           s->name = "Track volume and pan";
           return s;
       }()) {}
+
+Group::Group() : bus(std::make_shared<Track>("", Kind::Audio)) { bus->busOf = this; }
 
 std::string Track::keyLabel(int pitch) const {
     PadKitPtr kit = std::atomic_load(&padKit);
@@ -418,8 +421,14 @@ void Project::clear() {
 
 void Project::forgetGoneTracks() {
     std::set<Track*> present;
-    for (auto& t : tracks) present.insert(t.get());
-    for (auto& t : tracks) {  // (the sends to returns that are gone)
+    std::vector<TrackPtr> all = allTracks();
+    for (auto& t : all) present.insert(t.get());
+    for (auto& t : all) {  // (routed into a track that is gone: back to its group's bus, or the master)
+        TrackPtr to = std::atomic_load(&t->into);
+        if (to && !present.count(to.get())) std::atomic_store(&t->into, TrackPtr());
+    }
+    pad_tracks::forgetGone(*this);  // (a pad's track that is gone: the pad back in its kit)
+    for (auto& t : all) {  // (the sends to returns that are gone)
         bool gone = false;
         for (auto& s : t->sends) gone = gone || !present.count(s.track.get());
         if (!gone) continue;
@@ -434,13 +443,13 @@ void Project::forgetGoneTracks() {
             if (!(c.first.type == End::TrackSource && !present.count(c.first.track))) kept.push_back(c);
         if (kept.size() != cables.size()) cables = kept;
     };
-    for (auto& t : tracks) clean(t->cables);
+    for (auto& t : all) clean(t->cables);
     clean(masterCables);
 }
 
 std::vector<SlotPtr> Project::pluginSlots() const {
     std::vector<SlotPtr> out;
-    for (auto& t : tracks) {
+    for (auto& t : allTracks()) {
         if (t->instrument) out.push_back(t->instrument);
         for (auto& s : t->rack) out.push_back(s);
         for (auto& s : t->effects) out.push_back(s);
@@ -483,8 +492,18 @@ std::vector<TrackPtr> Project::returns() const {
 
 std::vector<GroupPtr> Project::groups() const {
     std::vector<GroupPtr> out;
-    for (auto& t : tracks)
-        if (t->group && std::find(out.begin(), out.end(), t->group) == out.end()) out.push_back(t->group);
+    for (auto& t : tracks) {
+        std::vector<GroupPtr> path;  // (outer first)
+        for (GroupPtr g = t->group; g && path.size() < 1000; g = std::atomic_load(&g->parent)) path.insert(path.begin(), g);
+        for (auto& g : path)
+            if (std::find(out.begin(), out.end(), g) == out.end()) out.push_back(g);
+    }
+    return out;
+}
+
+std::vector<TrackPtr> Project::allTracks() const {
+    std::vector<TrackPtr> out = *tracks;
+    for (auto& g : groups()) out.push_back(g->bus);
     return out;
 }
 
@@ -499,6 +518,17 @@ GroupPtr Project::groupTracks(const std::vector<TrackPtr>& ts) {
     int n = ++tracksMade["group"];
     auto g = std::make_shared<Group>();
     g->name = "Group " + std::to_string(n);
+    g->bus->name = g->name;
+    // (tracks all in one group: the new group goes inside it)
+    GroupPtr common;
+    bool first = true, same = true;
+    for (auto& t : ts)
+        if (t->kind != Kind::Return) {
+            if (!first && t->group != common) same = false;
+            common = t->group;
+            first = false;
+        }
+    if (same && common) std::atomic_store(&g->parent, common);
     for (auto& t : ts)
         if (t->kind != Kind::Return) t->group = g;  // (return tracks stay out of groups)
     gatherGroups();
@@ -506,20 +536,44 @@ GroupPtr Project::groupTracks(const std::vector<TrackPtr>& ts) {
 }
 
 void Project::ungroup(const GroupPtr& g) {
-    for (auto& t : members(g)) t->group = nullptr;
+    GroupPtr up = std::atomic_load(&g->parent);
+    for (auto& t : members(g)) t->group = up;  // (nested: into the group it was in)
+    for (auto& other : groups())
+        if (std::atomic_load(&other->parent) == g) std::atomic_store(&other->parent, up);
+    for (auto& t : allTracks())  // (routed into its bus: back to their default)
+        if (std::atomic_load(&t->into) == g->bus) std::atomic_store(&t->into, TrackPtr());
 }
+
+namespace {
+// the groups a track is in, outer first
+std::vector<Group*> pathOf(const Track& t) {
+    std::vector<Group*> path;
+    for (Group* g = t.group.get(); g && path.size() < 1000; g = std::atomic_load(&g->parent).get()) path.insert(path.begin(), g);
+    return path;
+}
+// ts in their order, each group's tracks (nested groups' too) together where its first one is
+void gatherFrom(const std::vector<TrackPtr>& ts, size_t depth, std::vector<TrackPtr>& out) {
+    std::set<Group*> done;
+    for (auto& t : ts) {
+        auto path = pathOf(*t);
+        if (path.size() <= depth) {
+            out.push_back(t);
+            continue;
+        }
+        if (!done.insert(path[depth]).second) continue;
+        std::vector<TrackPtr> inside;
+        for (auto& u : ts) {
+            auto p = pathOf(*u);
+            if (p.size() > depth && p[depth] == path[depth]) inside.push_back(u);
+        }
+        gatherFrom(inside, depth + 1, out);
+    }
+}
+}  // namespace
 
 void Project::gatherGroups() {
     std::vector<TrackPtr> order;
-    std::set<Group*> done;
-    for (auto& t : tracks) {
-        if (!t->group) {
-            order.push_back(t);
-        } else if (!done.count(t->group.get())) {
-            done.insert(t->group.get());
-            for (auto& m : members(t->group)) order.push_back(m);
-        }
-    }
+    gatherFrom(*tracks, 0, order);
     std::vector<TrackPtr> out;  // (returns last)
     for (auto& t : order)
         if (t->kind != Kind::Return) out.push_back(t);
@@ -537,6 +591,9 @@ void Project::removeTrack(const TrackPtr& track) {
     for (auto& t : tracks)
         if (t != track) ts.push_back(t);
     tracks = ts;
+    for (auto& t : allTracks())  // (routed into it: back to their default)
+        if (std::atomic_load(&t->into) == track) std::atomic_store(&t->into, TrackPtr());
+    pad_tracks::forgetGone(*this);  // (a pad playing on it: back in its kit)
     if (track->instrument && track->instrument->instance) retire(track->instrument->instance);
     for (auto& s : track->rack)
         if (s->instance) retire(s->instance);
@@ -552,23 +609,34 @@ TrackPtr Project::firstEmptyTrack(Kind kind) const {
     return nullptr;
 }
 
+namespace {
+// the innermost group a track's own flags go with: its group, or (a bus) the group it belongs to
+Group* flagsGroup(const Track& t) { return t.busOf ? t.busOf : t.group.get(); }
+// (nested groups: every group around it, up to 1000 deep; parents never loop)
+bool anyGroup(const Track& t, bool Group::*flag) {
+    int depth = 0;
+    for (Group* g = flagsGroup(t); g && depth < 1000; g = std::atomic_load(&g->parent).get(), depth++)
+        if (g->*flag) return true;
+    return false;
+}
+}  // namespace
+
+bool Project::mutedIn(const Track& t) { return t.muted || anyGroup(t, &Group::muted); }
+
 bool Project::audibleIn(const Track& track, const std::vector<TrackPtr>& ts) {
-    Group* g = track.group.get();
-    if (track.muted || (g && g->muted) || track.needsInstrument) return false;
-    if (track.soloed || (g && g->soloed) || track.kind == Kind::Return || track.soloSafe)
+    if (mutedIn(track) || track.needsInstrument) return false;
+    if (track.soloed || anyGroup(track, &Group::soloed) || track.kind == Kind::Return || track.soloSafe)
         return true;  // (soloing a track keeps the returns, and the solo-safe tracks)
     for (auto& t : ts)
-        if (t->kind != Kind::Return && (t->soloed || (t->group && t->group->soloed))) return false;
+        if (t->kind != Kind::Return && (t->soloed || anyGroup(*t, &Group::soloed))) return false;
     return true;
 }
 
 bool Project::audible(const Track& t) const { return audibleIn(t, *tracks); }
 
 void Project::soloOnly(const TrackPtr& t) {
-    for (auto& o : tracks) {
-        o->soloed = o == t;
-        if (o->group) o->group->soloed = false;
-    }
+    for (auto& o : tracks) o->soloed = o == t;
+    for (auto& g : groups()) g->soloed = false;
 }
 
 void Project::removeClips(const std::vector<ClipPtr>& cs) {

@@ -187,7 +187,7 @@ bool PluginHost::canReload(const SlotPtr& slot) const {
 }
 
 std::string PluginHost::whereOf(const SlotPtr& slot) const {
-    for (const TrackPtr& t : project.tracks)
+    for (const TrackPtr& t : project.allTracks())
         if (aload(t->instrument) == slot || t->rack.contains(slot) || t->effects.contains(slot)) return t->name;
     return project.masterEffects.contains(slot) ? "Master" : "";
 }

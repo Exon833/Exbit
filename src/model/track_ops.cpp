@@ -9,6 +9,7 @@
 #include "audio/modulation.h"
 #include "audio/patch.h"
 #include "core/util.h"
+#include "model/routing.h"
 
 namespace track_ops {
 
@@ -49,6 +50,7 @@ TrackPtr copyOf(const Track& t) {
     c->color = t.color;
     c->tone = t.tone;
     c->group = t.group;
+    c->into = std::atomic_load(&t.into);  // (where it plays: model/routing.h; a copy can't make a loop)
     c->showAutomation = t.showAutomation;
     c->usesRack = t.usesRack;
     if (auto f = std::atomic_load(&t.frozen)) c->frozen = copyClip(f);
@@ -167,20 +169,34 @@ bool stepOne(std::vector<TrackPtr>& v, const TrackPtr& t, int d, const std::set<
     int i = (int)(std::find(v.begin(), v.end(), t) - v.begin()), j = i + d;
     if (i >= n) return false;
     bool edge = j < 0 || j >= n;
-    if (t->group && (edge || v[(size_t)j]->group != t->group)) {
-        t->group = nullptr;  // at its group's edge: out of it (it stays where it is: above or below the group)
+    // (nested groups: is u inside g, at any depth; the group of u's right inside g, or its outermost: g null)
+    auto within = [](const Track& u, const Group* g) {
+        int depth = 0;
+        for (Group* x = u.group.get(); x && depth < 1000; x = std::atomic_load(&x->parent).get(), depth++)
+            if (x == g) return true;
+        return !g;
+    };
+    auto childOf = [](const Track& u, const Group* g) {
+        int depth = 0;
+        for (GroupPtr x = u.group; x && depth < 1000; x = std::atomic_load(&x->parent), depth++)
+            if (std::atomic_load(&x->parent).get() == g) return x;
+        return GroupPtr();
+    };
+    if (t->group && (edge || !within(*v[(size_t)j], t->group.get()))) {
+        // at its group's edge: out of it, into the group around it (it stays where it is: above or below the group)
+        t->group = std::atomic_load(&t->group->parent);
         return true;
     }
     if (edge) return false;
     const TrackPtr nb = v[(size_t)j];
     if ((t->kind == Kind::Return) != (nb->kind == Kind::Return) || stuck.count(nb.get())) return false;
-    if (!t->group && nb->group) {
-        if (!nb->group->folded) {  // into the group, at that end
-            t->group = nb->group;
+    if (GroupPtr inner = nb->group != t->group ? childOf(*nb, t->group.get()) : nullptr) {
+        if (!inner->folded) {  // into the group, at that end
+            t->group = inner;
             return true;
         }
         int k = j;  // over the whole folded group
-        while (k + d >= 0 && k + d < n && v[(size_t)(k + d)]->group == nb->group) k += d;
+        while (k + d >= 0 && k + d < n && within(*v[(size_t)(k + d)], inner.get())) k += d;
         v.erase(v.begin() + i);
         v.insert(v.begin() + k, t);
         return true;
@@ -208,6 +224,7 @@ bool step(Project& p, const std::vector<TrackPtr>& tracks, int dir) {
     if (!moved) return false;
     p.tracks = v;
     p.gatherGroups();
+    routing::fixLoops(p);  // (a track moved into a group whose bus plays into it)
     util::debugf("track_ops: %d of %zu track(s) moved %s\n", moved, order.size(), d < 0 ? "up" : "down");
     return true;
 }
@@ -228,6 +245,7 @@ bool moveTo(Project& p, const std::vector<TrackPtr>& tracks, const TrackPtr& tar
     for (auto& t : moving) t->group = t->kind == Kind::Return ? nullptr : target->group;
     p.tracks = v;
     p.gatherGroups();
+    routing::fixLoops(p);
     bool same = *p.tracks == before;
     for (size_t i = 0; i < moving.size(); i++) same = same && moving[i]->group == groups[i];
     if (!same)

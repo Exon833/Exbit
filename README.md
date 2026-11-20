@@ -15,7 +15,8 @@ extends; that program is in the repository's history.
 
 ## What it does
 
-- **Timeline**: audio and MIDI tracks, groups, return tracks with sends (before or after the
+- **Timeline**: audio and MIDI tracks, groups that are buses (their own fader, pan, sends and effects;
+  groups in groups; or Fold only), any track's output into a group or another track, return tracks with sends (before or after the
   fader), pan, track delay; tracks duplicated (with or without their clips), moved (drag a name, or
   Alt+↑/↓) and selected several at once (Shift/Ctrl-click: a fader, mute, solo or new effect changes them
   all); clips you
@@ -36,7 +37,8 @@ extends; that program is in the repository's history.
   humanize and velocity shapes before applying them; a knife (K), join (Ctrl+J), a pitch's row selected
   (Shift-click its key), overlaps removed; a Steps view of the same clip; notes with their own chance, repeats (rolls),
   slide, pan and fine pitch; linked clips (edit one, every linked copy changes); the built-in synth,
-  sampler and Pad Kit (a sample per pad, choke groups; slice a loop onto one); MIDI effects (arpeggiator, chord, scale, note length, velocity, random, pitch, groove), also on notes
+  sampler and Pad Kit (a sample per pad, choke groups; any pad on its own track, or Pads to tracks; slice a
+  loop onto one by its hits, a grid or by hand, hearing each slice); MIDI effects (arpeggiator, chord, scale, note length, velocity, random, pitch, groove), also on notes
   played live, and committed into the notes (this clip, every clip, or onto a new track); a MIDI keyboard (with sustain pedal) or the computer
   keyboard; MIDI recording, Capture of what you just played, MIDI file import and export.
 - **Modulators**: an LFO, Random, a Level Follower, a Macro knob and MIDI Control (the mod wheel or any

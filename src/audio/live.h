@@ -175,8 +175,10 @@ public:
     // What arrived since the last buffer: MIDI messages for a VST instrument, appended to `out`
     // (built-in synth notes become voices instead). Notes that stop by themselves stop within this buffer.
     void take(int frames, int sr, plugin_audio::Messages& out, const Clock* clock = nullptr);
-    // mix the built-in synth's live notes into signal (`channels` planar channels), bent by the wheel
-    void addVoices(float* const signal[2], int channels, int frames, int sr);
+    // mix the built-in synth's live notes into signal (`channels` planar channels), bent by the wheel. byPitch (128
+    // entries, or null): a pitch's notes into another signal instead (a Pad Kit's pad playing on its own track:
+    // model/pad_tracks.h); a null entry: into `signal`
+    void addVoices(float* const signal[2], int channels, int frames, int sr, float* const* const* byPitch = nullptr);
     double bend() const { return bendNow_; }  // (audio thread) semitones the built-in voices are bent by now
 
 private:

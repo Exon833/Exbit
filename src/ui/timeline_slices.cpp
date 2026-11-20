@@ -11,7 +11,7 @@ pad_kit_dialog::SliceDialog* Timeline::sliceToPadKit(const ClipPtr& clip) {
     if (!clip || clip->kind != Kind::Audio || !clip->data) return nullptr;
     if (sliceWindow && ui::Widget::alive(sliceWindow)) sliceWindow->reject();  // (one at a time: its lines go)
     sliceWindow = nullptr;
-    auto* dialog = new pad_kit_dialog::SliceDialog(dialogParent(), clip, engine.sr);
+    auto* dialog = new pad_kit_dialog::SliceDialog(dialogParent(), clip, engine.sr, project.timing);
     sliceWindow = dialog;
     slicePreview = SlicePreview{clip, dialog->hits};
     std::shared_ptr<bool> alive = alive_;
