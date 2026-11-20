@@ -63,6 +63,47 @@ PadView::PadView(PadKitDialog* dialog, int slot_) : slot(slot_), dialog_(dialog)
     setStyleType("PadView");
     setMinimumWidth(theme::metric("pad-width", PAD_W));
     setCursor(ui::Cursor::Hand);
+    setFocusPolicy(ui::FocusPolicy::Tab);  // (its keys: keyPress)
+}
+
+bool PadView::keyPress(ui::KeyEvent& e) {
+    if (e.mods & (plat::ModCtrl | plat::ModAlt)) return false;
+    int i = pad();
+    int col = slot % 4, row = slot / 4;
+    auto go = [&](int c, int r) {
+        if (c < 0 || c > 3 || r < 0 || r > 3) return;
+        int to = dialog_->bank * PadKit::BANK + r * 4 + c;
+        dialog_->select(to, false);
+        if (to % PadKit::BANK < (int)dialog_->pads.size()) dialog_->pads[(size_t)(to % PadKit::BANK)]->setFocus();
+    };
+    switch (e.key) {
+    case plat::Key_Left: go(col - 1, row); return true;
+    case plat::Key_Right: go(col + 1, row); return true;
+    case plat::Key_Up: go(col, row - 1); return true;
+    case plat::Key_Down: go(col, row + 1); return true;
+    case plat::Key_Return:
+    case plat::Key_Enter:
+    case plat::Key_Space: dialog_->select(i, true); return true;
+    case 'L': dialog_->loadSample(i); return true;
+    case plat::Key_Delete: dialog_->clearPad(i); return true;
+    case plat::Key_F2: {
+        ui::Menu menu;
+        dialog_->fillPadMenu(menu, i);
+        menu.exec(mapToGlobal(Point(width() / 2, height() / 2)), this);
+        return true;
+    }
+    default: return false;
+    }
+}
+
+bool PadView::listRows(std::vector<std::string>& rows, int& current) const {
+    int i = pad();
+    PadKitPtr kit = dialog_->kit();
+    const Pad& p = kit->pads[(size_t)i];
+    rows.push_back(std::to_string(i + 1) + " " + (p.empty() || !p.sound.sample ? "empty" : p.sound.sample->name));
+    rows.push_back("  " + sampler_dialog::noteName(p.note) + (p.choke ? "  choke " + std::to_string(p.choke) : ""));
+    current = dialog_->selected == i ? 0 : -1;
+    return true;
 }
 
 int PadView::pad() const { return dialog_->bank * PadKit::BANK + slot; }

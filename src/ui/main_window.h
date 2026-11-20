@@ -323,7 +323,7 @@ public:
     bool askBeforeClosing = true;        // (the test script's quit: false)
 
 private:
-    int frameId_ = -1, cpuTimer_ = -1, historyTimer_ = -1, skinTimer_ = -1;
+    int frameId_ = -1, cpuTimer_ = -1, historyTimer_ = -1, skinTimer_ = -1, updateTimer_ = -1, noticeTimer_ = -1;
     std::string skinStamp_;  // skinFilesStamp() when the skin was last put on
     std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
 };

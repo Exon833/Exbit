@@ -67,21 +67,13 @@ constexpr plat::Event::Type EvFocusIn = plat::Event::FocusIn;
 constexpr plat::Event::Type EvFocusOut = plat::Event::FocusOut;
 }  // namespace
 
+#include "platform/x11_api.h"  // (Xlib, its extensions: loaded when the display is opened)
 #include <X11/Xatom.h>
-#include <X11/XKBlib.h>
-#include <X11/Xlib.h>
-#include <X11/Xlibint.h>
-#include <X11/Xutil.h>
-#include <X11/Xcursor/Xcursor.h>
 #include <X11/cursorfont.h>
-#include <X11/extensions/XShm.h>
-#include <X11/extensions/shape.h>
-#include <X11/extensions/Xrandr.h>
 #include <X11/keysym.h>
-#undef min  // Xlibint.h's
-#undef max
 
 namespace plat {
+TINYDAW_X11(TINYDAW_X11_USE)
 namespace {
 
 using XWin = ::Window;
@@ -2370,11 +2362,21 @@ std::unique_ptr<Window> Window::create(const WindowOptions& opts, WindowListener
     return std::unique_ptr<Window>(new XWindow(opts, listener));
 }
 
+void initWithoutDisplay() {
+    State& s = S();
+    s.mainThread = std::this_thread::get_id();
+    if (s.wakeFd < 0) s.wakeFd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+}
+
 void init(int argc, char** argv) {
     State& s = S();
     if (s.dpy) return;
-    s.mainThread = std::this_thread::get_id();
-    if (s.wakeFd < 0) s.wakeFd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    initWithoutDisplay();
+    std::string why;
+    if (!xlib::load(why)) {
+        fprintf(stderr, "Tiny DAW: can't show windows: %s (tinydaw --tui runs in the terminal)\n", why.c_str());
+        return;
+    }
     XInitThreads();
     setlocale(LC_CTYPE, "");
     if (!XSupportsLocale()) setlocale(LC_CTYPE, "C.UTF-8");

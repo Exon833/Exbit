@@ -274,6 +274,7 @@ std::vector<PluginInfo> PluginLibrary::scan() {
         }
     }
     auto vst2 = scanVst2();
+    util::debugf("plugins: %zu VST3 and %zu VST2 found in %zu folder(s)\n", found.size(), vst2.size(), folders.size());
     found.insert(found.end(), vst2.begin(), vst2.end());
     sortByName(found);
     return found;

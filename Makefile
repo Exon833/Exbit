@@ -2,11 +2,14 @@
 #
 #   make            build ./tinydaw (release, -O2)
 #   make DEBUG=1    build ./tinydaw-debug with -O0 -g and sanitizers (objects in build-debug/)
-#   make test       build and run the unit tests (tests/*.cpp)
+#   make test       build and run the unit tests (tests/*.cpp), the worst-case runs too (tests/test_stress.cpp)
+#   make hooks      run `make test` before every git commit (tools/pre-commit; --no-verify skips it once)
 #   make clean
 #
-# Needs only a C++17 compiler and the system's own libraries: X11 (the windows), ALSA and
-# PulseAudio (sound), libdl and pthreads (plugins, threads). Everything else (the GUI toolkit,
+# Needs only a C++17 compiler and the system's own libraries: libdl and pthreads (plugins, threads), and to
+# build, X11's, ALSA's and PulseAudio's headers: their libraries (the windows, sound devices, the sound server)
+# are loaded when used (platform/x11_api.h, audio/alsa_api.h, audio/devices_pulse.cpp), so the program runs without them
+# (tinydaw --tui on a text console). Everything else (the GUI toolkit,
 # font rendering, SVG and PNG, WAV/AIFF/FLAC/MP3/Ogg Vorbis, MIDI files, JSON, VST2 and VST3
 # hosting) is Tiny DAW's own code in src/.
 #
@@ -32,7 +35,7 @@ endif
 CXXFLAGS ?=
 CXXFLAGS += -std=c++17 $(OPT) -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers \
             -MMD -MP -Isrc -pthread -DTINYDAW_COMMIT='"$(shell git rev-parse HEAD 2>/dev/null)"'
-LDLIBS   := -lX11 -lXext -lXrandr -lXcursor -lXi -lasound -lpulse-simple -lpulse -ldl -pthread -lm
+LDLIBS   := -ldl -pthread -lm
 
 SRCS  := $(shell find src -name '*.cpp' -not -path 'src/winehost/*' | sort)
 OBJS  := $(SRCS:%.cpp=$(BUILD)/%.o)
@@ -83,8 +86,12 @@ ifneq ($(MINGW64),)
   endif
 endif
 
-.PHONY: all clean test plugins winehost win-plugins
+.PHONY: all clean test hooks plugins winehost win-plugins
+
 all: $(TARGET) $(ALL_WINE)
+
+hooks:
+	ln -sf ../../tools/pre-commit .git/hooks/pre-commit
 
 winehost: $(WINE_HOST) $(WINE_HOST32)
 
@@ -115,6 +122,11 @@ $(BUILD)/gen/default_css.inc: data/skins/default.css
 	{ printf 'R"tinydawcss('; cat $<; printf ')tinydawcss"\n'; } > $@
 $(BUILD)/src/ui/theme.o: $(BUILD)/gen/default_css.inc
 $(BUILD)/src/ui/theme.o: CXXFLAGS += -I$(BUILD)/gen
+
+# (test_wine looks at plugins' windows itself, through Xlib: linked to it, as the program no longer is)
+$(BUILD)/tests/test_wine: LDLIBS += -lX11 -lXrandr
+# (test_jack_midi makes ALSA MIDI ports itself: linked to libasound, as the program no longer is)
+$(BUILD)/tests/test_jack_midi: LDLIBS += -lasound
 
 $(BUILD)/tests/%: tests/%.cpp $(LIB_OBJS)
 	@mkdir -p $(dir $@)
@@ -159,7 +171,9 @@ $(WIN_DIR)/TinyTestInstaller.exe: tests/plugins/test_installer.cpp
 	$(MINGW64) $(WIN_FLAGS) -o $@ $<
 
 test: $(TEST_BINS) $(TEST_PLUGINS) $(ALL_WINE) $(ALL_WIN_TEST)
-	@set -e; for t in $(TEST_BINS); do echo "== $$t"; TINYDAW_TEST_PLUGINS=$(BUILD)/test-plugins TINYDAW_WIN_TEST_PLUGINS=$(WIN_DIR) $$t; done
+	@failed=""; for t in $(TEST_BINS); do echo "== $$t"; \
+	    TINYDAW_TEST_PLUGINS=$(BUILD)/test-plugins TINYDAW_WIN_TEST_PLUGINS=$(WIN_DIR) $$t || failed="$$failed $${t##*/}"; done; \
+	if [ -n "$$failed" ]; then echo "== FAILED:$$failed"; exit 1; fi; echo "== all tests passed"
 
 clean:
 	rm -rf build build-debug tinydaw tinydaw-debug $(WINE_HOST) $(WINE_HOST).so $(WINE_HOST32) $(WINE_HOST32).so

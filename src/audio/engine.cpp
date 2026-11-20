@@ -9,6 +9,7 @@
 #include "audio/patch.h"
 #include "audio/sampler.h"
 #include "config.h"
+#include "core/util.h"
 
 namespace audio {
 
@@ -151,6 +152,14 @@ void Engine::idle() {
     if (auto rec = recorder()) rec->collect();
     if (auto map = std::atomic_load(&live_))
         for (auto& kv : *map) kv.second->collect();
+    // dropouts the audio thread counted (it can't print): at most a line a second
+    int late = cpu.late.load();
+    if (late < toldLate_) toldLate_ = 0;  // (counted afresh: playback started again)
+    if (late > toldLate_ && now() - toldLateAt_ >= 1) {
+        util::debugf("audio: %d dropout(s) (%d since playback started)\n", late - toldLate_, late);
+        toldLate_ = late;
+        toldLateAt_ = now();
+    }
 }
 
 void Engine::setLoop(int64_t start, int64_t end) {
@@ -205,6 +214,7 @@ bool Engine::open(const std::string& type, const std::string& device, int bs, bo
     }
     if (!stream) {
         error = err.empty() ? "The audio device can't be opened" : err;
+        util::debugf("audio: %s \"%s\" can't be opened: %s\n", type.c_str(), device.c_str(), error.c_str());
         return false;
     }
     int newSr = stream->sampleRate() > 0 ? stream->sampleRate() : info.defaultSampleRate;
@@ -237,8 +247,12 @@ bool Engine::open(const std::string& type, const std::string& device, int bs, bo
     if (!stream_->start()) {
         stream_.reset();
         error = "The audio device can't be started";
+        util::debugf("audio: %s \"%s\" can't be started\n", type.c_str(), device.c_str());
         return false;
     }
+    util::debugf("audio: %s \"%s\" (%s) open: %d Hz, %d outputs, %d inputs, %d frames a block (asked %d), %.1f ms out\n",
+                 type.c_str(), device.c_str(), stream_->deviceName().c_str(), sr, channels, inputs, stream_->blocksize(),
+                 blocksize, outputLatency() * 1000);
     return true;
 }
 

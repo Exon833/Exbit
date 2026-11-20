@@ -109,6 +109,10 @@ public:
     bool mouseMove(MouseEvent& e) override;
     bool mouseDoubleClick(MouseEvent& e) override;
     bool keyPress(KeyEvent& e) override;
+    // with the keyboard focus, Space is its own (not the program's Play): a key-only user presses it
+    bool overridesShortcut(const KeyEvent& e) const override {
+        return e.key == plat::Key_Space && !(e.mods & (plat::ModCtrl | plat::ModAlt | plat::ModMeta));
+    }
     void enter() override { update(); }
     void leave() override { hoverArrow_ = false; update(); }
     bool isDown() const { return down_; }          // drawn pressed (held with the pointer on it)
@@ -678,6 +682,7 @@ public:
     Point minimumSizeHint() const override;
     int rowCount() const { return (int)rows_.size(); }
     Node* nodeAtRow(int row) const { return row >= 0 && row < (int)rows_.size() ? rows_[row].first : nullptr; }
+    int depthAtRow(int row) const { return row >= 0 && row < (int)rows_.size() ? rows_[row].second : 0; }
     int rowOf(const Node* n) const;
     ScrollBar* scrollBar() const { return bar_; }
 private:

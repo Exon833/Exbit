@@ -80,7 +80,7 @@ int main() {
     for (auto& t : types) {
         CHECK(!t.label.empty());
         CHECK(!t.description.empty());
-        CHECK(t.key == "ALSA" || t.key == "PulseAudio");
+        CHECK(t.key == "ALSA" || t.key == "PulseAudio" || t.key == "JACK");
     }
     CHECK(driverLabel("ALSA") == "ALSA");
     CHECK(driverLabel("PulseAudio") == "PulseAudio");

@@ -495,7 +495,7 @@ bool Button::keyPress(KeyEvent& e) {
         else click();
         return true;
     }
-    if (plain && style_ == Style::Push && (e.key == plat::Key_Return || e.key == plat::Key_Enter)) {
+    if (plain && (e.key == plat::Key_Return || e.key == plat::Key_Enter)) {  // (a tool button too: the keyboard alone)
         if (menu_ && !split_) showMenu();
         else click();
         return true;

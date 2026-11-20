@@ -53,6 +53,10 @@ public:
     void styleStates(std::vector<std::string>& out) const override;  // and :selected, :dropping
     bool mousePress(ui::MouseEvent& e) override;
     bool contextMenu(ui::MouseEvent& e) override;
+    // keys (the keyboard alone, tinydaw --tui): the arrows to the pad beside it (the grid's 4 × 4), Enter or
+    // Space plays it, L loads a sample onto it, Delete clears it, F2 its menu
+    bool keyPress(ui::KeyEvent& e) override;
+    bool listRows(std::vector<std::string>& rows, int& current) const override;  // (as text: its number, sample, key)
     void dragEnter(ui::DragEvent& e) override;
     void dragLeave() override;
     void drop(ui::DragEvent& e) override;

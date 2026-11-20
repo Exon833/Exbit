@@ -166,6 +166,11 @@ public:
     Signal<int> activated;
     Signal<> selectionChanged;
     Signal<> goUp;
+    bool listRows(std::vector<std::string>& rows, int& cur) const override {
+        for (const Entry& e : entries) rows.push_back(e.dir ? e.name + "/" : e.name);
+        cur = current;
+        return true;
+    }
 
     FileList() {
         setStyleType("FileList");

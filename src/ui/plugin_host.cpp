@@ -1,5 +1,6 @@
 // Loading plugins and opening their windows, for the GUI (plugin_host.py).
 #include "ui/plugin_host.h"
+#include "ui/param_window.h"
 
 #include <algorithm>
 
@@ -324,11 +325,12 @@ void PluginHost::notePosition(const SlotPtr& slot, Point pos) {
 }
 
 namespace {
-// what both kinds of plugin window have, for the host: fn(EditorWindow*) or fn(EffectWindow*)
+// what every kind of plugin window has, for the host: fn(EditorWindow*), fn(EffectWindow*) or fn(ParamWindow*)
 template <class F>
 void withWindow(ui::Window* w, F fn) {
     if (auto* e = dynamic_cast<EditorWindow*>(w)) fn(e);
     else if (auto* x = dynamic_cast<EffectWindow*>(w)) fn(x);
+    else if (auto* l = dynamic_cast<ParamWindow*>(w)) fn(l);
 }
 }  // namespace
 
@@ -355,8 +357,7 @@ void PluginHost::edit(const SlotPtr& slot, const std::string& where) {
     auto setUp = [&](auto* w) {
         if (!w->attach()) {
             delete w;
-            ui::msg::information(window, "No plugin window", slot->name + " has no window of its own.");
-            return;
+            return false;
         }
         w->place(window, windowPosition(slot));
         editors[slot.get()] = w;
@@ -367,9 +368,12 @@ void PluginHost::edit(const SlotPtr& slot, const std::string& where) {
         w->tickTimer = ui::App::get().every(TWEAK_MS, [this, w] { watch(w); });
         w->editorClosed.connect([this](SlotPtr s) { editorClosed(s); });
         opened = w;
+        return true;
     };
-    if (effects::isBuiltin(slot->path)) setUp(new EffectWindow(window, slot, title));
-    else {
+    auto none = [&] { ui::msg::information(window, "No plugin window", slot->name + " has no window of its own."); };
+    if (effects::isBuiltin(slot->path)) {
+        if (!setUp(new EffectWindow(window, slot, title))) none();
+    } else {
         auto* e = new EditorWindow(window, slot, title);
         auto instance = aload(slot->instance);
         e->reloadable = instance && (reloadable ? reloadable(*instance) : plug::isBridged(*instance));
@@ -377,7 +381,8 @@ void PluginHost::edit(const SlotPtr& slot, const std::string& where) {
         e->reloadRequested.connect([this, alive](SlotPtr s) {
             if (*alive) reloadStopped(s);
         });
-        setUp(e);
+        // (none of its own here, or no window system: its parameters as a list, param_window.h)
+        if (!setUp(e) && !setUp(new ParamWindow(window, slot, title))) none();
     }
     if (!opened) return;
     opened->showWindow();
@@ -386,6 +391,7 @@ void PluginHost::edit(const SlotPtr& slot, const std::string& where) {
 
 Image PluginHost::pictureOf(ui::Window* w) {
     if (auto* e = dynamic_cast<EffectWindow*>(w)) return e->snapshot();
+    if (dynamic_cast<ParamWindow*>(w)) return Image();  // (a list: no picture for the patch panel)
     Image captured, picture;
     if (plugin_windows::capture(w, captured) && plugin_pictures::fromCapture(captured, picture)) return picture;
     return Image();

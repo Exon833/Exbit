@@ -252,7 +252,11 @@ static void testSmallPieces() {
 }
 
 
+// GitHub, as the check asks it: the comparison with main (`answer`, or an HTTP error), and main's newest commit
+static const char* const NEWEST = "3f9a2c1d00000000000000000000000000000000";
 static Json fakeCompare(const std::string& url, const std::string& answer, int status) {
+    if (url.size() > 13 && url.substr(url.size() - 13) == "/commits/main")
+        return Json::parse(std::string(R"({"sha": ")") + NEWEST + R"(", "commit": {"committer": {"date": "2026-11-18T14:49:29Z"}}})");
     CHECK(url.find("/compare/") != std::string::npos && url.size() > 7 && url.substr(url.size() - 7) == "...main");
     if (status) throw update_check::FetchError("HTTP Error " + std::to_string(status) + ": Forbidden", status);
     return Json::parse(answer);
@@ -262,8 +266,21 @@ static void testUpdateCheck() {
     using namespace update_check;
     CHECK(parse("v0.2.1") == std::vector<int>({0, 2, 1}));  // (the numbered releases' helpers, still there)
     CHECK(isNewer("0.4.1", "0.4") && !isNewer("junk", "0.4"));
-    CHECK(API == "https://api.github.com/repos/ExonSounds/Tiny-DAW-Linux");
-    CHECK(PAGE == "https://github.com/ExonSounds/Tiny-DAW-Linux");
+    CHECK(API == "https://api.github.com/repos/ExonSounds/Tiny-DAW");
+    CHECK(PAGE == "https://github.com/ExonSounds/Tiny-DAW");
+    CHECK(CHECK_EVERY_S == 30 * 60);
+    // GitHub's times, and how long ago they were
+    const double made = 1795013369;  // 2026-11-18 14:49:29 UTC
+    CHECK(parseTime("2026-11-18T14:49:29Z") == made);
+    CHECK(parseTime("2026-11-18T16:49:29+02:00") == made && parseTime("2026-11-18T09:49:29-05:00") == made);
+    CHECK(parseTime("2026-11-18T14:49:29.123Z") == made);
+    CHECK(parseTime("yesterday") == 0);
+    CHECK(ago(made, made + 30) == "just now" && ago(made, made - 600) == "just now");  // (a wrong clock: never negative)
+    CHECK(ago(made, made + 60) == "1 minute ago" && ago(made, made + 59 * 60 + 59) == "59 minutes ago");
+    CHECK(ago(made, made + 3600) == "1 hour ago" && ago(made, made + 5 * 3600 + 10) == "5 hours ago");
+    CHECK(ago(made, made + 86400) == "1 day ago" && ago(made, made + 29 * 86400) == "29 days ago");
+    CHECK(ago(made, made + 31 * 86400) == "1 month ago" && ago(made, made + 200 * 86400) == "6 months ago");
+    CHECK(ago(made, made + 366 * 86400) == "1 year ago" && ago(made, made + 3 * 366 * 86400) == "3 years ago");
     const std::string commit = "0123456789abcdef0123456789abcdef01234567";
     // the build's commit: a full id, or nothing (built outside a git checkout)
     std::string built = builtFrom();
@@ -274,6 +291,7 @@ static void testUpdateCheck() {
     // the main branch is ahead: updates waiting
     r = update_check::check([](const std::string& u) { return fakeCompare(u, R"({"status": "ahead", "ahead_by": 3})", 0); }, commit);
     CHECK(r.state == "waiting" && r.count == 3 && r.value == "3" && r.url == PAGE + "/commits/main");
+    CHECK(r.latest == NEWEST && r.latestTime == made && r.latestUrl == PAGE + "/commit/" + NEWEST);  // (main's newest)
     r = update_check::check([](const std::string& u) { return fakeCompare(u, R"({"status": "diverged", "ahead_by": 1})", 0); }, commit);
     CHECK(r.state == "waiting" && r.count == 1);
     // the same commit, or one ahead of main: up to date
@@ -297,9 +315,37 @@ static void testUpdateCheck() {
     r = update_check::check([](const std::string& u) { return fakeCompare(u, R"({"status": "ahead", "ahead_by": "x"})", 0); }, commit);
     CHECK(r.state == "failed");
 
-    // the notice's text
+    // main's newest commit not to be had (its request refused): the comparison stands alone
+    r = update_check::check([](const std::string& u) -> Json {
+        if (u.find("/commits/main") != std::string::npos) throw FetchError("HTTP Error 403: Forbidden", 403);
+        return fakeCompare(u, R"({"status": "identical"})", 0);
+    }, commit);
+    CHECK(r.state == "current" && r.latest.empty() && r.latestTime == 0);
+    // a build that can't compare still learns the newest commit
+    r = update_check::check([](const std::string& u) { return fakeCompare(u, "", 404); }, commit);
+    CHECK(r.state == "off" && r.latest == NEWEST);
+
+    // the notice's text: up to date, the newest commit and how long ago; an update: "Update available - id - ago"
     auto t = update_notice::noticeText(nullptr);
     CHECK(t.plain() == "Checking for updates…" && t.link.empty());
+    Result fresh{"current", "", PAGE, 0, NEWEST, made, PAGE + "/commit/" + NEWEST};
+    t = update_notice::noticeText(&fresh, made + 2 * 86400 + 5);
+    CHECK(t.plain() == "3f9a2c1 · 2 days ago" && t.link == "3f9a2c1" && t.url == PAGE + "/commit/" + NEWEST);
+    Result update{"waiting", "2", PAGE + "/commits/main", 2, NEWEST, made, PAGE + "/commit/" + NEWEST};
+    t = update_notice::noticeText(&update, made + 4 * 3600);
+    CHECK(t.plain() == "Update available - 3f9a2c1 - 4 hours ago" && t.link == "3f9a2c1" && t.url == PAGE + "/commits/main");
+    CHECK(update_notice::noticeText(&update, made + 4 * 3600 + 60 * 40).plain() == "Update available - 3f9a2c1 - 4 hours ago");
+    CHECK(update_notice::noticeText(&update, made + 5 * 3600).plain() == "Update available - 3f9a2c1 - 5 hours ago");
+    Result unknown{"off", "", PAGE, 0, NEWEST, made, PAGE + "/commit/" + NEWEST};
+    CHECK(update_notice::noticeText(&unknown, made + 90).plain() == "Latest: 3f9a2c1 · 1 minute ago");
+    // the tooltip: what was found, never installing; when it was checked; a later check's failure
+    update.checkedAt = made + 4 * 3600 - 120;
+    std::string tip = update_notice::noticeTip(&update, made + 4 * 3600);
+    CHECK(tip.find("2 new commits") != std::string::npos && tip.find("doesn't update itself") != std::string::npos &&
+          tip.find("git pull") != std::string::npos && tip.find("last 2 minutes ago") != std::string::npos);
+    Result offline{"failed", "could not resolve api.github.com (no network?)", PAGE};
+    CHECK(update_notice::noticeTip(&fresh, made, &offline).find("The last check failed (could not resolve") != std::string::npos);
+    // (without the newest commit: the words of before)
     Result waiting{"waiting", "3", PAGE + "/commits/main", 3};
     t = update_notice::noticeText(&waiting);
     CHECK(t.before.empty() && t.link == "3 updates" && t.after == " ready · rebuild to get them" &&
@@ -307,12 +353,12 @@ static void testUpdateCheck() {
     Result one{"waiting", "1", PAGE + "/commits/main", 1};
     CHECK(update_notice::noticeText(&one).plain() == "1 update ready · rebuild to get it");
     Result current{"current", "", PAGE};
-    CHECK(update_notice::noticeText(&current).plain() == "Up to date · Tiny-DAW-Linux");
+    CHECK(update_notice::noticeText(&current).plain() == "Up to date · Tiny-DAW");
     Result off{"off", "", PAGE};
-    CHECK(update_notice::noticeText(&off).plain() == "Updates off here · Tiny-DAW-Linux");
+    CHECK(update_notice::noticeText(&off).plain() == "Updates off here · Tiny-DAW");
     Result failed{"failed", "timeout", PAGE};
-    CHECK(update_notice::noticeText(&failed).plain() == "Couldn't check · Tiny-DAW-Linux");
-    CHECK(update_notice::noticeTip(&failed) == "Couldn't check GitHub for updates when the program started (timeout)");
+    CHECK(update_notice::noticeText(&failed).plain() == "Couldn't check · Tiny-DAW");
+    CHECK(update_notice::noticeTip(&failed) == "Couldn't check GitHub for updates (timeout)");
     CHECK(update_notice::noticeTip(&waiting).find("git pull") != std::string::npos);
 
     // the checker runs on a thread and answers on the GUI thread (with this build's own commit)
@@ -321,9 +367,15 @@ static void testUpdateCheck() {
     std::optional<Result> got;
     checker.done.connect([&](const Result& res) { got = res; });
     checker.start();
+    CHECK(checker.running());
+    int answers = 0;
+    checker.done.connect([&](const Result&) { answers++; });
+    checker.start();  // (while GitHub hasn't answered: nothing more)
     double until = plat::now() + 5;
     while (!got && plat::now() < until) plat::processEvents(20);  // (headless: run the posted work)
     CHECK(got && (built.empty() ? got->state == "off" : got->state == "waiting" && got->count == 7));
+    CHECK(got && got->latest == NEWEST && got->checkedAt > 0);
+    CHECK(answers == 1 && !checker.running());
 }
 
 static void testTransportBar() {
@@ -850,8 +902,18 @@ static void testPanel() {
     master.apply({});
     CHECK(engine.masterGain.load() == 1.0 && !engine.masterMute.load());
     master.showUpdate({"failed", "HTTP Error 403", update_check::PAGE});
-    CHECK(master.notice->toolTip() == "Couldn't check GitHub for updates when the program started (HTTP Error 403)");
-    CHECK(master.notice->notice().plain() == "Couldn't check · Tiny-DAW-Linux" && !master.versionLabel);
+    // (an answer was shown above: it stays; the tooltip says this check failed)
+    CHECK(master.notice->notice().plain() == "2 updates ready · rebuild to get them" && !master.versionLabel);
+    CHECK(master.notice->toolTip().find("The last check failed (HTTP Error 403)") != std::string::npos);
+    // an answer, then a check that fails (offline a while): the answer stays shown, its tooltip says the check failed
+    update_check::Result found{"waiting", "1", update_check::PAGE + "/commits/main", 1, std::string(NEWEST, 40),
+                               (double)std::time(nullptr) - 3 * 3600, update_check::PAGE + "/commit/x"};
+    master.showUpdate(found);
+    CHECK(master.notice->notice().plain() == "Update available - 3f9a2c1 - 3 hours ago");
+    master.showUpdate({"failed", "could not resolve api.github.com (no network?)", update_check::PAGE});
+    CHECK(master.notice->notice().plain() == "Update available - 3f9a2c1 - 3 hours ago");
+    CHECK(master.notice->toolTip().find("The last check failed (could not resolve") != std::string::npos);
+    master.showUpdate({"failed", "HTTP Error 403", update_check::PAGE});
     save(master.frame, "master-fx");
 
     // hiding the meters and LUFS (Options)

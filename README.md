@@ -5,8 +5,8 @@
 Tiny DAW is a digital audio workstation for Linux, written in C++17 with **no third-party
 libraries**: its GUI toolkit, 2D renderer and font rasterizer, SVG and PNG, the audio codecs (WAV,
 AIFF, FLAC, MP3, Ogg Vorbis — reading and writing), MIDI files, JSON and XML, and VST2/VST3 plugin
-hosting are all its own code. It needs only the system's X11, ALSA and PulseAudio (and runs on
-Wayland desktops through XWayland). It began as a Python program, which this one recreates and
+hosting are all its own code. It uses the system's X11, ALSA and PulseAudio (and runs on
+Wayland desktops through XWayland), each loaded only when there; in the terminal (`tinydaw --tui`), nothing but the C++ runtime (with no sound system it still starts, to edit projects). It began as a Python program, which this one recreates and
 extends; that program is in the repository's history.
 
 - Please report any bugs that do appear: what isn't working, how to make it happen, and a fix
@@ -47,7 +47,7 @@ extends; that program is in the repository's history.
 - **Projects**: templates, recent projects, backups of what each save replaces, autosave with crash
   recovery, Ableton Live set import.
 - **Look**: skins written in CSS (Dark, Light, Midnight, OLED, High contrast; 90s, XP and 7, evoking classic
-  desktops of those years; or your own): every colour,
+  desktops of those years; Neon District, a neon-noir near-future look; or your own): every colour,
   font, padding, border, corner and size of the interface, edited in your text editor and shown live; interface size
   75–200 %, a sample Explorer with search and previews, a project overview.
 
@@ -323,7 +323,7 @@ KWin). Without a compositing manager everything stays opaque, as before.
 `background-repeat`, `-position`, `-size`, `-origin`, `-clip`, and `image-rendering: pixelated` for pixel-exact
 art), `-tiny-glyph: url(…)` to replace any control's check mark, arrow or caption-button sign, and `font-smooth:
 never` for crisp, unsmoothed text. Saving an image reloads the skin. The skins' own fonts are in
-`data/skins/fonts` (Selawik and Wine's Tahoma, free, with their licences).
+`data/skins/fonts` (Selawik, Wine's Tahoma and Rajdhani, free, with their licences: see [LICENSE.md](LICENSE.md)).
 
 **Classic controls, 1:1.** Skins can draw spin buttons as separate bevelled boxes, a drop-down's arrow inside
 its border, tabs where the chosen one is larger and joins its page, joined title-bar button groups (`:first` /
@@ -357,8 +357,11 @@ most: each waits for its Wine host, and now they wait at the same time.
 ## Build
 
 Needs a C++17 compiler (g++ or clang++), `make`, and the development files of X11 (with Xext,
-Xrandr, Xcursor, Xi), ALSA and PulseAudio (`libpulse-simple`). Nothing is downloaded. JACK is used
-when its library (`libjack.so.0`, e.g. PipeWire's) is installed; it isn't needed to build. When
+Xrandr, Xcursor, Xi), ALSA and PulseAudio (`libpulse-simple`). Nothing is downloaded. None of them is
+linked: X11's, ALSA's and PulseAudio's libraries are loaded when the window, a sound device or the sound
+server is used, so the same program starts without them (in the terminal; without any sound system it says
+so, and projects can still be edited). JACK is used when its library
+(`libjack.so.0`, e.g. PipeWire's) is installed; it isn't needed to build. When
 Wine's `winegcc` is installed (e.g. the `wine-staging` or `wine` packages), `make` also builds
 `tinydaw-wine-host.exe`, the host for Windows plugins (Wine's own headers aren't needed).
 
@@ -371,6 +374,41 @@ Wine's `winegcc` is installed (e.g. the `wine-staging` or `wine` packages), `mak
     ./tinydaw                         # an empty project (or your chosen template)
     ./tinydaw song.json               # open a project
     ./tinydaw drums.wav bass.mid      # add audio and MIDI files (onto tracks of their kind)
+    TINYDAW_DEBUG=0 ./tinydaw         # without the diagnostics on the terminal
+    ./tinydaw --tui [song.json]       # in the terminal, by the keyboard alone
+
+**In the terminal** (`--tui`): the whole program in a terminal, worked by the keyboard alone, with
+nothing but a sound driver (ALSA, or none at all, to edit) installed: no window system, no mouse, no fonts, and any terminal
+down to a bare Linux text console (8 colours; ASCII lines when the locale isn't UTF-8). It is laid
+out as the window is: the menu bar and transport at the top, the Explorer, the timeline (a row per
+track) and the track panel side by side, the master at the bottom, the status bar last. Tab (or F6)
+moves the keyboard between the transport, Explorer, timeline and track panel; F10 or Alt+letter
+opens the menus (the window's own, plus Quit); F2 the menu of what is selected; F1 lists every key;
+Ctrl+Q quits. In the timeline the arrows move the cursor by the grid's step and between tracks,
+Enter selects the clip at the cursor, I … O selects a range, `,` `.` `[` `]` move the selected
+clips, M adds a marker, E / N open the MIDI editor (N: a new clip), and the window's own keys work as
+there (S split, Del, R record, L loop, Ctrl+C/X/V/D, Ctrl+Z…). Up from the first lane is the ruler
+(Enter: a tempo change; F2: its menu); an automation lane takes Enter (a point at the cursor), `[`
+`]` (lower, raise) and Del; a take lane Enter (use it, or the range selected of it). In the track
+panel E opens a track's effects, I its instrument (Shift+I edits it), U its automation, K its takes,
+D its sends. The program's other windows appear as text over it, worked by the keys: dialogs (the
+file chooser, Render, Audio properties…; Tab between their controls, Enter the default button, Esc
+cancels), the effects' patch panel (arrows a unit, Enter its window, B bypass, C / X plug or unplug
+a cable, F2 its menu: modulation), a built-in effect's knobs, a VST plugin's parameters as a list,
+the Pad Kit's pads, the sampler, the MIDI editor (a keyboard cursor: arrows, Enter puts or selects a
+note; the Steps view: Enter lights a pad). Ctrl+W closes the window on top, F12 hides the open ones
+to work in the main window. What a text console can't send isn't needed: Ctrl+Shift shortcuts are
+in the menus; notes played on the computer keyboard last as long as the key repeats (a console tells
+no key being let go). Plugins' own windows and Windows plugins (Wine) need the window system.
+
+Tiny DAW always prints diagnostics on its error output (the terminal, or a file it's sent to): which
+font file each font family became, every frame that took longer than one picture of the screen (at
+most a line a second, with how many more there were), the audio device opened (its rate, channels,
+block size and latency) or why it couldn't be, dropouts while playing (at most a line a second), MIDI
+inputs opened, how many plugins were found, and every status bar message and message box. Windows
+plugins' Wine host adds its own (`TINYDAW_WINE_TRACE`, below). In the terminal UI they go to
+`~/.local/share/TinyDAW/terminal.log` instead, written afresh each run and named when the program
+ends (or wherever `2>` sends them). `TINYDAW_DEBUG=0` turns them all off.
 
 The program finds its data (`data/icons`, `data/skins`, `data/templates`) next to the executable
 (or in `../share/tinydaw`). Settings are kept in `~/.config/TinyDAW`; your skins, templates, plugin
@@ -468,7 +506,15 @@ DAW's own plugin headers). With MinGW installed (`x86_64-w64-mingw32-g++`, e.g. 
 versions and a small Windows installer for them in `build/win-test-plugins/` (32-bit ones too with `i686-w64-mingw32-g++`): `test_wine` makes a
 new Wine prefix, installs them there with that installer as Options → Install Windows plugin… does,
 and tests them through the Wine host like any installed plugin, without needing any commercial
-Windows plugin.
+Windows plugin. Every test program runs even when one fails; the end says which failed (and `make`
+exits with an error), or `== all tests passed`.
+
+`test_stress` runs the worst cases, each aimed at one thing: 256 tracks (audio with automation, dense
+MIDI) played in small blocks while every fader, mute and solo changes and tracks come and go; the main
+window resized 400 times from 1 x 1 to 4000 x 2500 while the interface size changes; every slider and
+toggle used in every frame while playing and dragging, then all undone and redone; and the terminal UI
+hit with thousands of keys while its screen is resized. `make hooks` makes git run `make test` before
+every commit (`tools/pre-commit`; `git commit --no-verify` skips it once).
 
 `test_parallel` mixes projects with and without worker threads and checks that they sound the same
 bit for bit; with `TINYDAW_PARALLEL_FX=<plugin>` and `TINYDAW_PARALLEL_SYNTH=<plugin>` it plays those
@@ -485,7 +531,7 @@ Testing aids of the running program (hidden; see `src/ui/test_script.h`):
 | `TINYDAW_VST3_PATH=<dir>[:<dir>…]` | more VST3 folders besides the standard ones (e.g. `build/test-plugins`) |
 | `TINYDAW_NO_UPDATE_CHECK=1` | doesn't ask GitHub whether there are newer commits |
 | `TINYDAW_WINE=<wine>`, `TINYDAW_WINE_HOST=<…/tinydaw-wine-host.exe>` | another Wine, another Wine host |
-| `TINYDAW_WINE_TRACE=1` | the Wine host prints which window gets the keys and clicks, slow audio buffers, its corrections, the font families a plugin asks for (found or not) |
+| `TINYDAW_WINE_TRACE=1` | (on with the diagnostics above) the Wine host prints which window gets the keys and clicks, slow audio buffers, its corrections, the font families a plugin asks for (found or not) |
 | `TINYDAW_WINE_EGL=1` | doesn't switch the Wine host's OpenGL to GLX |
 | `TINYDAW_WINE_D2D_AS_IS=1` | doesn't fill in Wine's Direct2D gradients, layers and vertical blank |
 | `TINYDAW_WINE_PATHS_AS_IS=1` | fills Direct2D shapes on the plugin's own thread, as Wine does (no bounded stack) |
@@ -525,7 +571,7 @@ Testing aids of the running program (hidden; see `src/ui/test_script.h`):
 
 ## License
 
-GPL-3.0, see [LICENSE](LICENSE). VST is a registered trademark of Steinberg Media Technologies
+GPL-3.0, see [LICENSE](LICENSE); the fonts shipped with the skins, under their own licences, are listed in [LICENSE.md](LICENSE.md). VST is a registered trademark of Steinberg Media Technologies
 GmbH. Tiny DAW hosts VST2 and VST3 plugins through its own declarations of their interfaces
 (`src/plugins/vst2.h`, `src/plugins/vst3_api.h`), written for interoperability; it contains no
 Steinberg SDK code. Wine is a separate program, which Tiny DAW runs; it contains none of its code.

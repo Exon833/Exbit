@@ -1,0 +1,279 @@
+/* Neon District: a skin of Tiny DAW in a neon-noir, near-future look (an original homage to the genre's games and
+   films, none of their artwork): near-black surfaces with a cold blue cast, red as the working colour of labels and
+   lines, electric yellow for what is chosen, cyan for what is active and live; hard edges, corners cut at 45°, thin
+   lines, a squared condensed type with a little extra spacing, and the faint red and cyan fringe of a glitch on
+   titles. It is put on top of default.css: it sets the variables, then changes the rules for controls, menus, lists
+   and window frames. The cut corners are small pictures in neon/; the type is Rajdhani (fonts/, SIL Open Font
+   License). docs/skins.md lists everything a skin can style. */
+
+@font-face { font-family: "Neon Sans"; src: url(fonts/rajdhani.ttf); }
+@font-face { font-family: "Neon Sans"; src: url(fonts/rajdhanib.ttf); font-weight: bold; }
+
+/* =========================================== Variables =========================================== */
+
+:root {
+    --skin-name: "Neon District";
+    font-family: "Neon Sans", "DejaVu Sans Condensed", "Liberation Sans Narrow", sans-serif;
+    font-size: 10.5pt;          /* (a condensed face: a little larger reads as the others' 9 pt) */
+    letter-spacing: 0.4px;
+    --mono-font: "DejaVu Sans Mono";
+
+    /* the palette */
+    --nd-black: #050608;
+    --nd-ink: #0b0d12;          /* the window */
+    --nd-panel: #11151d;
+    --nd-steel: #1d2430;
+    --nd-red: #ff003c;          /* lines, warnings */
+    --nd-red-text: #ff6a5f;     /* labels (red, readable on the dark: 6:1) */
+    --nd-yellow: #fcee0a;       /* what is chosen */
+    --nd-cyan: #00f0ff;         /* what is active, live */
+    --nd-cyan-dim: #1d7f88;
+    --nd-magenta: #ff2a6d;
+    --nd-pale: #e4f6f5;         /* text in fields and lists (13:1) */
+    --nd-hover: #18202b;        /* under the pointer (the rules' own; default.css's shades are mixes of the colours) */
+
+    /* Window */
+    --window: var(--nd-ink);
+    --window-text: var(--nd-red-text);
+    --base: var(--nd-black);
+    --alternate-base: #0a0d13;
+    --text: var(--nd-pale);
+    --button: var(--nd-panel);
+    --button-text: #9ff9ff;
+    --highlight: var(--nd-yellow);
+    --highlighted-text: var(--nd-black);
+    --tooltip-base: #07090d;
+    --tooltip-text: var(--nd-yellow);
+    --disabled-text: #4a5262;
+    --hint-text: #8a95a8;
+    --dimmed-text: #626c7d;
+    --accent: var(--nd-cyan);
+    --accent-text: var(--nd-black);
+    --frame-edge: var(--nd-red);
+
+    /* the timeline */
+    --lane: #0a0c11;
+    --lane-alt: #0d1016;
+    --below-lanes: #07080b;
+    --master-lane: #140a0f;
+    --master-divider: var(--nd-red);
+    --group-lane: #151821;
+    --group-accent: var(--nd-yellow);
+    --ruler-bg: #07080b;
+    --ruler-text: var(--nd-red-text);
+    --grid-fine: #12161d;
+    --grid: #1b212b;
+    --grid-bar: #22424a;
+    --playhead: var(--nd-yellow);
+    --cursor: var(--nd-cyan);
+    --selection-fill: #00f0ff24;
+    --selection-edge: #00f0ffc8;
+    --automation-lane: #08090d;
+    --automation-line: var(--nd-yellow);
+    --loop: #ff003cb4;
+    --loop-off: #ff003c46;
+    --frozen-tint: #00f0ff3c;
+    --overview-bg: var(--nd-black);
+    --overview-view: #fcee0ac8;
+    --overview-view-fill: #fcee0a1a;
+    --overview-edge: #22424a;
+
+    /* the track panel, clips */
+    --row: #0a0c11;
+    --row-alt: #0d1016;
+    --clip-audio: #0b7d88;
+    --clip-midi: #9c9200;
+    --accent-audio: var(--nd-cyan);
+    --accent-midi: var(--nd-yellow);
+    --accent-return: var(--nd-magenta);
+    --mute: var(--nd-red);
+    --solo: var(--nd-yellow);
+    --record: var(--nd-red);
+
+    /* meters */
+    --meter-bg: var(--nd-black);
+    --meter-ok: var(--nd-cyan);
+    --meter-warn: var(--nd-yellow);
+    --meter-hot: var(--nd-red);
+
+    /* the MIDI editor */
+    --keys-white: #cdd5df;
+    --keys-black: var(--nd-ink);
+    --keys-line: #4a5262;
+    --keys-label: var(--nd-ink);
+    --key-sounding: #00f0ff96;
+    --roll-shade: #0000008c;
+    --selected-note: var(--nd-yellow);
+    --sample-wave: var(--nd-cyan);
+
+    /* the patch panel's cables: neon */
+    --cable-1: var(--nd-red);
+    --cable-2: var(--nd-yellow);
+    --cable-3: var(--nd-cyan);
+    --cable-4: #39ff88;
+    --cable-5: #b026ff;
+    --cable-6: var(--nd-magenta);
+}
+
+/* =========================================== Controls =========================================== */
+
+/* Buttons: no rounding; a cut bottom-right corner (a picture over it) and a thin cyan bar down the left edge */
+Button {
+    background: url(neon/notch.svg) right bottom no-repeat, var(--button);
+    color: var(--button-text);
+    border: 0;
+    border-radius: 0;
+}
+PushButton {
+    background: url(neon/notch.svg) right bottom no-repeat,
+                linear-gradient(to right, var(--nd-cyan-dim) 0, var(--nd-cyan-dim) 2px, transparent 2px),
+                var(--button);
+    padding: 4px 14px 4px 12px;
+}
+Button:hover { background-color: var(--nd-hover); color: var(--nd-cyan); }
+PushButton:hover, PushButton:focus {
+    background: url(neon/notch-hot.svg) right bottom no-repeat,
+                linear-gradient(to right, var(--nd-yellow) 0, var(--nd-yellow) 2px, transparent 2px),
+                var(--nd-hover);
+    color: var(--nd-yellow);
+}
+Button:pressed, Button:checked { background-color: var(--nd-cyan); color: var(--nd-black); }
+Button:lit { background-color: var(--nd-yellow); color: var(--nd-black); }
+Button:lit:hover { background-color: #fff35a; }
+Button:toggled { background-color: var(--toggle-color, var(--accent)); color: var(--nd-black); }
+Button:disabled, PushButton:disabled { color: var(--disabled-text); background-color: #0d1016; }
+ToolButton.autoRaise, ToolButton.autoRaise:disabled { background: transparent; }
+ToolButton.autoRaise:hover { background-color: var(--nd-hover); }
+PushButton:focus:lit, PushButton:focus:disabled { border-color: transparent; }
+
+/* the record button, while recording: hazard stripes */
+.toggle-record:toggled {
+    background: repeating-linear-gradient(135deg, var(--nd-red) 0, var(--nd-red) 6px, #b0002a 6px, #b0002a 12px);
+    color: #ffffff;
+}
+
+/* labels: red, spaced; headings with the glitch's fringe */
+Label { color: var(--window-text); }
+Label.heading {
+    color: var(--nd-yellow);
+    font-weight: bold;
+    letter-spacing: 1.2px;
+    text-shadow: -1px 0 #ff003c99, 1px 0 #00f0ff99;
+}
+Label.hint { color: var(--hint-text); }
+Label#time { color: var(--nd-yellow); }
+Label#lufs { color: var(--nd-cyan); }
+
+/* check boxes: square boxes, a yellow box with a dark straight check when on */
+CheckBox::indicator {
+    background-color: var(--base);
+    border: 1px solid var(--nd-cyan-dim);
+    border-radius: 0;
+    color: var(--nd-black);
+    -tiny-glyph: url(neon/check.svg);
+    -tiny-glyph-tint: color;
+}
+CheckBox:hover::indicator { border-color: var(--nd-cyan); }
+CheckBox:checked::indicator { background-color: var(--nd-yellow); border-color: var(--nd-yellow); }
+
+/* fields: black, a thin steel edge, the top-left corner cut; yellow edge and a faint glow with the keyboard */
+LineEdit, SpinBox, ComboBox {
+    background: url(neon/notch-field.svg) left top no-repeat, var(--base);
+    border-color: #2b3443;
+    border-radius: 0;
+}
+LineEdit:hover, SpinBox:hover, ComboBox:hover { border-color: var(--nd-cyan-dim); }
+LineEdit:focus, SpinBox:focus, ComboBox:focus, ComboBox:open {
+    border-color: var(--nd-yellow);
+    box-shadow: 0 0 6px #fcee0a40;
+}
+LineEdit::selection { background-color: var(--nd-yellow); color: var(--nd-black); }
+LineEdit::cursor { background-color: var(--nd-yellow); width: 2px; }
+ComboPopup { background-color: #07090d; border: 1px solid var(--nd-red); border-radius: 0; }
+ComboPopup::item:selected { background-color: var(--nd-yellow); color: var(--nd-black); }
+
+/* sliders: a thin groove, the part below the value cyan, a narrow yellow block as the handle */
+Slider::groove { width: 2px; height: 2px; background-color: var(--nd-steel); border-radius: 0; }
+Slider::fill { background-color: var(--nd-cyan); border-radius: 0; }
+Slider::handle { width: 5px; height: 14px; background-color: var(--nd-yellow); border-radius: 0; }
+Slider:vertical::handle { width: 14px; height: 5px; }
+Slider::handle:hover, Slider::handle:pressed { background-color: #ffffff; }
+
+/* scroll bars: a flat steel thumb, cyan under the pointer */
+ScrollBar { background-color: var(--nd-black); }
+ScrollBar::thumb { background-color: #26303e; border-radius: 0; margin: 2px; }
+ScrollBar::thumb:hover, ScrollBar::thumb:pressed { background-color: var(--nd-cyan-dim); }
+
+/* tabs: the chosen one yellow with a yellow line under it */
+TabWidget::base { background-color: var(--nd-red); }
+TabWidget::tab { color: var(--hint-text); letter-spacing: 1px; }
+TabWidget::tab:hover, TabWidget::tab:selected { color: var(--nd-yellow); }
+TabWidget::tab-line:selected { background-color: var(--nd-yellow); }
+
+/* group boxes: a dark panel under a red, spaced title */
+GroupBox { background-color: #0d1118; border-radius: 0; border-left: 2px solid var(--nd-red); }
+GroupBox::title { color: var(--nd-red-text); font-weight: bold; letter-spacing: 1.2px; }
+
+/* lists and trees: the chosen row yellow */
+ListWidget::item:selected, TreeWidget::item:selected, FileList::item:selected {
+    background-color: var(--nd-yellow);
+    color: var(--nd-black);
+}
+ListWidget::item:hover, TreeWidget::item:hover, FileList::item:hover { background-color: #12171f; }
+
+/* menus: black with a red edge; the item under the pointer yellow */
+MenuBar::item:hover, MenuBar::item:open { background-color: var(--nd-yellow); color: var(--nd-black); }
+Menu { background-color: #07090d; border: 1px solid var(--nd-red); border-radius: 0; }
+Menu::item:hover { background-color: var(--nd-yellow); color: var(--nd-black); }
+Menu::separator { background-color: var(--nd-steel); }
+Separator, SplitterHandle { color: var(--nd-steel); }
+SplitterHandle:hover, SplitterHandle:pressed { color: var(--nd-cyan); }
+Menu::item:section { color: var(--nd-red-text); letter-spacing: 1.2px; }
+Menu:transparent, ComboPopup:transparent, ToolTip:transparent { box-shadow: 0 0 12px #ff003c40; }
+
+/* tooltips: yellow on black inside a yellow edge */
+ToolTip { background-color: #07090d; color: var(--nd-yellow); border: 1px solid var(--nd-yellow); border-radius: 0; }
+
+/* the progress window's bar: hazard stripes for the part done */
+ProgressBar { background-color: var(--base); border: 1px solid var(--nd-steel); border-radius: 0; }
+ProgressBar::chunk {
+    background: repeating-linear-gradient(135deg, var(--nd-yellow) 0, var(--nd-yellow) 6px, #8a8200 6px, #8a8200 12px);
+    border-radius: 0;
+}
+
+/* the status bar: red, under a red line */
+StatusBar { color: var(--nd-red-text); }
+StatusBar::separator { background-color: var(--nd-red); }
+
+/* message boxes' signs: square */
+MessageIcon { border-radius: 0; background-color: var(--nd-cyan); color: var(--nd-black); }
+MessageIcon.warning { background-color: var(--nd-yellow); }
+MessageIcon.critical { background-color: var(--nd-red); color: #ffffff; }
+
+/* ========================================= Window frames ========================================= */
+
+/* Tiny DAW's own frames: a red edge, the top-left and bottom-right corners cut at 45°; the title in yellow, spaced, with
+   the glitch's fringe; the caption buttons square, the close button red under the pointer */
+Window:framed, Window:framed:active {
+    border: 1px solid var(--nd-red);
+    background: url(neon/frame-cut-tl.svg) left top no-repeat, url(neon/frame-cut-br.svg) right bottom no-repeat,
+                var(--window);
+    background-origin: border-box;
+}
+Window:framed:inactive { border-color: #6b0019; }
+Window:framed:maximized { border-width: 0; background: var(--window); }
+TitleBar { background-color: #07090d; padding-left: 16px; border-bottom: 1px solid var(--nd-steel); }
+TitleBar:inactive { background-color: var(--window); }
+TitleBar::title {
+    color: var(--nd-yellow);
+    font-weight: bold;
+    letter-spacing: 1.5px;
+    text-shadow: -1px 0 #ff003c99, 1px 0 #00f0ff99;
+}
+TitleBar:inactive::title { color: var(--hint-text); text-shadow: none; }
+TitleBar::minimize, TitleBar::maximize, TitleBar::close { color: var(--nd-cyan); }
+TitleBar::minimize:hover, TitleBar::maximize:hover { background-color: var(--nd-hover); color: var(--nd-yellow); }
+TitleBar::close:hover { background-color: var(--nd-red); color: #ffffff; }
+TitleBar::close:pressed { background-color: #b0002a; color: #ffffff; }
+/* see-through (while the desktop composites windows): a faint red glow around the frame */
+Window:framed:transparent { box-shadow: 0 0 14px #ff003c50; }

@@ -54,9 +54,10 @@
 #include "plugins/probe.h"
 #include "plugins/wine.h"
 
-#include <X11/Xlib.h>  // (last: its macros, Bool, None…, would clash with names above)
+#include "platform/x11_api.h"  // (last: Xlib's macros, Bool, None…, would clash with names above)
 
 namespace plug {
+TINYDAW_X11(TINYDAW_X11_USE)  // (loaded with the display: these windows are the GUI's)
 
 namespace {
 

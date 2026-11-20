@@ -1,7 +1,6 @@
 // MIDI keyboard input on the ALSA sequencer (libasound), and the sustain pedal (midi_input.py).
 #include "audio/midi_in.h"
 
-#include <alsa/asoundlib.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <time.h>
@@ -10,7 +9,10 @@
 #include <algorithm>
 #include <regex>
 
+#include "audio/alsa_api.h"
+
 namespace midi_in {
+TINYDAW_ALSA(TINYDAW_ALSA_USE)  // (loaded by openSeq, which everything here starts from)
 
 namespace {
 
@@ -23,6 +25,8 @@ double monoNow() {  // plat::now()'s clock
 void quietAlsa(const char*, int, const char*, int, const char*, ...) {}
 
 snd_seq_t* openSeq(int mode) {
+    std::string why;
+    if (!alsa::load(why)) return nullptr;  // (no ALSA: no MIDI inputs)
     snd_lib_error_set_handler(quietAlsa);  // (no "ALSA lib seq_hw.c: … No such file" on stderr)
     snd_seq_t* seq = nullptr;
     int r = snd_seq_open(&seq, "default", mode, SND_SEQ_NONBLOCK);

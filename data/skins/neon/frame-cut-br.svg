@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14">
+  <!-- the window frame's bottom-right corner cut at 45° -->
+  <polygon points="14,0 14,14 0,14" fill="#000000"/>
+  <line x1="0" y1="14" x2="14" y2="0" stroke="#ff003c" stroke-width="1.5"/>
+</svg>

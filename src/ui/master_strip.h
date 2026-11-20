@@ -28,7 +28,9 @@ public:
     MasterStrip(audio::Engine& engine, std::function<void()> openPlugins);
     ~MasterStrip();
     std::unique_ptr<ui::Widget> releaseFrame();  // hands the frame over (once); `frame` stays valid
-    void showUpdate(const update_check::Result& result);  // what the update check found
+    // what the update check found (a failure after an answer: the answer stays, the tooltip says it failed)
+    void showUpdate(const update_check::Result& result);
+    void refreshUpdate();  // the notice again: how long ago (every minute)
     void restyle();                                       // a new skin: the colours this row was built with
     void refreshFx(const std::vector<SlotPtr>& effects);  // (re)make the FX button (lit while there are any)
     project_io::MasterSettings settings() const;          // what a saved project keeps of the master
@@ -51,6 +53,7 @@ public:
     // shows or hides the scope: the frame lanes::masterHeight() tall (set that first)
     void setScopeShown(bool on);
     std::optional<update_check::Result> updateResult;
+    std::optional<update_check::Result> updateFailure;  // the last check's, while an earlier answer is shown
 
 private:
     std::unique_ptr<LaneFrame> owned_;

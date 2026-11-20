@@ -451,30 +451,31 @@ static void testFonts() {
     CHECK(utf8Next("\xFF", i) == 0xFFFD && i == 1);
     std::vector<std::string> fams = Font::families();
     CHECK(!fams.empty());
-    CHECK(std::find(fams.begin(), fams.end(), "DejaVu Sans") != fams.end());
     // a family from a file (a skin's @font-face): found by its new name, and fonts that asked for that name
-    // before (and got the default) look it up again
+    // before (and got the default) look it up again. The file is one the project ships (no installed font needed);
+    // "Tiny Test Reference" is the same file under another name, to tell its face from the default one
     {
-        const std::string mono = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf";
+        const std::string file = "data/skins/fonts/tahoma.ttf", sample = "iiiiWWWW0";
         Font early("Tiny Test Face", 20);
-        float before = early.width("iiii");
+        float before = early.width(sample);
         CHECK(!Font::addFamily("Tiny Test Face", "/no/such/font.ttf"));
         CHECK(!Font::addFamily("Tiny Test Face", "tests/test_gfx.cpp"));  // (not a font)
-        CHECK(!Font::addFamily("", mono) && !Font::addFamily("Tiny Test Face", ""));
-        CHECK(util::fileExists(mono));  // (DejaVu is there: see above)
+        CHECK(!Font::addFamily("", file) && !Font::addFamily("Tiny Test Face", ""));
+        CHECK(util::fileExists(file));
+        CHECK(Font::addFamily("Tiny Test Reference", file));
+        float theFile = Font("Tiny Test Reference", 20).width(sample);
         {
-            CHECK(Font::addFamily("Tiny Test Face", mono));
-            CHECK(Font::addFamily("Tiny Test Face", mono));  // (again: nothing changes)
+            CHECK(Font::addFamily("Tiny Test Face", file));
+            CHECK(Font::addFamily("Tiny Test Face", file));  // (again: nothing changes)
             Font later("tiny test face", 20);  // (names are matched without case)
-            CHECK_NEAR(later.width("iiii"), later.width("WWWW"), 0.01);  // (monospaced: the file's)
-            CHECK_NEAR(later.width("0"), Font("DejaVu Sans Mono", 20).width("0"), 0.001);
-            CHECK_NEAR(early.width("iiii"), early.width("WWWW"), 0.01);
-            CHECK(early.width("iiii") != before);
+            CHECK_NEAR(later.width(sample), theFile, 0.001);  // (the file's face)
+            CHECK_NEAR(early.width(sample), theFile, 0.001);
+            CHECK(before != theFile);  // (it had the default face before)
             std::vector<std::string> now = Font::families();
             CHECK(std::count(now.begin(), now.end(), "Tiny Test Face") == 1);
             // bold: as the stylesheet says (the file is then the family's bold face as it is: not emboldened again)
-            CHECK(Font::addFamily("Tiny Test Bold", mono, true));
-            CHECK_NEAR(Font("Tiny Test Bold", 20, true).width("0"), Font("DejaVu Sans Mono", 20).width("0"), 0.001);
+            CHECK(Font::addFamily("Tiny Test Bold", file, true));
+            CHECK_NEAR(Font("Tiny Test Bold", 20, true).width(sample), theFile, 0.001);
         }
     }
     // drawing matches the layout: text is drawn inside its advance

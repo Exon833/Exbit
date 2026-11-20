@@ -1,7 +1,5 @@
 // ALSA: the PCM list (snd_device_name_hint) and streams (snd_pcm_writei of interleaved samples on
 // a real-time thread; duplex with a second capture PCM read in the same thread).
-#include <alsa/asoundlib.h>
-
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -9,10 +7,12 @@
 #include <mutex>
 #include <thread>
 
+#include "audio/alsa_api.h"
 #include "audio/devices.h"
 
 namespace audio {
 namespace detail {
+TINYDAW_ALSA(TINYDAW_ALSA_USE)  // (loaded by the three entry points at the end: none is called before)
 void raiseThreadPriority();
 bool alsaDeviceInfo(const std::string& id, DeviceInfo& out, bool input);
 
@@ -581,6 +581,8 @@ void AlsaStream::loop() {
 }  // namespace
 
 std::vector<DeviceInfo> alsaDevices(bool input) {
+    std::string why;
+    if (!alsa::load(why)) return {};
     QuietAlsa quiet;
     std::vector<DeviceInfo> out;
     for (const Hint& h : hints()) {
@@ -599,6 +601,8 @@ std::vector<DeviceInfo> alsaDevices(bool input) {
 }
 
 bool alsaDeviceInfo(const std::string& id, DeviceInfo& out, bool input) {
+    std::string why;
+    if (!alsa::load(why)) return false;
     QuietAlsa quiet;
     for (const Hint& h : hints()) {
         if (h.name != id) continue;
@@ -623,6 +627,7 @@ bool alsaDeviceInfo(const std::string& id, DeviceInfo& out, bool input) {
 }
 
 std::unique_ptr<Stream> alsaOpen(const StreamConfig& cfg, Callback cb, std::string& error) {
+    if (!alsa::load(error)) return nullptr;
     std::unique_ptr<AlsaStream> s(new AlsaStream());
     if (!s->open(cfg, std::move(cb), error)) return nullptr;
     return s;

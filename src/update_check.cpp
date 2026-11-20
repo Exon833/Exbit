@@ -7,7 +7,10 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <cmath>
+#include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <regex>
 
 extern char** environ;
@@ -78,7 +81,7 @@ std::string curlProblem(int code) {
 
 Json fetch(const std::string& url) {
     // curl -s -L --max-time 8 -H … -w "\n%{http_code}" url: the body, then the status on a line of its own
-    std::string agent = "User-Agent: Tiny-DAW-Linux";
+    std::string agent = "User-Agent: Tiny-DAW";
     std::string timeout = std::to_string(TIMEOUT_S);
     std::vector<std::string> args = {"curl", "-s", "-L", "--max-time", timeout, "-H",
                                      "Accept: application/vnd.github+json", "-H", agent, "-w", "\n%{http_code}", url};
@@ -179,6 +182,41 @@ void latest(std::string& versionOut, std::string& urlOut, const FetchFn& fetchFn
     urlOut = PAGE + "/releases/tag/" + newest;
 }
 
+double parseTime(const std::string& iso) {
+    int y, mo, d, h, mi, s;
+    char rest[16] = "";
+    if (std::sscanf(iso.c_str(), "%4d-%2d-%2dT%2d:%2d:%2d%15s", &y, &mo, &d, &h, &mi, &s, rest) < 6) return 0;
+    struct tm t {};
+    t.tm_year = y - 1900;
+    t.tm_mon = mo - 1;
+    t.tm_mday = d;
+    t.tm_hour = h;
+    t.tm_min = mi;
+    t.tm_sec = s;
+    double at = (double)timegm(&t);
+    // (a time zone after it: Z, or ±HH:MM, taken off to give UTC)
+    std::string zone = rest;
+    if (!zone.empty() && zone[0] == '.') zone = zone.substr(zone.find_first_not_of(".0123456789"));  // (fractions)
+    int oh = 0, om = 0;
+    if (!zone.empty() && (zone[0] == '+' || zone[0] == '-') && std::sscanf(zone.c_str() + 1, "%2d:%2d", &oh, &om) >= 1)
+        at -= (zone[0] == '+' ? 1 : -1) * (oh * 3600.0 + om * 60.0);
+    return at;
+}
+
+std::string ago(double then, double now) {
+    double s = now - then;
+    auto n = [](double v, const char* unit) {
+        long k = std::max(1L, (long)std::floor(v));
+        return std::to_string(k) + " " + unit + (k == 1 ? "" : "s") + " ago";
+    };
+    if (s < 60) return "just now";
+    if (s < 3600) return n(s / 60, "minute");
+    if (s < 86400) return n(s / 3600, "hour");
+    if (s < 30 * 86400) return n(s / 86400, "day");
+    if (s < 365 * 86400) return n(s / (30.44 * 86400), "month");
+    return n(s / (365.25 * 86400), "year");
+}
+
 std::string builtFrom() {
     static const std::regex full("^[0-9a-f]{40}$");
     std::string commit = version::COMMIT;
@@ -187,7 +225,31 @@ std::string builtFrom() {
 
 Result check(const FetchFn& fetchFn) { return check(fetchFn, builtFrom()); }
 
+namespace {
+// the main branch's newest commit into r (left as it is when GitHub can't say)
+void addLatest(Result& r, const FetchFn& fetchFn) {
+    try {
+        Json c = fetchFn(API + "/commits/main");
+        if (!c.isObject() || !c["sha"].isString()) return;
+        r.latest = c["sha"].toString();
+        const Json& when = c["commit"]["committer"]["date"];
+        if (when.isString()) r.latestTime = parseTime(when.toString());
+        r.latestUrl = PAGE + "/commit/" + r.latest;
+    } catch (const std::exception&) {
+    }
+}
+Result compare(const FetchFn& fetchFn, const std::string& commit);
+}  // namespace
+
 Result check(const FetchFn& fetchFn, const std::string& commit) {
+    FetchFn fn = fetchFn ? fetchFn : FetchFn(fetch);
+    Result r = compare(fn, commit);
+    if (r.state != "failed") addLatest(r, fn);
+    return r;
+}
+
+namespace {
+Result compare(const FetchFn& fetchFn, const std::string& commit) {
     if (commit.empty()) return {"off", "", PAGE, 0};
     Json compared;
     try {
@@ -211,5 +273,6 @@ Result check(const FetchFn& fetchFn, const std::string& commit) {
     if (count > 0) return {"waiting", std::to_string(count), PAGE + "/commits/main", count};
     return {"current", "", PAGE, 0};
 }
+}  // namespace
 
 }  // namespace update_check

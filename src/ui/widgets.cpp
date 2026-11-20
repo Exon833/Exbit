@@ -429,6 +429,7 @@ SendsPanel::SendsPanel(TrackPtr track, std::vector<TrackPtr> returns,
             "stays the same however its fader is set\nOff: after the fader and pan (it follows the fader)");
         preButton->setFixedWidth(theme::metric("pre-button-width", 34));
         g->addWidget(preButton, row, 3);
+        slider->setFocusPolicy(ui::FocusPolicy::Strong);  // (here, in its own popup, the keys may move it: Left / Right)
         sliders.push_back(slider);
         preButtons.push_back(preButton);
         ++row;
@@ -529,6 +530,7 @@ void SendsButton::showSends() {
     SendsPanel* raw = panel.get();
     popup_->adopt(std::move(panel));
     ui::vbox(popup_.get(), 0, 0)->addWidget(raw);
+    if (!raw->sliders.empty()) raw->sliders.front()->setFocus();  // (the keys move it: Left / Right, Tab the next)
     Point at = mapToGlobal(Point(0, height()));
     popup_->moveWindow(at.x, at.y);
     ui::Window* win = popup_.get();

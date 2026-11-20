@@ -1012,17 +1012,117 @@ std::string PatchPanel::toolTipAt(Point pos) const {
 bool PatchPanel::keyPress(ui::KeyEvent& e) {
     int key = e.key;
     int n = (int)units_.size();
-    if ((key == plat::Key_Left || key == plat::Key_Right) && n) {
-        setCurrent(std::max(0, std::min(n - 1, current + (key == plat::Key_Left ? -1 : 1))));
-    } else if ((key == plat::Key_Return || key == plat::Key_Enter) && current >= 0 && current < n) {
+    bool plain = !(e.mods & (plat::ModCtrl | plat::ModAlt));
+    bool on = current >= 0 && current < n;
+    if ((key == plat::Key_Left || key == plat::Key_Right || key == plat::Key_Up || key == plat::Key_Down) && n) {
+        int d = key == plat::Key_Left || key == plat::Key_Up ? -1 : 1;
+        setCurrent(std::max(0, std::min(n - 1, current + d)));
+    } else if ((key == plat::Key_Return || key == plat::Key_Enter) && on) {
         opened.emit(current);
-    } else if (key == plat::Key_Delete && current >= 0 && current < n) {
+    } else if (key == plat::Key_Delete && on) {
         removeRequested.emit(current);
     } else if (key == plat::Key_Escape && wiring) {
         wiring.reset();
         update();
+    } else if ((key == 'B' || key == plat::Key_Space) && plain && on) {
+        bypassToggled.emit(current);
+    } else if ((key == '+' || key == '=' || key == '-') && on && units_[(size_t)current].fader()) {
+        const PanelUnit& u = units_[(size_t)current];
+        double d = key == '-' ? -1 : 1;
+        double v = u.volumeDb ? std::clamp(*u.volumeDb + d, (double)config::MIN_DB, (double)config::MAX_DB)
+                              : std::clamp(std::round(*u.mix * 20 + d) / 20, 0.0, 1.0);
+        setVolume(current, v);
+        volumeChanged.emit(current, v);
+    } else if ((key == 'C' || key == 'X') && plain && on) {
+        // a menu of the cables into and out of this unit: to plug in (C), or to pull out (X)
+        PanelNode self = PanelNode::unit(current);
+        std::vector<std::pair<std::string, PanelCable>> choices;
+        if (key == 'C') {
+            std::vector<PanelNode> targets = {PanelNode::out()}, sources = {PanelNode::in()};
+            for (int i = 0; i < n; i++) {
+                if (i == current) continue;
+                targets.push_back(PanelNode::unit(i));
+                if (units_[(size_t)i].sidechain) targets.push_back(PanelNode::side(i));
+                sources.push_back(PanelNode::unit(i));
+            }
+            for (int k = 0; k < (int)sources_.size(); k++)
+                if (!sources_[(size_t)k].second) sources.push_back(PanelNode::track(k));
+            for (const PanelNode& t : targets) {
+                PanelCable c{self, t};
+                if (canPlug(c)) choices.push_back({"Its output → " + nodeName(t), c});
+            }
+            for (const PanelNode& f : sources) {
+                PanelCable c{f, self};
+                if (canPlug(c)) choices.push_back({nodeName(f) + " → its input", c});
+                if (units_[(size_t)current].sidechain && canPlug(PanelCable{f, PanelNode::side(current)}))
+                    choices.push_back({nodeName(f) + " → its sidechain", PanelCable{f, PanelNode::side(current)}});
+            }
+        } else {
+            for (const PanelCable& c : cables_)
+                if (c.first == self || into(c.second) == self) choices.push_back({nodeName(c.first) + " → " + nodeName(c.second), c});
+        }
+        if (choices.empty()) return true;
+        ui::Menu menu;
+        menu.addSection(key == 'C' ? "Plug in a cable" : "Pull out a cable");
+        std::optional<PanelCable> chosen;
+        for (auto& [text, cable] : choices) {
+            PanelCable c = cable;
+            menu.addAction(text, [&chosen, c] { chosen = c; });
+        }
+        Rect r = unitRect(current);
+        menu.exec(mapToGlobal(Point(r.x + r.w / 2, r.y + r.h / 2)), this);
+        if (chosen) {
+            if (key == 'C') patched.emit(std::nullopt, *chosen);
+            else patched.emit(*chosen, std::nullopt);
+        }
+    } else if (key == plat::Key_Insert) {
+        addRequested.emit(std::nullopt);
+    } else if (key == plat::Key_F2 && on) {
+        Rect r = unitRect(current);
+        menuRequested.emit(current, mapToGlobal(Point(r.x + r.w / 2, r.y + r.h / 2)));
+    } else if ((key == plat::Key_F2 || (key == 'M' && plain)) && !(key == plat::Key_F2 && on)) {  // the space's menu
+        Point spot = freeSpot(units_);
+        spaceMenuRequested.emit(spot, mapToGlobal(spot));
     } else {
         return false;
     }
+    return true;
+}
+
+bool PatchPanel::listRows(std::vector<std::string>& rows, int& cur) const {
+    auto list = [&](const std::vector<std::string>& names) {
+        std::string out;
+        for (const auto& s : names) out += (out.empty() ? "" : ", ") + s;
+        return out.empty() ? std::string("nothing") : out;
+    };
+    auto from = [&](const PanelNode& to) {
+        std::vector<std::string> names;
+        for (const PanelCable& c : cables_)
+            if (c.second == to) names.push_back(nodeName(c.first));
+        return names;
+    };
+    auto to = [&](const PanelNode& node) {
+        std::vector<std::string> names;
+        for (const PanelCable& c : cables_)
+            if (c.first == node) names.push_back(nodeName(c.second));
+        return names;
+    };
+    rows.push_back("IN → " + list(to(PanelNode::in())));
+    for (int i = 0; i < (int)units_.size(); i++) {
+        const PanelUnit& u = units_[(size_t)i];
+        std::string row = std::string(u.bypass ? "[off] " : u.problem ? "[!]   " : "[on]  ") + u.name;
+        if (u.volumeDb) row += "  " + std::to_string((int)std::lround(*u.volumeDb)) + " dB";
+        if (u.mix) row += "  mix " + std::to_string((int)std::lround(*u.mix * 100)) + " %";
+        if (!u.status.empty() && u.status != "On" && u.status != "Off") row += "  (" + u.status + ")";
+        row += "   from " + list(from(PanelNode::unit(i)));
+        std::vector<std::string> side = from(PanelNode::side(i));
+        if (!side.empty()) row += ", sidechain " + list(side);
+        row += " → " + list(to(PanelNode::unit(i)));
+        for (const ModLink& m : modLinks_)  // (a modulator: the knobs it moves)
+            if (m.from == i && m.to >= 0 && m.to < (int)units_.size()) row += "  ~> " + units_[(size_t)m.to].name + " " + m.label;
+        rows.push_back(row);
+    }
+    rows.push_back("OUT ← " + list(from(PanelNode::out())));
+    cur = current >= 0 ? current + 1 : -1;
     return true;
 }

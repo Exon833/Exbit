@@ -65,14 +65,24 @@ MasterStrip::~MasterStrip() = default;
 std::unique_ptr<ui::Widget> MasterStrip::releaseFrame() { return std::unique_ptr<ui::Widget>(owned_.release()); }
 
 void MasterStrip::showUpdate(const update_check::Result& result) {
-    updateResult = result;
-    notice->setNotice(update_notice::noticeText(&result));
-    notice->setToolTip(update_notice::noticeTip(&result));
+    if (result.state == "failed" && updateResult && updateResult->state != "failed") {
+        updateFailure = result;  // (offline a while: what was found last stays shown)
+    } else {
+        updateResult = result;
+        updateFailure.reset();
+    }
+    refreshUpdate();
+}
+
+void MasterStrip::refreshUpdate() {
+    const update_check::Result* r = updateResult ? &*updateResult : nullptr;
+    notice->setNotice(update_notice::noticeText(r));
+    notice->setToolTip(update_notice::noticeTip(r, 0, updateFailure ? &*updateFailure : nullptr));
 }
 
 void MasterStrip::restyle() {
     frame->setColors(ui::style::background(frame->computedStyle()));  // (LaneFrame.master)
-    notice->setNotice(update_notice::noticeText(updateResult ? &*updateResult : nullptr));  // (its link's colour)
+    refreshUpdate();  // (its link's colour)
 }
 
 void MasterStrip::refreshFx(const std::vector<SlotPtr>& effects) {

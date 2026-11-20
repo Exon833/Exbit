@@ -557,6 +557,24 @@ void Menu::close() {
 
 bool Menu::isOpen() const { return popup_ && popup_->isOpen(); }
 
+void Menu::choose(Action* a) {
+    if (!a || !a->menu) return;
+    Menu* root = a->menu;
+    while (root->parentMenu) root = root->parentMenu;
+    if (root->execing_) {
+        root->chosen_ = a;
+        root->close();
+        return;
+    }
+    root->close();
+    activate(a);
+}
+
+Menu* Menu::ofWindow(const Window* w) {
+    auto* p = dynamic_cast<const MenuPopup*>(w);
+    return p ? p->menu : nullptr;
+}
+
 void Menu::activate(Action* a) {
     if (!a || !a->enabled || a->separator || a->section || a->submenu) return;
     Menu* m = a->menu;

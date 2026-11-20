@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "core/util.h"
 #include "ui/toolkit/style.h"
 
 namespace ui {
@@ -343,6 +344,12 @@ namespace msg {
 int box(Window* parent, Icon icon, const std::string& title, const std::string& text, int buttons, int defaultButton,
         const std::string& details) {
     if (!buttons) buttons = Ok;
+    if (util::debug()) {
+        static const char* const kinds[] = {"message", "information", "warning", "critical", "question"};
+        std::string flat = text + (details.empty() ? "" : " | " + details);
+        std::replace(flat.begin(), flat.end(), '\n', ' ');
+        util::debugf("%s: %s: %s\n", kinds[(int)icon], title.c_str(), flat.c_str());
+    }
     Dialog d(parent, title, 400, 150);
     d.addStyleClass("message-box");
     d.setMinimumWindowSize(0, 0);

@@ -51,7 +51,9 @@ bool MidiInput::open(const std::string& name) {
     name_ = name;
     lostReported_ = false;
     if (name.empty()) return true;
-    return input.open(name);
+    bool ok = input.open(name);
+    util::debugf("midi: input \"%s\" %s\n", name.c_str(), ok ? "open" : "can't be opened");
+    return ok;
 }
 
 void MidiInput::close() {

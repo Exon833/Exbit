@@ -96,6 +96,8 @@ public:
     void paint(Painter& p) override;
     void cancel();                       // as the Cancel button
     int value() const { return value_; }
+    int minimum() const { return lo_; }
+    int maximum() const { return hi_; }
     Signal<> canceled;
     bool keyPress(KeyEvent& e) override;
     void close() override { cancel(); }

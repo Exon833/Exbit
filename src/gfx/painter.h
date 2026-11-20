@@ -96,6 +96,11 @@ public:
     bool sharp() const { return sharp_; }  // has steps a pixel may straddle (hard stops): worth average()
     bool empty() const { return lut_.empty(); }
     bool opaque() const { return opaque_; }  // every colour of it
+    bool repeating() const { return repeating_; }
+    float start() const { return t0_; }        // where the stops begin and end (t); before and after them
+    float end() const { return t0_ + 1 / k_; }  // only first() and last() (0: transparent)
+    uint32_t first() const { return first_; }
+    uint32_t last() const { return last_; }
 private:
     static constexpr int kSize = 1024;
     float t0_ = 0, k_ = 1;
@@ -195,6 +200,7 @@ public:
     // --- device pixels (added: style::box's borders, shadows and gradients are worked out in them) ---
     PointF toDevice(PointF p) const { return {(p.x + tx_) * scale_, (p.y + ty_) * scale_}; }
     Rect deviceClip() const { return clip_; }
+    void setDeviceClip(const Rect& r) { clip_ = clip_.intersected(r); }  // (r in device pixels)
     // closed polygons in device pixels (non-zero winding, or even-odd), in a colour or a shader's colours
     void fillDevice(const std::vector<std::vector<PointF>>& polys, Color c, bool evenOdd = false);
     void fillDevice(const std::vector<std::vector<PointF>>& polys, const Shader& shader, bool evenOdd = false);
