@@ -140,6 +140,11 @@ $(BUILD)/tests/%: tests/%.cpp $(LIB_OBJS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(LDOPT) -o $@ $< $(LIB_OBJS) $(LDLIBS)
 
+# (tools/appimage.sh: the AppImage's .DirIcon, drawn by the program's own SVG renderer)
+$(BUILD)/tools/svg2png: tools/svg2png.cpp $(LIB_OBJS)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(LDOPT) -o $@ $< $(LIB_OBJS) $(LDLIBS)
+
 plugins: $(TEST_PLUGINS)
 
 $(BUILD)/test-plugins/TinyTestSynth.so: tests/plugins/test_vst2_synth.cpp src/plugins/vst2.h
