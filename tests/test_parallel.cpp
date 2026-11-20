@@ -91,9 +91,18 @@ void testWorkersFor() {
     CHECK(workers::workersFor(1) == 0);  // the audio thread alone
     cores = workers::availableCores();
     CHECK(cores >= 1 && cores <= (int)std::max(1u, std::thread::hardware_concurrency()));
-    CHECK(workers::workersFor(0) == std::max(0, std::min(cores - 1, workers::MAX_WORKERS)));
+    CHECK(workers::workersFor(0) == std::max(0, cores - 1));  // (every core: no other limit, CLAUDE.md rule 13)
     CHECK(workers::workersFor(2) == std::min(1, std::max(0, cores - 1)));
     CHECK(workers::workersFor(1000) == workers::workersFor(0));
+    // no limit on workers (a machine with many cores): far more than this one has still run every job once
+    workers::Pool big(64, false);
+    CHECK(big.threads() == 64);
+    static std::atomic<int> hits[5000];
+    for (auto& h : hits) h = 0;
+    big.run(5000, [](void*, int i) { hits[i]++; }, nullptr);
+    bool once = true;
+    for (auto& h : hits) once = once && h.load() == 1;
+    CHECK(once);
 }
 
 // --- projects ---

@@ -810,6 +810,29 @@ static void testSmallSets() {
     error.clear();
     CHECK(!ableton::convert(dir + "/Nowhere.als", kDir + "/out/Nowhere/Nowhere.json", e, r, error));
     CHECK(!error.empty());
+
+    // Session view clips: left out (no clip launcher), and the report says how many; the arrangement still comes
+    MClip arranged;
+    arranged.name = "Arranged";
+    arranged.notes = {{0, 1, 60, 100}};
+    MClip jam = arranged;
+    jam.name = "Jam";
+    std::string slots = w("ClipSlotList", wid("ClipSlot", 0, w("ClipSlot", w("Value", midiClip(jam)))) +
+                                              wid("ClipSlot", 1, w("ClipSlot", w("Value", midiClip(jam)))) +
+                                              wid("ClipSlot", 2, w("ClipSlot", "<Value />")));  // (an empty slot)
+    std::string withSlots = track("MidiTrack", 1, "M", 0, -1, mixer(), midiClip(arranged), "");
+    withSlots = util::replaceAll(withSlots, "<MainSequencer>", "<MainSequencer>" + slots);
+    writeSet(dir + "/Session.als", liveSet(withSlots, 120));
+    Project s;
+    error.clear();
+    CHECK(ableton::convert(dir + "/Session.als", kDir + "/out/Session/Session.json", s, r, error));
+    CHECK(reportHas(r, "2 Session view clips left out: only the arrangement is imported"));
+    CHECK(clipNamed(s, "Arranged") && !clipNamed(s, "Jam"));
+    // none: nothing said
+    writeSet(dir + "/NoSession.als", liveSet(track("MidiTrack", 1, "M", 0, -1, mixer(), midiClip(arranged), ""), 120));
+    Project n;
+    CHECK(ableton::convert(dir + "/NoSession.als", kDir + "/out/NoSession/NoSession.json", n, r, error));
+    CHECK(!reportHas(r, "Session view clip"));
 }
 
 static void testParts() {

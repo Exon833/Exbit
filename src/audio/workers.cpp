@@ -41,7 +41,7 @@ inline void pause() {
 }  // namespace
 
 Pool::Pool(int threads, bool realtime) : realtime_(realtime) {
-    threads = std::max(0, std::min(threads, MAX_WORKERS));
+    threads = std::max(0, threads);
     threads_.reserve(threads);
     for (int i = 0; i < threads; i++) {
         try {
@@ -135,7 +135,7 @@ int availableCores() {
 int workersFor(int wanted) {
     int cores = availableCores();
     int all = wanted <= 0 ? cores : std::min(wanted, cores);
-    return std::max(0, std::min(all - 1, MAX_WORKERS));
+    return std::max(0, all - 1);
 }
 
 }  // namespace workers

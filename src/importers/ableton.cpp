@@ -1410,6 +1410,13 @@ void convertSet(const std::string& als, const std::string& output, Project& proj
     Context ctx;
     ctx.reader = &reader;
     ctx.bpm = reader.bpm;
+    // the Session view's clips: Tiny DAW has no clip launcher, so only the arrangement comes over; say so
+    size_t sessionClips = reader.live->findAll(".//ClipSlotList//MidiClip").size() +
+                          reader.live->findAll(".//ClipSlotList//AudioClip").size();
+    if (sessionClips)
+        report.push_back(util::format("%zu Session view clip%s left out: only the arrangement is imported (Tiny DAW "
+                                      "has no clip launcher; record or drag them into Live's arrangement first)",
+                                      sessionClips, sessionClips == 1 ? "" : "s"));
     if (reader.denominator != 4)
         report.push_back(util::format("the set is in %d/%d: Tiny DAW counts quarter notes, so bars are %d beats of a quarter",
                                       reader.beatsPerBar, reader.denominator, reader.beatsPerBar));

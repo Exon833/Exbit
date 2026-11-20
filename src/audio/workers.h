@@ -63,9 +63,8 @@ private:
 };
 
 // How many workers to use for `wanted` (the user's choice: 0 = automatic, 1 = none (the audio thread
-// alone), n = that many cores in all): the cores this program may use less one (the audio thread),
-// at most MAX_WORKERS.
-constexpr int MAX_WORKERS = 15;
+// alone), n = that many cores in all): the cores this program may use less one (the audio thread), with
+// no other limit (CLAUDE.md, rule 13: every thread the machine has).
 int workersFor(int wanted);
 // the processor cores this program may run on (its CPU affinity: taskset, cgroups), at least 1
 int availableCores();

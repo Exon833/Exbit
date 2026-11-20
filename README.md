@@ -20,8 +20,8 @@ extends; that program is in the repository's history.
   move, trim, split, duplicate, copy and paste, colour, loop, reverse, join, crossfade, stretch and
   pitch, with gain and fades (linear, smooth, fast, slow or equal power; crossfades equal power);
   takes with comping; markers, tempo and time-signature changes,
-  insert/delete time, a fixed or zoom-following grid; undo and redo of everything, with a list of
-  the steps to jump back to (Edit → History…); what the control under the mouse does, in the
+  insert/delete time, a fixed or zoom-following grid; undo and redo of every kind of edit (the last
+  100 steps), with a list of the steps to jump back to (Edit → History…); what the control under the mouse does, in the
   status bar.
 - **MIDI**: a piano roll with ghost notes of other clips, the song's key and scale, chord stamp,
   quantize, box select; a Steps view of the same clip; notes with their own chance, repeats (rolls),
@@ -338,8 +338,8 @@ fonts, imported stylesheets) into a folder of its own beside the copy, so a copy
 ## Several cores
 
 The tracks of a song are worked out side by side on all of the processor's cores, so a song with
-many tracks of plugins doesn't have to fit on one core (the audio thread and up to 15 worker
-threads, real-time ones where the system allows it; `src/audio/workers.h`). It sounds exactly the
+many tracks of plugins doesn't have to fit on one core (the audio thread and a worker for every other
+core, real-time threads where the system allows it; `src/audio/workers.h`). It sounds exactly the
 same, bit for bit, as when everything runs on one thread: each track is worked out into a buffer of
 its own, and the tracks are then added together in the same order as always (`src/audio/mixer.h`).
 A track whose sidechain listens to another waits for that one; return tracks follow the tracks that
