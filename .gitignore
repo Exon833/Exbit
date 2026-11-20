@@ -4,3 +4,5 @@ tinydaw
 tinydaw-debug
 tinydaw-wine-host.exe
 tinydaw-wine-host.exe.so
+build-appimage/
+CLAUDE.md

@@ -4,6 +4,8 @@
 #   make DEBUG=1    build ./tinydaw-debug with -O0 -g and sanitizers (objects in build-debug/)
 #   make test       build and run the unit tests (tests/*.cpp), the worst-case runs too (tests/test_stress.cpp)
 #   make hooks      run `make test` before every git commit (tools/pre-commit; --no-verify skips it once)
+#   make appimage   build build/appimage/Tiny-DAW-<YEAR.MONTH.DAY.HOUR.MINUTE.SECOND>-x86_64.AppImage
+#   make publish    the same, published as a GitHub release (before every push; tools/appimage.sh)
 #   make clean
 #
 # Needs only a C++17 compiler and the system's own libraries: libdl and pthreads (plugins, threads), and to
@@ -86,12 +88,18 @@ ifneq ($(MINGW64),)
   endif
 endif
 
-.PHONY: all clean test hooks plugins winehost win-plugins
+.PHONY: all clean test hooks appimage publish plugins winehost win-plugins
 
 all: $(TARGET) $(ALL_WINE)
 
 hooks:
 	ln -sf ../../tools/pre-commit .git/hooks/pre-commit
+
+appimage:
+	tools/appimage.sh
+
+publish:
+	tools/appimage.sh --publish
 
 winehost: $(WINE_HOST) $(WINE_HOST32)
 

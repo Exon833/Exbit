@@ -367,7 +367,15 @@ Wine's `winegcc` is installed (e.g. the `wine-staging` or `wine` packages), `mak
 
     make -j16            # ./tinydaw  (release, -O2)
     make DEBUG=1 -j16    # ./tinydaw-debug (-O0 -g, AddressSanitizer + UBSan)
+    make appimage        # build/appimage/Tiny-DAW-<YEAR.MONTH.DAY.HOUR.MINUTE.SECOND>-x86_64.AppImage
+    make publish         # the same, published as a GitHub release (tag = its version), before a push
     make clean
+
+The AppImage is the whole program in one file that runs on any x86-64 Linux with glibc 2.35 or newer (most
+distributions from 2022 on): its program is built in Ubuntu 22.04 (`tools/appimage.Containerfile`, with podman
+or docker) with the C++ runtime linked in, and packed by AppImage's `appimagetool` (`tools/appimage.sh`; both
+tools must be installed). `NATIVE=1 make appimage` builds it on this machine instead (then it needs this
+machine's glibc or newer).
 
 ## Run
 

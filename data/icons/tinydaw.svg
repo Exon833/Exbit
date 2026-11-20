@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+<!-- Tiny DAW's application icon (the AppImage's, desktop menus'): a dark tile with a level meter's bars -->
+<defs>
+<linearGradient id="tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2f3542"/><stop offset="1" stop-color="#1b1f27"/></linearGradient>
+<linearGradient id="bar" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#3d8ef0"/><stop offset="0.65" stop-color="#47d1a8"/><stop offset="1" stop-color="#f0c23d"/></linearGradient>
+</defs>
+<rect x="8" y="8" width="240" height="240" rx="52" fill="url(#tile)"/>
+<g fill="url(#bar)">
+<rect x="44" y="132" width="24" height="76" rx="6"/>
+<rect x="80" y="84" width="24" height="124" rx="6"/>
+<rect x="116" y="52" width="24" height="156" rx="6"/>
+<rect x="152" y="104" width="24" height="104" rx="6"/>
+<rect x="188" y="148" width="24" height="60" rx="6"/>
+</g>
+</svg>
