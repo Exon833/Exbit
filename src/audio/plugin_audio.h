@@ -111,6 +111,9 @@ bool inList(const Track* t, const TrackList& tracks);
 // included: a track listening to a late one is late too). `tracks`: the project's tracks (snapshot);
 // cables from tracks not among them count as 0 late.
 int trackLatency(const Track& track, const TrackList& tracks, const Seen* seen = nullptr);
+// Frames late the sound reaching one of the track's effects is (its instrument and the effects before it): what
+// its automation is held back by, to stay in time with that sound. An instrument (or anything else): 0.
+int inputLatency(const Track& track, const PluginSlot* slot, const TrackList& tracks);
 
 // Does a MIDI track play instrument plugins (its own, or its instrument patch panel's: even none
 // wired in) rather than the built-in synth?

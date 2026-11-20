@@ -317,6 +317,7 @@ struct Track {
     Kind kind = Kind::Audio;
     bool muted = false;
     bool soloed = false;
+    bool soloSafe = false;    // SOLO SAFE: stays heard while other tracks are soloed (as a return does); mute still mutes
     int output = 0;           // first device output (0-based) of the pair it plays on: 0 = Out 1/2, 2 = Out 3/4
     double volumeDb = 0;      // its fader, after its effects (MIN_DB = silent); not part of freezes and bounces
     double delayMs = 0;       // plays this much later (negative: earlier), as delay compensation lines it up; not frozen
@@ -331,6 +332,7 @@ struct Track {
     bool needsInstrument = false;  // a new MIDI track: silent until an instrument is chosen
     int bendRange = 2;        // MIDI tracks: semitones the bend wheel bends its built-in synth or sampler played live,
                               // all the way up or down (1…24; right-click its row → Pitch bend range…)
+    double swing = -1;        // MIDI tracks: its own swing (0…100 %, midi_effects.h SWING); -1 = the song's
     List<SlotPtr> effects;    // in its patch space
     Cables cables{straight()};
     List<ModCable> modCables; // modulators moving its units' knobs (see ModCable)
@@ -445,6 +447,11 @@ struct Clip {
     double loopStart = 0; // where the loop starts, s into its audio as it plays (stretched, reversed)
     double loopLength = 0;  // …and how long it is; 0: not looping
     int64_t baseFrames = 0; // frames of its audio before any looping (set by prepare)
+    int64_t loopFrom = 0, loopFor = 0;  // a looping one's loop in frames of `data` (set by prepare with it)
+    // its gain envelope (model/clip_envelope.h): a volume curve over its audio, with its gain and fades; null = none.
+    // Points at frames of its audio as it plays (before looping), values 0…1: silence … +24 dB. Replaced whole.
+    std::shared_ptr<const std::vector<AutoPoint>> gainEnvelope;
+    bool envelopeShown = false;  // (view, not saved) its envelope's line is drawn over it and edited by the mouse
 
     // MIDI clips
     std::shared_ptr<const std::vector<Note>> notes;  // times relative to the clip start
@@ -456,6 +463,8 @@ struct Clip {
     std::shared_ptr<const std::vector<Event>> events;  // for VST instruments (frames, relative to the clip start)
     // MIDI clips linked to each other share it (see "linked MIDI clips" at the end); null = its notes are its own
     std::shared_ptr<ClipLink> link;
+    int key = -1;         // MIDI clips: its own key (0 = C … 11 = B) and scale (SCALES name, "" = none) for the
+    std::string scale;    // MIDI editor, instead of the song's (Timing::key / scale); -1 = the song's
 
     int64_t frames() const { return length >= 0 ? length : (data ? data->frames() - offset : 0); }
     int64_t end() const { return start + frames(); }
@@ -468,8 +477,8 @@ struct Clip {
     // (fade-in, fade-out) frames as they play: shortened in proportion when together they are longer than
     // the clip (it was trimmed); a piece cut from a faded clip counts the whole clip's length
     void fades(int64_t& fadeInOut, int64_t& fadeOutOut) const;
-    bool hasLevels() const { return gainDb != 0 || fadeIn || fadeOut; }  // (else levels are all 1)
-    // its gain and fades (each of its shape) as a factor at `pos` frames into its window
+    bool hasLevels() const { return gainDb != 0 || fadeIn || fadeOut || std::atomic_load(&gainEnvelope); }  // (else all 1)
+    // its gain, fades (each of its shape) and gain envelope as a factor at `pos` frames into its window
     float level(int64_t pos) const;
     // (fade-in, fade-out) frames inside its window, and how far (0…1, fadeCurve's x) its fades are at its start
     // and end: where its fade curves are drawn and its handles sit
@@ -551,6 +560,8 @@ public:
     TrackPtr firstEmptyTrack(Kind kind) const;
     bool audible(const Track& t) const;               // GUI thread (uses `tracks` directly)
     static bool audibleIn(const Track& t, const std::vector<TrackPtr>& tracks);  // audio thread, on a snapshot
+    // exclusive solo (Alt-click on S): `t` soloed, every other track and group unsoloed
+    void soloOnly(const TrackPtr& t);
 
     // clips
     void addClip(const ClipPtr& c) { clips.append(c); }

@@ -3,6 +3,8 @@
 
 #include "audio/dsp.h"
 #include "audio/engine.h"
+#include <cmath>
+
 #include "ui/lanes.h"
 #include "ui/scope_view.h"
 #include "ui/theme.h"
@@ -28,6 +30,10 @@ MasterStrip::MasterStrip(audio::Engine& engine_, std::function<void()> openPlugi
     top_->addWidget(title, 1);
     loudness = frame->add<LoudnessDisplay>();
     top_->addWidget(loudness);
+    truePeak = frame->add<LoudnessDisplay>();
+    truePeak->setFixedWidth(theme::metric("true-peak-width", 40));
+    top_->addWidget(truePeak);
+    showTruePeak(-INFINITY);
     refreshFx({});
     muteButton = widgets::toggleButton(frame, "M", "mute", false, [this](bool on) { setMute(on); },
                                        "Mute the master output");
@@ -120,6 +126,12 @@ void MasterStrip::setScopeShown(bool on) {
     scope->settings.shown = on;
     scope->setVisible(on);
     frame->setFixedHeight(lanes::masterHeight());
+}
+
+void MasterStrip::showTruePeak(double dbtp) {
+    truePeak->setText("TP\n" + loudness_display::fmtLufs(dbtp));
+    truePeak->setToolTip("True peak in dBTP (ITU-R BS.1770-4: 4× oversampled, so peaks between the samples count),\n"
+                         "the loudest since Play. Keep it under −1 dBTP for streaming and lossy files.");
 }
 
 void MasterStrip::setMute(bool on) { engine.masterMute = on; }

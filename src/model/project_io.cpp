@@ -15,8 +15,10 @@
 
 #include "audio/file_io.h"
 #include "audio/md5.h"
+#include "audio/midi_effects.h"
 #include "audio/sound_file.h"
 #include "core/util.h"
+#include "model/clip_envelope.h"
 
 namespace project_io {
 
@@ -437,7 +439,9 @@ Json describeTrack(const Track& track, const std::vector<GroupPtr>& groups, int 
     if (preFader.size()) entry.set("pre_fader_sends", preFader);
     if (!track.modCables.empty()) entry.set("modulation", describeModulation(track));  // (only then: older files unchanged)
     if (track.bendRange != 2) entry.set("bend_range", Json(track.bendRange));  // (only then: older files unchanged)
+    if (track.swing >= 0) entry.set("swing", Json(track.swing));  // (likewise: none = the song's)
     if (track.padKit) entry.set("pad_kit", describePadKit(*track.padKit, audioFile));  // (likewise)
+    if (track.soloSafe) entry.set("solo_safe", Json(true));  // (likewise)
     return entry;
 }
 
@@ -578,6 +582,8 @@ Json describeMidiEffects(const std::vector<MidiEffect>& effects) {
             if (k.first == e.kind) {
                 known = true;
                 for (auto& p : k.second) values.set(p.key, Json(e.get(p.key)));
+                for (auto& v : e.values)  // (a Groove's rows' own swing: "row:<pitch>")
+                    if (v.first.rfind("row:", 0) == 0) values.set(v.first, Json(v.second));
             }
         if (!known)
             for (auto& v : e.values) values.set(v.first, Json(v.second));
@@ -609,7 +615,7 @@ const std::vector<std::string>& scaleNames() {
 Json describeTiming(const Timing& t) {
     Json changes = Json::array();
     for (auto& c : t.changes) changes.push(Json::array({Json(c.bar), Json(c.bpm), Json(c.beatsPerBar)}));
-    return Json::object({{"bpm", Json(t.bpm)},
+    Json out = Json::object({{"bpm", Json(t.bpm)},
                          {"beats_per_bar", Json(t.beatsPerBar)},
                          {"beats", Json(t.beats)},
                          {"thirds", Json(t.thirds)},
@@ -621,6 +627,11 @@ Json describeTiming(const Timing& t) {
                          {"snap_on", Json(t.snapOn)},
                          {"key", Json(t.key)},
                          {"scale", Json(t.scale)}});
+    if (t.swing > 0 || t.swingGrid != 1) {  // (only then: older files unchanged)
+        out.set("swing", Json(t.swing));
+        out.set("swing_grid", Json(t.swingGrid));
+    }
+    return out;
 }
 
 Timing readTiming(const Json& entry) {
@@ -661,6 +672,9 @@ Timing readTiming(const Json& entry) {
             t.key = 0;  // (no scale, or one this version doesn't know)
             t.scale.clear();
         }
+        t.swing = entry.num("swing", 0.0);  // (older files: straight)
+        if (!(t.swing >= 0 && t.swing <= 100)) t.swing = 0;
+        t.swingGrid = entry.integer("swing_grid", 1) == 0 ? 0 : 1;
     }
     if (!(config::MIN_BPM <= t.bpm && t.bpm <= config::MAX_BPM)) t.bpm = config::DEFAULT_BPM;
     if (!(1 <= t.beatsPerBar && t.beatsPerBar <= config::MAX_BEATS_PER_BAR))
@@ -720,11 +734,22 @@ Json describe(const Project& project, int sr, const MasterSettings& master, Audi
                 entry.set("fade_lead", Json((double)clip->fadeLead / sr));
                 entry.set("fade_tail", Json((double)clip->fadeTail / sr));
             }
+            if (clip->gainEnvelope) {  // [s into its audio (before looping), value 0…1, bend if any] (clip_envelope.h)
+                Json points = Json::array();
+                for (auto& p : *clip->gainEnvelope)
+                    points.push(p.bend != 0 ? Json::array({Json(p.t / sr), Json(p.v), Json(p.bend)})
+                                            : Json::array({Json(p.t / sr), Json(p.v)}));
+                entry.set("gain_envelope", points);
+            }
         } else {
             entry.set("notes", notesJson(clip->notes));  // [start s, end s, pitch, velocity]
             entry.set("midi_length", Json(clip->lengthS));
             entry.set("muted_notes", notesJson(clip->mutedNotes));
             entry.set("loop", Json(clip->loop));
+            if (clip->key >= 0) {  // its own scale (only then: older files unchanged)
+                entry.set("key", Json(clip->key));
+                entry.set("scale", Json(clip->scale));
+            }
             if (clip->link && linkSize[clip->link.get()] >= 2) {  // (only then: unlinked projects save as before)
                 auto made = linkNumber.emplace(clip->link.get(), (int)linkNumber.size() + 1);
                 entry.set("link", Json(made.first->second));
@@ -1091,6 +1116,7 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
             auto track = std::make_shared<Track>(strOf(need(t, "name")), kindFromName(t.str("kind", "audio")));
             track->muted = t.flag("muted", false);
             track->soloed = t.flag("soloed", false);
+            track->soloSafe = t.flag("solo_safe", false);
             track->output = t.integer("output", 0);
             track->volumeDb = t.num("volume_db", 0.0);
             track->pan = t.num("pan", 0.0);
@@ -1102,6 +1128,8 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
             track->showAutomation = t.flag("show_automation", false);
             track->usesRack = t.flag("uses_rack", false);
             track->bendRange = std::max(1, std::min(24, t.integer("bend_range", 2)));
+            track->swing = std::min(100.0, t.num("swing", -1.0));
+            if (!(track->swing >= 0)) track->swing = -1;  // (none, negative or NaN: the song's)
             if (!t["group"].isNull()) {
                 size_t i;
                 if (!isIndex(t["group"], groups.size(), i)) throw Damaged{"a track's group is not there"};
@@ -1206,6 +1234,7 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
         }
 
         Timing timing = readTiming(field(data, "timing"));
+        midi_effects::TimingScope onItsBeats(&timing);  // (its MIDI clips prepared on its own tempo and swing)
         std::vector<std::string> missing;
         std::vector<ClipPtr> clips;
         std::map<double, ClipPtr> linked;  // linked MIDI clips: "link" number -> the first clip with it
@@ -1238,6 +1267,13 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
                 clip->mutedNotes = readNotes(entry["muted_notes"], false);
                 clip->lengthS = need(entry, "midi_length").toDouble();
                 clip->loop = entry.flag("loop", false);
+                int key = entry.integer("key", -1);
+                std::string scale = entry.str("scale");
+                const auto& names = scaleNames();
+                if (key >= 0 && key <= 11 && (scale.empty() || std::find(names.begin(), names.end(), scale) != names.end())) {
+                    clip->key = key;  // (a scale this version doesn't know: the song's)
+                    clip->scale = scale;
+                }
                 const Json& link = entry["link"];  // (linked MIDI clips: the first one's notes are everyone's)
                 if (link.isNumber()) {
                     auto made = linked.emplace(link.toDouble(), clip);
@@ -1264,6 +1300,14 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
             clip->fadeTail = roundFrames(entry.num("fade_tail", 0.0), sr);
             clip->fadeInShape = fadeShapeFromName(entry.str("fade_in_shape"));  // (none: linear)
             clip->fadeOutShape = fadeShapeFromName(entry.str("fade_out_shape"));
+            if (clip->kind == Kind::Audio) {  // (older projects: none)
+                std::vector<AutoPoint> pts;
+                for (const Json& p : entry["gain_envelope"].items())
+                    if (p.isArray() && (p.size() == 2 || p.size() == 3) && p[size_t(0)].isNumber() && p[size_t(1)].isNumber())
+                        pts.push_back({p[size_t(0)].toDouble() * sr, p[size_t(1)].toDouble(),
+                                       p.size() == 3 && p[size_t(2)].isNumber() ? p[size_t(2)].toDouble() : 0.0});
+                clip->gainEnvelope = clip_envelope::make(std::move(pts));
+            }
             prepareSafely(*clip, sr);
             clips.push_back(clip);
         }

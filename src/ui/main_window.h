@@ -235,6 +235,7 @@ public:
     void setMeterOption(const std::string& attr, bool on);   // "level_meters" / "loudness_meters"
     void applyMeterOptions();
     void connectControls();
+    void connectScale();  // the transport's Key ▾ and Swing ▾ (main_window_scale.cpp, ui/song_scale.h)
     void tap();
 
     // --- metronome ---

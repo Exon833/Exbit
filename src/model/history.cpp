@@ -13,19 +13,20 @@ namespace history {
 //   Timing: beats, thirds, grid, snapOn, looping (view)
 //   a looping audio clip: data, peaks, baseFrames (built again from its other fields)
 #define TRACK_FIELDS(X)                                                                                         \
-    X(name) X(kind) X(muted) X(soloed) X(output) X(volumeDb) X(delayMs) X(pan) X(sends) X(instrument)          \
+    X(name) X(kind) X(muted) X(soloed) X(soloSafe) X(output) X(volumeDb) X(delayMs) X(pan) X(sends) X(instrument)          \
     X(midiEffects) X(sampler) X(padKit) X(needsInstrument) X(effects) X(cables) X(modCables) X(color) X(tone)     \
-    X(group) X(frozen) X(automation) X(takes) X(usesRack) X(rack) X(rackCables) X(bendRange)
+    X(group) X(frozen) X(automation) X(takes) X(usesRack) X(rack) X(rackCables) X(bendRange) \
+    X(swing)
 #define GROUP_FIELDS(X) X(name) X(muted) X(soloed) X(color) X(tone)
 #define CLIP_FIELDS(X)                                                                                          \
     X(kind) X(name) X(track) X(start) X(offset) X(length) X(color) X(tone) X(disabled) X(gainDb) X(fadeIn)     \
     X(fadeOut) X(fadeLead) X(fadeTail) X(fadeInShape) X(fadeOutShape) X(loop) X(source) X(sourceSr)            \
     X(sourcePath) X(stretch) X(pitch) X(sourceBpm) X(reverse) X(loopStart) X(loopLength) X(notes) X(lengthS)   \
-    X(mutedNotes) X(played) X(events) X(link)
+    X(mutedNotes) X(played) X(events) X(link) X(gainEnvelope) X(key) X(scale)
 #define CLIP_AUDIO_FIELDS(X) X(data) X(peaks) X(baseFrames)  // (not for looping audio clips)
 #define SLOT_FIELDS(X) X(path) X(name) X(kind) X(pluginName) X(bypass) X(placed) X(atX) X(atY) X(volumeDb) X(mix)
 #define LANE_FIELDS(X) X(slot) X(param) X(points)
-#define TIMING_FIELDS(X) X(bpm) X(beatsPerBar) X(loopStart) X(loopEnd) X(changes) X(key) X(scale)
+#define TIMING_FIELDS(X) X(bpm) X(beatsPerBar) X(loopStart) X(loopEnd) X(changes) X(key) X(scale) X(swing) X(swingGrid)
 
 #define DECL_TRACK(f) decltype(Track::f) f;
 #define DECL_GROUP(f) decltype(Group::f) f;
@@ -216,6 +217,7 @@ const char* trackChange(const TrackData& d, const Track& o) {
     if (!same(d.pan, o.pan)) return "Pan";
     if (!same(d.muted, o.muted)) return "Mute";
     if (!same(d.soloed, o.soloed)) return "Solo";
+    if (!same(d.soloSafe, o.soloSafe)) return "Solo safe";
     if (!same(d.name, o.name)) return "Rename track";
     if (!same(d.sends, o.sends)) return "Sends";
     if (!same(d.effects, o.effects) || !same(d.cables, o.cables)) return "Effects";
@@ -232,6 +234,7 @@ const char* trackChange(const TrackData& d, const Track& o) {
     if (!same(d.output, o.output)) return "Track output";
     if (!same(d.delayMs, o.delayMs)) return "Track delay";
     if (!same(d.bendRange, o.bendRange)) return "Pitch bend range";
+    if (!same(d.swing, o.swing)) return "Swing";
     return matches(d, o) ? nullptr : "Track settings";
 }
 
@@ -245,6 +248,7 @@ Name clipChange(const ClipData& d, const Clip& o) {
         return {"Loop", "Loop"};
     if (!same(d.offset, o.offset) || !same(d.length, o.length)) return {"Resize clip", "Resize clips"};
     if (!same(d.gainDb, o.gainDb)) return {"Clip gain", "Clip gain"};
+    if (!same(d.gainEnvelope, o.gainEnvelope)) return {"Gain envelope", "Gain envelopes"};
     if (!same(d.name, o.name)) return {"Rename clip", "Rename clips"};
     if (!same(d.notes, o.notes) || !same(d.mutedNotes, o.mutedNotes) || !same(d.lengthS, o.lengthS))
         return {"Edit notes", "Edit notes"};
@@ -254,6 +258,7 @@ Name clipChange(const ClipData& d, const Clip& o) {
     if (!same(d.stretch, o.stretch) || !same(d.pitch, o.pitch) || !same(d.sourceBpm, o.sourceBpm))
         return {"Stretch / pitch", "Stretch / pitch"};
     if (!same(d.reverse, o.reverse)) return {"Reverse", "Reverse"};
+    if (!same(d.key, o.key) || !same(d.scale, o.scale)) return {"Clip scale", "Clip scales"};
     if (!matches(d, o)) return {"Edit clip", "Edit clips"};
     return {nullptr, nullptr};
 }
@@ -305,7 +310,10 @@ std::string Snapshot::describe(const Project& p) const {
         if (!same(t.bpm, o.bpm) || !same(t.beatsPerBar, o.beatsPerBar) || !same(t.changes, o.changes)) return "Tempo";
         if (!same(t.loopStart, o.loopStart) || !same(t.loopEnd, o.loopEnd)) return "Loop range";
         if (!same(t.key, o.key) || !same(t.scale, o.scale)) return "Key";
+        if (!same(t.swing, o.swing) || !same(t.swingGrid, o.swingGrid)) return "Swing";
     }
+    for (auto& t : d.trackData)  // (before the clips: a track's swing prepares its clips again)
+        if (!same(t.second.swing, t.first->swing)) return "Swing";
     // the clips' fields: the first change found, named for as many clips as had that same change
     Name clipName{nullptr, nullptr};
     int clipCount = 0;

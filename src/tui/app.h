@@ -68,6 +68,7 @@ public:
     int laneRow = 0;              // the lane with the keyboard (timeline and track panel): a track's, an automation
                                   // lane's, a take's, a group's header; the track panel: one past the last, the master
     bool helpShown = false;
+    int helpTop = 0;  // F1's list: the first line shown (Up/Down, PgUp/PgDn scroll it when it doesn't fit)
     bool windowsHidden = false;   // F12: the open windows (not dialogs) hidden, the main window has the keys
     int64_t markFrame = -1;       // I: a range's start (O ends it at the cursor)
     TrackPtr markTrack;

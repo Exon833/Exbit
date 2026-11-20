@@ -20,6 +20,11 @@
 // While playing (and when rendering), apply() sets each automated parameter to the curve's value
 // at the start of every buffer, before the plugin processes it.
 //
+// DELAY COMPENSATION. Automation keeps time with the sound it changes, as the delay compensation keeps the
+// tracks in time: an effect behind plugins with look-ahead gets sound that is late (by plugin_audio::inputLatency),
+// so its curve is read that much earlier; the fader and pan, after all the track's effects, are read as late as
+// the track's effects make its sound (plugin_audio::trackLatency). Done silently, in playback and renders alike.
+//
 // A parameter with a few values only (a switch: On / Off; a choice of 3 styles…; its `steps`, from
 // the plugin) has a stepped curve: its points take one of those values (snap()), and it holds each
 // point's value until the next point, jumping there, rather than sloping through values it can't
@@ -95,6 +100,9 @@ double snap(double value, int steps);  // at the nearest of the parameter's valu
 // bend), flat before the first and after the last. A stepped parameter (steps > 0) holds each point's
 // value until the next.
 double valueAt(const std::vector<AutoPoint>& points, double seconds, int steps = 0);
+// The same, walking forwards: `cursor` (0 at first, kept between calls) moves on to the segment holding `seconds`
+// without a search (going back searches once). No allocation: the audio thread's (clip_envelope.h).
+double valueAt(const std::vector<AutoPoint>& points, double seconds, size_t& cursor, int steps = 0);
 // --- curved segments (AutoPoint::bend) ---
 constexpr double BEND_CURVE = 6;  // how far a full bend (±1) curves: e^6 ≈ 400 times faster at one end
 // How far along (0…1) a segment rising by `rise` (its end's value minus its start's) is at x (0…1 of its
@@ -105,6 +113,8 @@ double bendShape(double x, double bend, double rise);
 void splitAt(std::vector<AutoPoint>& points, double seconds);
 // Set the track's automated plugin parameters to their values at timeline frame `start` (audio thread,
 // or the main thread when rendering). Volume and pan lanes are left to the mixer (mixerValues()).
-void apply(Track& track, int64_t start, int sr);
+// tracks (the project's, a snapshot): each effect's curve read as late as the sound reaching it (DELAY
+// COMPENSATION above); null: at `start`.
+void apply(Track& track, int64_t start, int sr, const plugin_audio::TrackList* tracks = nullptr);
 
 }  // namespace automation

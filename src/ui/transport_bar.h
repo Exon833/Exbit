@@ -146,6 +146,13 @@ public:
     ui::Menu* gridMenu = nullptr;
     std::map<std::string, std::unique_ptr<KeyAction>> gridActions;  // "finer", "coarser", "snap", "fixed"
     std::function<void(const GridChange&)> onGridChange;            // the Grid ▾ menu's choices (main window)
+    // the song's key and scale (Key ▾) and swing (Swing ▾): their menus are filled as they open (main window,
+    // ui/song_scale.h)
+    ui::Button* keyButton = nullptr;
+    ui::Menu* keyMenu = nullptr;
+    ui::Button* swingButton = nullptr;
+    ui::Menu* swingMenu = nullptr;
+    std::function<void(ui::Menu&)> fillKeyMenu, fillSwingMenu;
     ui::Button* moreButton = nullptr;     // "»"
     ui::Menu* moreMenu = nullptr;
     // fitting the bar to its width

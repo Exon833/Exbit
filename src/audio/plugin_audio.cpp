@@ -84,6 +84,16 @@ int trackLatency(const Track& track, const TrackList& tracks, const Seen* seen) 
     return patch::patchLatency(cables, *effects, in, tracks, &me, track.patchState);
 }
 
+int inputLatency(const Track& track, const PluginSlot* slot, const TrackList& tracks) {
+    if (!slot || aload(track.frozen)) return 0;
+    auto cables = track.cables.get();
+    if (patch::isStraight(*cables)) return 0;  // (no effect heard)
+    auto effects = track.effects.get();
+    Seen me{&track, nullptr};
+    return patch::planLatency(*patch::planFor(cables, track.patchState), *effects, instrumentLatency(track), tracks,
+                              &me, slot);
+}
+
 bool playsPlugins(const Track& track) {
     return track.kind == Kind::Midi && !track.needsInstrument && (track.usesRack || usable(aload(track.instrument)));
 }

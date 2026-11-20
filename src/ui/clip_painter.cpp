@@ -5,6 +5,7 @@
 #include <cstdio>
 
 #include "config.h"
+#include "model/clip_envelope.h"
 #include "ui/colors.h"
 #include "ui/paint_helpers.h"
 #include "ui/theme.h"
@@ -98,6 +99,7 @@ void paintClip(Painter& p, const Look& look, const Clip& clip, const RectF& rect
         paintContents(p, clip, body, visible, pps, sr, cc.content);
     if (clip.kind == Kind::Audio && !frozen && handles)
         paintFades(p, clip, body, pps, sr, cc.border, look.fadeShade, look.fadeStroke);
+    if (clip.kind == Kind::Audio && clip.envelopeShown) paintEnvelope(p, clip, body, visible, pps, sr, cc.text);
     if (clip.loopingAudio()) paintLoopStarts(p, clip, rect, visible, pps, sr, cc.border, look.loopStroke, look.loopHeight);
     if (look.overlayShown) ui::style::box(p, pixels(rect), look.overlay);  // (a frozen track's: its icy tint)
     if (look.border > 0) p.strokeRect(rect, selected ? cc.selectedBorder : cc.border, look.border);  // square corners
@@ -192,10 +194,50 @@ void paintFades(Painter& p, const Clip& clip, const RectF& body, double pps, int
 }
 
 std::string clipLabel(const Clip& clip) {
-    if (!clip.gainDb) return clip.name;
+    std::string env = clip.gainEnvelope ? "   env" : "";  // (a gain envelope: clip_envelope.h)
+    if (!clip.gainDb) return clip.name + env;
     char buf[32];
     std::snprintf(buf, sizeof buf, "   %+.1f dB", clip.gainDb);
-    return clip.name + buf;
+    return clip.name + buf + env;
+}
+
+// --- gain envelopes (model/clip_envelope.h) ---
+
+float envelopeY(const RectF& body, double v) {
+    float pad = std::min(ENVELOPE_PAD, body.h / 4);
+    return body.bottom() - pad - (float)v * (body.h - 2 * pad);
+}
+
+double envelopeValue(const RectF& body, double y) {
+    float pad = std::min(ENVELOPE_PAD, body.h / 4);
+    double room = std::max(1.0f, body.h - 2 * pad);
+    return std::min(1.0, std::max(0.0, (body.bottom() - pad - y) / room));
+}
+
+void paintEnvelope(Painter& p, const Clip& clip, const RectF& body, const Rect& visible, double pps, int sr, Color color) {
+    // the curve, a point per pixel column across what is in view, and a dot at each of its points
+    int x0 = std::max((int)std::floor(body.x), visible.left() - 1), x1 = std::min((int)std::ceil(body.right()), visible.right() + 1);
+    if (x1 <= x0 || body.h < 4) return;
+    auto frameAt = [&](double x) { return clip.offset + (int64_t)std::nearbyint((x - body.x) / pps * sr); };
+    std::vector<PointF> line;
+    line.reserve((size_t)(x1 - x0) + 1);
+    for (int x = x0; x <= x1; ++x) {
+        double cx = std::min((double)body.right(), std::max((double)body.x, (double)x));
+        line.emplace_back((float)cx, envelopeY(body, clip_envelope::valueAt(clip, frameAt(cx))));
+    }
+    p.save();
+    p.setClip(pixels(body));
+    p.drawPolyline(line, color, 1.5f, LineCap::Flat, LineJoin::Round);
+    auto envelope = clip.gainEnvelope;
+    if (envelope) {
+        int64_t lo = frameAt(x0 - ENVELOPE_DOT), hi = frameAt(x1 + ENVELOPE_DOT) + 1;
+        for (auto& pt : *envelope)
+            for (int64_t f : clip_envelope::framesOf(clip, pt.t, lo, hi)) {
+                float x = (float)(body.x + (double)(f - clip.offset) / sr * pps), y = envelopeY(body, pt.v);
+                p.fillRect(RectF(x - ENVELOPE_DOT / 2.0f, y - ENVELOPE_DOT / 2.0f, ENVELOPE_DOT, ENVELOPE_DOT), color);
+            }
+    }
+    p.restore();
 }
 
 void paintName(Painter& p, const Look& look, const Clip& clip, const RectF& rect, int viewLeft, Color color) {

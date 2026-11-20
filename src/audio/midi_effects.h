@@ -81,6 +81,25 @@ private:
     const Timing* before_;
 };
 
+// --- SWING: the song's, a track's and a Steps row's ---
+// An amount, 0 % (straight) … 100 %: in each pair of 8ths or 16ths (Timing::swingGrid) of the song's beats,
+// the off-beat comes later by amount / 4 of the pair (100 %: at three quarters of it, as a Groove's 75 %;
+// about 67 %: triplets), notes between the grid lines in proportion, notes on the beats not at all. Each
+// note of a MIDI track swings by its row's own amount (its pitch's "row:<pitch>" in a Groove effect of the
+// track, set in the Steps view), else the track's own (Track::swing), else the song's (Timing::swing).
+// apply() swings a clip's notes first, before the track's MIDI effects (a Groove adds its own swing, except
+// to the rows with an amount of their own), so every instrument, freezes and renders hear it. At 0 %
+// nothing is touched: the notes stay bit for bit as they were.
+double songSwing();                          // the song's amount (0 without a timing)
+int swingGrid();                             // 0: 8ths, 1: 16ths (the song's)
+double rowSwing(const Track& t, int pitch);  // the row's own amount, or -1: none
+double swingOf(const Track& t, int pitch);   // the amount a note of that pitch swings by
+bool swings(const Track& t);                 // does any of its notes swing?
+// the notes (clip time; origin: the timeline's seconds at note time 0) swung as the track swings them
+std::vector<Note> swung(const Track& t, std::vector<Note> notes, double origin);
+// a Groove effect with `pitch`'s row swinging by `amount` (< 0: the row's own amount taken away)
+MidiEffect withRowSwing(const MidiEffect& groove, int pitch, double amount);
+
 // --- applying them ---
 // one effect on notes (in clip time; origin: the timeline's seconds at note time 0)
 std::vector<Note> process(const MidiEffect& effect, const std::vector<Note>& notes, double origin);

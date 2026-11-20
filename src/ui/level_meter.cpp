@@ -79,6 +79,8 @@ void LevelMeter::showChannels(const std::vector<int>& indexes) {
     if (shown != shown_) {
         shown_ = shown;
         levels_.assign(shown_.size(), 0.0);
+        power_.assign(shown_.size(), 0.0);
+        rms_.assign(shown_.size(), 0.0);
         held_.assign(shown_.size(), 0.0);
         heldAt_.assign(shown_.size(), 0.0);
         showTooltip();
@@ -93,7 +95,8 @@ void LevelMeter::showTooltip() {
         std::snprintf(buf, sizeof buf, "%.1f dBFS", dsp::gainToDb(loudest_));
         loud = buf;
     }
-    setToolTip("Peak level of " + level_meter::outputLabel(shown_) + ", top to bottom (the thin line: the last peak).\n"
+    setToolTip("Peak level of " + level_meter::outputLabel(shown_) + ", top to bottom (the thin line: the last peak; "
+               "the thin bar inside: RMS, the average level).\n"
                "Loudest since Play: " + loud + (clipped_ ? "; it went over full scale (clipping)" : "") +
                ". Click to clear it.");
 }
@@ -103,6 +106,9 @@ void LevelMeter::takeOver(const LevelMeter& old) {
     clipped_ = old.clipped_;
     if (old.shown_ == shown_) {
         levels_ = old.levels_;
+        power_ = old.power_;
+        rms_ = old.rms_;
+        rmsAt_ = old.rmsAt_;
         held_ = old.held_;
         heldAt_ = old.heldAt_;
     }
@@ -150,6 +156,24 @@ void LevelMeter::push(const std::vector<float>* peaks) {
         clipped_ = clipped_ || top > clipGain_;
         showTooltip();
         changed = true;
+    }
+    if (changed) update();
+}
+
+void LevelMeter::pushRms(const std::vector<float>* meanSquares) {
+    double t = level_meter::now();
+    // (an average of the last RMS_S, however often it's pushed; the first at once)
+    double k = rmsAt_ < 0 ? 1.0 : 1 - std::exp(-std::min(1.0, std::max(0.0, t - rmsAt_)) / level_meter::RMS_S);
+    rmsAt_ = t;
+    bool changed = false;
+    for (size_t b = 0; b < shown_.size() && b < power_.size(); ++b) {
+        size_t i = (size_t)shown_[b];
+        double ms = meanSquares && i < meanSquares->size() ? (*meanSquares)[i] : 0.0;
+        power_[b] += (ms - power_[b]) * k;
+        if (power_[b] < 1e-9) power_[b] = 0;  // (settles, so idle meters stop repainting)
+        double r = std::sqrt(power_[b]);
+        changed = changed || r != rms_[b];
+        rms_[b] = r;
     }
     if (changed) update();
 }
@@ -235,6 +259,16 @@ void LevelMeter::paint(Painter& p) {
             if (part.right > part.left)
                 panel_style::fillPart(p, RectF(Rect(in.x + part.left, in.y, part.right - part.left, in.h)),
                                       look.barStyle[part.range], look.bar[part.range]);
+        double rms = k < rms_.size() ? rms_[k] : 0.0;
+        if (rms > 0) {  // the RMS: a thin bar along the middle of the peak bar
+            double rmsDb = dsp::gainToDb(rms);
+            int rw = (int)(bw * level_meter::dbFraction(rmsDb));
+            int rh = std::max(1, in.h / 3);
+            int range = rmsDb >= level_meter::HOT_DB ? 2 : rmsDb >= level_meter::WARN_DB ? 1 : 0;
+            if (rw > 0)
+                panel_style::fillPart(p, RectF(Rect(in.x, in.y + (in.h - rh) / 2, rw, rh)), look.peakStyle[range],
+                                      look.peak[range]);
+        }
         double held = k < held_.size() ? held_[k] : 0.0;
         if (held > 0) {  // the held peak: a thin line in its level's colour (red at full scale, wherever drawn)
             double heldDb = dsp::gainToDb(held);

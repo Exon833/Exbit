@@ -1,5 +1,6 @@
 // The right-hand panel: one row per track, group and automation lane (lane_panel.py).
 #include "ui/lane_panel.h"
+#include "ui/song_scale.h"
 
 #include <algorithm>
 #include <cmath>
@@ -17,6 +18,7 @@
 #include "ui/master_strip.h"
 #include "ui/midi_effects_dialog.h"
 #include "ui/paint_helpers.h"
+#include "ui/solo_button.h"
 #include "ui/theme.h"
 #include "ui/timeline.h"
 #include "ui/toolkit/dialogs.h"
@@ -226,6 +228,15 @@ LanePanel::LanePanel(Project& project_, Timeline& timeline_, MasterStrip& master
     timeline.heightsChanged.connect([this, alive] {
         if (!alive.expired()) updateHeights();
     });
+    // TRACK SELECTION's keys: Ctrl+D with no clip selected (the timeline's), Alt+Up / Alt+Down
+    timeline.duplicateTracks = [this, alive] {
+        if (!alive.expired() && timeline.currentTrack) duplicate(timeline.currentTrack, true);
+    };
+    for (int dir : {-1, 1})
+        shortcuts_.push_back(std::make_unique<ui::Shortcut>(
+            this, ui::KeySequence::parse(dir < 0 ? "Alt+Up" : "Alt+Down"), [this, dir] {
+                if (timeline.currentTrack) move(timeline.currentTrack, dir);
+            }));
     rebuild();
 }
 
@@ -321,10 +332,11 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
         color = bg;
         text = fg;
     }
-    auto* frame = parent->add<LaneFrame>(color, style.stripe().value_or(kindAccent(track->kind)), track->height, text);
+    // (clicking the row selects the track, dragging it moves it: TrackRow)
+    auto* frame = parent->add<TrackRow>(*this, track, color, style.stripe().value_or(kindAccent(track->kind)),
+                                        track->height, text);
     frame->setRowStyle(style.row);  // (its box: TrackRow's, in its colour)
     frame->fillMenu = [this, track](ui::Menu& menu) { fillTrackMenu(menu, track); };
-    frame->onPress = [this, track] { timeline.setCurrentTrack(track); };  // clicking the row selects the track
     ui::HBox* outer = ui::hbox(frame, 0, 0);
     if (track->group) {
         auto* bar = frame->add<ui::Canvas>();
@@ -372,9 +384,16 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
         return frame;
     }
 
-    auto setFlag = [tl](bool& flag, bool on) {
-        flag = on;
+    std::weak_ptr<bool> alive = alive_;
+    // (mute, solo: every selected track's)
+    auto setFlag = [this, alive, tl, track](bool Track::*flag, bool on, const char* what) {
+        auto ts = alive.expired() ? std::vector<TrackPtr>{track} : targets(track);
+        for (auto& t : ts) (*t).*flag = on;
         tl->update();  // silent clips are drawn grey
+        if (ts.size() > 1 && !alive.expired()) {
+            rebuild();  // (their buttons)
+            say(what, ts.size());
+        }
     };
     if (track->kind == Kind::Midi) {
         auto fill = instruments.fill;
@@ -387,34 +406,59 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
     }
     auto open = openPlugins;
     row->addWidget(widgets::fxButton(frame, *track->effects, [open, track] { if (open) open(track); }));
-    auto* pan = frame->add<PanKnob>(track->pan, [track](double v) {
+    auto* pan = frame->add<PanKnob>(track->pan, [this, alive, track](double v) {
+        if (!alive.expired())  // (the other selected tracks' by as much)
+            for (auto& t : targets(track))
+                if (t != track) {
+                    t->pan = std::clamp(t->pan + v - track->pan, -1.0, 1.0);
+                    showMixer(t);
+                }
         track->pan = v;  // the mixer reads it every buffer
         automation::recorder().move(automation::armedControlLane(*track, automation::PAN), (v + 1) / 2);
     });
     // (its Pan lane armed for writing, while playing: the knob held writes it: automation_write.h)
-    pan->grabbed = [track, pan](bool on) {
+    pan->grabbed = [this, alive, track, pan](bool on) {
+        if (on && !alive.expired()) say("Pan", targets(track).size());
         AutomationPtr lane = automation::armedControlLane(*track, automation::PAN);
         if (on) automation::recorder().grab(lane, (pan->pan + 1) / 2);
         else automation::recorder().release(lane);
     };
     row->addWidget(pan);
     row->addWidget(widgets::toggleButton(frame, "M", "mute", track->muted,
-                                         [setFlag, track](bool on) { setFlag(track->muted, on); }, "Mute"));
+                                         [setFlag](bool on) { setFlag(&Track::muted, on, on ? "Mute" : "Unmute"); },
+                                         "Mute"));
     if (track->kind != Kind::Return)  // (soloing other tracks leaves the returns playing)
-        row->addWidget(widgets::toggleButton(frame, "S", "solo", track->soloed,
-                                             [setFlag, track](bool on) { setFlag(track->soloed, on); }, "Solo"));
+        row->addWidget(frame->add<SoloButton>(track, [this, tl, track, setFlag](SoloButton::Change c) {
+            if (c == SoloButton::Change::Exclusive) {
+                project.soloOnly(track);
+                rebuild();  // (the other rows' S buttons let go)
+            } else if (c == SoloButton::Change::Solo) {
+                setFlag(&Track::soloed, track->soloed, track->soloed ? "Solo" : "Unsolo");  // (every selected track)
+            } else {
+                setFlag(&Track::soloSafe, track->soloSafe, track->soloSafe ? "Solo safe" : "Not solo safe");
+            }
+            tl->update();  // silent clips are drawn grey
+        }));
     row->addWidget(remove);
 
     auto* meter = frame->add<LevelMeter>(channels);
     meter->showChannels(lane_panel::trackOutputs(*track));
     auto* display = frame->add<LoudnessDisplay>();
     auto toVolume = [](double db) { return (db - config::MIN_DB) / (double)(config::MAX_DB - config::MIN_DB); };
-    auto* slider = frame->add<VolumeSlider>(track->volumeDb, [track, toVolume](double db) {
+    auto* slider = frame->add<VolumeSlider>(track->volumeDb, [this, alive, track, toVolume](double db) {
+        if (!alive.expired())  // (the other selected tracks' by as much)
+            for (auto& t : targets(track))
+                if (t != track) {
+                    t->volumeDb = std::clamp(t->volumeDb + db - track->volumeDb, (double)config::MIN_DB,
+                                             (double)config::MAX_DB);
+                    showMixer(t);
+                }
         track->volumeDb = db;  // the mixer reads it every buffer
         automation::recorder().move(automation::armedControlLane(*track, automation::VOLUME), toVolume(db));
     });
     // (its Volume lane armed for writing, while playing: the fader held writes it: automation_write.h)
-    slider->sliderPressed.connect([track, slider, toVolume] {
+    slider->sliderPressed.connect([this, alive, track, slider, toVolume] {
+        if (!alive.expired()) say("Volume", targets(track).size());
         automation::recorder().grab(automation::armedControlLane(*track, automation::VOLUME), toVolume(slider->value()));
     });
     slider->sliderReleased.connect(
@@ -427,7 +471,6 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
     bottom->hSpacing = std::max(0, ui::style::px(style.controls, "column-gap", 6));
     bottom->vSpacing = std::max(0, ui::style::px(style.controls, "row-gap", 2));
     col->addLayout(std::move(glayout), 1);
-    std::weak_ptr<bool> alive = alive_;
     ui::ComboBox* outputs = widgets::outputSelector(frame, channels, track->output, [this, alive, track, meter](int first) {
         track->output = first;
         meter->showChannels(lane_panel::trackOutputs(*track));
@@ -675,7 +718,18 @@ void LanePanel::showMixerValues(std::optional<int64_t> pos, int sr) {
 }
 
 void LanePanel::showCurrentTrack() {
-    for (auto& [track, frame] : frames) frame->setCurrent(track == timeline.currentTrack);
+    // (the selection: the current track one of them, and none that is gone)
+    TrackPtr current = timeline.currentTrack;
+    if (current && std::find(selected.begin(), selected.end(), current) == selected.end()) {
+        selected = {current};
+        anchor_ = current;  // (Shift-click selects from it now)
+    }
+    std::vector<TrackPtr> kept;
+    for (auto& t : project.tracks)
+        if (current && std::find(selected.begin(), selected.end(), t) != selected.end()) kept.push_back(t);
+    selected = kept;
+    for (auto& [track, frame] : frames)
+        frame->setCurrent(std::find(selected.begin(), selected.end(), track) != selected.end());
 }
 
 void LanePanel::showUsedOutputs() {
@@ -702,6 +756,16 @@ void LanePanel::fillTrackMenu(ui::Menu& menu, const TrackPtr& track) {
     };
     menu.addAction("Rename track…", guard([this, track] { rename(track); }));
     menu.addAction("Track colour…", guard([this, track] { chooseColor(track); }));
+    {  // (every selected track: TRACK SELECTION)
+        size_t n = targets(track).size();
+        std::string many = n > 1 ? " (" + std::to_string(n) + " tracks)" : "";
+        menu.addAction("Duplicate track" + many, guard([this, track] { duplicate(track, true); }), "Ctrl+D")->tooltip =
+            "A copy right below it, with its clips, plugins and their settings, cables, automation and sends";
+        menu.addAction("Duplicate without clips" + many, guard([this, track] { duplicate(track, false); }))->tooltip =
+            "A copy right below it with its plugins, cables, automation and sends, but no clips";
+        menu.addAction("Move up" + many, guard([this, track] { move(track, -1); }), "Alt+Up");
+        menu.addAction("Move down" + many, guard([this, track] { move(track, 1); }), "Alt+Down");
+    }
     auto edit = instruments.edit;
     if (track->kind == Kind::Midi && track->usesRack && !track->needsInstrument) {
         menu.addAction("Open its instrument patch panel", [edit, track] { if (edit) edit(track); });
@@ -726,6 +790,10 @@ void LanePanel::fillTrackMenu(ui::Menu& menu, const TrackPtr& track) {
                                                  ? " (±" + std::to_string(track->bendRange) + ")"
                                                  : std::string()),
                        guard([this, track] { setBendRange(track); }));
+    if (track->kind == Kind::Midi && !track->frozen) {  // Swing: the song's / its own (ui/song_scale.h)
+        Timeline* tl = &timeline;
+        song_scale::addTrackSwingMenu(menu, project, timeline.engine.sr, track, [tl] { tl->update(); });
+    }
     if (!track->automation.empty()) {
         menu.addAction(track->showAutomation ? "Hide automation" : "Show automation",
                        guard([this, track] { toggleAutomation(track, !track->showAutomation); }));
@@ -777,8 +845,12 @@ void LanePanel::chooseColor(const TrackPtr& track) {
     std::string initial = !track->color.empty() ? track->color : colors::defaultColor(track->kind);
     ColorPickerDialog dialog(dialogParent(), initial, track->tone, ColorSubject::Track);
     if (dialog.exec() == ui::Dialog::Accepted) {
-        track->color = dialog.chosen;  // "": back to the standard look
-        track->tone = dialog.tone;
+        auto ts = targets(track);
+        for (auto& t : ts) {
+            t->color = dialog.chosen;  // "": back to the standard look
+            t->tone = dialog.tone;
+        }
+        say("Colour", ts.size());
         rebuild();
         timeline.update();
     }

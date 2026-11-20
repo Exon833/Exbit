@@ -47,11 +47,15 @@
 //     Ghosts ▾                 other clips' notes, faint behind this clip's (as they play: loops repeated,
 //                              MIDI effects applied): every track's, this track's, or none (remembered).
 //                              Right-click one for its clip's editor
-//     Scale (key, scale)       the song's key and scale (saved with the project, under "timing"): the
+//     Scale (key, scale)       the song's key and scale (saved with the project, under "timing"), or the
+//                              clip's own when it has one (the clip menu's Scale ▸; ui/song_scale.h): the
 //                              rows of notes outside it are shaded, its root rows tinted. Fold ▾ shows
 //                              only the scale's rows (or only the pitches the clip uses: drums), so
 //                              every row is a right one; Fit to scale moves the selected notes (none:
-//                              all) to the nearest note of the scale
+//                              all) to the nearest note of the scale. Snap to scale: notes being added or
+//                              moved (mouse or arrows) land on the scale's notes; Alt places one outside
+//                              it (and off the grid); notes not moved stay where they are
+//     F2 (Steps), right-click a row's name: its swing (the track's, or its own: ui/song_scale.h)
 // The ruler shows the timeline's two cursors, as on the timeline: the selection cursor (blue,
 // where Play starts) and the playback cursor (red, what is heard). Click or drag on the ruler to
 // move the selection cursor (while playing, playback jumps there too).
@@ -314,6 +318,7 @@ public:
     // (as text) a row per pitch, a column per step: lit pads filled, the keyboard's cursor reversed
     bool textCells(int cols, int rows, std::vector<ui::TextCell>& cells) const override;
     ui::Menu* rowMenu = nullptr;  // "+ Row": the pitches to add a row for
+    void rowSwingMenu(int pitch, Point globalPos);  // a row's menu (right-click its name, F2): its swing
 private:
     MidiEditor* ed_;
     struct Look {
@@ -420,6 +425,10 @@ public:
     ui::ComboBox* scaleBox;
     ui::Button* foldButton;
     ui::Button* fitButton;
+    ui::Button* snapScaleButton;   // "Snap to scale" (checkable; remembered while the program runs)
+    // `pitch` on the scale when snapping to it (Snap to scale on, a scale, no Alt in `mods`): the nearest note of
+    // the scale, the one towards `dir` (+1 up, -1 down) when two are as near; else `pitch` itself
+    int onScale(int pitch, int mods, int dir = 0) const;
     ui::Button* quantizeButton;
     ui::Button* switchButton;
     ui::Action* quantizeEnds;   // "Quantize the notes' ends too"

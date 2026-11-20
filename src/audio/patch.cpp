@@ -246,7 +246,7 @@ static PluginSlot* resolveSlot(PluginSlot* p, const std::vector<SlotPtr>& effect
 }
 
 int planLatency(const Plan& plan, const std::vector<SlotPtr>& effects, int inLate, const TrackList& tracks,
-                const Seen* seen) {
+                const Seen* seen, const PluginSlot* inputOf) {
     int small[128];
     std::vector<int> big;
     size_t n = plan.leaves.size() + plan.order.size();
@@ -264,8 +264,10 @@ int planLatency(const Plan& plan, const std::vector<SlotPtr>& effects, int inLat
         for (int c : node.in) came = std::max(came, lateOf(c));
         for (int c : node.side) came = std::max(came, lateOf(c));
         PluginSlot* slot = resolveSlot(node.slot, effects);
+        if (inputOf && slot == inputOf) return came;
         nodeLate[i] = came + (active(slot) ? latency(*slot) : 0);
     }
+    if (inputOf) return 0;
     int late = 0;
     for (int c : plan.out) late = std::max(late, lateOf(c));
     return late;

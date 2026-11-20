@@ -55,7 +55,8 @@ double PeakHold::loudestDb() const {
 }
 
 Metering::Metering(int sr_, int channels_, size_t ringFloats, size_t ringItems)
-    : sr(sr_), channels(channels_), data_(std::max<size_t>(ringFloats, 1)), items_(std::max<size_t>(ringItems, 1)) {
+    : sr(sr_), channels(channels_), data_(std::max<size_t>(ringFloats, 1)), items_(std::max<size_t>(ringItems, 1)),
+      truePeak_(channels_) {
     resetLoudness();
 }
 
@@ -108,13 +109,17 @@ void Metering::tapSilence(const Track* key, int frames) {
 
 void Metering::resetLoudness() {
     loudness_.clear();
+    truePeak_.reset();
     loudness_[MASTER].reset(new loudness::LoudnessMeter(sr, channels));
     pending_.clear();
 }
 
-void Metering::takePeaks(std::vector<float>& master, std::map<const Track*, std::vector<float>>& tracks) {
+void Metering::takePeaks(std::vector<float>& master, std::map<const Track*, std::vector<float>>& tracks,
+                         std::map<const Track*, std::vector<float>>* meanSquares) {
     master.assign(channels, 0.0f);
     tracks.clear();
+    std::map<const Track*, std::pair<std::vector<double>, int64_t>> squares;  // (per key: sums per output, frames)
+    if (meanSquares) meanSquares->clear();
     bool levels = levelsOn.load(), loud = loudnessOn.load();
     uint64_t ih = itemHead_.load(std::memory_order_acquire);
     uint64_t it = itemTail_.load(std::memory_order_relaxed);
@@ -130,6 +135,17 @@ void Metering::takePeaks(std::vector<float>& master, std::map<const Track*, std:
                 for (size_t i = 0; i < floats; i++) p.audio[i] = data_[(item.offset + i) % n];
             }
             pending_[item.key].push_back(std::move(p));
+        }
+        if (meanSquares && levels) {
+            auto& sq = squares[item.key];
+            if (sq.first.empty()) sq.first.assign(channels, 0.0);
+            sq.second += item.frames;
+            int first = item.key == MASTER ? 0 : item.first;
+            for (size_t i = 0; i < floats && !item.silent; i++) {
+                int c = first + (int)(i % item.width);
+                double v = data_[(item.offset + i) % n];
+                if (c < channels) sq.first[c] += v * v;
+            }
         }
         if (!item.silent && levels) {
             std::vector<float> peaks(item.width, 0.0f);
@@ -150,6 +166,14 @@ void Metering::takePeaks(std::vector<float>& master, std::map<const Track*, std:
         if (item.key == MASTER && scopeOn.load(std::memory_order_relaxed)) keepForScope(item);
         dataTail_.store(item.offset + floats, std::memory_order_release);
         itemTail_.store(it + 1, std::memory_order_release);
+    }
+    for (auto& [key, sq] : squares) {
+        bool any = false;
+        for (double v : sq.first) any = any || v > 0;
+        if (!any || sq.second <= 0) continue;
+        auto& out = (*meanSquares)[key];
+        out.resize(channels);
+        for (int c = 0; c < channels; c++) out[c] = (float)(sq.first[c] / (double)sq.second);
     }
 }
 
@@ -201,8 +225,10 @@ void Metering::updateLoudness() {
                     loudness_[kv.first].reset(meter);
                 }
                 meter->add(item.audio.data(), item.frames);
+                if (kv.first == MASTER) truePeak_.add(item.audio.data(), item.frames, item.width);
             } else if (meter) {
                 meter->addSilence(item.frames);
+                if (kv.first == MASTER) truePeak_.addSilence(item.frames);
             }
         }
     }

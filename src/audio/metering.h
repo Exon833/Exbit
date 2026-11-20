@@ -5,7 +5,9 @@
 // ring). The GUI thread then
 //   - every frame, takes per-channel peaks for the level meters (takePeaks), and
 //   - a few times a second, K-filters everything that arrived since for the LUFS meters
-//     in one batch per meter (updateLoudness), much cheaper than filtering each buffer.
+//     in one batch per meter (updateLoudness), much cheaper than filtering each buffer; the master's TRUE
+//     PEAK (true_peak.h: 4× oversampled, ITU-R BS.1770-4) is measured from the same batch.
+// takePeaks can also give each meter's mean square (RMS²) over what arrived, for the meters' RMS bars.
 // Either can be switched off; then the callback does not even copy for it.
 //
 // Keys: a track is keyed by its Track*, the master by MASTER (nullptr). The GUI should call
@@ -19,6 +21,7 @@
 #include <vector>
 
 #include "audio/loudness.h"
+#include "audio/true_peak.h"
 #include "model/model.h"
 
 namespace audio {
@@ -81,10 +84,15 @@ public:
     std::atomic<uint64_t> peakResets{0};
     // Drain what was played since the last call: master peaks and {track: peaks}, one value per
     // output channel. Also queues the audio for the next updateLoudness().
-    void takePeaks(std::vector<float>& master, std::map<const Track*, std::vector<float>>& tracks);
+    // meanSquares (if given): {key: mean square per output channel over everything drained, silence counted},
+    // the master under MASTER; a key with nothing but silence is left out
+    void takePeaks(std::vector<float>& master, std::map<const Track*, std::vector<float>>& tracks,
+                   std::map<const Track*, std::vector<float>>* meanSquares = nullptr);
     void updateLoudness();  // measure everything queued since the last call: one filter run per meter
     // (momentary, short-term, integrated) LUFS of a track or MASTER; -inf if never heard
     void read(const Track* key, double& momentary, double& shortTerm, double& integrated) const;
+    // the master's true peak since resetLoudness() (Play), in dBTP; -inf if nothing was heard
+    double truePeakDb() const { return truePeak_.peakDb(); }
     // drop the meters of tracks no longer in `tracks`
     void forgetGone(const std::vector<TrackPtr>& tracks);
     // (scopeOn) the master's newest `n` frames (at most SCOPE_SECONDS' worth), oldest first, of its outputs
@@ -114,6 +122,7 @@ private:
     std::atomic<uint64_t> itemHead_{0}, itemTail_{0};
     std::map<const Track*, std::unique_ptr<loudness::LoudnessMeter>> loudness_;
     std::map<const Track*, std::vector<Pending>> pending_;
+    TruePeak truePeak_;
     // (GUI thread) the master's last SCOPE_SECONDS, as rings, and how many frames went into them
     std::vector<float> scopeL_, scopeR_;
     uint64_t scopeFrames_ = 0;

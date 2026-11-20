@@ -27,13 +27,13 @@ std::vector<ClipPtr> duplicateRange(Project& p, const std::vector<TrackPtr>& tra
 std::vector<ClipPtr> duplicateClips(Project& p, const std::vector<ClipPtr>& clips);
 
 // A new clip like `clip` stretched `stretch` times its recorded length and `pitch` semitones from it: its
-// window (offset, length), loop and fades follow the new length, so it plays the same part of its audio.
+// window (offset, length), loop, fades and gain envelope follow the new length, so it plays the same part of its audio.
 ClipPtr restretched(const ClipPtr& clip, double stretch, double pitch, int sr);
 // A new clip like `clip` playing backwards (or forwards again): the same part of its audio, its fades
-// swapped round.
+// swapped round, its gain envelope mirrored.
 ClipPtr reversedClip(const ClipPtr& clip, int sr);
 // One clip of the same kind playing what `clips` (all on one track, none disabled) play, from the first's
-// start to the last's end, named "<first> (joined)": audio as it comes out of the clips (their gain and
+// start to the last's end, named "<first> (joined)": audio as it comes out of the clips (their gain, gain envelopes and
 // fades), MIDI notes as they play (heardNotes: a loop's repeats, notes cut to each clip's window), and their
 // switched-off notes cut to the windows too. Returns the new clip (not placed), or null if clips is empty.
 ClipPtr consolidated(const std::vector<ClipPtr>& clips, int sr);

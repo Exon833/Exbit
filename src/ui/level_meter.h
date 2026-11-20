@@ -10,6 +10,9 @@
 // full scale (CLIP_DB: the master warns from -0.1 dB) until it is clicked or Play is pressed again
 // (resetPeaks).
 //
+// Inside each bar, a thin RMS bar (a third of its thickness, in the held peak's colours): the average level, over
+// about RMS_S (pushRms: the mean squares Metering::takePeaks gives), where the bar itself is the peak.
+//
 // Styled as LevelMeter (default.css): a box around it all (the bars and number inside its border and padding);
 // ::track behind each bar (a box: the bar inside its border and padding); ::bar and ::peak (the held peak's line,
 // and its width) :ok, :warn and :hot for the three ranges; ::number (the loudest since Play: background-color, color,
@@ -32,6 +35,7 @@ constexpr int NUMBER_W = 30;                    // px at the right end for the p
 constexpr int NUMBER_MIN_W = 90;                // at least NUMBER_MIN_W wide)
 constexpr double CLIP_DB = 0.0;                 // a track's sound over this is clipping (the master's: MASTER_CLIP_DB)
 constexpr double MASTER_CLIP_DB = -0.1;
+constexpr double RMS_S = 0.3;                   // the RMS bar's averaging time (s)
 extern double testNow;                          // tests: the clock (seconds) when >= 0; else the monotonic clock
 double now();
 double dbFraction(double db);                   // -60 dB (MIN_DB) -> 0, 0 dB -> 1
@@ -48,6 +52,9 @@ public:
     // new peaks (one per output of the device; null = silence): bars fall back slowly instead of jumping
     void push(const std::vector<float>* peaks);
     void push(const std::vector<float>& peaks) { push(&peaks); }
+    // the mean squares since the last push (one per output of the device; null = silence), averaged over RMS_S
+    void pushRms(const std::vector<float>* meanSquares);
+    const std::vector<double>& rms() const { return rms_; }  // each bar's RMS level (gain)
     std::vector<std::pair<int, int>> barRects() const;  // (y, thickness) of each bar
     // go on from `old` (the meter this one replaces, its row rebuilt): its loudest peak, clip light and bars
     void takeOver(const LevelMeter& old);
@@ -68,6 +75,8 @@ private:
     int channels_ = 2;
     std::vector<int> shown_, wanted_{0, 1};  // wanted: outputs asked for, kept while a device lacks some
     std::vector<double> levels_;
+    std::vector<double> power_, rms_;  // the averaged mean square, and its root
+    double rmsAt_ = -1;                // (clock s) the last pushRms; -1: none yet
     std::vector<double> held_, heldAt_;  // each bar's held peak, and since when (clock s)
     double clipGain_ = 1.0;
     double loudest_ = 0.0;

@@ -6,6 +6,7 @@
 #include <set>
 
 #include "config.h"
+#include "model/clip_envelope.h"
 
 namespace edits {
 
@@ -141,6 +142,7 @@ ClipPtr restretched(const ClipPtr& clip, double stretch, double pitch, int sr) {
     c->fadeOut = rounded(clip->fadeOut * k);
     c->fadeLead = rounded(clip->fadeLead * k);
     c->fadeTail = rounded(clip->fadeTail * k);
+    if (auto envelope = clip->gainEnvelope) c->gainEnvelope = clip_envelope::make(clip_envelope::scaled(*envelope, k));
     c->data = nullptr;
     c->peaks = nullptr;
     c->prepare(sr);
@@ -158,6 +160,8 @@ ClipPtr reversedClip(const ClipPtr& clip, int sr) {
     // (heard backwards, a fade-in is a fade-out: a fast rise becomes a late, quick fall)
     c->fadeInShape = mirroredFade(clip->fadeOutShape);
     c->fadeOutShape = mirroredFade(clip->fadeInShape);
+    if (auto envelope = clip->gainEnvelope)  // (on the same sound, heard the other way round)
+        c->gainEnvelope = clip_envelope::make(clip_envelope::mirrored(*envelope, clip->baseFrames));
     c->data = nullptr;
     c->peaks = nullptr;
     if (clip->loop) {
@@ -185,9 +189,15 @@ static void addClip(std::vector<float>& buf, const Clip& clip, int64_t start) {
     int64_t cs = clip.start, frames = std::min(clip.frames(), clip.data->frames() - clip.offset);
     int64_t a = std::max(start, cs), b = std::min(start + bufFrames, cs + frames);
     const int fade = config::EDGE_FADE_FRAMES;
+    // (its gain envelope walked once, as the mixer does, rather than looked up again at every frame by level())
+    Clip plain = clip;
+    plain.gainEnvelope = nullptr;
+    auto envelope = clip.gainEnvelope;
+    std::vector<AutoPoint> none;
+    clip_envelope::Walk walk{clip, envelope ? *envelope : none};
     for (int64_t t = a; t < b; t++) {
         int64_t i = t - cs;
-        double level = clip.level(i);
+        double level = plain.level(i) * (envelope ? walk.gain(clip.offset + i) : 1.0f);
         if (i < fade || i > frames - fade)
             level *= std::min(1.0, (double)std::min(i + 1, frames - i) / fade);
         const float* src = clip.data->frame(clip.offset + i);

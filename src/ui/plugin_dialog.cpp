@@ -17,6 +17,7 @@
 #include "audio/plugin_audio.h"
 #include "core/util.h"
 #include "effects/effects.h"
+#include "model/track_ops.h"
 #include "plugins/library.h"
 #include "ui/automation_dialog.h"
 #include "ui/midi_learn.h"
@@ -487,6 +488,8 @@ bool PluginsDialog::place(const SlotPtr& slot, std::optional<Point> at) {
     int current = (int)fx.size();
     fx.push_back(slot);
     setPatch(fx, std::nullopt, current);
+    if (alsoOn && !INSTRUMENTS && alsoOn(slot) > 0)  // (several tracks selected: heard on each at once)
+        setPatch(std::nullopt, track_ops::wiredAtEnd(*cables(), slot.get()), current);
     panel->ensureVisible(panel->unitRect(panel->current));
     photographMissing();
     return true;

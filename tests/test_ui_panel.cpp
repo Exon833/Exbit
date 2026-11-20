@@ -118,7 +118,8 @@ static void testMeterLogic() {
 
     LevelMeter m(2);
     CHECK(m.shown() == std::vector<int>({0, 1}));
-    CHECK(m.toolTip() == "Peak level of outputs 1 and 2, top to bottom (the thin line: the last peak).\n"
+    CHECK(m.toolTip() == "Peak level of outputs 1 and 2, top to bottom (the thin line: the last peak; the thin bar "
+                         "inside: RMS, the average level).\n"
                          "Loudest since Play: nothing yet. Click to clear it.");
     m.showChannels({4, 5});  // the device lacks them: output 1
     CHECK(m.shown() == std::vector<int>({0}));

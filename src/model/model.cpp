@@ -5,6 +5,7 @@
 #include <set>
 
 #include "audio/stretch.h"
+#include "model/clip_envelope.h"
 #include "plugins/plugin.h"
 
 namespace clip_hooks {
@@ -76,6 +77,9 @@ bool MidiEffect::make(const std::string& kind, const std::map<std::string, doubl
             auto it = values.find(p.key);
             out.values[p.key] = it != values.end() ? it->second : p.defaultValue;
         }
+        if (kind == "Groove")  // (its rows' own swing, set in the Steps view: "row:<pitch>" → 0…100 %)
+            for (auto& v : values)
+                if (v.first.rfind("row:", 0) == 0) out.values[v.first] = v.second;
         return true;
     }
     return false;
@@ -193,11 +197,14 @@ void Clip::prepare(int sr, int64_t reach) {
             base = ::stretch::stretched(source, stretch, pitch, reverse);
         AudioPtr d = dsp::resample(base, sourceSr, sr);
         baseFrames = d ? d->frames() : 0;
+        loopFrom = loopFor = 0;
         if (loop && loopLength > 0 && d && d->frames()) {
             int64_t len = d->frames();
             int64_t a = std::min(len - 1, std::max<int64_t>(0, (int64_t)std::nearbyint(loopStart * sr)));
             int64_t n = std::max<int64_t>(1, std::min(len - a, (int64_t)std::nearbyint(loopLength * sr)));
             if (reach < 0) reach = offset + (length >= 0 ? length : len - offset);
+            loopFrom = a;
+            loopFor = n;
             d = looped(d, a, n, reach, (int64_t)std::nearbyint(config::LOOP_SEAM_S * sr));
         }
         data = d;
@@ -206,7 +213,7 @@ void Clip::prepare(int sr, int64_t reach) {
     }
     std::vector<Note> notesPlayed = performed(sr);  // (its notes' chances and repeats, then the MIDI effects)
     TrackPtr t = std::atomic_load(&track);
-    if (t && !t->midiEffects.empty() && clip_hooks::midiEffects)  // (its track's MIDI effects: arpeggiator, chord…)
+    if (t && clip_hooks::midiEffects)  // (the song's swing, then its track's MIDI effects: arpeggiator, chord…)
         notesPlayed = clip_hooks::midiEffects(*t, notesPlayed, (double)(start - offset) / sr);
     double len = loop && length >= 0 ? std::max(lengthS, (double)(offset + length) / sr) : lengthS;
     if (t && t->playsPlugins()) {  // (its instrument plugins play its events: as long, silent)
@@ -267,6 +274,10 @@ float Clip::level(int64_t pos) const {
     double level = std::pow(10.0, gainDb / 20.0);
     if (fi) level *= fadeCurve(fadeInShape, std::min(1.0, std::max(0.0, (double)(pos + std::max<int64_t>(0, fadeLead) + 1) / fi)), false);
     if (fo) level *= fadeCurve(fadeOutShape, std::min(1.0, std::max(0.0, (double)(frames() + std::max<int64_t>(0, fadeTail) - pos) / fo)), true);
+    if (auto envelope = std::atomic_load(&gainEnvelope)) {  // (as the mixer plays it: clip_envelope::Walk)
+        clip_envelope::Walk walk{*this, *envelope};
+        level *= walk.gain(offset + pos);
+    }
     return (float)level;
 }
 
@@ -544,13 +555,21 @@ TrackPtr Project::firstEmptyTrack(Kind kind) const {
 bool Project::audibleIn(const Track& track, const std::vector<TrackPtr>& ts) {
     Group* g = track.group.get();
     if (track.muted || (g && g->muted) || track.needsInstrument) return false;
-    if (track.soloed || (g && g->soloed) || track.kind == Kind::Return) return true;  // (soloing a track keeps the returns)
+    if (track.soloed || (g && g->soloed) || track.kind == Kind::Return || track.soloSafe)
+        return true;  // (soloing a track keeps the returns, and the solo-safe tracks)
     for (auto& t : ts)
         if (t->kind != Kind::Return && (t->soloed || (t->group && t->group->soloed))) return false;
     return true;
 }
 
 bool Project::audible(const Track& t) const { return audibleIn(t, *tracks); }
+
+void Project::soloOnly(const TrackPtr& t) {
+    for (auto& o : tracks) {
+        o->soloed = o == t;
+        if (o->group) o->group->soloed = false;
+    }
+}
 
 void Project::removeClips(const std::vector<ClipPtr>& cs) {
     std::set<Clip*> gone;
@@ -611,6 +630,8 @@ void Project::changeSampleRate(int oldSr, int newSr) {
         c->fadeOut = at(c->fadeOut);
         c->fadeLead = at(c->fadeLead);
         c->fadeTail = at(c->fadeTail);
+        if (auto envelope = c->gainEnvelope)  // (on frames of its audio)
+            c->gainEnvelope = clip_envelope::make(clip_envelope::scaled(*envelope, (double)newSr / oldSr));
         if (c->length >= 0) c->length = end - start;
         c->prepare(newSr);
         c->fitWindow();

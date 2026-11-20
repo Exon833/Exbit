@@ -28,6 +28,14 @@
 // its tracks together); its tracks' rows have a bar in the group's colour down their left side.
 // The rows follow the same lanes as the timeline (lanes.h).
 //
+// TRACK SELECTION. Click a track's row to select it; Shift-click selects the tracks from the one clicked last to it,
+// Ctrl-click adds a track or takes it out. A change made on a selected track's row goes to every selected track:
+// its fader and pan (each moved by as much), mute, solo, colour, an effect added in its FX window (added to each,
+// wired in at the end of its chain: track_ops::wiredAtEnd), duplicating and moving; the status bar says how many.
+// The current track (the timeline's) is always one of them; selecting another track alone selects only it.
+// Right-click a track: Duplicate track (Ctrl+D when no clip is selected), Duplicate without clips, Move up / down
+// (Alt+Up / Alt+Down); drag a row up or down by its name to move the track(s) there (model/track_ops.h).
+//
 // STYLES: the panel is the stylesheets' `TrackPanel`, its width the :root variable --panel-width. Each row is a
 // node `TrackRow` under it: .track (:alternate every other), .automation (:armed while armed for writing),
 // .take or .group, and the kind of its track (.audio, .midi, .return). A row reads its background-color (a
@@ -53,6 +61,7 @@
 
 class Timeline;
 class MasterStrip;
+class LanePanel;
 
 namespace lane_panel {
 constexpr int GROUP_BAR_W = 5;  // (default: TrackRow::group-bar's width) px: bar down the left of a group's tracks' rows
@@ -88,6 +97,22 @@ private:
     int startY_ = 0, startHeight_ = 0;  // (global mouse y, height) while dragging
     int height() const;
     void setHeight(int h);
+};
+
+// A track's row (TRACK SELECTION above): a click selects its track, a drag up or down moves it
+class TrackRow : public LaneFrame {
+public:
+    TrackRow(LanePanel& panel, TrackPtr track, Color color, std::optional<Color> accent, int height,
+             std::optional<Color> text);
+    bool mousePress(ui::MouseEvent& e) override;
+    bool mouseMove(ui::MouseEvent& e) override;
+    bool mouseRelease(ui::MouseEvent& e) override;
+
+private:
+    LanePanel& panel_;
+    TrackPtr track_;
+    int startY_ = 0;  // (global y of the press)
+    bool pressed_ = false, dragging_ = false;
 };
 
 class LanePanel : public ui::Widget {
@@ -164,7 +189,27 @@ public:
 
     Point sizeHint() const override;
 
+    // --- TRACK SELECTION (see the top; lane_panel_tracks.cpp) ---
+    std::vector<TrackPtr> selected;  // in the project's order
+    // what a change on `track`'s row goes to: the selection when it is in it, else the track alone
+    std::vector<TrackPtr> targets(const TrackPtr& track) const;
+    void select(const TrackPtr& track, int mods = 0);  // a click on its row (plat::ModShift / ModCtrl)
+    void duplicate(const TrackPtr& track, bool withClips);  // targets(track), each right below itself
+    void move(const TrackPtr& track, int dir);              // targets(track) a lane up (-1) or down (1)
+    void dropAt(const TrackPtr& track, int y);              // its row dragged and let go at y (the panel's)
+    // an effect `slot` added in owner's FX window: a copy on every other selected track, wired in at the end of
+    // its chain; how many tracks got one
+    int addToSelected(const TrackPtr& owner, const SlotPtr& slot);
+    void say(const std::string& what, size_t count);  // the status bar: "<what>: 3 tracks" when it went to several
+    // set by the main window: the status bar, and loading plugins (PluginHost::restore: the names of those that
+    // could not be loaded); unset: nothing said, plugins left unloaded
+    std::function<void(const std::string&, int)> status;
+    std::function<std::vector<std::string>(const std::vector<SlotPtr>&)> loadPlugins;
+
 private:
+    TrackPtr anchor_;  // the row clicked last (Shift-click selects from it)
+    std::vector<std::unique_ptr<ui::Shortcut>> shortcuts_;
+    void showMixer(const TrackPtr& track);           // its fader and pan as the track has them
     ui::Widget* rowsBox_ = nullptr;  // holds the rows (replaced on every rebuild)
     std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
     int styled_ = -1;                // the stylesheets' generation the rows were made with

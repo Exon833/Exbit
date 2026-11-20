@@ -1,5 +1,6 @@
 // tinydaw --tui (see app.h)
 #include "tui/app.h"
+#include "ui/song_scale.h"
 
 #include <algorithm>
 #include <cmath>
@@ -313,6 +314,11 @@ void Front::key(const Key& k) {
         return;
     }
     if (helpShown) {
+        if (k.key == plat::Key_Down || k.key == plat::Key_Up || k.key == plat::Key_PageDown || k.key == plat::Key_PageUp) {
+            int step = (k.key == plat::Key_PageDown || k.key == plat::Key_PageUp) ? 10 : 1;
+            helpTop += (k.key == plat::Key_Down || k.key == plat::Key_PageDown) ? step : -step;  // (drawHelp keeps it in range)
+            return;
+        }
         helpShown = false;
         return;
     }
@@ -346,6 +352,7 @@ void Front::key(const Key& k) {
     }
     if (k.key == plat::Key_F1) {
         helpShown = true;
+        helpTop = 0;
         return;
     }
     if (k.key == plat::Key_F2 && !k.mods) {
@@ -402,7 +409,9 @@ void Front::moveFocus(int dir) {
 
 // the transport's controls: Play, go to the start, Loop, Metronome, tempo, beats per bar, grid, snap
 // (Record, Loop, Follow, Keys: the bar's own actions, as its buttons and shortcuts do)
-enum { C_PLAY, C_RECORD, C_START, C_LOOP, C_FOLLOW, C_METRONOME, C_KEYS, C_TEMPO, C_BEATS, C_GRID, C_SNAP, C_COUNT };
+// (Key and Swing: the song's key and swing, ui/song_scale.h)
+enum { C_PLAY, C_RECORD, C_START, C_LOOP, C_FOLLOW, C_METRONOME, C_KEYS, C_TEMPO, C_BEATS, C_GRID, C_SNAP, C_KEY, C_SWING,
+       C_COUNT };
 
 bool Front::transportKey(const Key& k) {
     Timing& t = w_.project.timing;
@@ -470,6 +479,24 @@ bool Front::transportKey(const Key& k) {
             break;
         case C_SNAP:
             if (enter) w_.changeGrid(std::nullopt, !t.snapOn);
+            break;
+        case C_KEY:  // Up / Down: the next key (a major one when there was no scale); Enter: its menu
+            if (d) {
+                t.key = ((t.key + d) % 12 + 12) % 12;
+                if (t.scale.empty()) t.scale = "Major";
+                util::debugf("tui: the song's key %s\n", song_scale::scaleName(t.key, t.scale).c_str());
+                w_.transport->showTiming(t);
+            } else {
+                contextMenu();
+            }
+            break;
+        case C_SWING:  // Up / Down: 5 % more or less; Enter: its menu
+            if (d) {
+                song_scale::setSongSwing(w_.project, w_.engine.sr, std::clamp(std::round(t.swing / 5) * 5 + 5 * d, 0.0, 100.0));
+                w_.transport->showTiming(t);
+            } else {
+                contextMenu();
+            }
             break;
         }
     } else {
@@ -761,12 +788,28 @@ bool Front::panelKey(const Key& k) {
         w_.panel->rebuild();
         w_.timeline->update();
     };
-    if (k.key == plat::Key_Up) {
-        selectLane(laneRow - 1);
-        return true;
-    }
-    if (k.key == plat::Key_Down) {
-        selectLane(laneRow + 1);
+    if (k.key == plat::Key_Up || k.key == plat::Key_Down) {
+        int d = k.key == plat::Key_Up ? -1 : 1;
+        TrackPtr cur = current();
+        if (k.mods == plat::ModAlt) {  // the track (the selected ones) a lane up or down
+            if (cur && !master) {
+                w_.panel->move(cur, d);
+                setCurrent(cur);
+            }
+            return true;
+        }
+        if (k.mods == plat::ModShift) {  // the selection from the track it started at to the next one
+            int j = laneRow + d;
+            if (j >= 0 && j < n && !master) {
+                const Lane& l = ls[(size_t)j];
+                if (TrackPtr to = l.track ? l.track : l.owner) w_.panel->select(to, plat::ModShift);
+                selectLane(j);
+            }
+            return true;
+        }
+        if (k.mods) return false;
+        w_.panel->selected.clear();  // (only the track it moves to)
+        selectLane(laneRow + d);
         return true;
     }
     // an automation lane's row: A another lane, W write it while playing, Del remove it; a group's: Enter renames
@@ -785,33 +828,54 @@ bool Front::panelKey(const Key& k) {
     }
     if (!master && ls[(size_t)laneRow].take) return false;
     TrackPtr t = master ? nullptr : ls[(size_t)laneRow].track;
+    // (mute, solo, volume, pan: every selected track's: lane_panel.h TRACK SELECTION)
+    std::vector<TrackPtr> ts = t ? w_.panel->targets(t) : std::vector<TrackPtr>{};
+    if (k.key == 'D' && k.mods == plat::ModCtrl) {  // Ctrl+D: duplicate it (them)
+        if (t) w_.panel->duplicate(t, true);
+        if (w_.timeline->currentTrack) setCurrent(w_.timeline->currentTrack);  // (the keyboard on the first copy)
+        return true;
+    }
     switch (k.key) {
     case 'M':
         if (k.mods) return false;
-        if (master) w_.master->setMute(!w_.engine.masterMute);
-        else t->muted = !t->muted, changed();
+        if (master) {
+            w_.master->setMute(!w_.engine.masterMute);
+        } else {
+            bool on = !t->muted;
+            for (auto& x : ts) x->muted = on;
+            changed();
+            w_.panel->say(t->muted ? "Mute" : "Unmute", ts.size());
+        }
         return true;
-    case 'S':
-        if (k.mods || master) return false;
-        t->soloed = !t->soloed;
+    case 'S': {  // solo; Shift+S: solo safe (heard while other tracks are soloed); on every selected track
+        if ((k.mods & ~plat::ModShift) || master) return false;
+        bool safe = k.mods & plat::ModShift;
+        bool on = safe ? !t->soloSafe : !t->soloed;
+        for (auto& x : ts) (safe ? x->soloSafe : x->soloed) = on;
+        util::debugf("tui: %s %s %s", t->name.c_str(), safe ? "solo safe" : "solo", on ? "on" : "off");
         changed();
+        w_.panel->say(safe ? (on ? "Solo safe" : "Not solo safe") : (on ? "Solo" : "Unsolo"), ts.size());
         return true;
+    }
     case plat::Key_Left:
     case plat::Key_Right: {
         int d = k.key == plat::Key_Left ? -1 : 1;
         if (master) {
             w_.master->setVolume(std::clamp(w_.master->volume->value() + d, config::MIN_DB, config::MAX_DB));
         } else {
-            t->volumeDb = std::clamp(std::round(t->volumeDb) + d, (double)config::MIN_DB, (double)config::MAX_DB);
+            for (auto& x : ts)
+                x->volumeDb = std::clamp(std::round(x->volumeDb) + d, (double)config::MIN_DB, (double)config::MAX_DB);
             changed();
+            w_.panel->say("Volume", ts.size());
         }
         return true;
     }
     case '[':
     case ']':
         if (master) return true;
-        t->pan = std::clamp(std::round(t->pan * 10 + (k.key == '[' ? -1 : 1)) / 10, -1.0, 1.0);
+        for (auto& x : ts) x->pan = std::clamp(std::round(x->pan * 10 + (k.key == '[' ? -1 : 1)) / 10, -1.0, 1.0);
         changed();
+        w_.panel->say("Pan", ts.size());
         return true;
     case plat::Key_Return:
     case plat::Key_Enter:
@@ -911,6 +975,11 @@ void Front::contextMenu() {
         else if (control == C_GRID) {
             auto menu = std::make_unique<ui::Menu>();
             w_.fillGridMenu(menu.get());
+            showOwnMenu(std::move(menu));
+        } else if (control == C_KEY || control == C_SWING) {
+            auto menu = std::make_unique<ui::Menu>();
+            auto& fill = control == C_KEY ? w_.transport->fillKeyMenu : w_.transport->fillSwingMenu;
+            if (fill) fill(*menu);
             showOwnMenu(std::move(menu));
         } else if (control == C_METRONOME) {
             w_.showMetronomeSettings();
@@ -1156,6 +1225,8 @@ void Front::drawTransport(Screen& s) {
         std::to_string(t.beatsPerBar) + "/4",
         "Grid " + t.gridName(),
         box(t.snapOn) + "Snap",
+        "Key " + (t.scale.empty() ? std::string("-") : song_scale::scaleName(t.key, t.scale)),
+        "Swing " + (t.swing > 0 ? song_scale::swingText(t.swing) + (t.swingGrid ? "" : " 8ths") : std::string("0 %")),
     };
     int x = 1;
     std::string time = clock(sec) + " " + std::to_string(bar) + "." + std::to_string(beat) + "." + std::to_string(part);
@@ -1275,7 +1346,7 @@ void Front::drawTimeline(Screen& s, int x, int y, int w, int h) {
         Style st = cl->disabled || faint ? style(bg, Default) : style(textOn(bg), bg, on ? Bold | Reverse : Plain);
         int a0 = std::max(0, a), b0 = std::min(w, b);
         s.fill(x + a0, ly, b0 - a0, 1, cl->disabled || faint ? U'░' : U' ', st);
-        std::string label = (on ? "[" : "") + cl->name;
+        std::string label = (on ? "[" : "") + cl->name + (cl->gainEnvelope ? " env" : "");  // (a gain envelope)
         if (b0 - a0 > 1) s.text(x + a0, ly, label, st, b0 - a0 - (on ? 1 : 0));
         if (on && b0 == b) s.set(x + b0 - 1, ly, U']', st);
     };
@@ -1361,7 +1432,7 @@ void Front::drawPanel(Screen& s, int x, int y, int w, int h) {
     int rows = h - 3;
     int nameW = std::max(4, w - 15 - METER_COLS);
     auto row = [&](int ry, const std::string& name, bool muted, bool soloed, double db, double pan, const LevelMeter* m,
-                   bool sel, uint8_t color, bool isMaster) {
+                   bool sel, uint8_t color, bool isMaster, bool safe = false) {
         Style st = sel ? (focused ? style(Black, Cyan, Bold) : style(Default, Default, Reverse)) : kPane;
         if (sel) s.fill(x, ry, w, 1, U' ', st);
         s.set(x, ry, isMaster ? U' ' : U'▌', style(color, sel ? st.bg : (uint8_t)Default));
@@ -1369,7 +1440,10 @@ void Front::drawPanel(Screen& s, int x, int y, int w, int h) {
         // (name M S pan dB meter: 1 + name + 1 + 2 + 1 + 3 + 1 + 5 + 1 + meter)
         int cx = x + 1 + nameW + 1;
         s.text(cx, ry, muted ? "M" : "-", muted ? style(Black, Yellow, Bold) : st);
-        if (!isMaster) s.text(cx + 1, ry, soloed ? "S" : "-", soloed ? style(Black, Green, Bold) : st);
+        // (solo safe: a blue s, or S when soloed too)
+        if (!isMaster)
+            s.text(cx + 1, ry, soloed ? "S" : safe ? "s" : "-",
+                   soloed || safe ? style(Black, safe ? Cyan : Green, Bold) : st);
         char panText[8] = "  C";
         if (!isMaster && std::fabs(pan) > 0.04) snprintf(panText, sizeof panText, "%c%2d", pan < 0 ? 'L' : 'R', (int)std::lround(std::fabs(pan) * 100));
         if (!isMaster) s.text(cx + 3, ry, panText, st);
@@ -1390,8 +1464,10 @@ void Front::drawPanel(Screen& s, int x, int y, int w, int h) {
         if (lane.track) {
             const TrackPtr& t = lane.track;
             auto it = w_.panel->meters.find(t);
-            row(ry, t->name, t->muted, t->soloed, t->volumeDb, t->pan, it != w_.panel->meters.end() ? it->second : nullptr,
-                sel, nearestColor(t->color, t->kind == Kind::Midi ? Green : Blue), false);
+            bool many = w_.panel->selected.size() > 1;  // (the selected tracks marked when there are several)
+            bool in = std::find(w_.panel->selected.begin(), w_.panel->selected.end(), t) != w_.panel->selected.end();
+            row(ry, (many && in ? "* " : "") + t->name, t->muted, t->soloed, t->volumeDb, t->pan, it != w_.panel->meters.end() ? it->second : nullptr,
+                sel, nearestColor(t->color, t->kind == Kind::Midi ? Green : Blue), false, t->soloSafe);
             continue;
         }
         if (sel) s.fill(x, ry, w, 1, U' ', st);
@@ -1405,7 +1481,11 @@ void Front::drawPanel(Screen& s, int x, int y, int w, int h) {
             s.text(x, ry, "  take: " + lane.take->name + "  (Enter in the timeline: use it)", sel ? st : style(Default), w);
         }
     }
-    row(y + h - 1, "Master", w_.engine.masterMute, false, w_.master->volume->value(), 0, w_.master->meter,
+    // the master's true peak since Play (ITU-R BS.1770-4: between the samples too), in dBTP ("Master" when there's room)
+    double tp = w_.engine.metering ? w_.engine.metering->truePeakDb() : -INFINITY;
+    char tpText[32] = "- dBTP";
+    if (tp > -200) snprintf(tpText, sizeof tpText, "%.1f dBTP", tp);
+    row(y + h - 1, nameW >= 7 + columns(tpText) ? std::string("Master ") + tpText : std::string(tpText), w_.engine.masterMute, false, w_.master->volume->value(), 0, w_.master->meter,
         focused && laneRow == (int)ls.size(), White, true);
 }
 
@@ -1416,7 +1496,10 @@ void Front::drawStatus(Screen& s) {
     if (msg.empty()) {
         switch (pane) {
         case Pane::Transport:
-            msg = "Left/Right: a control  Enter: use it  Up/Down: change it  F2: its settings (Rec, Click, Grid)  R: record";
+            msg = control == C_KEY     ? "The song's key: Up/Down: the next key  Enter/F2: key, scale, Detect"
+                  : control == C_SWING ? "The song's swing: Up/Down: 5 % more or less  Enter/F2: amount, 8ths/16ths, Commit"
+                                       : "Left/Right: a control  Enter: use it  Up/Down: change it  F2: its settings (Rec, Click, "
+                                         "Grid, Key, Swing)  R: record";
             break;
         case Pane::Explorer: msg = "Enter: open / add at the cursor  Space or P: hear it  Backspace: up  Tab: next part"; break;
         case Pane::Timeline:
@@ -1429,8 +1512,8 @@ void Front::drawStatus(Screen& s) {
                       "S: split  Del  +/-: zoom  F2: menu";
             break;
         case Pane::Panel:
-            msg = "M S: mute solo  Left/Right: volume  [/]: pan  E: effects  I: instrument  U: automation  K: takes  "
-                  "Enter: rename  A/N: new  F2: menu";
+            msg = "M S: mute solo  Shift+S: solo safe  Left/Right: volume  [/]: pan  E: effects  I: instrument  U: automation  K: takes  "
+                  "Enter: rename  A/N: new  Shift+Up/Down: select  Alt+Up/Down: move  Ctrl+D: duplicate  F2: menu";
             break;
         }
     }
@@ -1531,6 +1614,8 @@ void Front::drawHelp(Screen& s) {
         "  Ctrl+Z, Ctrl+Y    undo, redo      Ctrl+S save   Ctrl+O open   Ctrl+N new",
         "  Ctrl+Q            quit",
         "  Ctrl+W, F12       close the window on top (an editor…); hide the open windows (again: back)",
+        "Transport (Tab to it)",
+        "  Key, Swing        Up/Down: the next key, 5 % more or less swing; Enter/F2: their menus (Detect, Commit)",
         "Timeline",
         "  Left/Right        the cursor by the grid's step (PgUp/PgDn: a bar; Home/End)",
         "  Up/Down           the track      +/-  zoom",
@@ -1544,26 +1629,33 @@ void Front::drawHelp(Screen& s) {
         "  arrows            no note selected: the cursor (a grid step, a pitch); else move the notes",
         "  Enter             select the note at the cursor, or put one there   Esc: let them go",
         "  , .  + -          shorter, longer; velocity    Del  0  G  Ctrl+D/U/C/X/V as in the window",
+        "  F2 (Steps view)   the row at the cursor: its swing (the track's, or its own)",
         "Track panel",
         "  M S               mute, solo      Left/Right: volume (dB)    [ ]: pan",
+        "  Shift+S           solo safe: heard while other tracks are soloed (a blue s)",
         "  Enter             rename          A / N: a new audio / MIDI track    Del: remove it",
         "  E  I  Shift+I     effects (the master's on its row), instrument menu, edit the instrument",
         "  U  K  O  D        automation lanes, takes, the next output pair, sends to return tracks",
+        "  Shift+Up/Down     select several tracks (changes then go to all of them)",
+        "  Alt+Up/Down       move the track(s)   Ctrl+D: duplicate (F2: without clips)",
         "Explorer",
         "  Enter             open a folder or project; add a sample at the cursor    Space: hear it",
         "Dialogs: Tab moves between controls, Enter is the default button, Esc cancels.",
         "",
-        "Any key closes this.",
+        "Any other key closes this.",
     };
     int w = 4;
     for (auto& l : lines) w = std::max(w, columns(l) + 4);
     w = std::min(w, s.width() - 2);
     int h = std::min((int)lines.size() + 2, s.height() - 2);
     int x = (s.width() - w) / 2, y = (s.height() - h) / 2;
+    int rows = std::max(0, h - 2);
+    bool scrolls = (int)lines.size() > rows;  // (a short terminal: Up/Down, PgUp/PgDn scroll it)
+    helpTop = std::clamp(helpTop, 0, std::max(0, (int)lines.size() - rows));
     s.fill(x, y, w, h, U' ', kMenu);
-    s.box(x, y, w, h, kMenu, "Keys");
-    for (int i = 0; i < h - 2; i++) {
-        const std::string& l = lines[(size_t)i];
+    s.box(x, y, w, h, kMenu, scrolls ? "Keys (Up/Down: more)" : "Keys");
+    for (int i = 0; i < rows; i++) {
+        const std::string& l = lines[(size_t)(helpTop + i)];
         bool heading = !l.empty() && l[0] != ' ';
         s.text(x + 2, y + 1 + i, l, heading ? style(Black, White, Bold) : kMenu, w - 4);
     }

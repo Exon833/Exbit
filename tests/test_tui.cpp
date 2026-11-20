@@ -463,6 +463,8 @@ void testFront() {
     // the keys
     d.keys({key(plat::Key_F1)});
     CHECK(f.helpShown && d.shows("Keys"));
+    d.keys({key(plat::Key_PageDown), key(plat::Key_Down)});  // (scrolls when it doesn't fit; stays open)
+    CHECK(f.helpShown);
     d.keys({key(plat::Key_Space, 0, " ")});
     CHECK(!f.helpShown);
 

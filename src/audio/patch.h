@@ -144,8 +144,10 @@ std::shared_ptr<const Plan> planFor(const Cables::Ptr& cables, const std::shared
 int patchLatency(const Cables::Ptr& cables, const std::vector<SlotPtr>& effects, int inLate,
                  const plugin_audio::TrackList& tracks, const plugin_audio::Seen* seen,
                  const std::shared_ptr<void>& stateField);
+// inputOf: how late what reaches that effect's input is instead (0 if it isn't heard)
 int planLatency(const Plan& plan, const std::vector<SlotPtr>& effects, int inLate,
-                const plugin_audio::TrackList& tracks, const plugin_audio::Seen* seen);
+                const plugin_audio::TrackList& tracks, const plugin_audio::Seen* seen,
+                const PluginSlot* inputOf = nullptr);
 
 // Process signal (`channels` planar channels: 1 or 2) through the cables' effects, in place.
 // feeds: the other tracks wired in (missing: silence). inLate: frames the signal is late already.

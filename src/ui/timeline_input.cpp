@@ -11,6 +11,7 @@
 #include "model/presets.h"
 #include "ui/master_lane.h"
 #include "ui/timeline.h"
+#include "ui/song_scale.h"
 #include "ui/toolkit/menu.h"
 
 namespace {
@@ -280,6 +281,12 @@ bool Timeline::mousePress(ui::MouseEvent& e) {
         update();
         return true;
     }
+    if (ClipPtr env = envelopeClipAt(pos)) {  // a clip's gain envelope shown: its points (timeline_envelope.cpp)
+        if (envelopePress(e, env)) {
+            update();
+            return true;
+        }
+    }
     if (zone == ClipZone::Handle) {
         if (ctrl) {
             drag = CopyDrag{clip, pos, e.alt()};  // (a click toggles it, a drag copies: mouseMove, mouseRelease;
@@ -348,7 +355,8 @@ bool Timeline::mouseMove(ui::MouseEvent& e) {
     if ((std::holds_alternative<MoveDrag>(drag) || std::holds_alternative<EdgeDrag>(drag) ||
          std::holds_alternative<FadeDrag>(drag) || std::holds_alternative<MarkerDrag>(drag) ||
          std::holds_alternative<PointDrag>(drag) || std::holds_alternative<LoopDrag>(drag) ||
-         std::holds_alternative<CopyDrag>(drag) || std::holds_alternative<BendDrag>(drag)) &&
+         std::holds_alternative<CopyDrag>(drag) || std::holds_alternative<BendDrag>(drag) ||
+         std::holds_alternative<EnvelopeDrag>(drag) || std::holds_alternative<EnvelopeBendDrag>(drag)) &&
         stillAClick(pos))
         return true;
     if (std::holds_alternative<CopyDrag>(drag)) startCopyDrag();
@@ -377,6 +385,10 @@ bool Timeline::mouseMove(ui::MouseEvent& e) {
         dragPoint(pos, e.globalPos, e.mods);
     } else if (std::holds_alternative<BendDrag>(drag)) {
         dragBend(pos, e.globalPos);
+    } else if (std::holds_alternative<EnvelopeDrag>(drag)) {
+        dragEnvelope(pos, e.globalPos, e.mods);
+    } else if (std::holds_alternative<EnvelopeBendDrag>(drag)) {
+        dragEnvelopeBend(pos, e.globalPos);
     } else if (auto* l = std::get_if<LoopDrag>(&drag)) {
         int sr = engine.sr;
         const Timing& t = project.timing;
@@ -468,6 +480,15 @@ bool Timeline::mouseDoubleClick(ui::MouseEvent& e) {
         }
     } else if (lane && lane->group) {  // double-click a group's header lane: fold or unfold it
         toggleFold(lane->group);
+    } else if (ClipPtr env = envelopeClipAt(pos)) {  // a gain envelope's point: delete it (Ctrl, a segment: straighten it)
+        drag = std::monostate();
+        int index = envelopePointAt(env, pos);
+        int segment = index < 0 && (e.mods & plat::ModCtrl) ? envelopeSegmentAt(env, pos.x) : -1;
+        std::vector<AutoPoint> points = env->gainEnvelope ? *env->gainEnvelope : std::vector<AutoPoint>{};
+        if (segment >= 0) points[(size_t)segment].bend = 0;
+        else if (index >= 0) points.erase(points.begin() + index);
+        else return mousePress(e);
+        setEnvelope(env, points);
     } else if (zone == ClipZone::Handle) {  // double-click a clip's name strip: rename it
         selection.selectOnly(clip);
         drag = std::monostate();
@@ -497,8 +518,10 @@ void Timeline::updateCursor(PointF pos) {
     } else if (std::holds_alternative<LoopDrag>(drag) || std::holds_alternative<EdgeDrag>(drag) ||
                std::holds_alternative<FadeDrag>(drag) || std::holds_alternative<MarkerDrag>(drag) || loopEndAt(pos) >= 0) {
         setCursor(ui::Cursor::SizeHor);
-    } else if (std::holds_alternative<BendDrag>(drag)) {
+    } else if (std::holds_alternative<BendDrag>(drag) || std::holds_alternative<EnvelopeBendDrag>(drag)) {
         setCursor(ui::Cursor::SizeVer);  // (curving a segment: up or down)
+    } else if (std::holds_alternative<EnvelopeDrag>(drag)) {
+        setCursor(ui::Cursor::ClosedHand);
     } else if ((lane = laneAt(pos.y)) && lane->automation) {
         bool dragging = std::holds_alternative<PointDrag>(drag);
         bool grabbed = dragging || pointAt(*lane, pos) >= 0;
@@ -507,6 +530,8 @@ void Timeline::updateCursor(PointF pos) {
         setCursor(ui::Cursor::Hand);  // a marker: click to go there, drag to move it
     } else if (std::holds_alternative<std::monostate>(drag) && (fadeHandleAt(pos).clip || edgeAt(pos).first)) {
         setCursor(ui::Cursor::SizeHor);  // an end of a clip: drag to trim or lengthen it
+    } else if (ClipPtr env = std::holds_alternative<std::monostate>(drag) ? envelopeClipAt(pos) : nullptr) {
+        setCursor(envelopePointAt(env, pos) >= 0 ? ui::Cursor::OpenHand : ui::Cursor::Cross);  // (a gain envelope's)
     } else if (zone == ClipZone::Handle) {
         setCursor(std::holds_alternative<MoveDrag>(drag) ? ui::Cursor::ClosedHand : ui::Cursor::OpenHand);
     } else if (trackAt(pos.y)) {
@@ -531,6 +556,15 @@ bool Timeline::contextMenu(ui::MouseEvent& e) {
         fillTakeMenu(menu, *lane);
         menu.exec(e.globalPos, this);
         return true;
+    }
+    if (ClipPtr env = envelopeClipAt(PointF(e.pos))) {  // a gain envelope's point: removed
+        int index = envelopePointAt(env, PointF(e.pos));
+        if (index >= 0 && env->gainEnvelope) {
+            std::vector<AutoPoint> points = *env->gainEnvelope;
+            points.erase(points.begin() + index);
+            setEnvelope(env, points);
+            return true;
+        }
     }
     ui::Menu fadeMenu;  // a fade handle: that fade's shapes (model.h FADE SHAPES), for its clip alone
     if (fillFadeMenu(fadeMenu, PointF(e.pos))) {
@@ -621,6 +655,7 @@ void Timeline::fillMenu(ui::Menu& menu, std::optional<Point> pos) {
     loopNotes->setEnabled(!loopClips.empty());
     ui::Action* exportMidiAction = menu.addAction("Export as MIDI file…", [this, midiClips] { exportMidi.emit(midiClips); });
     exportMidiAction->setEnabled(!midiClips.empty());
+    song_scale::addClipScaleMenu(menu, project, midiClips, [this] { update(); });  // Scale: the song's / its own
     menu.addSeparator();
     auto clipboardAction = [this, pos](const std::string& what) {
         return [this, pos, what] {
@@ -640,6 +675,23 @@ void Timeline::fillMenu(ui::Menu& menu, std::optional<Point> pos) {
         if (c->fadeIn || c->fadeOut) anyFades = true;
         if (!c->reverse) allReversed = false;
     }
+    // gain envelopes (timeline_envelope.cpp, model/clip_envelope.h)
+    bool allShown = !audioClips.empty(), anyEnvelope = false;
+    for (auto& c : audioClips) {
+        if (!c->envelopeShown) allShown = false;
+        if (c->gainEnvelope) anyEnvelope = true;
+    }
+    ui::Action* envelope = menu.addAction("Gain envelope", [this, audioClips, allShown] { showEnvelopes(audioClips, !allShown); });
+    envelope->checkable = true;
+    envelope->checked = allShown;
+    envelope->setEnabled(!audioClips.empty());
+    envelope->tooltip = "A line over the waveform for the clip's volume, before the track's effects: click to add a point, "
+                        "Ctrl+drag to bend a segment, right-click a point to remove it";
+    ui::Action* envelopePoints = menu.addAction("Gain envelope points…", [this, audioClips] { editEnvelopePoints(audioClips[0]); });
+    envelopePoints->tooltip = "Its points as a list (time, dB) to add, change and remove";
+    envelopePoints->setEnabled(audioClips.size() == 1 && !audioClips[0]->track->frozen);
+    ui::Action* noEnvelope = menu.addAction("Remove gain envelope", [this, audioClips] { removeEnvelopes(audioClips); });
+    noEnvelope->setEnabled(anyEnvelope);
     ui::Action* noFades = menu.addAction("Remove fades", [this] { removeFadesSelected(); });
     noFades->setEnabled(anyFades);
     addFadeShapeMenus(menu, audioClips);  // Fade-in shape ▸, Fade-out shape ▸ (model.h FADE SHAPES)

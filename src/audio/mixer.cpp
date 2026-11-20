@@ -9,6 +9,7 @@
 
 #include "audio/automation.h"
 #include "audio/modulation.h"
+#include "model/clip_envelope.h"
 #include "config.h"
 
 using namespace plugin_audio;
@@ -139,6 +140,9 @@ void addClip(float* const buf[2], int channels, int64_t bufFrames, const Clip& c
     float gain = levels ? (float)std::pow(10.0, clip.gainDb / 20) : 1.0f;
     int64_t lead = std::max<int64_t>(0, clip.fadeLead), tail = std::max<int64_t>(0, clip.fadeTail);
     const FadeShape inShape = clip.fadeInShape, outShape = clip.fadeOutShape;
+    auto envelope = levels ? std::atomic_load(&clip.gainEnvelope) : nullptr;  // (its gain envelope: clip_envelope.h)
+    static const std::vector<AutoPoint> none;
+    clip_envelope::Walk walk{clip, envelope ? *envelope : none};
     float* o0 = buf[0] + (a - start);
     float* o1 = ch > 1 ? buf[1] + (a - start) : nullptr;
     if (!edges && !levels) {
@@ -156,6 +160,7 @@ void addClip(float* const buf[2], int channels, int64_t bufFrames, const Clip& c
             // (each fade of its shape: fadeCurve, a polynomial; Linear is the straight line exactly)
             if (fi) level *= (float)fadeCurve(inShape, std::min(1.0, std::max(0.0, (double)(pos + lead + 1) / fi)), false);
             if (fo) level *= (float)fadeCurve(outShape, std::min(1.0, std::max(0.0, (double)(frames + tail - pos) / fo)), true);
+            if (envelope) level *= walk.gain(clip.offset + pos);
         }
         if (pos < fade || pos > frames - fade)
             level *= (float)std::min(1.0, (double)std::min(pos + 1, frames - pos) / fade);
@@ -284,7 +289,7 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
     size_t clipCount = (size_t)(st.clipFrom[ti + 1] - st.clipFrom[ti]);
     ClipPtr frozen = aload(track.frozen);
     if (plugins && hasStart && !frozen && !track.automation.empty())
-        automation::apply(track, start, sr);  // its automated parameters, for this buffer
+        automation::apply(track, start, sr, &tracks);  // its automated parameters, for this buffer (in time: automation.h)
     bool vstInstrument = playsPlugins(track);
     bool instrument = vstInstrument && plugins;  // its instrument plugins play the notes
     auto effects = track.effects.get();
@@ -434,7 +439,9 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
         for (int c = 0; c < channels; c++) std::memcpy(pre[c], sig[c], sizeof(float) * frames);
         res.pre = true;
     }
-    applyFader(sig, channels, frames, track, hasStart, start, sr);  // its fader and pan, after its effects
+    // its fader and pan, after its effects: their curves as late as the effects made the sound (automation.h)
+    int64_t late = plugins ? st.latency[ti] + (isReturn ? 0 : delayFrames(track, sr)) : 0;
+    applyFader(sig, channels, frames, track, hasStart, start - late, sr);
     if (feeds) {
         std::vector<float>& fb = st.feedBuf[ti];
         std::memcpy(fb.data(), sig[0], sizeof(float) * frames);

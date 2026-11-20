@@ -203,8 +203,20 @@ struct RangeDrag {              // dragging over empty lane space or a clip's bo
     bool active = false;        // moved past DRAG_THRESHOLD_PX
     int endRow = 0;             // lane (among the tracks shown) where the range ends
 };
+struct EnvelopeDrag {           // dragging a point of a clip's gain envelope (model/clip_envelope.h)
+    ClipPtr clip;
+    int index = 0;              // the point's place in its envelope
+    int64_t frame = 0;          // the frame of the clip's data where it was grabbed…
+    double t = 0;               // …and its time then (frames of the clip's audio)
+};
+struct EnvelopeBendDrag {       // Ctrl+dragging a segment of a clip's gain envelope up or down: curving it
+    ClipPtr clip;
+    int index = 0;              // the segment's first point
+    double y = 0;               // mouse y when the drag began
+    double bend = 0;            // its bend then
+};
 using TimelineDrag = std::variant<std::monostate, MoveDrag, EdgeDrag, HeightDrag, PointDrag, LoopDrag, RangeDrag,
-                                  CopyDrag, FadeDrag, TakeDrag, MarkerDrag, BendDrag>;
+                                  CopyDrag, FadeDrag, TakeDrag, MarkerDrag, BendDrag, EnvelopeDrag, EnvelopeBendDrag>;
 
 // an audio clip's fade handle (Timeline::fadeHandleAt)
 struct FadeHit {
@@ -322,7 +334,8 @@ public:
     void placeClip(const ClipPtr& clip, int64_t frame, const TrackPtr& track);
     void addFile(const std::string& path, int64_t frame = 0);  // onto the first empty track of its kind, or a new one
     void deleteSelected();      // Del: cut the range out, or remove the selected clips
-    void duplicateSelected();   // Ctrl+D
+    void duplicateSelected();   // Ctrl+D (no clip nor range selected: duplicateTracks)
+    std::function<void()> duplicateTracks;  // (the lane panel's: the selected tracks duplicated)
     void splitSelected();       // S
     void chooseColor();         // C
     // a new, empty MIDI clip (frames 0: a bar in bars and beats, else 2 s); replaces what it covers
@@ -354,6 +367,21 @@ public:
     // the project's clips that aren't in `before` (pieces an explicit split made) leave their links
     void splitPiecesUnique(const std::vector<ClipPtr>& before);
     void crossfadeSelected();   // Crossfade…: two selected audio clips that meet overlap, one fading into the other
+    // --- gain envelopes (timeline_envelope.cpp, model/clip_envelope.h): a volume curve inside an audio clip ---
+    void showEnvelopes(const std::vector<ClipPtr>& clips, bool on);  // Gain envelope: its line shown and edited, or not
+    void removeEnvelopes(const std::vector<ClipPtr>& clips);         // Remove gain envelope
+    void editEnvelopePoints(const ClipPtr& clip);                    // Gain envelope points…: the dialog
+    void setEnvelope(const ClipPtr& clip, std::vector<AutoPoint> points);  // replaced whole (none: removed)
+    // the clip's body (under its name strip), where its envelope is drawn; none while its track is folded away
+    std::optional<RectF> envelopeBody(const Clip& clip) const;
+    // the point of the envelope shown on the clip under pos (-1: none); `frame`: the frame of its data it is drawn at
+    int envelopePointAt(const ClipPtr& clip, PointF pos, int64_t* frame = nullptr) const;
+    int envelopeSegmentAt(const ClipPtr& clip, double x) const;      // the first point of the segment at x, or -1
+    // the clip whose envelope is shown and edited under pos (its body), or null
+    ClipPtr envelopeClipAt(PointF pos) const;
+    bool envelopePress(ui::MouseEvent& e, const ClipPtr& clip);      // false: not taken (a frozen track's clip)
+    void dragEnvelope(PointF pos, Point globalPos, int mods);
+    void dragEnvelopeBend(PointF pos, Point globalPos);
     // --- slicing an audio clip into a Pad Kit (timeline_slices.cpp) ---
     struct SlicePreview {
         ClipPtr clip;

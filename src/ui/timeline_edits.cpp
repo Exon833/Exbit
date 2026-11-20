@@ -12,6 +12,7 @@
 #include "ui/tempo_dialog.h"
 #include "ui/theme.h"
 #include "ui/timeline.h"
+#include "audio/midi_effects.h"
 #include "ui/toolkit/dialogs.h"
 #include "ui/toolkit/style.h"
 #include "ui/track_dialogs.h"
@@ -185,6 +186,8 @@ void Timeline::prepareLive(const ClipPtr& clip, int64_t reach) {
     ready.track = std::atomic_load(&clip->track);
     ready.prepare(engine.sr, reach);
     clip->baseFrames = ready.baseFrames;
+    clip->loopFrom = ready.loopFrom;
+    clip->loopFor = ready.loopFor;
     std::atomic_store(&clip->peaks, ready.peaks);
     std::atomic_store(&clip->played, ready.played);
     std::atomic_store(&clip->events, ready.events);  // (the audio thread atomic_loads them)
@@ -210,6 +213,8 @@ void Timeline::setLoopNotes(const std::vector<ClipPtr>& clips, bool on) {
             ready.prepare(sr);
             int64_t have = ready.data ? ready.data->frames() : 0;
             clip->baseFrames = ready.baseFrames;
+            clip->loopFrom = ready.loopFrom;
+            clip->loopFor = ready.loopFor;
             std::atomic_store(&clip->peaks, ready.peaks);
             if (have < (clip->data ? clip->data->frames() : 0))  // (shorter audio: the window first)
                 clip->length = std::max<int64_t>(1, std::min(clip->frames(), have - clip->offset));
@@ -514,7 +519,8 @@ std::string Timeline::editTime(const std::function<bool(std::string& note, std::
     std::string note, error;
     if (!edit(note, error)) return error;
     for (auto& clip : project.clips)  // (MIDI effects follow the beat where their clips now are)
-        if (clip->kind == Kind::Midi && !clip->track->midiEffects.empty()) prepareLive(clip);
+        if (clip->kind == Kind::Midi && (!clip->track->midiEffects.empty() || midi_effects::swings(*clip->track)))
+            prepareLive(clip);
     selection.clear();
     timingChanged.emit();  // (the tempo changes may have moved)
     loopChanged.emit();

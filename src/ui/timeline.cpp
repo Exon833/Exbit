@@ -447,6 +447,7 @@ void Timeline::duplicateSelected() {
         auto copies = edits::duplicateClips(project, selection.clipList());
         selection.clips = std::set<ClipPtr>(copies.begin(), copies.end());
     } else {
+        if (duplicateTracks) duplicateTracks();  // (nothing selected here: the selected tracks)
         return;
     }
     std::map<ClipPtr, TrackPtr> tracks;

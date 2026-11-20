@@ -122,13 +122,14 @@ std::optional<Rendered> renderTrack(Project& project, const TrackPtr& track, int
         }
     } restore{*track, plugins};
     TempoMapPtr tempoMap = project.timing.audioMap();
+    auto allTracks = project.tracks.get();  // (automation in time with the effects' look-ahead: automation.h)
     int i = 0;
     for (int64_t pos = start; pos < end; pos += block, i++) {
         int n = (int)std::min<int64_t>(block, end - pos);
         float* buf[2] = {L.data() + (pos - start), R.data() + (pos - start)};
         // (tempo-synced plugins follow the song's tempo, as they do playing)
         Transport transport = Transport::at(*tempoMap, true, pos, sr);
-        automation::apply(*track, pos, sr);
+        automation::apply(*track, pos, sr, allTracks.get());
         if (instrument) {
             noteMessages(clipPtrs.data(), clipPtrs.size(), true, pos, n, pos == start, messages, events);
             patch::playInstruments(*track, messages.data(), messages.size(), buf, 2, n, sr, rackState, transport);

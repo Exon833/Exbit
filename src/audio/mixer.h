@@ -26,8 +26,8 @@
 // they go in a straight line from their values at the buffer's start to those at its end. Pan is a
 // balance: centre leaves both sides alone; towards one side the other goes down (cos), to silence at ±1.
 //
-// An audio clip's own gain and fades (Clip::level, each fade of its shape: model.h FADE SHAPES) apply
-// before the track's effects (addClip).
+// An audio clip's own gain and fades (Clip::level, each fade of its shape: model.h FADE SHAPES) and its gain
+// envelope (model/clip_envelope.h, walked forwards a STEP at a time) apply before the track's effects (addClip).
 //
 // PRE-FADER SENDS (Send::preFader) take the track's sound after its effects but before its fader and pan.
 // Only a track that has one keeps that sound (a copy in MixState::preBuf, made before the fader, in

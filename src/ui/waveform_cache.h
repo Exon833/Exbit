@@ -67,12 +67,14 @@ private:
         int sr, height;
         uint32_t color;
         int index, width;
+        const void* envelope;  // (its gain envelope: clip_envelope.h)
         bool operator==(const Key& o) const;
     };
     struct KeyHash { size_t operator()(const Key& k) const; };
     struct Entry {
         Key key;
         std::shared_ptr<const void> source;  // kept alive: a recycled address must not return a stale tile
+        std::shared_ptr<const void> envelope;  // (the same)
         Image image;
     };
     std::list<Entry> entries_;  // most recently used first

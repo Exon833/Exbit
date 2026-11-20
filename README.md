@@ -16,14 +16,19 @@ extends; that program is in the repository's history.
 ## What it does
 
 - **Timeline**: audio and MIDI tracks, groups, return tracks with sends (before or after the
-  fader), pan, track delay; clips you
+  fader), pan, track delay; tracks duplicated (with or without their clips), moved (drag a name, or
+  Alt+↑/↓) and selected several at once (Shift/Ctrl-click: a fader, mute, solo or new effect changes them
+  all); clips you
   move, trim, split, duplicate, copy and paste, colour, loop, reverse, join, crossfade, stretch and
-  pitch, with gain and fades (linear, smooth, fast, slow or equal power; crossfades equal power);
+  pitch, with gain and fades (linear, smooth, fast, slow or equal power; crossfades equal power) and a
+  gain envelope inside an audio clip (right-click it → Gain envelope), before the track's effects;
   takes with comping; markers, tempo and time-signature changes,
   insert/delete time, a fixed or zoom-following grid; undo and redo of every kind of edit (the last
   100 steps), with a list of the steps to jump back to (Edit → History…); what the control under the mouse does, in the
   status bar.
-- **MIDI**: a piano roll with ghost notes of other clips, the song's key and scale, chord stamp,
+- **MIDI**: a piano roll with ghost notes of other clips, the song's key and scale (Key ▾ in the
+  transport: detected from the notes; a clip may have its own; Snap to scale), swing for the song, a
+  track or a Steps row (Swing ▾, applied as it plays, committed into the notes on request), chord stamp,
   quantize, box select; a Steps view of the same clip; notes with their own chance, repeats (rolls),
   slide, pan and fine pitch; linked clips (edit one, every linked copy changes); the built-in synth,
   sampler and Pad Kit (a sample per pad, choke groups; slice a loop onto one); MIDI effects (arpeggiator, chord, scale, note length, velocity, random, pitch, groove); a MIDI keyboard (with sustain pedal) or the computer
@@ -41,7 +46,9 @@ extends; that program is in the repository's history.
 - **Audio**: ALSA, PulseAudio (PipeWire through either) and JACK; tracks worked out on every
   processor core at once, with each track's CPU use shown; recording with count-in and a
   measurable recording offset; freeze and bounce; render to WAV, FLAC, MP3 or OGG with peak or
-  loudness normalizing; stems; level meters with peak hold and clip lights; LUFS; a master scope.
+  loudness normalizing; stems; level meters with peak and RMS, peak hold and clip lights; LUFS and true
+  peak (dBTP) on the master; solo safe (right-click S) and exclusive solo (Alt-click S); automation kept in
+  time behind plugins that add delay; a master scope.
 - **Presets and MIDI learn**: save and recall an effect's or instrument's settings, or a whole track's
   chain; compare two settings of one effect (Now / Kept); link any knob to a MIDI controller's knob.
 - **Projects**: templates, recent projects, backups of what each save replaces, autosave with crash

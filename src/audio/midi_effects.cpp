@@ -360,6 +360,19 @@ std::vector<Note> arpeggiate(const MidiEffect& e, const std::vector<Note>& notes
 // beats stay. Each note keeps its length. The accent changes the velocity of the notes the more they sit
 // on an off-beat; humanizing moves each note and its velocity by a random amount seeded by the note (and
 // the seed): the same every time the clip is prepared, so renders play what playback plays.
+std::string rowKey(int pitch) { return "row:" + std::to_string(pitch); }
+
+// a note at `start` (clip time) swung: the off-beat of each pair of `grid`-beat steps at `swing` of the pair
+double swungStart(double start, double origin, double grid, double swing) {
+    double at = origin + start;
+    double beat = timing_ ? timing_->beatAt(at) : at / beatS(0);
+    double pair = 2 * grid;
+    double base = std::floor(beat / pair) * pair;
+    double phase = std::min(pair, std::max(0.0, beat - base));  // 0 … 2 steps
+    double moved = phase <= grid ? phase * 2 * swing : pair * swing + (phase - grid) * (2 - 2 * swing);
+    return (timing_ ? timing_->secondsAt(base + moved) : (base + moved) * beatS(0)) - origin;
+}
+
 std::vector<Note> groove(const MidiEffect& e, const std::vector<Note>& notes, double origin) {
     double grid = GROOVE_BEATS[std::min<size_t>(GROOVE_BEATS.size() - 1, (size_t)std::max(0.0, e.get("grid")))];
     double swing = std::min(75.0, std::max(50.0, e.get("swing"))) / 100;
@@ -375,10 +388,8 @@ std::vector<Note> groove(const MidiEffect& e, const std::vector<Note>& notes, do
         double base = std::floor(beat / pair) * pair;
         double phase = std::min(pair, std::max(0.0, beat - base));  // 0 … 2 steps
         double start = n.start;
-        if (swing != 0.5) {
-            double moved = phase <= grid ? phase * 2 * swing : pair * swing + (phase - grid) * (2 - 2 * swing);
-            start = (timing_ ? timing_->secondsAt(base + moved) : (base + moved) * beatS(0)) - origin;
-        }
+        if (swing != 0.5 && !e.values.count(rowKey((int)n.pitch)))  // (a row of its own: swung by apply())
+            start = swungStart(n.start, origin, grid, swing);
         double v = n.velocity;
         bool changed = false;
         if (accent != 0) {
@@ -462,8 +473,64 @@ std::vector<Note> process(const MidiEffect& e, const std::vector<Note>& notes, d
     return out;
 }
 
+double songSwing() { return timing_ ? std::min(100.0, std::max(0.0, timing_->swing)) : 0.0; }
+int swingGrid() { return timing_ && timing_->swingGrid == 0 ? 0 : 1; }
+
+double rowSwing(const Track& t, int pitch) {
+    auto effects = t.midiEffects.get();
+    std::string key = rowKey(pitch);
+    for (auto& e : *effects) {
+        if (e.kind != "Groove") continue;
+        auto it = e.values.find(key);
+        if (it != e.values.end()) return std::min(100.0, std::max(0.0, it->second));
+    }
+    return -1;
+}
+
+double swingOf(const Track& t, int pitch) {
+    double row = rowSwing(t, pitch);
+    if (row >= 0) return row;
+    return t.swing >= 0 ? std::min(100.0, t.swing) : songSwing();
+}
+
+bool swings(const Track& t) {
+    if ((t.swing >= 0 ? t.swing : songSwing()) > 0) return true;
+    auto effects = t.midiEffects.get();
+    for (auto& e : *effects)
+        if (e.kind == "Groove")
+            for (auto& v : e.values)
+                if (v.first.compare(0, 4, "row:") == 0 && v.second > 0) return true;
+    return false;
+}
+
+std::vector<Note> swung(const Track& t, std::vector<Note> notes, double origin) {
+    if (!swings(t)) return notes;
+    double amounts[128];  // (each pitch's, looked up once)
+    for (int p = 0; p < 128; p++) amounts[p] = swingOf(t, p);
+    double grid = GROOVE_BEATS[(size_t)swingGrid()];
+    for (auto& n : notes) {
+        double amount = amounts[std::min(127, std::max(0, (int)n.pitch))];
+        if (amount <= 0) continue;
+        double start = swungStart(n.start, origin, grid, 0.5 + amount / 400);
+        start = std::max(start, std::min(n.start, 0.0));  // (never before the clip's start)
+        n.end += start - n.start;
+        n.start = start;
+    }
+    return notes;
+}
+
+MidiEffect withRowSwing(const MidiEffect& groove, int pitch, double amount) {
+    MidiEffect e = groove;
+    if (amount < 0) e.values.erase(rowKey(pitch));
+    else e.values[rowKey(pitch)] = std::min(100.0, amount);
+    return e;
+}
+
 std::vector<Note> apply(const Track& track, std::vector<Note> notes, double origin) {
     auto effects = track.midiEffects.get();
+    bool swinging = swings(track);
+    if (effects->empty() && !swinging) return notes;  // (as they are: not even sorted)
+    if (swinging) notes = swung(track, std::move(notes), origin);
     for (auto& e : *effects)
         if (!notes.empty()) notes = process(e, notes, origin);
     std::stable_sort(notes.begin(), notes.end(), [](const Note& a, const Note& b) {

@@ -92,7 +92,7 @@ bool TileCache::Key::operator==(const Key& o) const {
     return kind == o.kind && source == o.source && offset == o.offset && frames == o.frames && gainDb == o.gainDb &&
            fadeIn == o.fadeIn && fadeOut == o.fadeOut && fadeLead == o.fadeLead && fadeTail == o.fadeTail &&
            fadeShapes == o.fadeShapes && pps == o.pps && dpr == o.dpr && sr == o.sr && height == o.height &&
-           color == o.color && index == o.index && width == o.width;
+           color == o.color && index == o.index && width == o.width && envelope == o.envelope;
 }
 
 size_t TileCache::KeyHash::operator()(const Key& k) const {
@@ -116,6 +116,7 @@ size_t TileCache::KeyHash::operator()(const Key& k) const {
     mixIn(k.color);
     mixIn((uint64_t)k.index);
     mixIn((uint64_t)k.width);
+    mixIn((uint64_t)(uintptr_t)k.envelope);
     return h;
 }
 
@@ -128,7 +129,7 @@ const Image& TileCache::tile(const Clip& clip, int index, int width, int height,
     else if (clip.played) source = clip.played;
     else source = clip.notes;
     Key key{(int)clip.kind, source.get(), clip.offset, clip.frames(), clip.gainDb, clip.fadeIn, clip.fadeOut,
-            clip.fadeLead, clip.fadeTail, (int)clip.fadeInShape + 8 * (int)clip.fadeOutShape, pps, dpr, sr, height, Color(color.r, color.g, color.b, 255).premul(), index, width};
+            clip.fadeLead, clip.fadeTail, (int)clip.fadeInShape + 8 * (int)clip.fadeOutShape, pps, dpr, sr, height, Color(color.r, color.g, color.b, 255).premul(), index, width, clip.gainEnvelope.get()};
     auto found = index_.find(key);
     if (found != index_.end()) {
         entries_.splice(entries_.begin(), entries_, found->second);  // most recently used
@@ -145,7 +146,7 @@ const Image& TileCache::tile(const Clip& clip, int index, int width, int height,
         for (int x = 0; x < width; ++x)
             if (m[x]) row[x] = px;
     }
-    entries_.push_front(Entry{key, std::move(source), std::move(image)});
+    entries_.push_front(Entry{key, std::move(source), clip.gainEnvelope, std::move(image)});
     index_[key] = entries_.begin();
     bytes_ += (size_t)std::max(1, width) * std::max(1, height) * 4;
     while (bytes_ > budget && entries_.size() > 1) {

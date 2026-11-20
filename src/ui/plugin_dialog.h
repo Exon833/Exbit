@@ -62,6 +62,9 @@ public:
     Project& project;
     TrackPtr owner;                  // null: the master
     std::function<void()> onChange;
+    // an effect placed: also on the other selected tracks (LanePanel::addToSelected; how many); when it is, it is
+    // wired in at the end of the chain here too
+    std::function<int(const SlotPtr&)> alsoOn;
     std::string where;               // for the plugin windows' titles: the track's name, or "Master"
     std::vector<TrackPtr> others;    // the other tracks, as the panel lists them (sidechain sources)
     PatchPanel* panel;

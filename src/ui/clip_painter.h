@@ -100,7 +100,13 @@ bool fadeHandles(const Clip& clip, const RectF& body, double pps, int sr, RectF&
 // full level where it ends, the part it quietens shaded; and the two handles
 void paintFades(Painter& p, const Clip& clip, const RectF& body, double pps, int sr, Color color, Color shade,
                 float width);
-// its name, and its gain when it has one ("Kick   -3.0 dB")
+// --- gain envelopes (model/clip_envelope.h): the line over an audio clip's waveform while it is shown ---
+constexpr float ENVELOPE_PAD = 4;  // px between the line's range (silence … +24 dB) and the body's top and bottom
+constexpr int ENVELOPE_DOT = 6;    // a point's square
+float envelopeY(const RectF& body, double v);      // y of value v (0…1) in the clip's body
+double envelopeValue(const RectF& body, double y); // …and back, within 0…1
+void paintEnvelope(Painter& p, const Clip& clip, const RectF& body, const Rect& visible, double pps, int sr, Color color);
+// its name, its gain when it has one, and "env" with a gain envelope ("Kick   -3.0 dB   env")
 std::string clipLabel(const Clip& clip);
 // name sticks to the view's left edge, but stays inside the clip
 void paintName(Painter& p, const Look& look, const Clip& clip, const RectF& rect, int viewLeft, Color color);

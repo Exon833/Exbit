@@ -140,6 +140,8 @@ struct Timing {
     bool snapOn = true;    // clicks and drags snap to the grid (Ctrl+4); Alt does the opposite for one drag
     int key = 0;           // the song's key (0 = C … 11 = B), with `scale`: the MIDI editor's scale mode
     std::string scale;     // a scale of the MIDI effects' SCALES ("Major", "Minor"…); "" = none
+    double swing = 0;      // the song's swing, 0 % (straight) … 100 %: off-beats later (midi_effects.h SWING)
+    int swingGrid = 1;     // what swings: 0 the 8ths, 1 the 16ths
 
     Timing();
     Timing(const Timing& o);

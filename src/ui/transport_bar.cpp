@@ -1,6 +1,8 @@
 // The top bar (transport_bar.py).
 #include "ui/transport_bar.h"
 
+#include "audio/midi_effects.h"
+
 #include <cmath>
 #include <cstdio>
 #include <map>
@@ -185,6 +187,22 @@ TransportBar::TransportBar() {
         for (auto* a : {addFileAction.get(), addAudioTrackAction.get(), addMidiTrackAction.get(), addReturnTrackAction.get()})
             m->addAction(a->text, [a] { a->trigger(); }, a->shortcut().text());
     };
+    keyButton = menuButton(left_, "Key \xe2\x96\xbe", &keyMenu,
+                           "The song's key and scale (a MIDI clip can have its own): the MIDI editor shades the notes "
+                           "outside it and can snap to it. Detect suggests keys from the notes");
+    keyMenu->aboutToShow = [this](ui::Menu* m) {
+        m->clear();
+        if (fillKeyMenu) fillKeyMenu(*m);
+    };
+    keyButton->show();
+    swingButton = menuButton(left_, "Swing \xe2\x96\xbe", &swingMenu,
+                             "Swing for the whole song: the off-beat 8ths or 16ths of every MIDI clip come later "
+                             "(0 %: straight). A track, or a Steps row, can have its own");
+    swingMenu->aboutToShow = [this](ui::Menu* m) {
+        m->clear();
+        if (fillSwingMenu) fillSwingMenu(*m);
+    };
+    swingButton->show();
     left->addStretch(1);
 
     playAction = iconButton("Play", "play", "▶");
@@ -392,7 +410,7 @@ void TransportBar::buildFitting() {
     // middle buttons: play, record, start, loop, follow, keys, capture
     auto icon = [this](int i) { return static_cast<ui::Widget*>(middleButtons[i]); };
     steps_ = {compact, collapseAdd, shortLabel,
-              hide({icon(6)}), hide({icon(5)}), hide({icon(4)}),
+              hide({icon(6)}), hide({swingButton}), hide({keyButton}), hide({icon(5)}), hide({icon(4)}),
               hide({thirdsButton}), hide({gridButton}), hide({beatsButton}),
               hide({signatureBox}), hide({tapButton}), hide({metronomeButton}),
               hide({timeLabel, timeSeparator}), hide({icon(3)}),
@@ -533,6 +551,14 @@ void TransportBar::fillMoreMenu(ui::Menu& menu) {
         addAction(beatsAction.get());
     }
     if (!thirdsButton->isVisible()) addAction(thirdsAction.get());
+    for (auto [b, title, fill] : {std::make_tuple(keyButton, "Key", &fillKeyMenu),
+                                  std::make_tuple(swingButton, "Swing", &fillSwingMenu)})
+        if (!b->isVisible() && *fill) {
+            if (title == std::string("Key")) menu.addSeparator();
+            std::string text = b->text();  // ("Key: C major ▾": its name, without the ▾)
+            if (text.size() > 4 && text.compare(text.size() - 4, 4, " \xe2\x96\xbe") == 0) text.resize(text.size() - 4);
+            (*fill)(*menu.addMenu(text));
+        }
     if (!gridButton->isVisible() && timing_) {
         ui::Menu* grid = menu.addMenu(gridName.empty() ? "Grid: no snap" : "Grid: " + gridName);
         transport_bar::fillGridMenu(*grid, *timing_, [this](const GridChange& c) { if (onGridChange) onGridChange(c); });
@@ -601,6 +627,14 @@ void TransportBar::showTiming(const Timing& timing) {
     }
     gridName = timing.snapOn ? name : "";
     showGridName();
+    std::string scale = timing.scale.empty() ? std::string()
+                        : std::string(midi_effects::KEYS[((timing.key % 12) + 12) % 12]) + " " +
+                              (timing.scale == "Major" ? "major" : timing.scale == "Minor" ? "minor" : timing.scale);
+    keyButton->setText(scale.empty() ? "Key \xe2\x96\xbe" : "Key: " + scale + " \xe2\x96\xbe");
+    char swing[48];
+    std::snprintf(swing, sizeof swing, "Swing %g %%%s \xe2\x96\xbe", std::round(timing.swing * 10) / 10,
+                  timing.swingGrid ? "" : " 8ths");
+    swingButton->setText(timing.swing > 0 ? swing : "Swing \xe2\x96\xbe");
     if (timing.beats != beatsShown) {
         beatsShown = timing.beats;
         sizeTimeLabel();

@@ -7,3 +7,4 @@ tinydaw-wine-host.exe.so
 build-appimage/
 build-appimage-native/
 CLAUDE.md
+.claude/

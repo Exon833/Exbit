@@ -1,5 +1,6 @@
 // The main window (main_window.py). See main_window.h.
 #include "ui/main_window.h"
+#include "audio/midi_effects.h"
 
 #include <algorithm>
 #include <cmath>
@@ -202,6 +203,8 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
             LanePanel::Instruments{[this](ui::Menu& m, const TrackPtr& t) { fillInstrumentMenu(m, t); },
                                    [this](const TrackPtr& t) { editInstrument(t); }});
         panel = p.get();
+        panel->status = [this](const std::string& t, int ms) { showStatus(t, ms); };  // (TRACK SELECTION)
+        panel->loadPlugins = [this](const std::vector<SlotPtr>& slots) { return plugins->restore(slots); };
         panelScroll->setContent(std::move(p), false);  // (it sets its own height)
     }
     cpuMonitor = add<CpuMonitor>();
@@ -1161,6 +1164,7 @@ void MainWindow::connectControls() {
     t->thirdsAction->toggled.connect([this](bool on) { setTiming({{}, {}, {}, on}); });
     for (ui::SpinBox* box : {t->bpmBox, t->signatureBox})  // after Enter, keys (Space, S, …) go back to the timeline
         box->editor()->returnPressed.connect([this] { timeline->setFocus(); });
+    connectScale();
     t->showTiming(project.timing);
 }
 
@@ -1244,7 +1248,8 @@ void MainWindow::setTiming(const TimingChange& c) {
     if (none || c.bpm || c.beatsPerBar)
         for (auto& clip : project.clips) {
             TrackPtr track = std::atomic_load(&clip->track);
-            if (clip->kind == Kind::Midi && track && !track->midiEffects.empty()) timeline->prepareLive(clip);
+            if (clip->kind == Kind::Midi && track && (!track->midiEffects.empty() || midi_effects::swings(*track)))
+                timeline->prepareLive(clip);  // (swing too: it is in beats)
         }
     transport->showTiming(t);
     timeline->update();
@@ -1357,7 +1362,9 @@ void MainWindow::openTrackPlugins(const TrackPtr& track) {
         return;
     }
     showFxWindow({0, track.get()}, [this, track] {
-        return new PluginsDialog(this, *plugins, "Effects: " + track->name, project, track, [this] { panel->rebuild(); });
+        auto* w = new PluginsDialog(this, *plugins, "Effects: " + track->name, project, track, [this] { panel->rebuild(); });
+        w->alsoOn = [this, track](const SlotPtr& slot) { return panel->addToSelected(track, slot); };
+        return w;
     });
 }
 
@@ -1738,13 +1745,19 @@ void MainWindow::onFrame() {
     int64_t shown = engine.playing ? heard : tl->cursor;  // stopped: where Play will start
     transport->setTime((double)shown / engine.sr, project.timing);
     std::vector<float> masterPeaks;
-    std::map<const Track*, std::vector<float>> trackPeaks;
-    engine.metering->takePeaks(masterPeaks, trackPeaks);  // also queues audio for LUFS
+    std::map<const Track*, std::vector<float>> trackPeaks, meanSquares;
+    engine.metering->takePeaks(masterPeaks, trackPeaks, &meanSquares);  // also queues audio for LUFS
     if (prefs.levelMeters) {
+        auto squaresOf = [&](const Track* key) {  // (the meters' RMS bars)
+            auto it = meanSquares.find(key);
+            return it != meanSquares.end() ? &it->second : nullptr;
+        };
         master->meter->push(masterPeaks);
+        master->meter->pushRms(squaresOf(audio::MASTER));
         for (auto& [track, meter] : panel->meters) {
             auto it = trackPeaks.find(track.get());
             meter->push(it != trackPeaks.end() ? &it->second : nullptr);  // null (silent) lets the meter fall back
+            meter->pushRms(squaresOf(track.get()));
         }
         for (auto& [group, meter] : panel->groupMeters) {  // a group's tracks together: the loudest
             std::vector<const std::vector<float>*> peaks;
@@ -1758,6 +1771,10 @@ void MainWindow::onFrame() {
                 std::vector<float> loudest = level_meter::loudest(peaks);
                 meter->push(&loudest);
             }
+            std::vector<const std::vector<float>*> squares;  // (its RMS bar: its loudest track's)
+            for (auto& t : project.members(group)) squares.push_back(squaresOf(t.get()));
+            std::vector<float> loudestSquares = level_meter::loudest(squares);
+            meter->pushRms(loudestSquares.empty() ? nullptr : &loudestSquares);
         }
     }
     panel->showMixerValues(engine.playing ? std::optional<int64_t>(heard) : std::nullopt, engine.sr);
@@ -1812,6 +1829,7 @@ void MainWindow::onCpuTimer() {
     double m, s, i;
     metering.read(audio::MASTER, m, s, i);
     master->loudness->showValues(m, s, i);
+    master->showTruePeak(metering.truePeakDb());
     for (auto& [track, display] : panel->loudness) {
         metering.read(track.get(), m, s, i);
         display->showValues(m, s, i);

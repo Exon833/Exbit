@@ -1,4 +1,5 @@
 #include "ui/midi_editor.h"
+#include "ui/song_scale.h"
 
 #include <algorithm>
 #include <cmath>
@@ -211,7 +212,7 @@ int wrappedHeight(const std::string& text, const Font& f, float width) {
 const char* const ROLL_HINT =
     "Click to add a note, drag to move, drag its right end to resize, right-click to delete. Shift+drag: select "
     "with a box; Ctrl+drag: copy; arrows: move (Shift+arrows: octave, length); Ctrl+C / X / V, Ctrl+D duplicate, "
-    "Ctrl+U quantize, G slide. Alt: no snapping.";
+    "Ctrl+U quantize, G slide. Alt: no snapping (to the grid or the scale).";
 const char* const STEPS_HINT =
     "Click a pad to add a note one step long, click a lit pad to remove it; drag along to paint (or clear) more. "
     "Ctrl+click: select; right-click: delete; + Row: another pitch; G slide. Ctrl+wheel: zoom (the grid follows).";
@@ -429,15 +430,27 @@ double MidiEditor::xOf(double t) const { return keysW() + (t * pps - hbar->value
 double MidiEditor::tAt(double x) const { return (x - keysW() + hbar->value()) / pps; }
 
 std::optional<Steps> MidiEditor::scale() const {
-    const Timing& t = project.timing;
+    std::string name = song_scale::scaleOf(project, *clip);  // (the clip's own, or the song's)
     for (auto& s : scales())
-        if (s.first == t.scale) return scaleSteps(t.key, t.scale);
+        if (s.first == name) return scaleSteps(song_scale::keyOf(project, *clip), name);
     return std::nullopt;
 }
 
+int MidiEditor::onScale(int pitch, int mods, int dir) const {
+    if (!snapScaleButton->isChecked() || (mods & plat::ModAlt)) return pitch;
+    std::optional<Steps> steps = scale();
+    if (!steps || steps->empty() || steps->count(((pitch % 12) + 12) % 12)) return pitch;
+    for (int d = 1; d < 12; d++)  // (the nearer side first; a tie: towards dir, else down)
+        for (int sign : {dir > 0 ? 1 : -1, dir > 0 ? -1 : 1}) {
+            int p = pitch + sign * d;
+            if (p >= 0 && p <= 127 && steps->count(p % 12)) return p;
+        }
+    return pitch;
+}
+
 const std::vector<int>& MidiEditor::rows() const {
-    const Timing& t = project.timing;
-    std::vector<int64_t> key = {fold == "scale" ? 1 : fold == "used" ? 2 : 0, t.key, (int64_t)std::hash<std::string>()(t.scale)};
+    std::vector<int64_t> key = {fold == "scale" ? 1 : fold == "used" ? 2 : 0, song_scale::keyOf(project, *clip),
+                                (int64_t)std::hash<std::string>()(song_scale::scaleOf(project, *clip))};
     for (int p : used) key.push_back(p);
     if (!rowsValid_ || key != rowsKey_) {
         std::vector<int> shown;
@@ -727,7 +740,7 @@ void MidiEditor::followCursors() {
     std::pair<std::optional<int>, std::optional<int>> xs(c ? std::optional<int>((int)*c) : std::nullopt,
                                                          std::optional<int>((int)playheadX()));
     const Timing& t = project.timing;
-    std::pair<int, std::string> sc(t.key, t.scale);
+    std::pair<int, std::string> sc(song_scale::keyOf(project, *clip), song_scale::scaleOf(project, *clip));
     std::vector<int64_t> clips = {  // (and the grid: Ctrl+1/2/4/5, the tempo, from the transport)
         (int64_t)std::llround(t.grid * 1e6), t.snapOn, t.beats, t.thirds, (int64_t)std::llround(t.bpm * 1e6),
         t.beatsPerBar, (int64_t)t.changes.size()};
@@ -1053,7 +1066,13 @@ void MidiEditor::nudge(int key, bool shift, int mods) {
         for (int i : chosen) notes[i].pitch += up;
     } else {  // a semitone, or a row when folded
         auto pitches = movedPitches(before, chosen[0], key == plat::Key_Up ? -1 : 1);
-        for (int i : chosen) notes[i].pitch = pitches[i];
+        int dir = key == plat::Key_Up ? 1 : -1;
+        for (int i : chosen) {  // (snapping to the scale: on to its next note that way)
+            int p = (int)pitches[i];
+            if (pitches[i] == before[i].pitch) continue;  // (at the edge: stays)
+            for (int k = 0; k < 12 && p >= 0 && p <= 127 && onScale(p, mods, dir) != p; k++) p += dir;
+            notes[i].pitch = p >= 0 && p <= 127 ? p : before[i].pitch;
+        }
     }
     commit();
     int top = -1;
@@ -1157,6 +1176,7 @@ void MidiEditor::keyNote() {
             refresh();
             return;
         }
+    keyPitch = onScale(keyPitch, 0);  // (snapping to the scale: its nearest note)
     Note n;
     n.start = keyT;
     n.end = keyT + stepS(keyT);
@@ -1216,6 +1236,12 @@ bool MidiEditor::keyPress(ui::KeyEvent& e) {
         }
     } else if ((e.key == plat::Key_Return || e.key == plat::Key_Enter) && !ctrl) {
         keyNote();
+    } else if (e.key == plat::Key_F2 && !e.mods && stepsView && steps) {  // the row at the cursor: its swing
+        std::vector<int> rs = stepRows();
+        if (!rs.empty()) {
+            int pitch = std::find(rs.begin(), rs.end(), keyPitch) != rs.end() ? keyPitch : rs.front();
+            steps->rowSwingMenu(pitch, steps->mapToGlobal(Point(0, 0)));
+        }
     } else if (e.key == 'R' && !e.mods && stepsView && steps && steps->rowMenu) {  // "+ Row"
         steps->rowMenu->exec(steps->mapToGlobal(Point(0, 0)), steps);
     } else if ((e.key == ',' || e.key == '.') && !ctrl && !selected.empty()) {  // (Shift+Left / Right, which consoles can't send)
@@ -1408,12 +1434,28 @@ void MidiEditor::buildScaleTools(ui::HBox* tools) {
     fitButton = ui::toolButton(this, "Fit to scale", [this] { fitToScale(); },
                                "Move the selected notes (none selected: all) to the nearest note of the scale");
     tools->addWidget(fitButton);
+    static bool snapScale = false;  // (remembered for the next editor)
+    snapScaleButton = ui::toolButton(this, "Snap to scale", nullptr,
+                                     "Notes added or moved land on the scale's notes (hold Alt to place one outside "
+                                     "it); notes not moved stay as they are");
+    snapScaleButton->setCheckable(true);
+    snapScaleButton->setCheckedSilently(snapScale);
+    snapScaleButton->toggled.connect([](bool on) {
+        snapScale = on;
+        util::debugf("midi editor: snap to scale %s\n", on ? "on" : "off");
+    });
+    tools->addWidget(snapScaleButton);
 }
 
 void MidiEditor::syncScaleTools() {
-    const Timing& t = project.timing;
-    keyBox->setCurrentIndexSilently(std::min(11, std::max(0, t.key)));
-    scaleBox->setCurrentIndexSilently(std::max(0, scaleBox->findData(t.scale)));
+    keyBox->setCurrentIndexSilently(std::min(11, std::max(0, song_scale::keyOf(project, *clip))));
+    scaleBox->setCurrentIndexSilently(std::max(0, scaleBox->findData(song_scale::scaleOf(project, *clip))));
+    bool own = clip->key >= 0;
+    std::string tip = own ? "This clip's own key and scale (the clip menu's Scale \xe2\x96\xb8 gives it the song's): "
+                            "notes outside it are shaded"
+                          : "The song's key and scale (saved with the project): notes outside it are shaded";
+    keyBox->setToolTip(tip);
+    scaleBox->setToolTip(tip);
     bool on = scale().has_value();
     if (!stampActions.empty()) syncStamp();
     keyBox->setEnabled(on);
@@ -1429,8 +1471,13 @@ void MidiEditor::scaleChosen() {
     int key = keyBox->currentIndex();
     std::string sc = scaleBox->currentData();
     refold([this, key, sc] {
-        project.timing.key = key;
-        project.timing.scale = sc;
+        if (clip->key >= 0) {  // (the clip's own)
+            clip->key = key;
+            clip->scale = sc;
+        } else {
+            project.timing.key = key;
+            project.timing.scale = sc;
+        }
     });
 }
 
@@ -1914,7 +1961,7 @@ bool PianoRoll::mousePress(ui::MouseEvent& e) {
     if (index < 0) {  // an empty spot: a new note (or the stamp's chord), a grid step long; dragging lengthens it
         if (!ctrl) ed.selected.clear();
         double start = ed.snap(ed.tAt(pos.x), e.mods, true);
-        std::vector<int> pitches = ed.stamped(ed.pitchAt(pos.y));
+        std::vector<int> pitches = ed.stamped(ed.onScale(ed.pitchAt(pos.y), e.mods));
         int first = (int)ed.notes.size();
         for (int pitch : pitches) {
             Note n;
@@ -1985,6 +2032,8 @@ bool PianoRoll::mouseMove(ui::MouseEvent& e) {
             n.start = times[kv.first].first;
             n.end = times[kv.first].second;
             n.pitch = pitches[kv.first];
+            if (n.pitch != kv.second.pitch)  // (moved up or down: onto the scale, when snapping to it)
+                n.pitch = ed.onScale((int)n.pitch, e.mods, n.pitch > kv.second.pitch ? 1 : -1);
             ed.notes[kv.first] = n;
         }
         if (d.index < (int)ed.notes.size()) ed.glide((int)ed.notes[d.index].pitch);  // hear the pitch it is moved to
@@ -2547,8 +2596,20 @@ std::optional<int> StepGrid::yOfRow(int row) const {
 
 void StepGrid::resized() { ed_->updateRanges(); }
 
+void StepGrid::rowSwingMenu(int pitch, Point globalPos) {
+    MidiEditor& ed = *ed_;
+    TrackPtr track = std::atomic_load(&ed.clip->track);
+    if (!track) return;
+    ui::Menu menu;
+    menu.addSection(ed.keyLabel(pitch).empty() ? noteName(pitch) : ed.keyLabel(pitch));
+    MidiEditor* editor = &ed;
+    song_scale::addRowSwingMenu(menu, ed.project, ed.engine.sr, track, pitch, [editor] { editor->refresh(); });
+    menu.exec(globalPos, this);
+}
+
 bool StepGrid::overridesShortcut(const ui::KeyEvent& e) const {
     if (e.key == 'R' && !e.mods) return true;  // ("+ Row")
+    if (e.key == plat::Key_F2 && !e.mods) return true;  // (the row's menu)
     return ed_->roll->overridesShortcut(e);
 }
 
@@ -2556,7 +2617,7 @@ std::string StepGrid::toolTipAt(Point p) const {
     int r = rowAt(p.y);
     if (r < 0) return "";
     if (r == (int)ed_->stepRows().size()) return p.x < keysW() ? "Add a row for another pitch" : "";
-    if (p.x < keysW()) return "Press to hear this pitch";
+    if (p.x < keysW()) return "Press to hear this pitch; right-click (F2): its swing";
     return "Click to add a note one step long here (or remove the one here); drag along to paint. Ctrl+click: "
            "select its notes; right-click: delete them";
 }
@@ -2701,6 +2762,10 @@ bool StepGrid::mousePress(ui::MouseEvent& e) {
         return true;
     }
     int pitch = rows[(size_t)r];
+    if (e.pos.x < keysW() && e.button == plat::RightButton) {  // a row's name: its menu (its swing)
+        rowSwingMenu(pitch, e.globalPos);
+        return true;
+    }
     if (e.pos.x < keysW()) {  // a row's name: it sounds while held
         if (e.button == plat::LeftButton) {
             ed.hold(pitch);

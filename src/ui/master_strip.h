@@ -1,4 +1,4 @@
-// The master lane's controls (master_strip.py): LUFS, effects (FX), mute, a level meter (a bar per
+// The master lane's controls (master_strip.py): LUFS and true peak (dBTP), effects (FX), mute, a level meter (a bar per
 // output in use), and volume. Its row stays at the bottom of the screen, over the tracks (the main
 // window pins it there with PinToBottom). Under the controls, slightly dimmed: the update notice
 // (update_notice.h; MASTER_FOOTER_H tall).
@@ -42,6 +42,8 @@ public:
     std::function<void()> openPlugins;  // the master's plugins window (FX button)
     LaneFrame* frame;
     LoudnessDisplay* loudness;
+    LoudnessDisplay* truePeak;  // the true peak since Play (audio/true_peak.h), next to the LUFS
+    void showTruePeak(double dbtp);
     LevelMeter* meter;
     ui::Button* fx = nullptr;
     ui::Button* muteButton;

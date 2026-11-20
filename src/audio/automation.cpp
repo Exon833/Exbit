@@ -169,16 +169,34 @@ int stepsOf(const Automation& lane) {
 
 double snap(double value, int steps) { return steps > 0 ? std::nearbyint(value * steps) / steps : value; }
 
-double valueAt(const std::vector<AutoPoint>& points, double seconds, int steps) {
-    if (points.empty()) return 0;
-    size_t i = std::upper_bound(points.begin(), points.end(), seconds,
-                                [](double s, const AutoPoint& p) { return s < p.t; }) - points.begin();
+// the curve at `seconds`, with i the number of points at or before it
+static double valueIn(const std::vector<AutoPoint>& points, double seconds, size_t i, int steps) {
     if (i == 0) return snap(points[0].v, steps);
     if (i == points.size() || steps > 0) return snap(points[i - 1].v, steps);
     const AutoPoint &a = points[i - 1], &b = points[i];
     if (!(b.t > a.t)) return b.v;
     if (a.bend == 0) return a.v + (b.v - a.v) * (seconds - a.t) / (b.t - a.t);  // (straight: as it always was)
     return a.v + (b.v - a.v) * bendShape((seconds - a.t) / (b.t - a.t), a.bend, b.v - a.v);
+}
+
+static size_t pointsUpTo(const std::vector<AutoPoint>& points, double seconds) {
+    return std::upper_bound(points.begin(), points.end(), seconds, [](double s, const AutoPoint& p) { return s < p.t; }) -
+           points.begin();
+}
+
+double valueAt(const std::vector<AutoPoint>& points, double seconds, int steps) {
+    if (points.empty()) return 0;
+    return valueIn(points, seconds, pointsUpTo(points, seconds), steps);
+}
+
+double valueAt(const std::vector<AutoPoint>& points, double seconds, size_t& cursor, int steps) {
+    if (points.empty()) return 0;
+    if (cursor == 0 || cursor > points.size() || points[cursor - 1].t > seconds) {
+        cursor = pointsUpTo(points, seconds);  // (the first look, or it went back: one search)
+    } else {
+        while (cursor < points.size() && points[cursor].t <= seconds) ++cursor;
+    }
+    return valueIn(points, seconds, cursor, steps);
 }
 
 // --- curved segments (AutoPoint::bend) ---
@@ -209,8 +227,7 @@ void splitAt(std::vector<AutoPoint>& points, double seconds) {
     }
 }
 
-void apply(Track& track, int64_t start, int sr) {
-    double seconds = (double)start / sr;
+void apply(Track& track, int64_t start, int sr, const plugin_audio::TrackList* tracks) {
     auto lanes = track.automation.get();
     for (auto& lane : *lanes) {
         if (lane->slot && lane->slot->isControls()) continue;  // (the mixer applies volume and pan: mixerValues())
@@ -222,7 +239,8 @@ void apply(Track& track, int64_t start, int sr) {
         }
         if (points->empty() || !target || !lane->slot || !lane->hasTarget || target != aload(lane->slot->instance))
             continue;
-        double value = valueAt(*points, seconds, lane->targetSteps);
+        int64_t late = tracks ? plugin_audio::inputLatency(track, lane->slot.get(), *tracks) : 0;
+        double value = valueAt(*points, (double)(start - late) / sr, lane->targetSteps);
         if (lane->last < 0 || std::fabs(value - lane->last) > 1e-6) {
             if (modulation::takeAutomation(track, lane->slot.get(), lane->targetParam, value)) {
                 lane->last = value;  // (modulated: the lane moves its base, the modulation sets it)
