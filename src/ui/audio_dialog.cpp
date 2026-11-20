@@ -95,6 +95,12 @@ AudioPropertiesDialog::AudioPropertiesDialog(Window* parent, const std::string& 
         "1: everything on the audio thread, as before (try it if a plugin misbehaves).");
     form->addRow("Processing cores", coreChoice);
 
+    lowLatencyBox = add<CheckBox>("Low-latency monitoring");
+    lowLatencyBox->setToolTip("While recording, effects that hold the sound back (look-ahead: limiters, linear-phase EQs)\n"
+                              "are left out on the tracks being recorded, so you hear yourself without their delay.\n"
+                              "They come back when recording stops (the status bar says how many were left out).");
+    form->addRow(lowLatencyBox);
+
     if (engine.isOpen()) {
         Label* now = add<Label>(audio_dialog::nowPlaying(engine));
         now->setWordWrap(true);
@@ -137,6 +143,7 @@ void AudioPropertiesDialog::done(int result) {
         bufferSize = buffers->currentDataInt(0);
         exclusive = exclusiveBox->isChecked() && audio_dialog::hasExclusive(driverType);
         cores = std::max(0, coreChoice->currentDataInt(0));
+        lowLatency = lowLatencyBox->isChecked();
     }
     Dialog::done(result);
 }

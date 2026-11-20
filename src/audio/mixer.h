@@ -61,6 +61,19 @@
 // out even when muted or not soloed (its pads may be heard), and a frozen kit still hands its pads on. A pad's sound
 // whose track isn't there plays in the kit's own. The sums stay in the same order with or without workers.
 //
+// MONITORING (ui/recording.h RECORDING SEVERAL TRACKS). An audio track that hears its input (hearsInput: monitoring In,
+// or Auto while armed) has the device input it records from (Track::inputCh, a pair with inputStereo; a mono one on
+// both sides) added to its sound before its effects, so it plays through its effects, fader and pan at its place in
+// the mix, playing or not. The engine hands each part's input over (MixState::input); renders have none. A track
+// being recorded onto (MixState::recording) has its clips muted meanwhile, as DAWs do.
+//
+// EXTERNAL SYNTHS (Track::ext, audio/midi_out.h). An External synth track's notes go out as MIDI (the engine's
+// midi_out::Out, ahead by its delay); its sound is the device input channels it names, by MONITORING's own path
+// (MixState::input: the duplex stream's, or the separate input's ring under PulseAudio and JACK; the engine
+// monitors while one is there: usesInput), through its effects, fader and pan as any instrument's. It plays
+// whenever it is heard, the transport moving or not (a synth played live). Renders have no inputs: there it is
+// silent (freeze or bounce it by recording it on an audio track that hears the same input).
+//
 // This is the one mixer: playback (Engine::callback) and renders (render.h) both run it, so a render
 // is what playback sounds like, sample for sample, when buffers fall the same way.
 //
@@ -109,6 +122,12 @@ struct MixState {
     std::vector<std::pair<const Track*, patch::DelayLine>> delays;
     workers::Pool* pool = nullptr;  // tracks worked out on its threads too (see the top); null = this thread only
     void reserve(int frames, int tracks);  // make room ahead (the engine does when the device opens)
+    // MONITORING (see the top; set by the engine for each part it mixes): the device's inputs (inputChannels a
+    // frame, interleaved; null: none heard; External synths play them too), and the tracks being recorded onto
+    const float* input = nullptr;
+    int inputChannels = 0;
+    const Track* const* recording = nullptr;
+    int recordingCount = 0;
 
     // scratch (no need to touch)
     int capacity = 0, trackCapacity = 0;
@@ -184,6 +203,16 @@ bool listensTo(const std::vector<Cable>& cables, const Track* track);
 // own order); and which tracks some sidechain (or the master's) listens to. A loop of tracks
 // listening to each other keeps its own order.
 void feedingOrder(const plugin_audio::TrackList& tracks, const std::vector<Cable>& masterCables, MixState& st);
+
+// does the track hear its input (MONITORING above): an audio track with an input, monitoring In, or Auto while armed
+inline bool hearsInput(const Track& t) {
+    return t.kind == Kind::Audio && t.inputCh >= 0 &&
+           (t.monitor == Track::Monitor::In || (t.monitor == Track::Monitor::Auto && t.armed));
+}
+// does the track play the device's input: one that hears it, or an External synth whose sound comes back on it
+inline bool usesInput(const Track& t) {
+    return hearsInput(t) || (t.kind == Kind::Midi && t.ext.on && !t.needsInstrument && t.ext.input >= 0);
+}
 
 // frames a track plays later (its delay), at rate sr
 int64_t delayFrames(const Track& track, int sr);

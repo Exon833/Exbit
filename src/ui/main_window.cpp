@@ -33,6 +33,7 @@
 #include "ui/master_lane.h"
 #include "ui/master_strip.h"
 #include "ui/midi_input.h"
+#include "ui/midi_ports_dialog.h"
 #include "ui/midi_learn.h"
 #include "ui/presets_ui.h"
 #include "ui/computer_keyboard.h"
@@ -101,6 +102,8 @@ MainWindowCore::~MainWindowCore() {
     // the editors and finder first (they use the engine and project), then the rest
     keyboard.reset();  // (lets every key go)
     if (midiInput) midiInput->close();
+    if (midiInput && midi_ports_dialog::host().hub == &midiInput->hub) midi_ports_dialog::setHost({});  // (its hub goes)
+    engine.setMidiOut(nullptr);
     midiInput.reset();
     autosaver.reset();
     history.reset();
@@ -185,9 +188,8 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     ch.stop = [this] { stop(); };
     ch.setPlaying = [this](bool on) { transport->setPlaying(on); };
     ch.setRecording = [this](bool on) { transport->setRecording(on); };
-    ch.showRecording = [this](const TrackPtr& t, int64_t start) {
-        if (t) timeline->recording = std::make_pair(t, start);
-        else timeline->recording.reset();
+    ch.showRecording = [this](const std::vector<std::pair<TrackPtr, int64_t>>& takes) {
+        timeline->recording = takes;
         timeline->update();
     };
     ch.placeClip = [this](const ClipPtr& c, int64_t f, const TrackPtr& t) { timeline->placeClip(c, f, t); };
@@ -195,7 +197,7 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     ch.resetMeters = [this] { resetMeters(); };
     ch.lanesChanged = [this] { timeline->lanesChanged(); };
     ch.midiInputReady = [this] {  // a MIDI keyboard chosen, or the computer keyboard playing
-        return (midiInput && !midiInput->name().empty()) || (keyboard && keyboard->isOn());
+        return (midiInput && midiInput->hub.anyInputOpen()) || (keyboard && keyboard->isOn());
     };
     recording = std::make_unique<Recording>(ch, engine);
 
@@ -208,6 +210,8 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
                                    [this](const TrackPtr& t) { editInstrument(t); }});
         panel = p.get();
         panel->status = [this](const std::string& t, int ms) { showStatus(t, ms); };  // (TRACK SELECTION)
+        // (● on a row: punching in and out while recording: ui/recording.h RECORDING SEVERAL TRACKS)
+        panel->arm = [this](const std::vector<TrackPtr>& ts, bool on) { recording->setArmed(ts, on); };
         timeline->status = [this](const std::string& t, int ms) { showStatus(t, ms); };  // (slip, crop, fades)
         panel->loadPlugins = [this](const std::vector<SlotPtr>& slots) { return plugins->restore(slots); };
         panelScroll->setContent(std::move(p), false);  // (it sets its own height)
@@ -1105,7 +1109,17 @@ void MainWindow::showAudioProperties() {
     int cores;
     {
         AudioPropertiesDialog d(this, p.driverType, device, p.bufferSize, p.wasapiExclusive, engine);
+        d.lowLatencyBox->setChecked(p.lowLatencyMonitoring);
         if (!d.exec()) return;
+        if (d.lowLatency != p.lowLatencyMonitoring) {
+            p.lowLatencyMonitoring = d.lowLatency;
+            p.save();
+            util::debugf("audio: low-latency monitoring %s\n", d.lowLatency ? "on" : "off");
+            showStatus(d.lowLatency ? "Low-latency monitoring: effects with look-ahead are left out on the tracks being "
+                                      "recorded, while recording"
+                                    : "Low-latency monitoring off",
+                       5000);
+        }
         type = d.driverType;
         dev = d.device;
         buffer = d.bufferSize;
@@ -1369,6 +1383,7 @@ void MainWindow::openDevice() {
         if (unchanged) savedSnapshot = snapshot();  // (a saved project stays saved: converting isn't an edit)
         history->reset(engine.sr);
     }
+    panel->inputs = engine.isOpen() ? engine.inputCount() : 0;  // (an audio track's input chooser)
     panel->setChannels(engine.channels);
     applyMeterOptions();  // the engine's metering was recreated for the device
     timeline->relayout();
@@ -1780,8 +1795,9 @@ void MainWindow::onFrame() {
     Timeline* tl = timeline;
     syncLoop();  // (also after opening a project or changing the sample rate)
     engine.idle();
-    if (midiInput) midiInput->poll();  // (what the MIDI keyboard played)
-    if (recording) recording->poll();  // (recording the MIDI effects' notes: those played since)
+    if (midiInput) midiInput->poll();  // (what the MIDI keyboards played)
+    midiFrame();  // (External synths, Sync)
+    if (recording) recording->tick();  // (the MIDI effects' notes played since, the loop's passes, monitoring)
     automation::resolve(project);  // (parameters of plugins just loaded)
     modulation::resolve(project);  // (and the modulation cables' parameters)
     {  // writing automation (automation_write.h): touches idle long enough end; the curves being written show
@@ -1795,11 +1811,12 @@ void MainWindow::onFrame() {
     plugins->idle(project.pluginSlots());  // (values to their windows, latency changes)
     int64_t heard = engine.heardPos();  // (behind the engine's position while plugins hold sound back)
     tl->setPlayhead(heard);
-    if (tl->recording) {  // the take grows on its lane
+    if (!tl->recording.empty()) {  // the takes grow on their lanes
         auto tops = tl->trackTops();
-        const TrackPtr& track = tl->recording->first;
-        auto it = tops.find(track.get());
-        if (it != tops.end()) tl->update(Rect(0, it->second, tl->width(), track->height));
+        for (auto& taking : tl->recording) {
+            auto it = tops.find(taking.first.get());
+            if (it != tops.end()) tl->update(Rect(0, it->second, tl->width(), taking.first->height));
+        }
     }
     overview->refresh();
     int64_t shown = engine.playing ? heard : tl->cursor;  // stopped: where Play will start

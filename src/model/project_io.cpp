@@ -444,6 +444,21 @@ Json describeTrack(const Track& track, const std::vector<GroupPtr>& groups, int 
     if (track.swing >= 0) entry.set("swing", Json(track.swing));  // (likewise: none = the song's)
     if (track.padKit) entry.set("pad_kit", describePadKit(*track.padKit, audioFile));  // (likewise)
     if (track.soloSafe) entry.set("solo_safe", Json(true));  // (likewise)
+    if (!track.midiIn.empty()) entry.set("midi_in", Json(track.midiIn));  // (its MIDI input: likewise)
+    if (track.midiInChannel) entry.set("midi_in_channel", Json(track.midiInChannel));
+    if (track.ext != ExternalSynth()) {  // (an External synth, kept even while it plays something else: likewise)
+        const ExternalSynth& x = track.ext;
+        entry.set("external_synth", Json::object({{"on", Json(x.on)}, {"port", Json(x.port)}, {"channel", Json(x.channel)},
+                                                  {"input", Json(x.input)}, {"stereo", Json(x.stereo)},
+                                                  {"delay_ms", Json(x.delayMs)}}));
+    }
+    // (recording several tracks, model.h: likewise, each only when set)
+    if (track.armed) entry.set("armed", Json(true));
+    if (track.monitor != Track::Monitor::Auto) entry.set("monitor", Json(std::string(track.monitor == Track::Monitor::In ? "in" : "off")));
+    if (track.inputCh != 0 || track.inputStereo)
+        entry.set("input", Json(track.inputCh < 0 ? std::string("none")
+                                                  : std::to_string(track.inputCh + 1) +
+                                                        (track.inputStereo ? "/" + std::to_string(track.inputCh + 2) : "")));
     if (TrackPtr to = std::atomic_load(&track.into))  // (output routing, model/routing.h: likewise)
         for (size_t i = 0; i < tracks.size(); i++)
             if (tracks[i] == to) entry.set("output_to", Json((int)i));
@@ -1186,6 +1201,13 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
             track->muted = t.flag("muted", false);
             track->soloed = t.flag("soloed", false);
             track->soloSafe = t.flag("solo_safe", false);
+            track->armed = t.flag("armed", false);
+            std::string monitor = t.str("monitor");
+            track->monitor = monitor == "in" ? Track::Monitor::In : monitor == "off" ? Track::Monitor::Off : Track::Monitor::Auto;
+            std::string input = t.str("input");  // "1", "3/4", "none"; anything else (or none): In 1
+            int first = atoi(input.c_str());
+            track->inputCh = input == "none" ? -1 : first >= 1 && first <= 1024 ? first - 1 : 0;
+            track->inputStereo = first >= 1 && first <= 1024 && input.find('/') != std::string::npos;
             track->output = t.integer("output", 0);
             track->volumeDb = t.num("volume_db", 0.0);
             track->pan = t.num("pan", 0.0);
@@ -1198,6 +1220,17 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
             track->usesRack = t.flag("uses_rack", false);
             track->bendRange = std::max(1, std::min(24, t.integer("bend_range", 2)));
             track->swing = std::min(100.0, t.num("swing", -1.0));
+            track->midiIn = t.str("midi_in");
+            track->midiInChannel = std::clamp(t.integer("midi_in_channel", 0), 0, 16);
+            if (const Json& x = t["external_synth"]; x.isObject()) {
+                track->ext.on = x.flag("on", false);
+                track->ext.port = x.str("port");
+                track->ext.channel = std::clamp(x.integer("channel", 1), 1, 16);
+                track->ext.input = std::clamp(x.integer("input", -1), -1, 255);
+                track->ext.stereo = x.flag("stereo", true);
+                track->ext.delayMs = std::clamp(x.num("delay_ms", 0.0), 0.0, 2000.0);
+                if (!(track->ext.delayMs >= 0)) track->ext.delayMs = 0;
+            }
             if (!(track->swing >= 0)) track->swing = -1;  // (none, negative or NaN: the song's)
             if (!t["group"].isNull()) {
                 size_t i;

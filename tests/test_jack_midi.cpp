@@ -6,7 +6,8 @@
 // is run against a stand-in JACK (our own functions through jack::setApiForTesting: no sound
 // anywhere) to check ports, connections, interleaving, chunking, xruns, shutdown and the latency rule.
 // ALSA: a shared device keeps at least 80 ms (zeros only, if "default" opens).
-// MIDI: a virtual ALSA sequencer keyboard of the test's own plays into midi_in::Input; then Sustain.
+// MIDI: a virtual ALSA sequencer keyboard of the test's own plays into midi_ports::Hub (ALSA's ports), a
+// virtual synth hears what it sends; the keyboard unplugged and plugged in again; then Sustain.
 #include <alsa/asoundlib.h>
 
 #include <atomic>
@@ -21,6 +22,8 @@
 #include "audio/devices.h"
 #include "audio/jack_api.h"
 #include "audio/midi_in.h"
+#include "audio/midi_ports.h"
+#include "audio/midi_sync.h"
 #include "check.h"
 
 using namespace audio;
@@ -293,6 +296,33 @@ jack::Api api() {
     return a;
 }
 }  // namespace fake
+
+// JACK MIDI and the transport on the real JACK, when one runs: the client made, its ports listed, the transport read
+// (nothing sent anywhere, nothing started, never its timebase master: the machine's own session is left alone)
+void testRealJackMidi() {
+    jack::setApiForTesting(nullptr);
+    std::unique_ptr<midi_ports::Backend> b = midi_ports::jackBackend();
+    if (!b) {
+        printf("JACK MIDI: no JACK server: skipped\n");
+        return;
+    }
+    std::vector<midi_ports::Found> found;
+    b->list(found);
+    for (auto& f : found) {
+        printf("   JACK MIDI %s \"%s\"\n", f.input ? "in " : "out", f.key.c_str());
+        CHECK(midi_ports::isJack(f.key) && f.key.find("Tiny DAW") == std::string::npos);
+    }
+    auto* t = dynamic_cast<midi_sync::JackTransport*>(b.get());
+    CHECK(t != nullptr);
+    midi_sync::JackState s;
+    if (t && t->query(s)) {
+        printf("   JACK transport: %s at frame %lld (%d Hz)%s\n", s.rolling ? "rolling" : "stopped", (long long)s.frame,
+               s.rate, s.bbt ? ", another app tells its tempo" : "");
+        CHECK(s.rate > 0);
+        CHECK(!t->master());
+    }
+    b.reset();  // (the client closed)
+}
 
 void testFakeJack() {
     printf("stand-in JACK server:\n");
@@ -601,6 +631,41 @@ void testSustainLogic() {
     CHECK(midi_in::stableName("No numbers") == "No numbers");
 }
 
+struct Synth {  // a virtual MIDI synth: an ALSA sequencer client with one writable port, read on the test's thread
+    snd_seq_t* seq = nullptr;
+    int port = -1;
+    bool open() {
+        if (snd_seq_open(&seq, "default", SND_SEQ_OPEN_INPUT, SND_SEQ_NONBLOCK) < 0) return false;
+        snd_seq_set_client_name(seq, "TinyDAW test synth");
+        port = snd_seq_create_simple_port(seq, "notes", SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE,
+                                          SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
+        return port >= 0;
+    }
+    std::vector<std::string> received;  // "on60/100", "cc123", "clock", "start"…
+    void read() {
+        snd_seq_event_t* ev = nullptr;
+        while (snd_seq_event_input(seq, &ev) >= 0 && ev) {
+            switch (ev->type) {
+                case SND_SEQ_EVENT_NOTEON: received.push_back("on" + std::to_string(ev->data.note.note) + "/" + std::to_string(ev->data.note.velocity)); break;
+                case SND_SEQ_EVENT_NOTEOFF: received.push_back("off" + std::to_string(ev->data.note.note)); break;
+                case SND_SEQ_EVENT_CONTROLLER: received.push_back("cc" + std::to_string(ev->data.control.param)); break;
+                case SND_SEQ_EVENT_CLOCK: received.push_back("clock"); break;
+                case SND_SEQ_EVENT_START: received.push_back("start"); break;
+                case SND_SEQ_EVENT_STOP: received.push_back("stop"); break;
+                default: break;
+            }
+            ev = nullptr;
+        }
+    }
+    void close() {
+        if (seq) snd_seq_close(seq);
+        seq = nullptr;
+    }
+};
+
+// MIDI ports through the real ALSA sequencer: a virtual keyboard of the test's own plays into the Hub (every input
+// at once), a virtual synth gets what it sends; the keyboard unplugged (notes let go, "not connected"), plugged in
+// again (listened to again by itself)
 void testMidiInput() {
     Keyboard kb;
     if (!kb.open()) {
@@ -608,23 +673,27 @@ void testMidiInput() {
         return;
     }
     auto list = midi_in::ports();
-    const midi_in::PortInfo* mine = nullptr;
+    bool mine = false;
     for (auto& p : list) {
         printf("   MIDI port \"%s\" (remembered as \"%s\")\n", p.name.c_str(), p.stable.c_str());
         CHECK(p.name.compare(0, 7, "System:") != 0);
-        if (p.stable == "TinyDAW test keyboard:keys") mine = &p;
+        if (p.stable == "TinyDAW test keyboard:keys") mine = true;
     }
-    CHECK(mine != nullptr);
-    midi_in::Input in;
-    CHECK(!in.open("No such keyboard"));
-    CHECK(!in.isOpen() && in.name() == "No such keyboard");
-    CHECK(in.open(""));
-    std::atomic<int> called{0}, notified{0};
-    in.setCallback([&](const Event&) { called++; });
-    in.setNotify([&] { notified++; });
-    CHECK(in.open("TinyDAW test keyboard:keys"));
-    CHECK(in.isOpen());
+    CHECK(mine);
+    Synth synth;
+    CHECK(synth.open());
+    midi_ports::Hub hub;
+    hub.start();
+    CHECK(hub.running());
+    const char* KEYS = "TinyDAW test keyboard:keys";
+    const char* SYNTH = "TinyDAW test synth:notes";
+    const midi_ports::Port* in = hub.find(KEYS, true);
+    CHECK(in && in->present && in->on && in->open);  // (an input never seen before: listened to at once)
+    const midi_ports::Port* out = hub.find(SYNTH, false);
+    CHECK(out && out->present && !out->on && !out->open);  // (an output waits to be chosen)
     for (auto& p : midi_in::ports()) CHECK(p.name.compare(0, 9, "Tiny DAW:") != 0);  // our own isn't offered
+    for (auto& p : midi_in::outputs()) CHECK(p.name.compare(0, 9, "Tiny DAW:") != 0);
+    int slot = in ? in->slot : -1;
     double t0 = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
     kb.note(60, 100);
     kb.note(64, 90);
@@ -637,16 +706,17 @@ void testMidiInput() {
     kb.note(67, 0);  // (velocity 0: a note-off)
     kb.note(67, 55);
     kb.cc(123, 0);
-    std::vector<Event> got;
+    std::vector<Event> got, all;
     for (int i = 0; i < 200 && got.size() < 11; i++) {
         sleepMs(5);
-        in.poll(got);
+        all.clear();
+        hub.poll(all);
+        for (auto& e : all)
+            if (e.port == slot) got.push_back(e);  // (the machine's own keyboards may play too)
     }
     double t1 = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
     printf("   received: %s\n", join(got).c_str());
     CHECK(join(got) == "on60/100 on64/90 cc64=127 off60 off64 on60/80 cc64=0 bend1000 off67 on67/55 cc123=0");
-    CHECK(called == 11);
-    CHECK(notified >= 1);
     bool ordered = true, inTime = true;
     for (size_t i = 0; i < got.size(); i++) {
         if (i && got[i].time < got[i - 1].time) ordered = false;
@@ -660,22 +730,63 @@ void testMidiInput() {
     for (auto& e : got) sus.handle(e, played);
     printf("   played:   %s\n", join(played).c_str());
     CHECK(join(played) == "on60/100 on64/90 off60 on60/80 off64 bend1000 off67 on67/55 off60 off67 cc123=0");
-    // the keyboard goes away
-    CHECK(!in.lost());
+    // out: the synth chosen, a note sent at once and clock from the audio thread's scheduler (now)
+    hub.setOn(SYNTH, false, true);
+    out = hub.find(SYNTH, false);
+    CHECK(out && out->open);
+    if (out && out->open) {
+        uint8_t on[3] = {0x90, 62, 99}, off[3] = {0x80, 62, 0};
+        hub.sendNow(out->slot, on, 3);
+        hub.sendNow(out->slot, off, 3);
+        for (int i = 0; i < 100 && synth.received.size() < 2; i++) sleepMs(5), synth.read();
+        CHECK(synth.received.size() >= 2 && synth.received[0] == "on62/99" && synth.received[1] == "off62");
+        synth.received.clear();
+        hub.setOn(SYNTH, false, false);  // closed: All Notes Off on all 16 channels first
+        for (int i = 0; i < 100 && synth.received.size() < 16; i++) sleepMs(5), synth.read();
+        CHECK(synth.received.size() == 16 && synth.received[0] == "cc123");
+    }
+    // the keyboard goes away (unplugged): announced, closed, its slot reported lost, greyed
     kb.close();
-    for (int i = 0; i < 100 && !in.lost(); i++) sleepMs(5);
-    CHECK(in.lost());
-    in.close();
-    CHECK(!in.isOpen());
-    std::vector<Event> none;
-    CHECK(in.poll(none) == 0);
-    CHECK(in.dropped() == 0);
+    std::vector<int> lost;
+    for (int i = 0; i < 200 && lost.empty(); i++) {
+        sleepMs(5);
+        hub.tick(1e9 * 0 + i * 0.005);  // (the announcement makes it look again at once)
+        all.clear();
+        hub.poll(all, &lost);
+    }
+    CHECK(lost.size() == 1 && !lost.empty() && lost[0] == slot);
+    in = hub.find(KEYS, true);
+    CHECK(in && !in->present && !in->open && in->on);
+    CHECK(in && in->label().find("not connected") != std::string::npos);
+    // …and comes back: listened to again by itself
+    CHECK(kb.open());
+    for (int i = 0; i < 200 && !(in && in->open); i++) {
+        sleepMs(5);
+        hub.tick(1.0 + i * 0.005);
+        in = hub.find(KEYS, true);
+    }
+    CHECK(in && in->open && in->present && in->slot == slot);
+    kb.note(72, 64);
+    got.clear();
+    for (int i = 0; i < 200 && got.empty(); i++) {
+        sleepMs(5);
+        all.clear();
+        hub.poll(all);
+        for (auto& e : all)
+            if (e.port == slot) got.push_back(e);
+    }
+    CHECK(join(got) == "on72/64");
+    hub.stop();
+    CHECK(!hub.running());
+    synth.close();
+    kb.close();
 }
 
 }  // namespace
 
 int main() {
     testRealJack();
+    testRealJackMidi();
     testFakeJack();
     testAlsaShared();
     testSustainLogic();

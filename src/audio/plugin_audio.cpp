@@ -12,7 +12,9 @@ bool usable(const PluginSlot* slot) {
     return slot && aload(slot->instance) && !slot->failed.load(std::memory_order_acquire);
 }
 
-bool active(const PluginSlot* slot) { return usable(slot) && !slot->bypass; }
+bool active(const PluginSlot* slot) {
+    return usable(slot) && !slot->bypass && !slot->lowLatencyBypass.load(std::memory_order_relaxed);
+}
 
 int latency(const PluginSlot& slot) {
     auto inst = aload(slot.instance);
@@ -95,7 +97,8 @@ int inputLatency(const Track& track, const PluginSlot* slot, const TrackList& tr
 }
 
 bool playsPlugins(const Track& track) {
-    return track.kind == Kind::Midi && !track.needsInstrument && (track.usesRack || usable(aload(track.instrument)));
+    return track.kind == Kind::Midi && !track.needsInstrument && !track.ext.on &&
+           (track.usesRack || usable(aload(track.instrument)));
 }
 
 bool isFed(const PluginSlot* slot, const std::vector<Cable>& rc) {

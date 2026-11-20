@@ -409,7 +409,7 @@ made from `default.css` by `tools/skins_reference.py`.
 | `--group-height` | `52px` | a group's header lane and row |
 | `--take-height` | `46px` | a take lane and its row |
 | `--automation-padding` | `6px` | above and below the curve in an automation lane |
-| `--panel-width` | `250px` | the track rows' panel |
+| `--panel-width` | `276px` | the track rows' panel |
 | `--overview-height` | `44px` | the overview's standard height (the least it can be dragged to) |
 | `--overview-max-height` | `320px` | … the most |
 | `--clip-header-height` | `16px` | a clip's name strip (drag it to move the clip) |
@@ -617,7 +617,7 @@ from its style is `--layout-spacing` (rows and columns) and `--grid-spacing` (gr
   opens, and its least); parts `::path-row`, `::nav-button` (Up and Home: `width`, `height`), `::middle`,
   `::places` (the list of places: `width`), `::form`. Its list is a **`FileList`**.
 - **`AudioPropertiesDialog`**, **`RecordOffsetDialog`**, **`RenderDialog`** (render the mix),
-  **`RecordSettingsDialog`**, **`TempoDialog`**.
+  **`RecordSettingsDialog`**, **`TempoDialog`**, **`MidiPortsDialog`** (Options → MIDI ports…), **`ExternalSynthDialog`**.
 - `Dialog.group-tracks` (grouping tracks), `Dialog.recovery` (after a crash: parts `::text`, `::buttons` with
   `margin-top`).
 

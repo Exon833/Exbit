@@ -470,8 +470,8 @@ static void testTui() {
     w->project.addClip(c);
     // the transport: Left from Play wraps to Swing, then Key
     f.pane = tui::Front::Pane::Transport;
-    f.control = 0;
-    keys({K(plat::Key_Left), K(plat::Key_Left), K(plat::Key_Up), K(plat::Key_Up)});
+    // the transport: Left from Play wraps to Sync, then Swing, then Key
+    keys({K(plat::Key_Left), K(plat::Key_Left), K(plat::Key_Left), K(plat::Key_Up), K(plat::Key_Up)});
     CHECK(w->project.timing.key == 2 && w->project.timing.scale == "Major");
     CHECK(screen.lines().find("Key D major") != std::string::npos);
     CHECK(w->transport->keyButton->text() == "Key: D major \xe2\x96\xbe");

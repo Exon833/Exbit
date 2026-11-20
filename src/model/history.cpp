@@ -6,7 +6,7 @@ namespace history {
 
 // The data fields of each kind of object a snapshot keeps (history.py's _fields: everything but
 // VIEW_FIELDS, TIMING_VIEW_FIELDS and RUNTIME_FIELDS). Left out on purpose:
-//   Track: height, showAutomation, showTakes (view); patchState, rackState, controls (runtime)
+//   Track: height, showAutomation, showTakes, armed (view); patchState, rackState, controls (runtime)
 //   Group: folded (view)
 //   PluginSlot: state, instance, failed, error, recent (runtime)
 //   Automation: height (view); targetPlugin, targetParam, targetSteps, hasTarget, last (runtime)
@@ -16,7 +16,7 @@ namespace history {
     X(name) X(kind) X(muted) X(soloed) X(soloSafe) X(output) X(volumeDb) X(delayMs) X(pan) X(sends) X(instrument)          \
     X(midiEffects) X(sampler) X(padKit) X(needsInstrument) X(effects) X(cables) X(modCables) X(color) X(tone)     \
     X(group) X(frozen) X(automation) X(takes) X(usesRack) X(rack) X(rackCables) X(bendRange) \
-    X(swing) X(into) X(padOut)
+    X(swing) X(into) X(padOut) X(midiIn) X(midiInChannel) X(ext) X(monitor) X(inputCh) X(inputStereo)
 #define GROUP_FIELDS(X) X(name) X(muted) X(soloed) X(color) X(tone) X(foldOnly) X(parent)
 #define CLIP_FIELDS(X)                                                                                          \
     X(kind) X(name) X(track) X(start) X(offset) X(length) X(color) X(tone) X(disabled) X(gainDb) X(fadeIn)     \
@@ -242,6 +242,10 @@ const char* trackChange(const TrackData& d, const Track& o) {
     if (!same(d.delayMs, o.delayMs)) return "Track delay";
     if (!same(d.bendRange, o.bendRange)) return "Pitch bend range";
     if (!same(d.swing, o.swing)) return "Swing";
+    if (!same(d.midiIn, o.midiIn) || !same(d.midiInChannel, o.midiInChannel)) return "MIDI input";
+    if (!same(d.ext, o.ext)) return "External synth";
+    if (!same(d.monitor, o.monitor)) return "Monitoring";
+    if (!same(d.inputCh, o.inputCh) || !same(d.inputStereo, o.inputStereo)) return "Track input";
     return matches(d, o) ? nullptr : "Track settings";
 }
 

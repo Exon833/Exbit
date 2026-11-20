@@ -96,7 +96,8 @@ void MainWindow::exportMidi(const std::vector<ClipPtr>& clips) {
 
 void MainWindow::addMidiOptions(ui::Menu* menu) {
     menu->addAction("Recording &offset…", [this] { showRecordOffset(); });
-    menu->addAction("&MIDI input…", [this] { chooseMidiInput(); });
+    menu->addAction("&MIDI ports…", [this] { chooseMidiInput(); })->tooltip =
+        "Every MIDI input and output: on or off, MIDI clock in and out (several at once)";
     // the computer keyboard as a piano (computer_keyboard.h)
     keysAction = menu->addCheckable("Computer &keyboard\tCtrl+K", computer_keyboard::savedOn(), [this](bool on) {
         transport->keysAction->setChecked(on);  // (its toggled turns the keyboard on or off)
@@ -109,23 +110,25 @@ void MainWindow::showRecordOffset() {
     d.exec();
 }
 
-void MainWindow::chooseMidiInput() {
-    if (midiInput) midi_input::chooseInput(this, *midiInput);
-}
+void MainWindow::chooseMidiInput() { showMidiPorts(); }
 
 void MainWindow::setUpMidi() {
     // MIDI input (Options → MIDI input…), the computer keyboard (Ctrl+K), Capture, the MIDI windows' host
     midiInput = std::make_unique<midi_input::MidiInput>(
         engine, project, [this] { return timeline->currentTrack; },
         [this](const std::string& m, int ms) { showStatus(m, ms); });
-    std::string name = midi_input::savedName();
-    if (!midiInput->open(name))
-        showStatus("MIDI input “" + name + "” isn't connected now (Options → MIDI input…)", 5000);
+    setUpMidiPorts();  // (Options → MIDI ports…: main_window_midi.cpp)
     // while recording MIDI, every note played (the pedal taken into account) goes to the take
     midiInput->recorder = [this](const midi_in::Event& e) {
         if (!recording->recordingMidi()) return;
-        if (e.type == midi_in::Event::NoteOn) recording->midiNote(e.data1, e.data2);
-        else if (e.type == midi_in::Event::NoteOff) recording->midiNote(e.data1, 0);
+        // (each armed track records what its MIDI input lets through: All, or that port and channel)
+        std::string port = midiInput->portName(e.port);
+        auto to = [&](const Track& t) {
+            return e.port < 0 || t.midiIn.empty() ||
+                   (t.midiIn == port && (t.midiInChannel == 0 || t.midiInChannel == e.channel + 1));
+        };
+        if (e.type == midi_in::Event::NoteOn) recording->midiNote(e.data1, e.data2, to);
+        else if (e.type == midi_in::Event::NoteOff) recording->midiNote(e.data1, 0, to);
     };
     keyboard = std::make_unique<computer_keyboard::ComputerKeyboard>(
         *midiInput, [this](const std::string& m, int ms) { showStatus(m, ms); });

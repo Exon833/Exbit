@@ -40,6 +40,10 @@
 // Right-click a track: Duplicate track (Ctrl+D when no clip is selected), Duplicate without clips, Move up / down
 // (Alt+Up / Alt+Down); drag a row up or down by its name to move the track(s) there (model/track_ops.h).
 //
+// RECORDING SEVERAL TRACKS (ui/recording.h): ● after S arms the track (the selected ones; Shift-click: more); an
+// audio track's row has its input before its meter (None, a device input or pair) and its monitoring (the speaker:
+// Auto, In, Off) after Auto (record_arm.h). A change goes to every selected track.
+//
 // STYLES: the panel is the stylesheets' `TrackPanel`, its width the :root variable --panel-width. Each row is a
 // node `TrackRow` under it: .track (:alternate every other), .automation (:armed while armed for writing),
 // .take or .group, and the kind of its track (.audio, .midi, .return). A row reads its background-color (a
@@ -208,6 +212,12 @@ public:
     // its chain; how many tracks got one
     int addToSelected(const TrackPtr& owner, const SlotPtr& slot);
     void say(const std::string& what, size_t count);  // the status bar: "<what>: 3 tracks" when it went to several
+    // ● on track's row (and the terminal's Shift+R): arm (or disarm) it, or the selected tracks; arming them alone
+    // disarms the other tracks unless `more` (Shift-click). Through `arm` when set (Recording::setArmed: punching
+    // in and out while recording), else the flags alone
+    void armTrack(const TrackPtr& track, bool on, bool more);
+    std::function<void(const std::vector<TrackPtr>&, bool)> arm;
+    int inputs = 0;  // the device's input channels (an audio track's input chooser; set by the main window)
     // set by the main window: the status bar, and loading plugins (PluginHost::restore: the names of those that
     // could not be loaded); unset: nothing said, plugins left unloaded
     std::function<void(const std::string&, int)> status;

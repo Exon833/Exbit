@@ -128,7 +128,7 @@ void Timeline::paintArea(Painter& p, const Rect& r) {
     }
     paintLoop(p);
     paintMarkers(p, r);
-    if (recording) paintRecording(p, tops);
+    if (!recording.empty()) paintRecording(p, tops);
     paint::cursor(p, cursorX, lk.cursor.color, height(), lk.cursor.width);
     paint::cursor(p, playheadX, lk.playhead.color, height(), lk.playhead.width);  // on top where they meet
     p.restore();
@@ -391,12 +391,13 @@ void Timeline::paintLoop(Painter& p) {
 }
 
 void Timeline::paintRecording(Painter& p, const std::map<const Track*, int>& tops) {
-    // the take being recorded, growing on its track's lane up to the playback cursor
-    const TrackPtr& track = recording->first;
-    auto it = tops.find(track.get());
-    if (it == tops.end()) return;
-    int x0 = (int)xOf(recording->second);
-    box(p, Rect(x0, it->second, std::max(0, playheadX - x0), track->height), look().recording);
+    // the takes being recorded, each growing on its track's lane up to the playback cursor
+    for (auto& [track, from] : recording) {
+        auto it = tops.find(track.get());
+        if (it == tops.end()) continue;
+        int x0 = (int)xOf(from);
+        box(p, Rect(x0, it->second, std::max(0, playheadX - x0), track->height), look().recording);
+    }
 }
 
 void Timeline::paintRuler(Painter& p, const Rect& r, bool ruler, int line0, int line1) {

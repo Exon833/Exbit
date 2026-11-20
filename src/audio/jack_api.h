@@ -7,6 +7,7 @@
 // library, libjack.so.0, is loaded with dlopen when JACK is first asked for and is never linked, so
 // the program starts and runs where JACK isn't installed at all. Only what Tiny DAW calls is here.
 #pragma once
+#include <cstddef>
 #include <cstdint>
 
 namespace jack {
@@ -60,6 +61,40 @@ struct LatencyRange {  // jack_latency_range_t (frames)
 };
 
 constexpr const char* DEFAULT_AUDIO_TYPE = "32 bit float mono audio";  // JACK_DEFAULT_AUDIO_TYPE
+constexpr const char* DEFAULT_MIDI_TYPE = "8 bit raw midi";            // JACK_DEFAULT_MIDI_TYPE
+
+// --- MIDI (jack/midiport.h) ---
+struct MidiEvent {  // jack_midi_event_t
+    nframes_t time;      // frame offset in the cycle
+    size_t size;
+    uint8_t* buffer;
+};
+
+// --- the transport (jack/transport.h) ---
+enum TransportState : int { TransportStopped = 0, TransportRolling = 1, TransportLooping = 2, TransportStarting = 3 };
+enum PositionBits : int { PositionBBT = 0x10 };  // jack_position_bits_t: the bar, beat and tick fields are valid
+#pragma pack(push, 1)
+struct Position {  // jack_position_t (packed, 136 bytes, as JACK's own header declares it)
+    uint64_t unique_1;
+    uint64_t usecs;
+    nframes_t frame_rate;
+    nframes_t frame;
+    int valid;
+    int32_t bar, beat, tick;  // (bar and beat from 1)
+    double bar_start_tick;
+    float beats_per_bar, beat_type;
+    double ticks_per_beat, beats_per_minute;
+    double frame_time, next_time;
+    nframes_t bbt_offset;
+    float audio_frames_per_video_frame;
+    nframes_t video_offset;
+    double tick_double;
+    int32_t padding[5];
+    uint64_t unique_2;
+};
+#pragma pack(pop)
+static_assert(sizeof(Position) == 136, "jack_position_t is 136 bytes");
+using TimebaseCallback = void (*)(int state, nframes_t frames, Position* pos, int newPos, void* arg);
 
 // --- callbacks (all on JACK's threads: the process one on its real-time thread) ---
 using ProcessCallback = int (*)(nframes_t frames, void* arg);            // 0 = go on
@@ -95,6 +130,22 @@ struct Api {
     void (*port_get_latency_range)(Port*, int mode, LatencyRange* range);      // jack_port_get_latency_range
     void (*set_error_function)(ErrorFunction);                                 // jack_set_error_function
     void (*set_info_function)(ErrorFunction);                                  // jack_set_info_function
+    // (MIDI and the transport: optional, null where the library lacks them)
+    uint32_t (*midi_get_event_count)(void* buffer);                            // jack_midi_get_event_count
+    int (*midi_event_get)(MidiEvent* event, void* buffer, uint32_t index);     // jack_midi_event_get
+    void (*midi_clear_buffer)(void* buffer);                                   // jack_midi_clear_buffer
+    int (*midi_event_write)(void* buffer, nframes_t time, const uint8_t* data, size_t size);  // jack_midi_event_write
+    nframes_t (*last_frame_time)(const Client*);                               // jack_last_frame_time
+    uint64_t (*frames_to_time)(const Client*, nframes_t frames);               // jack_frames_to_time (µs)
+    uint64_t (*get_time)();                                                    // jack_get_time (µs)
+    int (*transport_query)(const Client*, Position* pos);                      // jack_transport_query
+    void (*transport_start)(Client*);                                          // jack_transport_start
+    void (*transport_stop)(Client*);                                           // jack_transport_stop
+    int (*transport_locate)(Client*, nframes_t frame);                         // jack_transport_locate
+    int (*set_timebase_callback)(Client*, int conditional, TimebaseCallback, void* arg);  // jack_set_timebase_callback
+    int (*release_timebase)(Client*);                                          // jack_release_timebase
+    bool hasMidi() const { return midi_get_event_count && midi_event_get && midi_clear_buffer && midi_event_write; }
+    bool hasTransport() const { return transport_query && transport_start && transport_stop && transport_locate; }
 };
 
 // libjack.so.0's functions (loaded on the first call, kept loaded), or nullptr when the library

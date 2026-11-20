@@ -63,6 +63,25 @@ bool TrackRow::mouseRelease(ui::MouseEvent& e) {
 // LanePanel: TRACK SELECTION
 // ============================================================================================
 
+void LanePanel::armTrack(const TrackPtr& track, bool on, bool more) {
+    // ● on a row: that track, or the selected ones; a plain click arming them disarms the others (Shift: more)
+    std::vector<TrackPtr> ts = targets(track), others;
+    if (on && !more)
+        for (auto& t : project.tracks)
+            if (t->armed && std::find(ts.begin(), ts.end(), t) == ts.end()) others.push_back(t);
+    if (arm) {
+        if (!others.empty()) arm(others, false);
+        arm(ts, on);
+    } else {
+        for (auto& t : others) t->armed = false;
+        for (auto& t : ts)
+            if (t->kind != Kind::Return) t->armed = on;
+    }
+    rebuild();  // (their ● and speakers)
+    timeline.update();
+    say(on ? "Arm" : "Disarm", ts.size());
+}
+
 std::vector<TrackPtr> LanePanel::targets(const TrackPtr& track) const {
     std::vector<TrackPtr> out;
     if (has(selected, track))

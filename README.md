@@ -41,7 +41,9 @@ extends; that program is in the repository's history.
   slide, pan and fine pitch; linked clips (edit one, every linked copy changes); the built-in synth,
   sampler and Pad Kit (a sample per pad, choke groups; any pad on its own track, or Pads to tracks; slice a
   loop onto one by its hits, a grid or by hand, hearing each slice); MIDI effects (arpeggiator, chord, scale, note length, velocity, random, pitch, groove), also on notes
-  played live, and committed into the notes (this clip, every clip, or onto a new track); a MIDI keyboard (with sustain pedal) or the computer
+  played live, and committed into the notes (this clip, every clip, or onto a new track); MIDI keyboards (several ports at once: Options → MIDI ports…; a
+  track can listen to one port and channel), hardware synths (External synth: notes out, audio back, its delay
+  measured), MIDI clock in and out, JACK transport (Sync in the transport); a MIDI keyboard (with sustain pedal) or the computer
   keyboard; MIDI recording, Capture of what you just played, MIDI file import and export.
 - **Modulators**: an LFO, Random, a Level Follower, a Macro knob and MIDI Control (the mod wheel or any
   controller of a MIDI keyboard), placed in the effects window like
@@ -54,7 +56,8 @@ extends; that program is in the repository's history.
   placed and wired by hand in a patch space with sidechains and a Mix (dry/wet) control;
   instrument patch panels; automation of any parameter, volume and pan; plugin delay compensation.
 - **Audio**: ALSA, PulseAudio (PipeWire through either) and JACK; tracks worked out on every
-  processor core at once, with each track's CPU use shown; recording with count-in and a
+  processor core at once, with each track's CPU use shown; several armed tracks recorded at once (each from its own input), input monitoring
+  (In / Auto / Off, a low-latency mode), punch in and out, MIDI round the loop (Merge or Takes); recording with count-in and a
   measurable recording offset; freeze and bounce; render to WAV, FLAC, MP3 or OGG with peak or
   loudness normalizing; stems; level meters with peak and RMS, peak hold and clip lights; LUFS and true
   peak (dBTP) on the master; solo safe (right-click S) and exclusive solo (Alt-click S); automation kept in
@@ -252,7 +255,7 @@ the knob over its whole range), **The other way**, **Remove** (the knob goes bac
   this one: a kick pumping a pad's volume or a filter.
 - **Macro**: one knob (0 … 100 %). Wire it to several knobs to turn them together; automate it like
   any parameter.
-- **MIDI Control**: the latest value of a controller of the MIDI keyboard (Options → MIDI input): the
+- **MIDI Control**: the latest value of a controller of the MIDI keyboard (Options → MIDI ports…): the
   mod wheel (CC 1, the default), any other CC 0–127, or the pitch bend (both ways), with a Smooth time.
   Wire it to a filter's cutoff and the mod wheel opens it, on any plugin.
 

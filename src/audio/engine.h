@@ -18,6 +18,14 @@
 // device in use (recordOffsetMs: Options → Recording offset, record_offset.h), which corrects what the
 // driver reports wrong: Recorder::audio() gives the timeline frame with all of them taken off.
 //
+// RECORDING SEVERAL TRACKS (ui/recording.h): startRecording can take a take for each of several tracks at once
+// (RecordInput: its track and its own input channels), a Recorder each, all begun on the same frame; addRecorder /
+// removeRecorders punch them in or out while recording. The set is replaced as a whole (the audio thread never
+// waits for it); each Recorder keeps its take in blocks made on the GUI thread (idle() collects them all).
+// With loopRecording, playback goes round the loop while recording, audio or MIDI.
+// MONITORING (setMonitoring, mixer.h): the inputs heard through the tracks that monitor them: a duplex stream's
+// own; with other drivers the default input, opened for it, its buffers handed over through a ring.
+//
 // MIDI recording (startMidiRecording / finishMidiRecording): playback from pos without looping; the GUI
 // keeps the notes in a MidiTake (every note where it was heard as it was played: heardNow()), and
 // finish() ends the notes still held where recording stopped. Every take, audio or MIDI, is kept with
@@ -25,6 +33,10 @@
 // It also plays the Explorer's sample preview (preview()), on outputs 1/2, playing or not, and the
 // metronome while playing (setMetronome(), metronome.h), after the master meters so it never counts
 // towards the master's level or LUFS.
+//
+// MIDI out (audio/midi_out.h): with setMidiOut(), every buffer also hands its parts to the MIDI scheduler (clock,
+// Start/Stop, External synth notes, timed from this buffer) and, while monitoring, the inputs heard (Measure). An
+// External synth's returning sound is heard through MONITORING's input path, whatever the driver (mixer.h).
 //
 // What the GUI must do:
 //   - call idle() now and then (every frame): frees what the audio thread let go of, drains a
@@ -49,6 +61,7 @@
 #include "audio/live.h"
 #include "audio/metering.h"
 #include "audio/metronome.h"
+#include "audio/midi_out.h"
 #include "audio/mixer.h"
 #include "model/model.h"
 
@@ -61,12 +74,18 @@ constexpr double CLOCK_REANCHOR_S = 10.0;
 // through a lock-free ring; collect() on the GUI thread moves them into the take). `start` is the
 // timeline frame it began at; `late` how many frames the input arrives after what was heard (the
 // device's input and output delay plus plugin delay compensation), so the take is moved that much
-// earlier.
+// earlier. The take is kept in blocks of BLOCK samples, each made on the GUI thread as it fills: it grows
+// without ever copying what it holds (an hour stays an hour's worth of memory), and the audio thread only
+// ever writes into the ring, made with the Recorder.
 class Recorder {
 public:
     static constexpr int64_t NONE = INT64_MIN;
-    Recorder(std::vector<int> channels, double ioLatencyS, int sr, double ringSeconds = 20.0, double offsetMs = 0.0);
+    static constexpr size_t BLOCK = (size_t)1 << 16;  // samples a block of the take
+    // track: the track it records onto (RECORDING SEVERAL TRACKS: Engine::startRecording; null: the one take)
+    Recorder(std::vector<int> channels, double ioLatencyS, int sr, double ringSeconds = 20.0, double offsetMs = 0.0,
+             const Track* track = nullptr);
     const std::vector<int> channels;
+    const Track* const track;
     std::atomic<int64_t> start{NONE};
     const int64_t ioFrames;
     const double offsetMs;       // the recording offset it was placed with (ms; positive: earlier)
@@ -80,12 +99,25 @@ public:
     // (timeline frame, audio interleaved with channels.size() per frame) of the take so far (GUI thread): its
     // start less `late` and the recording offset (may be negative: then what came in before 0 s is to be dropped)
     int64_t audio(std::vector<float>& out);
-    const std::vector<float>& takeSoFar() const { return take_; }
+    int64_t timelineStart() const;  // that frame alone
+    int64_t frames() const { return channels.empty() ? 0 : (int64_t)(size_ / channels.size()); }  // collected so far
+    // frames [from, to) of the take collected so far, as stereo (a mono input on both sides), into out
+    void stereo(int64_t from, int64_t to, std::vector<float>& out) const;
+    size_t memoryBytes() const;  // the ring and the blocks (tests: what an hour costs)
+    size_t ringSamples() const { return ring_.size(); }
 
 private:
     std::vector<float> ring_;
     std::atomic<uint64_t> head_{0}, tail_{0};
-    std::vector<float> take_;
+    std::vector<std::unique_ptr<float[]>> blocks_;
+    size_t size_ = 0;  // samples in the blocks
+    float at(size_t i) const { return blocks_[i / BLOCK][i % BLOCK]; }
+};
+
+// RECORDING SEVERAL TRACKS: one track's take: its track and the input channels it records (0-based)
+struct RecordInput {
+    const Track* track = nullptr;
+    std::vector<int> channels;
 };
 
 // A sample being previewed: stereo audio at the engine rate and how far it has played; with
@@ -178,8 +210,24 @@ public:
     // Play from pos and record the input `channels` (0-based) from there, after `countIn` frames during
     // which `clicks` (the count-in, stereo) play. False and `error` if the input can't be opened.
     bool startRecording(const std::vector<int>& channels, int64_t countIn, AudioPtr clicks, std::string& error);
+    // RECORDING SEVERAL TRACKS: the same with a take for each of `takes` at once, each from its own inputs
+    bool startRecording(const std::vector<RecordInput>& takes, int64_t countIn, AudioPtr clicks, std::string& error);
     // Stop playback and recording; returns the Recorder (null if not recording), all collected.
     std::shared_ptr<Recorder> finishRecording();
+    std::vector<std::shared_ptr<Recorder>> finishRecordings();  // (every take's, in the order they began)
+    // While recording: a take for one more track from here (punching in; null if not recording or the input
+    // can't be had), or these tracks' takes ended here (punching out, all at once: their Recorders, all collected)
+    std::shared_ptr<Recorder> addRecorder(const RecordInput& take, std::string& error);
+    std::vector<std::shared_ptr<Recorder>> removeRecorders(const std::vector<const Track*>& tracks);
+    bool recordingAudio() const { return (bool)std::atomic_load(&recorders_); }
+    // MONITORING (mixer.h): some track hears its input (the GUI says so whenever that changes). Drivers without
+    // a duplex stream open their default input for it (as for recording) and keep it open while it is wanted.
+    // False and `error` if it can't be heard (no device, or no input).
+    bool setMonitoring(bool on, std::string& error);
+    bool monitoring() const { return monitoring_.load(); }
+    // (GUI thread) something besides the tracks wants the input heard (an External synth being measured:
+    // ui/midi_ports_dialog.h); ui/recording keeps monitoring on meanwhile
+    bool inputWanted = false;
     // Play from pos for recording MIDI (the GUI keeps the notes: MidiTake), after `countIn` frames of
     // `clicks`. It doesn't loop meanwhile. False and `error` if no device is open (or it plays already).
     bool startMidiRecording(int64_t countIn, AudioPtr clicks, std::string& error);
@@ -188,7 +236,13 @@ public:
     // counting in): the last buffer's start, plus the time since it was made, less the device's output
     // delay and the plugins' delay (so a note played along with what is heard lands where it was heard)
     bool heardNow(double& frame) const;
-    std::shared_ptr<Recorder> recorder() const { return std::atomic_load(&recorder_); }
+    std::shared_ptr<Recorder> recorder() const;  // the first take being recorded (null: none)
+    // every take being recorded (null: none), and the tracks they record onto (in the same order)
+    struct RecordSet {
+        std::vector<std::shared_ptr<Recorder>> recorders;
+        std::vector<const Track*> tracks;
+    };
+    std::shared_ptr<const RecordSet> recorders() const { return std::atomic_load(&recorders_); }
 
     void seek(int64_t frame);
     // Where what is heard now is on the timeline: plugins with look-ahead hold the sound back
@@ -209,6 +263,9 @@ public:
     // Switch the metronome on with these sounds, or off (nullopt).
     void setMetronome(const std::optional<metronome::MetronomeSettings>& settings);
     const std::optional<metronome::MetronomeSettings>& metronomeSettings() const { return metronome_; }
+
+    // MIDI out (audio/midi_out.h): the scheduler every buffer is handed to (null: none); GUI thread
+    void setMidiOut(std::shared_ptr<midi_out::Out> out);
 
     // the latest error inside the audio callback, if any (it then played silence); "" = none
     std::string lastError() const;
@@ -259,7 +316,21 @@ private:
     mutable std::mutex posLock_;  // guards pos / playFrom_ between the GUI and audio threads (held for microseconds)
     std::atomic<int64_t> playFrom_{0};  // where playback last started or jumped to
     std::shared_ptr<const LoopRange> loop_;
-    std::shared_ptr<Recorder> recorder_;
+    std::shared_ptr<const RecordSet> recorders_;
+    void setRecorders(std::shared_ptr<const RecordSet> set);  // GUI thread (the old one kept a while)
+    bool openInput(int channels, std::string& error);  // the default input for drivers without a duplex stream
+    bool prepareInput(int channels, double& io, std::string& error);  // (that, or the duplex stream's; and its delay)
+    void closeInput();
+    // the separate input heard while monitoring: a ring from its thread to the audio thread
+    struct InputRing {
+        std::vector<float> data;
+        int channels = 0;
+        std::atomic<uint64_t> head{0}, tail{0};
+        std::vector<float> scratch;  // (audio thread) a buffer of it, pulled from the ring
+    };
+    std::shared_ptr<InputRing> inputRing_;
+    double recordIo_ = 0;              // (the takes' input and output delay, for one punched in)
+    std::atomic<bool> monitoring_{false};
     std::shared_ptr<PreviewVoice> preview_;
     std::shared_ptr<const metronome::Clicks> clicks_;
     std::optional<metronome::MetronomeSettings> metronome_;
@@ -290,6 +361,9 @@ private:
     int inputChannels_ = 0;
     int inputStreamChannels_ = 0;
     std::shared_ptr<PreviewVoice> guiPreview_;  // the voice last started (GUI thread): never freed by the audio thread
+    std::shared_ptr<midi_out::Out> midiOut_;    // (atomic_load; one replaced is kept a while: keep())
+    std::vector<midi_out::Part> midiParts_;     // (audio thread scratch)
+    std::atomic<double> outLatency_{0};         // outputLatency(), as idle() last found it
 };
 
 }  // namespace audio

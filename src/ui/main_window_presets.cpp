@@ -74,11 +74,11 @@ void MainWindow::setUpPresets() {
     learner->windowOpen = [this](const PluginSlot* slot) { return plugins->editors.count(const_cast<PluginSlot*>(slot)) > 0; };
     learner->mixerMoved = [this](const TrackPtr& track) { showMixerOf(track); };
     learner->pluginMoved = [this](const SlotPtr&) { plugins->edited = true; };  // (its settings may differ from the saved)
-    learner->inputReady = [this] { return midiInput && midiInput->input.isOpen(); };
+    learner->inputReady = [this] { return midiInput && midiInput->hub.anyInputOpen(); };
     midi_learn::setActive(learner.get());
     if (midiInput)
         midiInput->controlHook = [this](const midi_in::Event& e) {
-            return learner && learner->handle(e, midiInput ? midiInput->name() : std::string());
+            return learner && learner->handle(e, midiInput ? midiInput->portName(e.port) : std::string());
         };
     // Escape stops waiting for a controller's knob (before anything else sees the key)
     auto keys = App::get().keyFilter;

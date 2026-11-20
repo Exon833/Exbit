@@ -203,6 +203,14 @@ TransportBar::TransportBar() {
         if (fillSwingMenu) fillSwingMenu(*m);
     };
     swingButton->show();
+    syncButton = menuButton(left_, "Sync â¾", &syncMenu,
+                            "What the transport follows: Internal (its own), MIDI clock (an input with Clock in, Options "
+                            "â MIDI portsâ¦) or JACK's transport (both ways)");
+    syncMenu->aboutToShow = [this](ui::Menu* m) {
+        m->clear();
+        if (fillSyncMenu) fillSyncMenu(*m);
+    };
+    syncButton->show();
     left->addStretch(1);
 
     playAction = iconButton("Play", "play", "▶");
@@ -410,7 +418,7 @@ void TransportBar::buildFitting() {
     // middle buttons: play, record, start, loop, follow, keys, capture
     auto icon = [this](int i) { return static_cast<ui::Widget*>(middleButtons[i]); };
     steps_ = {compact, collapseAdd, shortLabel,
-              hide({icon(6)}), hide({swingButton}), hide({keyButton}), hide({icon(5)}), hide({icon(4)}),
+              hide({icon(6)}), hide({syncButton}), hide({swingButton}), hide({keyButton}), hide({icon(5)}), hide({icon(4)}),
               hide({thirdsButton}), hide({gridButton}), hide({beatsButton}),
               hide({signatureBox}), hide({tapButton}), hide({metronomeButton}),
               hide({timeLabel, timeSeparator}), hide({icon(3)}),
@@ -552,7 +560,8 @@ void TransportBar::fillMoreMenu(ui::Menu& menu) {
     }
     if (!thirdsButton->isVisible()) addAction(thirdsAction.get());
     for (auto [b, title, fill] : {std::make_tuple(keyButton, "Key", &fillKeyMenu),
-                                  std::make_tuple(swingButton, "Swing", &fillSwingMenu)})
+                                  std::make_tuple(swingButton, "Swing", &fillSwingMenu),
+                                  std::make_tuple(syncButton, "Sync", &fillSyncMenu)})
         if (!b->isVisible() && *fill) {
             if (title == std::string("Key")) menu.addSeparator();
             std::string text = b->text();  // ("Key: C major ▾": its name, without the ▾)

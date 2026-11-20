@@ -32,6 +32,7 @@ public:
     int bufferSize;
     bool exclusive;
     int cores;  // Engine::cores
+    bool lowLatency = false;  // Preferences::lowLatencyMonitoring (set lowLatencyBox before exec())
 
     ui::ComboBox* types;
     ui::Label* about;
@@ -39,6 +40,7 @@ public:
     ui::CheckBox* exclusiveBox;
     ui::ComboBox* buffers;
     ui::ComboBox* coreChoice;
+    ui::CheckBox* lowLatencyBox;  // Low-latency monitoring (ui/recording.h)
     void showType();               // list the chosen driver type's devices (keeping the current one)
     void done(int result) override;
 };

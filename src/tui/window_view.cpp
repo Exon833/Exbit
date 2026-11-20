@@ -299,7 +299,8 @@ void drawWindow(Screen& s, ui::Window& win, int ax, int ay, int aw, int ah) {
                 bool sel = r == cur || lw->isRowSelected(r);
                 Style ls = sel ? style(focused ? Black : White, focused ? Cyan : Blue, focused ? Reverse : Bold) : frame;
                 if (sel && focused) ls = style(Blue, White, Reverse | Bold);
-                std::string text = (sel ? "> " : "  ") + lw->item(r).text;
+                const ui::ListWidget::Item& item = lw->item(r);
+                std::string text = std::string(sel ? "> " : "  ") + (item.checkable ? (item.checked ? "[x] " : "[ ] ") : "") + item.text;
                 s.fill(cx + x, cy + y + i, std::min(w, cw - x), 1, U' ', ls);
                 put(x, y + i, text, ls, w);
             }

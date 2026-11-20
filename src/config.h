@@ -20,7 +20,7 @@ constexpr int AUTOMATION_PAD = 6;     // (skin: --automation-padding) px above a
 constexpr int AUTOMATION_GRAB_PX = 6; // how close to a point the mouse must be to drag it
 constexpr int MIN_TRACK_H = 60, MAX_TRACK_H = 320;
 constexpr int LANE_EDGE_GRAB_PX = 4;  // how close to a lane's bottom edge the mouse must be to resize it
-constexpr int PANEL_W = 250;          // (skin: --panel-width) right-hand panel with the track buttons
+constexpr int PANEL_W = 276;          // (skin: --panel-width) right-hand panel with the track buttons
 constexpr int OVERVIEW_H = 44;        // (skin: --overview-height) project overview bar above the editor (its default height)
 constexpr double LOOP_MIN_S = 0.1;    // the shortest loop range
 constexpr int OVERVIEW_MAX_H = 320;   // (skin: --overview-max-height)

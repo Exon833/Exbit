@@ -498,7 +498,7 @@ FileDialog::form { row-gap: 6px; }
     --group-height: 52px;          /* a group's header lane and row */
     --take-height: 46px;           /* a take lane and its row */
     --automation-padding: 6px;     /* above and below the curve in an automation lane */
-    --panel-width: 250px;          /* the track rows' panel */
+    --panel-width: 276px;          /* the track rows' panel */
     --overview-height: 44px;       /* the overview's standard height (the least it can be dragged to) */
     --overview-max-height: 320px;  /* … the most */
     --clip-header-height: 16px;    /* a clip's name strip (drag it to move the clip) */

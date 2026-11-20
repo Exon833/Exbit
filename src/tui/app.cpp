@@ -25,6 +25,7 @@
 #include "ui/clipboard.h"
 #include "ui/computer_keyboard.h"
 #include "ui/recording.h"
+#include "ui/record_arm.h"
 #include "ui/transport_bar.h"
 #include "ui/widgets.h"
 #include "ui/lane_panel.h"
@@ -418,9 +419,9 @@ void Front::moveFocus(int dir) {
 
 // the transport's controls: Play, go to the start, Loop, Metronome, tempo, beats per bar, grid, snap
 // (Record, Loop, Follow, Keys: the bar's own actions, as its buttons and shortcuts do)
-// (Key and Swing: the song's key and swing, ui/song_scale.h)
+// (Key and Swing: the song's key and swing, ui/song_scale.h; Sync: what the transport follows, audio/midi_sync.h)
 enum { C_PLAY, C_RECORD, C_START, C_LOOP, C_FOLLOW, C_METRONOME, C_KEYS, C_TEMPO, C_BEATS, C_GRID, C_SNAP, C_KEY, C_SWING,
-       C_COUNT };
+       C_SYNC, C_COUNT };
 
 bool Front::transportKey(const Key& k) {
     Timing& t = w_.project.timing;
@@ -506,6 +507,10 @@ bool Front::transportKey(const Key& k) {
             } else {
                 contextMenu();
             }
+            break;
+        case C_SYNC:  // Up / Down: the next of Internal, MIDI clock, JACK; Enter: its menu
+            if (d) w_.setSync((midi_sync::Mode)(((int)w_.syncMode + d + 3) % 3));
+            else contextMenu();
             break;
         }
     } else {
@@ -896,6 +901,46 @@ bool Front::panelKey(const Key& k) {
         if (w_.timeline->currentTrack) setCurrent(w_.timeline->currentTrack);  // (the keyboard on the first copy)
         return true;
     }
+    // RECORDING SEVERAL TRACKS (ui/recording.h): Shift+R arms (R stays Record), H its monitoring, Shift+H its input
+    if (t && k.key == 'R' && k.mods == plat::ModShift) {
+        if (t->kind == Kind::Return) return true;
+        w_.panel->armTrack(t, !t->armed, true);  // (more: the others stay armed)
+        util::debugf("tui: %s %s", t->name.c_str(), t->armed ? "armed" : "disarmed");
+        w_.showStatus(t->name + (t->armed ? ": armed: ● Rec (R) records it, with the other armed tracks"
+                                          : ": disarmed"), 3000);
+        return true;
+    }
+    if (t && k.key == 'H' && (k.mods == 0 || k.mods == plat::ModShift)) {
+        if (t->kind != Kind::Audio) {
+            w_.showStatus("Only audio tracks hear an input (a MIDI track plays what reaches it)", 3000);
+            return true;
+        }
+        if (k.mods == plat::ModShift) {  // its input: a menu of the device's
+            auto menu = std::make_unique<ui::Menu>();
+            std::string own = recording::inputSetting(*t);
+            for (auto& [label, setting] : recording::trackInputChoices(w_.panel->inputs)) {
+                std::string chosen = setting;
+                menu->addCheckable("Input: " + label, setting == own, [this, t, chosen](bool) {
+                    for (auto& x : w_.panel->targets(t))
+                        if (x->kind == Kind::Audio) recording::setInput(*x, chosen);
+                    w_.panel->rebuild();
+                    w_.showStatus(t->name + ": input " + recording::inputName(*t), 3000);
+                });
+            }
+            showOwnMenu(std::move(menu));
+            return true;
+        }
+        Track::Monitor m = record_arm::nextMonitor(t->monitor);
+        for (auto& x : ts)
+            if (x->kind == Kind::Audio) x->monitor = m;
+        util::debugf("tui: %s monitoring %s", t->name.c_str(), record_arm::monitorName(m));
+        changed();
+        w_.showStatus(t->name + ": monitoring " + record_arm::monitorName(m) +
+                          (m == Track::Monitor::In ? " (always hears its input)"
+                           : m == Track::Monitor::Off ? " (never hears its input)" : " (hears its input while armed)"),
+                      3000);
+        return true;
+    }
     switch (k.key) {
     case 'M':
         if (k.mods) return false;
@@ -1037,9 +1082,11 @@ void Front::contextMenu() {
             auto menu = std::make_unique<ui::Menu>();
             w_.fillGridMenu(menu.get());
             showOwnMenu(std::move(menu));
-        } else if (control == C_KEY || control == C_SWING) {
+        } else if (control == C_KEY || control == C_SWING || control == C_SYNC) {
             auto menu = std::make_unique<ui::Menu>();
-            auto& fill = control == C_KEY ? w_.transport->fillKeyMenu : w_.transport->fillSwingMenu;
+            auto& fill = control == C_KEY     ? w_.transport->fillKeyMenu
+                         : control == C_SWING ? w_.transport->fillSwingMenu
+                                              : w_.transport->fillSyncMenu;
             if (fill) fill(*menu);
             showOwnMenu(std::move(menu));
         } else if (control == C_METRONOME) {
@@ -1289,12 +1336,19 @@ void Front::drawTransport(Screen& s) {
         box(t.snapOn) + "Snap",
         "Key " + (t.scale.empty() ? std::string("-") : song_scale::scaleName(t.key, t.scale)),
         "Swing " + (t.swing > 0 ? song_scale::swingText(t.swing) + (t.swingGrid ? "" : " 8ths") : std::string("0 %")),
+        std::string("Sync ") + midi_sync::modeName(w_.syncMode),
     };
     int x = 1;
     std::string time = clock(sec) + " " + std::to_string(bar) + "." + std::to_string(beat) + "." + std::to_string(part);
     s.text(x, 1, time, style(Black, White, Bold));
     x += columns(time) + 2;
-    for (int i = 0; i < (int)items.size(); i++) {
+    // (a narrow terminal: the controls before the one with the keyboard make room for it, so it is always shown)
+    int first = 0, end = x;
+    for (int i = 0; i <= control && i < (int)items.size(); i++)
+        if (!items[(size_t)i].empty()) end += columns(items[(size_t)i]) + 1;
+    for (; focused && end > s.width() && first < control; first++)
+        if (!items[(size_t)first].empty()) end -= columns(items[(size_t)first]) + 1;
+    for (int i = first; i < (int)items.size(); i++) {
         if (items[(size_t)i].empty()) continue;
         Style st = kBar;
         if (i == C_RECORD && recording) st = style(White, Red, Bold);
@@ -1537,8 +1591,14 @@ void Front::drawPanel(Screen& s, int x, int y, int w, int h) {
             auto it = w_.panel->meters.find(t);
             bool many = w_.panel->selected.size() > 1;  // (the selected tracks marked when there are several)
             bool in = std::find(w_.panel->selected.begin(), w_.panel->selected.end(), t) != w_.panel->selected.end();
-            row(ry, (many && in ? "* " : "") + t->name, t->muted, t->soloed, t->volumeDb, t->pan, it != w_.panel->meters.end() ? it->second : nullptr,
-                sel, nearestColor(t->color, t->kind == Kind::Midi ? Green : Blue), false, t->soloSafe);
+            // (before its name: ● armed; an audio track's monitoring when not Auto: » In, × Off)
+            std::string marks = t->armed ? std::string(utf8 ? "●" : "R") : "";
+            if (t->kind == Kind::Audio && t->monitor != Track::Monitor::Auto)
+                marks += t->monitor == Track::Monitor::In ? (utf8 ? "»" : ">") : (utf8 ? "×" : "x");
+            row(ry, (marks.empty() ? "" : marks + " ") + (many && in ? "* " : "") + t->name, t->muted, t->soloed,
+                t->volumeDb, t->pan, it != w_.panel->meters.end() ? it->second : nullptr, sel,
+                nearestColor(t->color, t->kind == Kind::Midi ? Green : Blue), false, t->soloSafe);
+            if (t->armed) s.set(x + 1, ry, utf8 ? U'●' : U'R', style(Red, sel ? st.bg : (uint8_t)Default, Bold));
             continue;
         }
         if (lane.group && routing::busOn(*lane.group)) {  // a group bus: its row as a track's (its group's M and S)
@@ -1577,8 +1637,9 @@ void Front::drawStatus(Screen& s) {
         case Pane::Transport:
             msg = control == C_KEY     ? "The song's key: Up/Down: the next key  Enter/F2: key, scale, Detect"
                   : control == C_SWING ? "The song's swing: Up/Down: 5 % more or less  Enter/F2: amount, 8ths/16ths, Commit"
+                  : control == C_SYNC  ? "What the transport follows: Up/Down: Internal, MIDI clock, JACK  Enter/F2: its menu"
                                        : "Left/Right: a control  Enter: use it  Up/Down: change it  F2: its settings (Rec, Click, "
-                                         "Grid, Key, Swing)  R: record";
+                                         "Grid, Key, Swing, Sync)  R: record";
             break;
         case Pane::Explorer: msg = "Enter: open / add at the cursor  Space or P: hear it  Backspace: up  Tab: next part"; break;
         case Pane::Timeline:
@@ -1599,8 +1660,9 @@ void Front::drawStatus(Screen& s) {
                           ? "A group bus: M S: mute solo  Left/Right: volume  [/]: pan  E: effects  U: automation  D: sends  "
                             "Enter: rename  F2: menu (Fold only, Output, Put in group)"
                           : "A group (fold only): M S: mute solo  Enter: rename  F2: menu (its bus back: Fold only off)";
-            else msg = "M S: mute solo  Shift+S: solo safe  Left/Right: volume  [/]: pan  E: effects  I: instrument  U: automation  K: takes  "
-                  "Enter: rename  A/N: new  Shift+Up/Down: select  Alt+Up/Down: move  Ctrl+D: duplicate  F2: menu";
+            else msg = "M S: mute solo  Shift+R: arm  H: monitor  Shift+H: input  Shift+S: solo safe  Left/Right: volume  [/]: pan  "
+                  "E: effects  I: instrument  U: automation  K: takes  Enter: rename  A/N: new  Shift+Up/Down: select  "
+                  "Alt+Up/Down: move  Ctrl+D: duplicate  F2: menu";
             break;
         }
     }
@@ -1703,6 +1765,7 @@ void Front::drawHelp(Screen& s) {
         "  Ctrl+W, F12       close the window on top (an editor…); hide the open windows (again: back)",
         "Transport (Tab to it)",
         "  Key, Swing        Up/Down: the next key, 5 % more or less swing; Enter/F2: their menus (Detect, Commit)",
+        "  Sync              Up/Down: Internal, MIDI clock (Options > MIDI ports: Clock in), JACK; Enter/F2: its menu",
         "Timeline",
         "  Left/Right        the cursor by the grid's step (PgUp/PgDn: a bar; Home/End)",
         "  Up/Down           the track      +/-  zoom",
@@ -1738,6 +1801,8 @@ void Front::drawHelp(Screen& s) {
         "  Enter             rename          A / N: a new audio / MIDI track    Del: remove it",
         "  E  I  Shift+I     effects (the master's on its row), instrument menu, edit the instrument",
         "  U  K  O  D        automation lanes, takes, the next output pair, sends to return tracks",
+        "  Shift+R           arm it for recording (●): R records every armed track, each from its input",
+        "  H  Shift+H        an audio track's monitoring (Auto; In: »; Off: ×), its input (● marks armed)",
         "  Shift+Up/Down     select several tracks (changes then go to all of them)",
         "  Alt+Up/Down       move the track(s)   Ctrl+D: duplicate (F2: without clips)",
         "  F2                its menu: Output (master, a group's bus or another track), groups, freezing",

@@ -24,7 +24,7 @@
     F(snd_pcm_sw_params_sizeof) F(snd_pcm_sw_params) F(snd_pcm_sw_params_current) \
     F(snd_pcm_sw_params_set_start_threshold) F(snd_pcm_sw_params_set_avail_min) \
     F(snd_seq_open) F(snd_seq_close) F(snd_seq_client_id) F(snd_seq_set_client_name) F(snd_seq_create_simple_port) \
-    F(snd_seq_connect_from) F(snd_seq_event_input) F(snd_seq_poll_descriptors_count) F(snd_seq_poll_descriptors) \
+    F(snd_seq_connect_from) F(snd_seq_disconnect_from) F(snd_seq_event_output_direct) F(snd_seq_event_input) F(snd_seq_poll_descriptors_count) F(snd_seq_poll_descriptors) \
     F(snd_seq_query_next_client) F(snd_seq_query_next_port) \
     F(snd_seq_client_info_sizeof) F(snd_seq_client_info_set_client) F(snd_seq_client_info_get_client) \
     F(snd_seq_client_info_get_name) \

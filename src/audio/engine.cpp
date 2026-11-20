@@ -21,8 +21,8 @@ double now() {
 
 // --- Recorder ---
 
-Recorder::Recorder(std::vector<int> ch, double ioLatencyS, int sr, double ringSeconds, double offset)
-    : channels(std::move(ch)), ioFrames((int64_t)std::nearbyint(ioLatencyS * sr)), offsetMs(offset),
+Recorder::Recorder(std::vector<int> ch, double ioLatencyS, int sr, double ringSeconds, double offset, const Track* t)
+    : channels(std::move(ch)), track(t), ioFrames((int64_t)std::nearbyint(ioLatencyS * sr)), offsetMs(offset),
       offsetFrames((int64_t)std::nearbyint(offset / 1000 * sr)), late(ioFrames),
       ring_((size_t)std::max(1.0, ringSeconds * sr) * std::max<size_t>(1, channels.size())) {}
 
@@ -54,17 +54,44 @@ void Recorder::collect() {
     uint64_t head = head_.load(std::memory_order_acquire);
     uint64_t tail = tail_.load(std::memory_order_relaxed);
     size_t size = ring_.size();
-    take_.reserve(take_.size() + (size_t)(head - tail));
-    for (; tail < head; tail++) take_.push_back(ring_[tail % size]);
+    while (tail < head) {
+        size_t inBlock = size_ % BLOCK;
+        if (inBlock == 0 && size_ / BLOCK == blocks_.size()) blocks_.emplace_back(new float[BLOCK]);
+        float* block = blocks_[size_ / BLOCK].get();
+        size_t n = (size_t)std::min<uint64_t>(head - tail, BLOCK - inBlock);
+        for (size_t i = 0; i < n; i++) block[inBlock + i] = ring_[(tail + i) % size];
+        tail += n;
+        size_ += n;
+    }
     tail_.store(tail, std::memory_order_release);
+}
+
+int64_t Recorder::timelineStart() const {
+    int64_t s = start.load();
+    return (s == NONE ? 0 : s) - late.load() - offsetFrames;  // (the device's own error: record_offset.h)
 }
 
 int64_t Recorder::audio(std::vector<float>& out) {
     collect();
-    out = take_;
-    int64_t s = start.load();
-    return (s == NONE ? 0 : s) - late.load() - offsetFrames;  // (the device's own error: record_offset.h)
+    out.resize(size_);
+    for (size_t i = 0; i < size_; i++) out[i] = at(i);
+    return timelineStart();
 }
+
+void Recorder::stereo(int64_t from, int64_t to, std::vector<float>& out) const {
+    size_t w = channels.size();
+    from = std::max<int64_t>(0, from);
+    to = std::min(to, frames());
+    out.assign((size_t)std::max<int64_t>(0, to - from) * 2, 0.0f);
+    for (int64_t f = from; f < to; f++) {
+        size_t i = (size_t)f * w;
+        float* o = out.data() + (size_t)(f - from) * 2;
+        o[0] = at(i);
+        o[1] = w > 1 ? at(i + 1) : o[0];  // a mono input plays on both sides
+    }
+}
+
+size_t Recorder::memoryBytes() const { return (ring_.capacity() + blocks_.size() * BLOCK) * sizeof(float); }
 
 // --- MIDI takes and takes ---
 
@@ -131,6 +158,7 @@ public:
 Engine::Engine(Project& p) : project(p), sr(config::FALLBACK_SAMPLE_RATE), tap_(new Tap) {
     metering = std::make_shared<Metering>(sr, channels);
     parts_.reserve(64);
+    midiParts_.reserve(64);
     beats_.reserve(256);
     sampler::install();                   // (MIDI clips on a sampler track render through it)
     midi_effects::install(&project.timing);  // (and through their track's MIDI effects, on this project's beats)
@@ -149,7 +177,9 @@ void Engine::idle() {
     auto limit = std::chrono::steady_clock::now() - std::chrono::seconds(2);
     kept_.erase(std::remove_if(kept_.begin(), kept_.end(), [&](const auto& k) { return k.first < limit; }), kept_.end());
     project.timing.publish();  // (the audio thread hears a change of tempo at once)
-    if (auto rec = recorder()) rec->collect();
+    outLatency_ = outputLatency();  // (for MIDI out, read by the audio thread: never asked of the driver there)
+    if (auto set = recorders())
+        for (auto& rec : set->recorders) rec->collect();
     if (auto map = std::atomic_load(&live_))
         for (auto& kv : *map) kv.second->collect();
     // dropouts the audio thread counted (it can't print): at most a line a second
@@ -258,10 +288,8 @@ bool Engine::open(const std::string& type, const std::string& device, int bs, bo
 
 void Engine::close() {
     stop();
-    if (inputStream_) {
-        inputStream_->stop();
-        inputStream_.reset();
-    }
+    monitoring_ = false;
+    closeInput();
     if (stream_) {
         stream_->stop();
         stream_.reset();
@@ -284,61 +312,182 @@ int Engine::inputCount() const {
     return !dev.empty() && deviceInfo(driverType, dev, info, true) ? info.maxInputs : 0;
 }
 
+std::shared_ptr<Recorder> Engine::recorder() const {
+    auto set = recorders();
+    return set && !set->recorders.empty() ? set->recorders.front() : nullptr;
+}
+
+void Engine::setRecorders(std::shared_ptr<const RecordSet> set) {
+    keep(std::atomic_load(&recorders_));  // (the audio thread may still hold it for this buffer)
+    std::atomic_store(&recorders_, std::move(set));
+}
+
+bool Engine::openInput(int want, std::string& error) {
+    // the default input of a driver without a duplex stream (PulseAudio, JACK: a second client), with all its
+    // channels, for recording and monitoring; its buffers go to the takes and, while monitoring, to the ring
+    if (inputStream_ && inputStreamChannels_ >= want) return true;
+    closeInput();
+    std::string dev = defaultInput(driverType);
+    if (dev.empty()) {
+        error = driverLabel(driverType) + " has no input device";
+        return false;
+    }
+    StreamConfig cfg;
+    cfg.driverType = driverType;
+    cfg.inputDevice = dev;
+    cfg.sampleRate = sr;
+    cfg.inChannels = std::max({1, want, inputCount()});
+    cfg.blocksize = blocksize;
+    std::string err;
+    auto in = Stream::open(cfg, [this](const float* i, float*, int frames) { inputCallback(i, frames); }, err);
+    if (!in) {
+        error = err.empty() ? "The input device can't be opened" : err;
+        util::debugf("audio: the input \"%s\" can't be opened: %s\n", dev.c_str(), error.c_str());
+        return false;
+    }
+    inputStreamChannels_ = in->inChannels() > 0 ? in->inChannels() : cfg.inChannels;
+    auto ring = std::make_shared<InputRing>();  // (half a second: what monitoring may lag at most)
+    ring->channels = inputStreamChannels_;
+    ring->data.assign((size_t)std::max(sr / 2, 8192) * (size_t)ring->channels, 0.0f);
+    ring->scratch.assign((size_t)8192 * (size_t)ring->channels, 0.0f);
+    std::atomic_store(&inputRing_, ring);
+    inputStream_ = std::move(in);
+    if (!inputStream_->start()) {
+        inputStream_.reset();
+        error = "The input device can't be started";
+        return false;
+    }
+    util::debugf("audio: the input \"%s\" open for recording and monitoring: %d channels\n", dev.c_str(),
+                 inputStreamChannels_);
+    return true;
+}
+
+void Engine::closeInput() {
+    if (inputStream_) {
+        inputStream_->stop();
+        inputStream_.reset();
+        util::debugf("audio: the separate input closed\n");
+    }
+    keep(std::atomic_load(&inputRing_));
+    std::atomic_store(&inputRing_, std::shared_ptr<InputRing>());
+}
+
+bool Engine::setMonitoring(bool on, std::string& error) {
+    if (on == monitoring_.load() && (!on || inputs || inputStream_ || offline)) return true;
+    if (!on) {
+        monitoring_ = false;
+        if (!recordingAudio()) closeInput();
+        util::debugf("audio: monitoring off\n");
+        return true;
+    }
+    if (!stream_ && !offline) {
+        error = "No audio device is open (Options → Audio properties).";
+        return false;
+    }
+    if (!inputs && !offline && !openInput(1, error)) return false;
+    monitoring_ = true;
+    util::debugf("audio: monitoring on (%s)\n", inputs ? "the duplex stream's inputs" : "the separate input");
+    return true;
+}
+
 bool Engine::startRecording(const std::vector<int>& chans, int64_t count, AudioPtr clicks, std::string& error) {
-    if (!stream_ || playing) {
+    return startRecording(std::vector<RecordInput>{RecordInput{nullptr, chans}}, count, clicks, error);
+}
+
+bool Engine::startRecording(const std::vector<RecordInput>& takes, int64_t count, AudioPtr clicks, std::string& error) {
+    if ((!stream_ && !offline) || playing || takes.empty()) {
         error = "The audio device isn't ready";
         return false;
     }
-    double io;
-    if (inputs) {
-        io = plausibleLatency(stream_->inputLatency(), askedLatency_) + outputLatency();
-    } else {  // other drivers (JACK: a second client): their default input device, for this take only
-        std::string dev = defaultInput(driverType);
-        if (dev.empty()) {
-            error = driverLabel(driverType) + " has no input device";
-            return false;
-        }
-        StreamConfig cfg;
-        cfg.driverType = driverType;
-        cfg.inputDevice = dev;
-        cfg.sampleRate = sr;
-        cfg.inChannels = chans.empty() ? 1 : *std::max_element(chans.begin(), chans.end()) + 1;
-        cfg.blocksize = blocksize;
-        std::string err;
-        auto in = Stream::open(cfg, [this](const float* i, float*, int frames) { inputCallback(i, frames); }, err);
-        if (!in) {
-            error = err.empty() ? "The input device can't be opened" : err;
-            return false;
-        }
-        inputStreamChannels_ = in->inChannels() > 0 ? in->inChannels() : cfg.inChannels;
-        inputStream_ = std::move(in);
-        if (!inputStream_->start()) {
-            inputStream_.reset();
-            error = "The input device can't be started";
-            return false;
-        }
-        io = plausibleLatency(inputStream_->inputLatency(), blocksize > 0 ? (double)blocksize / sr : 0.0) + outputLatency();
+    int want = 1;
+    for (auto& t : takes)
+        for (int c : t.channels) want = std::max(want, c + 1);
+    double io = 0;
+    if (!prepareInput(want, io, error)) return false;
+    auto set = std::make_shared<RecordSet>();
+    for (auto& t : takes) {
+        set->recorders.push_back(std::make_shared<Recorder>(t.channels, io, sr, 20.0, recordOffsetMs, t.track));
+        set->tracks.push_back(t.track);
     }
-    auto rec = std::make_shared<Recorder>(chans, io, sr, 20.0, recordOffsetMs);
-    std::atomic_store(&recorder_, rec);
+    setRecorders(set);
+    util::debugf("audio: recording %zu take(s) at once, %.1f ms in and out\n", takes.size(), io * 1000);
     if (clicks && count) preview(clicks, 0, false, 1.0);  // (as loud as the metronome)
     countIn = count;
     play();
     return true;
 }
 
+bool Engine::prepareInput(int want, double& io, std::string& error) {
+    // the inputs the takes come from, and how late they arrive after what was heard (input and output delay)
+    if (!stream_) {
+        io = 0;  // (offline: the tests feed callback() by hand)
+    } else if (inputs) {
+        io = plausibleLatency(stream_->inputLatency(), askedLatency_) + outputLatency();
+    } else {  // other drivers (JACK: a second client): their default input device, for the takes
+        if (!openInput(want, error)) return false;
+        io = plausibleLatency(inputStream_->inputLatency(), blocksize > 0 ? (double)blocksize / sr : 0.0) + outputLatency();
+    }
+    recordIo_ = io;
+    return true;
+}
+
+std::shared_ptr<Recorder> Engine::addRecorder(const RecordInput& take, std::string& error) {
+    if (!playing) {
+        error = "not recording";
+        return nullptr;
+    }
+    auto old = recorders();
+    int want = 1;
+    for (int c : take.channels) want = std::max(want, c + 1);
+    double io = recordIo_;
+    if ((!old || (stream_ && !inputs)) && !prepareInput(want, io, error)) return nullptr;  // (MIDI alone so far)
+    auto set = old ? std::make_shared<RecordSet>(*old) : std::make_shared<RecordSet>();
+    auto rec = std::make_shared<Recorder>(take.channels, recordIo_, sr, 20.0, recordOffsetMs, take.track);
+    set->recorders.push_back(rec);
+    set->tracks.push_back(take.track);
+    setRecorders(set);
+    util::debugf("audio: punched in: a take more (%zu now)\n", set->recorders.size());
+    return rec;
+}
+
+std::vector<std::shared_ptr<Recorder>> Engine::removeRecorders(const std::vector<const Track*>& tracks) {
+    std::vector<std::shared_ptr<Recorder>> gone;
+    auto old = recorders();
+    if (!old) return gone;
+    auto set = std::make_shared<RecordSet>();
+    for (size_t i = 0; i < old->recorders.size(); i++) {
+        if (std::find(tracks.begin(), tracks.end(), old->tracks[i]) != tracks.end()) {
+            gone.push_back(old->recorders[i]);
+            continue;
+        }
+        set->recorders.push_back(old->recorders[i]);
+        set->tracks.push_back(old->tracks[i]);
+    }
+    if (gone.empty()) return gone;
+    // (an empty set still records: the transport goes on, and a track armed again punches in)
+    setRecorders(set);
+    if (!offline) std::this_thread::sleep_for(std::chrono::milliseconds(50));  // (a callback may still be adding to them)
+    for (auto& rec : gone) rec->collect();
+    util::debugf("audio: punched out %zu take(s), %zu go on\n", gone.size(), set->recorders.size());
+    return gone;
+}
+
 std::shared_ptr<Recorder> Engine::finishRecording() {
-    auto rec = recorder();
+    auto all = finishRecordings();
+    return all.empty() ? nullptr : all.front();
+}
+
+std::vector<std::shared_ptr<Recorder>> Engine::finishRecordings() {
+    auto set = recorders();
     stop();
     countIn = 0;
-    if (inputStream_) {
-        inputStream_->stop();
-        inputStream_.reset();
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));  // a callback that is running may still be adding its buffer
-    std::atomic_store(&recorder_, std::shared_ptr<Recorder>());
-    if (rec) rec->collect();
-    return rec;
+    if (!monitoring_) closeInput();
+    if (!offline) std::this_thread::sleep_for(std::chrono::milliseconds(50));  // a callback that is running may still be adding its buffer
+    keep(set);
+    std::atomic_store(&recorders_, std::shared_ptr<const RecordSet>());
+    if (!set) return {};
+    for (auto& rec : set->recorders) rec->collect();
+    return set->recorders;
 }
 
 bool Engine::startMidiRecording(int64_t count, AudioPtr clicks, std::string& error) {
@@ -368,9 +517,17 @@ bool Engine::heardNow(double& frame) const {
 }
 
 void Engine::inputCallback(const float* in, int frames) {
-    // the separate input device: keep it once the take has begun
-    auto rec = std::atomic_load(&recorder_);
-    if (rec && rec->start.load() != Recorder::NONE && playing) rec->take(in, inputStreamChannels_, frames);
+    // the separate input device: into each take once it has begun, and into the ring while monitoring
+    if (auto set = std::atomic_load(&recorders_); set && playing)
+        for (auto& rec : set->recorders)
+            if (rec->start.load() != Recorder::NONE) rec->take(in, inputStreamChannels_, frames);
+    auto ring = std::atomic_load(&inputRing_);
+    if (!ring || !monitoring_.load() || !in) return;
+    size_t w = (size_t)ring->channels, size = ring->data.size();
+    uint64_t head = ring->head.load(std::memory_order_relaxed), tail = ring->tail.load(std::memory_order_acquire);
+    size_t n = std::min((size_t)frames * w, size - (size_t)(head - tail));  // (full: the newest is dropped)
+    for (size_t i = 0; i < n; i++) ring->data[(head + i) % size] = in[i];
+    ring->head.store(head + n, std::memory_order_release);
 }
 
 void Engine::seek(int64_t frame) {
@@ -528,7 +685,7 @@ void Engine::advance(int frames, std::vector<Part>& parts) {
     int offset = 0;
     int64_t p = pos.load();
     std::shared_ptr<const LoopRange> lp =
-        recordingMidi || (recorder() && !loopRecording.load()) ? nullptr : std::atomic_load(&loop_);
+        (recordingMidi || std::atomic_load(&recorders_)) && !loopRecording.load() ? nullptr : std::atomic_load(&loop_);
     int64_t ci = countIn.load();
     if (ci > 0) {
         offset = (int)std::min<int64_t>(ci, frames);
@@ -601,7 +758,31 @@ void Engine::callback(const float* in, float* out, int frames) {
     if (live)
         for (auto& kv : *live)
             if (kv.second->active()) playingLive = true;
-    if (isPlaying || voice || playingLive || (plugins && hasPlugins())) {
+    // MONITORING: the inputs heard through the tracks that monitor them: the duplex stream's, or the separate
+    // input's latest buffer from its ring (kept at most a few buffers behind)
+    const float* heardIn = nullptr;
+    int heardChannels = 0;
+    if (monitoring_.load()) {
+        if (inputs && in) {
+            heardIn = in, heardChannels = inputs;
+        } else if (auto ring = std::atomic_load(&inputRing_)) {
+            size_t w = (size_t)ring->channels, size = ring->data.size();
+            if (w && (size_t)frames * w <= ring->scratch.size()) {
+                uint64_t head = ring->head.load(std::memory_order_acquire), tail = ring->tail.load(std::memory_order_relaxed);
+                size_t avail = (size_t)(head - tail) / w;
+                if (avail > (size_t)frames * 3) tail = head - (uint64_t)frames * w, avail = (size_t)frames;  // (fallen behind)
+                size_t n = std::min(avail, (size_t)frames);
+                float* dst = ring->scratch.data();
+                for (size_t i = 0; i < n * w; i++) dst[i] = ring->data[(tail + i) % size];
+                std::memset(dst + n * w, 0, sizeof(float) * ((size_t)frames - n) * w);
+                ring->tail.store(tail + n * w, std::memory_order_release);
+                heardIn = dst, heardChannels = (int)w;
+            }
+        }
+    }
+    bool mixed = false;
+    if (isPlaying || voice || playingLive || heardIn || (plugins && hasPlugins())) {
+        mixed = true;
         parts_.clear();
         if (isPlaying) {
             std::lock_guard<std::mutex> g(posLock_);
@@ -627,7 +808,10 @@ void Engine::callback(const float* in, float* out, int frames) {
         tap_->m = m;
         tap_->metered = metered;
         tap_->cpu = &trackCpu;
-        auto rec = std::atomic_load(&recorder_);
+        auto recs = std::atomic_load(&recorders_);
+        mix_.recording = recs && !recs->tracks.empty() ? recs->tracks.data() : nullptr;
+        mix_.recordingCount = recs ? (int)recs->tracks.size() : 0;
+        mix_.inputChannels = heardChannels;
         for (const Part& part : parts_) {  // (more parts where the loop jumps back, or a count-in ends)
             bool moving = part.hasStart;  // (not while counting in)
             // all notes off when playback starts, stops, the playhead is moved or loops, or plugins were paused
@@ -635,10 +819,12 @@ void Engine::callback(const float* in, float* out, int frames) {
             if (plugins) restart_ = false;
             wasPlaying_ = moving;
             nextPos_ = moving ? part.start + part.frames : 0;
-            if (rec && moving) {
-                rec->begin(part.start, latency);
-                if (inputs && input_) rec->take(input_ + (size_t)part.offset * inputChannels_, inputChannels_, part.frames);
-            }
+            if (recs && moving)
+                for (auto& rec : recs->recorders) {
+                    rec->begin(part.start, latency);
+                    if (inputs && input_) rec->take(input_ + (size_t)part.offset * inputChannels_, inputChannels_, part.frames);
+                }
+            mix_.input = heardIn ? heardIn + (size_t)part.offset * heardChannels : nullptr;
             float* partOut = out + (size_t)part.offset * channels;
             try {
                 latency = mixer::mixClips(project, partOut, channels, part.frames, moving, part.start, mix_,
@@ -669,8 +855,36 @@ void Engine::callback(const float* in, float* out, int frames) {
                                          *clicks, *map, sr, gain, playFrom_, beats_);
         }
     }
+    if (auto mo = std::atomic_load(&midiOut_)) {  // MIDI out (midi_out.h): clock, Start/Stop, External synths' notes
+        if (!mixed) parts_.assign(1, {0, frames, false, 0});  // (nothing mixed: stopped; no allocation: it has room)
+        midiParts_.clear();
+        for (const Part& part : parts_) midiParts_.push_back({part.offset, part.frames, part.hasStart && isPlaying, part.start});
+        midi_out::Buffer mb;
+        mb.now = started;
+        mb.outLatency = outLatency_.load();
+        mb.latency = latency;
+        mb.frames = frames;
+        mb.sr = sr;
+        mb.in = heardIn;  // (the inputs as monitoring hears them: External synths' Measure)
+        mb.inChannels = heardChannels;
+        TempoMapPtr map = project.timing.audioMap();
+        mb.map = map.get();
+        auto tracks = project.tracks.get();
+        auto clips = project.clips.get();
+        mb.tracks = tracks.get();
+        mb.clips = clips.get();
+        std::shared_ptr<const LoopRange> lp =
+            recordingMidi || (recorder() && !loopRecording.load()) ? nullptr : std::atomic_load(&loop_);
+        if (lp) mb.loops = true, mb.loopStart = lp->start, mb.loopEnd = lp->end;
+        mo->process(mb, midiParts_.data(), (int)midiParts_.size());
+    }
     cpu.add(now() - started, budget);
     trackCpu.addBudget(budget);
+}
+
+void Engine::setMidiOut(std::shared_ptr<midi_out::Out> out) {
+    keep(std::atomic_load(&midiOut_));  // (the audio thread may hold it this very moment: never freed there)
+    std::atomic_store(&midiOut_, out);
 }
 
 }  // namespace audio

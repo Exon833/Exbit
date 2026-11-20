@@ -148,6 +148,8 @@ struct PluginSlot {
     mutable std::string lastRead;  // (main thread) its settings as currentState() last read them from the plugin
     std::shared_ptr<plug::Plugin> instance;  // the loaded plugin; null while not loaded (or missing)
     std::atomic<bool> failed{false};         // set by the audio thread if the plugin failed; it is then skipped
+    // (runtime) left out while recording in low-latency monitoring (ui/recording.h): passes its input on, as bypassed
+    std::atomic<bool> lowLatencyBypass{false};
     std::string error;                       // why (set together with `failed`)
     std::vector<std::string> recent;         // names of the parameters tweaked last in its window, latest first
     bool placed = false;       // `at` is set: its unit's place in the patch space
@@ -326,6 +328,23 @@ struct ModCable {
 };
 
 // --- a track ---
+// EXTERNAL SYNTH (audio/midi_out.h, ui/midi_ports_dialog.h): a MIDI track played by a hardware synth: its notes go
+// out to a MIDI port and channel, `delayMs` early (the round trip Measure finds), and its sound comes back on the
+// audio device's inputs, played through the track's effects in time (mixer.h EXTERNAL SYNTHS).
+struct ExternalSynth {
+    bool on = false;      // the track plays it (rather than its instrument, sampler or Pad Kit, which it keeps)
+    std::string port;     // the MIDI output's stable name (midi_ports.h)
+    int channel = 1;      // 1-16
+    int input = -1;       // the first audio input (0-based) its sound comes back on; -1: none (heard from the synth)
+    bool stereo = true;   // …and the one after it (a stereo pair)
+    double delayMs = 0;   // its notes go out this much early
+    bool operator==(const ExternalSynth& o) const {
+        return on == o.on && port == o.port && channel == o.channel && input == o.input && stereo == o.stereo &&
+               delayMs == o.delayMs;
+    }
+    bool operator!=(const ExternalSynth& o) const { return !(*this == o); }
+};
+
 struct Track {
     std::string name;
     Kind kind = Kind::Audio;
@@ -350,6 +369,11 @@ struct Track {
     int bendRange = 2;        // MIDI tracks: semitones the bend wheel bends its built-in synth or sampler played live,
                               // all the way up or down (1…24; right-click its row → Pitch bend range…)
     double swing = -1;        // MIDI tracks: its own swing (0…100 %, midi_effects.h SWING); -1 = the song's
+    // MIDI tracks: the MIDI input it plays live (ui/midi_input.h): "" all of them, while it is the selected track;
+    // else that port's stable name (midi_ports.h), selected or not, on `midiInChannel` (1-16; 0 any)
+    std::string midiIn;
+    int midiInChannel = 0;
+    ExternalSynth ext;        // MIDI tracks: an External synth plays it (above)
     List<SlotPtr> effects;    // in its patch space
     Cables cables{straight()};
     List<ModCable> modCables; // modulators moving its units' knobs (see ModCable)
@@ -366,6 +390,15 @@ struct Track {
     List<ClipPtr> takes;      // every recorded take (clips, not placed: copies of them as recorded), for comping
                               // (their `track` stays null: a back pointer would be a shared_ptr cycle)
     bool showTakes = false;   // its take lanes are shown under it
+    // RECORDING SEVERAL TRACKS (ui/recording.h): armed (●) to be recorded onto by ● Rec (saved; not undone: it is
+    // how the project is worked, not what it is); hearing its input through its effects, fader and pan (monitor:
+    // Auto while armed, In always, Off never; audio tracks); the device input an audio track records from and hears:
+    // inputCh (0-based; -1: none) and, with inputStereo, the one after it as a pair. Plain fields the mixer reads.
+    enum class Monitor : int { Auto, In, Off };
+    bool armed = false;
+    Monitor monitor = Monitor::Auto;
+    int inputCh = 0;
+    bool inputStereo = false;
     std::shared_ptr<void> patchState;  // the audio thread's working state for its cables (audio/patch)
     bool usesRack = false;
     List<SlotPtr> rack;       // instruments of its instrument patch panel
@@ -379,9 +412,9 @@ struct Track {
     // synth or sampler? (plugins.py's plays_plugins)
     bool playsPlugins() const;
     // does it play its built-in sampler (it has one, and no instrument plugin, patch panel or Pad Kit)?
-    bool playsSampler() const { return sampler && !padKit && !instrument && !usesRack; }
+    bool playsSampler() const { return sampler && !padKit && !instrument && !usesRack && !ext.on; }
     // does it play its Pad Kit (it has one, and no instrument plugin or patch panel)?
-    bool playsPadKit() const { return padKit && !instrument && !usesRack; }
+    bool playsPadKit() const { return padKit && !instrument && !usesRack && !ext.on; }
     // what a key plays, for the MIDI editor's keys: the name of its pad when it plays a Pad Kit; "" otherwise
     std::string keyLabel(int pitch) const;
     Track(std::string n = "", Kind k = Kind::Audio);

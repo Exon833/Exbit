@@ -1,4 +1,5 @@
-// MIDI keyboard input on the ALSA sequencer (libasound), and the sustain pedal (midi_input.py).
+// MIDI ports on the ALSA sequencer (libasound): listed, listened to and played into (midi_ports.h), and the
+// sustain pedal (midi_input.py).
 #include "audio/midi_in.h"
 
 #include <fcntl.h>
@@ -7,9 +8,15 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
+#include <map>
+#include <mutex>
 #include <regex>
+#include <thread>
 
 #include "audio/alsa_api.h"
+#include "audio/midi_ports.h"
+#include "core/util.h"
 
 namespace midi_in {
 TINYDAW_ALSA(TINYDAW_ALSA_USE)  // (loaded by openSeq, which everything here starts from)
@@ -40,9 +47,14 @@ std::string portName(snd_seq_client_info_t* c, snd_seq_port_info_t* p) {
            std::to_string(snd_seq_port_info_get_client(p)) + ":" + std::to_string(snd_seq_port_info_get_port(p));
 }
 
-std::vector<PortInfo> listPorts(snd_seq_t* seq) {
+constexpr const char* OWN_CLIENT = "Tiny DAW";  // our own clients (any Tiny DAW's): never offered
+
+// the inputs (readable ports) or outputs (writable ports) of the other clients
+std::vector<PortInfo> listPorts(snd_seq_t* seq, bool outputs = false) {
     std::vector<PortInfo> out;
     int self = snd_seq_client_id(seq);
+    const unsigned need = outputs ? SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE
+                                  : SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ;
     snd_seq_client_info_t* cinfo;
     snd_seq_port_info_t* pinfo;
     snd_seq_client_info_alloca(&cinfo);
@@ -51,14 +63,13 @@ std::vector<PortInfo> listPorts(snd_seq_t* seq) {
     while (snd_seq_query_next_client(seq, cinfo) >= 0) {
         int client = snd_seq_client_info_get_client(cinfo);
         if (client == self || client == SND_SEQ_CLIENT_SYSTEM) continue;  // ourselves; "System" (timer, announce)
+        if (std::string(snd_seq_client_info_get_name(cinfo)) == OWN_CLIENT) continue;
         snd_seq_port_info_set_client(pinfo, client);
         snd_seq_port_info_set_port(pinfo, -1);
         while (snd_seq_query_next_port(seq, pinfo) >= 0) {
             unsigned caps = snd_seq_port_info_get_capability(pinfo);
             unsigned type = snd_seq_port_info_get_type(pinfo);
-            if ((caps & (SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ)) !=
-                    (SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ) ||
-                (caps & SND_SEQ_PORT_CAP_NO_EXPORT))
+            if ((caps & need) != need || (caps & SND_SEQ_PORT_CAP_NO_EXPORT))
                 continue;
             if (!(type & (SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_SYNTH | SND_SEQ_PORT_TYPE_APPLICATION)))
                 continue;
@@ -112,152 +123,222 @@ std::vector<PortInfo> ports() {
     return out;
 }
 
+std::vector<PortInfo> outputs() {
+    snd_seq_t* seq = openSeq(SND_SEQ_OPEN_OUTPUT);
+    if (!seq) return {};
+    auto out = listPorts(seq, true);
+    snd_seq_close(seq);
+    return out;
+}
+
 std::string stableName(const std::string& port) {
     static const std::regex numbers(R"(\s+\d+:\d+$)");
     return std::regex_replace(port, numbers, "");
 }
 
-// --- Input ---
+// --- the ALSA sequencer's ports for midi_ports::Hub ---
 
-struct Input::Seq {
-    snd_seq_t* seq = nullptr;
-    int port = -1;
-    int srcClient = -1, srcPort = -1;
-    int wake[2] = {-1, -1};
-    ~Seq() {
-        if (seq) snd_seq_close(seq);
-        for (int fd : wake)
+namespace {
+
+// One sequencer client per direction (each handle used by one thread: the reader's, the sender's), both "Tiny DAW":
+// "MIDI in" is subscribed to every input chosen (events tell their source apart), and messages go from "MIDI out"
+// straight to each output chosen (addressed: no subscription needed). The reader also hears the system's
+// announcements: a port came or went.
+class AlsaBackend : public midi_ports::Backend {
+public:
+    ~AlsaBackend() override {
+        if (thread_.joinable()) {
+            running_ = false;
+            char c = 1;
+            ssize_t w = ::write(wake_[1], &c, 1);
+            (void)w;
+            thread_.join();
+        }
+        if (in_) snd_seq_close(in_);
+        if (out_) snd_seq_close(out_);
+        for (int fd : wake_)
             if (fd >= 0) ::close(fd);
+    }
+    bool start() {
+        in_ = openSeq(SND_SEQ_OPEN_INPUT);
+        out_ = openSeq(SND_SEQ_OPEN_OUTPUT);
+        if (!in_ || !out_) return false;
+        snd_seq_set_client_name(in_, OWN_CLIENT);
+        snd_seq_set_client_name(out_, OWN_CLIENT);
+        inPort_ = snd_seq_create_simple_port(in_, "MIDI in", SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE,
+                                             SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
+        outPort_ = snd_seq_create_simple_port(out_, "MIDI out", SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ,
+                                              SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
+        if (inPort_ < 0 || outPort_ < 0) return false;
+        snd_seq_connect_from(in_, inPort_, SND_SEQ_CLIENT_SYSTEM, SND_SEQ_PORT_SYSTEM_ANNOUNCE);
+        if (pipe2(wake_, O_NONBLOCK | O_CLOEXEC) < 0) return false;
+        running_ = true;
+        thread_ = std::thread([this] { loop(); });
+        return true;
+    }
+    const char* name() const override { return "ALSA"; }
+    void list(std::vector<midi_ports::Found>& out) override {
+        for (bool outputs : {false, true})
+            for (const PortInfo& p : listPorts(out_, outputs)) {
+                midi_ports::Found f;
+                f.key = p.stable;
+                f.input = !outputs;
+                f.client = p.client;
+                f.port = p.port;
+                f.full = p.name;
+                out.push_back(f);
+            }
+    }
+    bool open(const midi_ports::Found& p, int slot) override {
+        std::lock_guard<std::mutex> g(lock_);
+        if (p.input) {
+            if (snd_seq_connect_from(in_, inPort_, p.client, p.port) < 0) return false;
+            sources_[{p.client, p.port}] = slot;
+        } else {
+            dests_[slot] = {p.client, p.port};
+        }
+        return true;
+    }
+    void close(int slot) override {
+        std::lock_guard<std::mutex> g(lock_);
+        for (auto it = sources_.begin(); it != sources_.end(); ++it)
+            if (it->second == slot) {
+                snd_seq_disconnect_from(in_, inPort_, it->first.first, it->first.second);
+                sources_.erase(it);
+                return;
+            }
+        dests_.erase(slot);
+    }
+    void send(int slot, const uint8_t* b, int n, double) override {
+        std::pair<int, int> to;
+        {
+            std::lock_guard<std::mutex> g(lock_);
+            auto it = dests_.find(slot);
+            if (it == dests_.end()) return;
+            to = it->second;
+        }
+        snd_seq_event_t ev;
+        snd_seq_ev_clear(&ev);
+        snd_seq_ev_set_source(&ev, outPort_);
+        snd_seq_ev_set_dest(&ev, to.first, to.second);
+        snd_seq_ev_set_direct(&ev);
+        uint8_t status = b[0], ch = status & 15;
+        switch (status & 0xF0) {
+            case 0x90: snd_seq_ev_set_noteon(&ev, ch, b[1] & 127, b[2] & 127); break;
+            case 0x80: snd_seq_ev_set_noteoff(&ev, ch, b[1] & 127, b[2] & 127); break;
+            case 0xB0: snd_seq_ev_set_controller(&ev, ch, b[1] & 127, b[2] & 127); break;
+            case 0xE0: snd_seq_ev_set_pitchbend(&ev, ch, ((b[1] & 127) | ((b[2] & 127) << 7)) - 8192); break;
+            case 0xF0:
+                if (status == 0xF8) ev.type = SND_SEQ_EVENT_CLOCK;
+                else if (status == 0xFA) ev.type = SND_SEQ_EVENT_START;
+                else if (status == 0xFB) ev.type = SND_SEQ_EVENT_CONTINUE;
+                else if (status == 0xFC) ev.type = SND_SEQ_EVENT_STOP;
+                else if (status == 0xF2 && n >= 3) {
+                    ev.type = SND_SEQ_EVENT_SONGPOS;
+                    ev.data.control.value = (b[1] & 127) | ((b[2] & 127) << 7);
+                } else {
+                    return;
+                }
+                break;
+            default: return;
+        }
+        snd_seq_event_output_direct(out_, &ev);
+    }
+
+private:
+    snd_seq_t *in_ = nullptr, *out_ = nullptr;
+    int inPort_ = -1, outPort_ = -1;
+    int wake_[2] = {-1, -1};
+    std::thread thread_;
+    std::atomic<bool> running_{false};
+    std::mutex lock_;
+    std::map<std::pair<int, int>, int> sources_;  // (client, port) -> slot
+    std::map<int, std::pair<int, int>> dests_;
+
+    void loop() {
+        int n = snd_seq_poll_descriptors_count(in_, POLLIN);
+        std::vector<pollfd> fds((size_t)n + 1);
+        snd_seq_poll_descriptors(in_, fds.data(), (unsigned)n, POLLIN);
+        fds[(size_t)n] = {wake_[0], POLLIN, 0};
+        while (running_) {
+            for (auto& f : fds) f.revents = 0;
+            int r = ::poll(fds.data(), fds.size(), 500);
+            if (r < 0 && errno != EINTR) break;
+            if (!running_) break;
+            for (;;) {
+                snd_seq_event_t* ev = nullptr;
+                int got = snd_seq_event_input(in_, &ev);
+                if (got == -EAGAIN || got == -EWOULDBLOCK) break;
+                if (got == -ENOSPC) continue;  // (the input buffer overflowed: some events were lost)
+                if (got < 0 || !ev) break;
+                double now = monoNow();
+                switch (ev->type) {
+                    case SND_SEQ_EVENT_PORT_START:
+                    case SND_SEQ_EVENT_PORT_EXIT:
+                    case SND_SEQ_EVENT_CLIENT_START:
+                    case SND_SEQ_EVENT_CLIENT_EXIT:
+                        changed_ = true;  // (the Hub looks again)
+                        continue;
+                    default: break;
+                }
+                int slot = -1;
+                {
+                    std::lock_guard<std::mutex> g(lock_);
+                    auto it = sources_.find({ev->source.client, ev->source.port});
+                    if (it != sources_.end()) slot = it->second;
+                }
+                if (slot < 0) continue;
+                uint8_t b[3] = {0, 0, 0};
+                int len = 3;
+                switch (ev->type) {
+                    case SND_SEQ_EVENT_NOTEON:
+                        b[0] = (uint8_t)(0x90 | (ev->data.note.channel & 15)), b[1] = ev->data.note.note & 127,
+                        b[2] = ev->data.note.velocity & 127;
+                        break;
+                    case SND_SEQ_EVENT_NOTEOFF:
+                        b[0] = (uint8_t)(0x80 | (ev->data.note.channel & 15)), b[1] = ev->data.note.note & 127;
+                        break;
+                    case SND_SEQ_EVENT_CONTROLLER:
+                        b[0] = (uint8_t)(0xB0 | (ev->data.control.channel & 15)),
+                        b[1] = (uint8_t)(ev->data.control.param & 127), b[2] = (uint8_t)(ev->data.control.value & 127);
+                        break;
+                    case SND_SEQ_EVENT_PITCHBEND: {
+                        int v = std::max(0, std::min(16383, (int)ev->data.control.value + 8192));
+                        b[0] = (uint8_t)(0xE0 | (ev->data.control.channel & 15)), b[1] = v & 127, b[2] = (uint8_t)(v >> 7);
+                        break;
+                    }
+                    case SND_SEQ_EVENT_SONGPOS: {
+                        int v = std::max(0, std::min(16383, (int)ev->data.control.value));
+                        b[0] = 0xF2, b[1] = v & 127, b[2] = (uint8_t)(v >> 7);
+                        break;
+                    }
+                    case SND_SEQ_EVENT_CLOCK: b[0] = 0xF8, len = 1; break;
+                    case SND_SEQ_EVENT_START: b[0] = 0xFA, len = 1; break;
+                    case SND_SEQ_EVENT_CONTINUE: b[0] = 0xFB, len = 1; break;
+                    case SND_SEQ_EVENT_STOP: b[0] = 0xFC, len = 1; break;
+                    default: len = 0;
+                }
+                if (len) deliverBytes(slot, b, len, now);
+            }
+        }
     }
 };
 
-Input::Input() : ring_(RING) {}
+}  // namespace
 
-Input::~Input() { close(); }
+}  // namespace midi_in
 
-bool Input::open(const std::string& name) {
-    close();
-    name_ = name;
-    lost_ = false;
-    if (name.empty()) return true;
-    auto s = std::make_unique<Seq>();
-    s->seq = openSeq(SND_SEQ_OPEN_INPUT);
-    if (!s->seq) return false;
-    const PortInfo* found = nullptr;
-    auto list = listPorts(s->seq);
-    for (auto& p : list)
-        if (p.stable == name || p.name == name) {
-            found = &p;
-            break;
-        }
-    if (!found) return false;
-    snd_seq_set_client_name(s->seq, "Tiny DAW");
-    s->port = snd_seq_create_simple_port(s->seq, "MIDI in", SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE,
-                                         SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
-    if (s->port < 0) return false;
-    if (snd_seq_connect_from(s->seq, s->port, found->client, found->port) < 0) return false;
-    // the system's announcements: tells us when the keyboard goes away
-    snd_seq_connect_from(s->seq, s->port, SND_SEQ_CLIENT_SYSTEM, SND_SEQ_PORT_SYSTEM_ANNOUNCE);
-    s->srcClient = found->client;
-    s->srcPort = found->port;
-    if (pipe2(s->wake, O_NONBLOCK | O_CLOEXEC) < 0) return false;
-    seq_ = std::move(s);
-    connected_ = true;
-    running_ = true;
-    thread_ = std::thread([this] { loop(); });
-    return true;
-}
-
-void Input::close() {
-    if (thread_.joinable()) {
-        running_ = false;
-        char c = 1;
-        ssize_t w = ::write(seq_->wake[1], &c, 1);
-        (void)w;
-        thread_.join();
+std::unique_ptr<midi_ports::Backend> midi_ports::alsaBackend() {
+    auto b = std::make_unique<midi_in::AlsaBackend>();
+    if (!b->start()) {
+        util::debugf("midi: no ALSA sequencer (no ALSA MIDI ports)\n");
+        return nullptr;
     }
-    seq_.reset();
-    connected_ = false;
+    return b;
 }
 
-size_t Input::poll(std::vector<Event>& out) {
-    uint64_t t = tail_.load(std::memory_order_relaxed);
-    uint64_t h = head_.load(std::memory_order_acquire);
-    size_t n = 0;
-    for (; t != h; t++, n++) out.push_back(ring_[t % RING]);
-    tail_.store(t, std::memory_order_release);
-    return n;
-}
+namespace midi_in {
 
-void Input::deliver(const Event& e) {
-    if (callback_) callback_(e);
-    if (!queue_) return;
-    uint64_t h = head_.load(std::memory_order_relaxed);
-    if (h - tail_.load(std::memory_order_acquire) >= RING) {
-        dropped_++;
-        return;
-    }
-    ring_[h % RING] = e;
-    head_.store(h + 1, std::memory_order_release);
-}
-
-void Input::loop() {
-    snd_seq_t* seq = seq_->seq;
-    int n = snd_seq_poll_descriptors_count(seq, POLLIN);
-    std::vector<pollfd> fds((size_t)n + 1);
-    snd_seq_poll_descriptors(seq, fds.data(), (unsigned)n, POLLIN);
-    fds[(size_t)n] = {seq_->wake[0], POLLIN, 0};
-    while (running_) {
-        for (auto& f : fds) f.revents = 0;
-        int r = ::poll(fds.data(), fds.size(), 500);
-        if (r < 0 && errno != EINTR) break;
-        if (!running_) break;
-        bool any = false;
-        for (;;) {
-            snd_seq_event_t* ev = nullptr;
-            int got = snd_seq_event_input(seq, &ev);
-            if (got == -EAGAIN || got == -EWOULDBLOCK) break;
-            if (got == -ENOSPC) continue;  // (the input buffer overflowed: some events were lost)
-            if (got < 0 || !ev) break;
-            double now = monoNow();
-            Event e;
-            e.time = now;
-            bool keep = true;
-            switch (ev->type) {
-                case SND_SEQ_EVENT_NOTEON:
-                    e = Event::noteOn(ev->data.note.note & 127, ev->data.note.velocity & 127, ev->data.note.channel & 15,
-                                      now);
-                    break;
-                case SND_SEQ_EVENT_NOTEOFF:
-                    e = Event::noteOff(ev->data.note.note & 127, ev->data.note.channel & 15, now);
-                    break;
-                case SND_SEQ_EVENT_CONTROLLER:
-                    e = Event::control((int)(ev->data.control.param & 127), (int)(ev->data.control.value & 127),
-                                       ev->data.control.channel & 15, now);
-                    break;
-                case SND_SEQ_EVENT_PITCHBEND:
-                    e.type = Event::PitchBend;
-                    e.channel = ev->data.control.channel & 15;
-                    e.bend = (int16_t)std::max(-8192, std::min(8191, (int)ev->data.control.value));
-                    break;
-                case SND_SEQ_EVENT_PORT_EXIT:
-                case SND_SEQ_EVENT_CLIENT_EXIT:
-                    if (ev->data.addr.client == seq_->srcClient &&
-                        (ev->type == SND_SEQ_EVENT_CLIENT_EXIT || ev->data.addr.port == seq_->srcPort))
-                        lost_ = true;
-                    keep = false;
-                    break;
-                default:
-                    keep = false;
-            }
-            if (keep) {
-                deliver(e);
-                any = true;
-            }
-        }
-        if (any && notify_) notify_();
-    }
-}
 
 // --- Sustain ---
 

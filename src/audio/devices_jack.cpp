@@ -61,6 +61,20 @@ const Api* loadLibjack() {
     if (!ok) return nullptr;
     sym(lib, "jack_on_info_shutdown", a.on_info_shutdown);  // (optional)
     sym(lib, "jack_set_info_function", a.set_info_function);
+    // (MIDI and the transport: midi_jack.cpp; optional)
+    sym(lib, "jack_midi_get_event_count", a.midi_get_event_count);
+    sym(lib, "jack_midi_event_get", a.midi_event_get);
+    sym(lib, "jack_midi_clear_buffer", a.midi_clear_buffer);
+    sym(lib, "jack_midi_event_write", a.midi_event_write);
+    sym(lib, "jack_last_frame_time", a.last_frame_time);
+    sym(lib, "jack_frames_to_time", a.frames_to_time);
+    sym(lib, "jack_get_time", a.get_time);
+    sym(lib, "jack_transport_query", a.transport_query);
+    sym(lib, "jack_transport_start", a.transport_start);
+    sym(lib, "jack_transport_stop", a.transport_stop);
+    sym(lib, "jack_transport_locate", a.transport_locate);
+    sym(lib, "jack_set_timebase_callback", a.set_timebase_callback);
+    sym(lib, "jack_release_timebase", a.release_timebase);
     if (!sym(lib, "jack_free", a.free_)) a.free_ = free;    // (very old libjack: plain free)
     a.set_error_function(quiet);
     if (a.set_info_function) a.set_info_function(quiet);

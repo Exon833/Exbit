@@ -3,6 +3,7 @@
 
 #include "audio/patch.h"
 #include "audio/plugin_audio.h"
+#include "ui/midi_ports_dialog.h"
 #include "ui/pad_kit_dialog.h"
 #include "ui/plugin_dialog.h"
 #include "ui/plugin_host.h"
@@ -31,7 +32,7 @@ ui::Menu* fillInstrumentMenu(ui::Menu* menu, ui::Window* parent, PluginHost& hos
         menu->addAction(track->name + " is frozen: unfreeze it to change its instrument")->setEnabled(false);
         return menu;
     }
-    SlotPtr current = track->needsInstrument || track->usesRack ? nullptr : aload(track->instrument);
+    SlotPtr current = track->needsInstrument || track->usesRack || track->ext.on ? nullptr : aload(track->instrument);
     if (current && host.canReload(current))
         menu->addAction("Reload " + current->name + " (it stopped)", [&host, track, current] {
             ui::App::get().singleShot(0, [&host, track, current] {  // (once the menu has gone; still its instrument)
@@ -44,7 +45,8 @@ ui::Menu* fillInstrumentMenu(ui::Menu* menu, ui::Window* parent, PluginHost& hos
             })->setEnabled(plugin_audio::usable(current));
         menu->addSeparator();
     }
-    checkable(menu, BUILTIN, !current && !track->needsInstrument && !track->usesRack && !track->sampler && !track->padKit,
+    checkable(menu, BUILTIN,
+              !current && !track->needsInstrument && !track->usesRack && !track->sampler && !track->padKit && !track->ext.on,
               [parent, &host, track, chosen] { setInstrument(parent, host, track, nullptr, chosen); });
     SamplerPtr sampler = std::atomic_load(&track->sampler);
     ui::Action* sampled = checkable(
@@ -66,9 +68,14 @@ ui::Menu* fillInstrumentMenu(ui::Menu* menu, ui::Window* parent, PluginHost& hos
     ui::Action* rack =
         checkable(menu, count ? "Instrument patch panel (" + std::to_string(count) + " instrument" + (count == 1 ? "" : "s") + ")…"
                               : std::string(RACK),
-                  track->usesRack && !track->needsInstrument,
+                  track->usesRack && !track->needsInstrument && !track->ext.on,
                   [parent, &host, track, chosen, openPanel] { useRack(parent, host, track, chosen, openPanel); });
     rack->tooltip = "Several instruments on this track at once, each with its own volume";
+    ui::Action* external = checkable(  // (a hardware synth: ui/midi_ports_dialog.h)
+        menu, track->ext.on ? "External synth: " + track->ext.port + "â¦" : std::string(EXTERNAL),
+        track->ext.on && !track->needsInstrument,
+        [parent, track, chosen] { midi_ports_dialog::editExternal(parent, track, chosen); });
+    external->tooltip = "A hardware synth: its notes go out to a MIDI port, its sound comes back on an audio input";
     menu->addSeparator();
     std::vector<plug::PluginInfo> found = host.library().ofKind(plug::INSTRUMENT);
     if (current) {
@@ -119,6 +126,7 @@ bool setInstrument(ui::Window* parent, PluginHost& host, const TrackPtr& track, 
     if (old && slot != old) host.closeEditor({old});
     std::atomic_store(&track->instrument, slot);  // loaded already, so the audio thread can use it at once
     track->needsInstrument = false;
+    track->ext.on = false;  // (an External synth's settings kept, to come back to)
     if (!info) {  // (the built-in synth, rather than the sampler or Pad Kit)
         std::atomic_store(&track->sampler, SamplerPtr());
         std::atomic_store(&track->padKit, PadKitPtr());
@@ -145,6 +153,7 @@ void builtInFromNow(PluginHost& host, const TrackPtr& track) {
     std::atomic_store(&track->instrument, SlotPtr());
     track->usesRack = false;
     track->needsInstrument = false;
+    track->ext.on = false;
     if (old && !track->rack.contains(old)) host.project.retire(aload(old->instance));
 }
 }  // namespace
@@ -175,7 +184,7 @@ void usePadKit(ui::Window* parent, PluginHost& host, const TrackPtr& track, std:
 
 void useRack(ui::Window* parent, PluginHost& host, const TrackPtr& track, std::function<void()> chosen,
              OpenPanel openPanel) {
-    if (!track->usesRack || track->needsInstrument) {
+    if (!track->usesRack || track->needsInstrument || track->ext.on) {
         SlotPtr single = track->needsInstrument ? nullptr : aload(track->instrument);
         if (track->rack.empty() && single) {
             single->placed = false;
@@ -186,6 +195,7 @@ void useRack(ui::Window* parent, PluginHost& host, const TrackPtr& track, std::f
         }
         track->usesRack = true;  // (the panel is ready first: the audio thread never finds half of it)
         track->needsInstrument = false;
+        track->ext.on = false;
         SlotPtr now = aload(track->instrument);
         if (now && track->rack.contains(now)) std::atomic_store(&track->instrument, SlotPtr());
         if (chosen) chosen();
@@ -199,6 +209,8 @@ void editInstrument(ui::Window* parent, PluginHost& host, const TrackPtr& track,
         ui::msg::information(parent, "Track frozen",
                              track->name + " is frozen: it plays its rendering, so changes to its instrument wouldn't "
                                            "be heard.\nUnfreeze it first (right-click its row).");
+    } else if (track->ext.on && !track->needsInstrument) {
+        midi_ports_dialog::editExternal(parent, track);
     } else if (track->usesRack && !track->needsInstrument) {
         if (openPanel) openPanel(track);
     } else if (track->playsPadKit() && !track->needsInstrument) {

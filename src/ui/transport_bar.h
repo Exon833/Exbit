@@ -153,6 +153,11 @@ public:
     ui::Button* swingButton = nullptr;
     ui::Menu* swingMenu = nullptr;
     std::function<void(ui::Menu&)> fillKeyMenu, fillSwingMenu;
+    // what the transport follows (Sync ▾: Internal, MIDI clock, JACK; midi_sync.h): its menu filled as it opens (main
+    // window, ui/midi_ports_dialog.h); its text "Sync: MIDI clock ▾" set by the main window
+    ui::Button* syncButton = nullptr;
+    ui::Menu* syncMenu = nullptr;
+    std::function<void(ui::Menu&)> fillSyncMenu;
     ui::Button* moreButton = nullptr;     // "»"
     ui::Menu* moreMenu = nullptr;
     // fitting the bar to its width

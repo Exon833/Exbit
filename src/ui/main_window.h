@@ -26,6 +26,7 @@
 
 #include "audio/engine.h"
 #include "audio/metronome.h"
+#include "audio/midi_sync.h"
 #include "core/json.h"
 #include "model/history.h"
 #include "model/model.h"
@@ -83,7 +84,7 @@ struct MainWindowCore {
     std::unique_ptr<Recording> recording;
     std::unique_ptr<history::History> history;     // undo / redo (Edit menu)
     std::unique_ptr<autosave::Autosave> autosaver; // autosave and crash recovery
-    std::unique_ptr<midi_input::MidiInput> midiInput;                 // Options → MIDI input…
+    std::unique_ptr<midi_input::MidiInput> midiInput;                 // Options → MIDI ports… (its hub)
     std::unique_ptr<computer_keyboard::ComputerKeyboard> keyboard;    // the computer keyboard as a piano
 };
 
@@ -301,7 +302,16 @@ public:
     void beforeClose();                  // the computer keyboard, MIDI input let go
     void setUpMidi();                    // MIDI input, the computer keyboard, Capture, the MIDI windows' host
     void capture();                      // Capture: what was just played, as a clip
-    void chooseMidiInput();
+    void chooseMidiInput();              // (Options → MIDI ports…)
+    // --- MIDI ports, External synths, Sync (main_window_midi.cpp; ui/midi_ports_dialog.h) ---
+    void setUpMidiPorts();               // the ports remembered opened, the engine's MIDI out, Sync
+    void midiFrame();                    // every frame: External synth tracks to the audio thread; following Sync
+    void showMidiPorts();                // Options → MIDI ports…
+    void setSync(midi_sync::Mode mode);  // the transport bar's Sync ▾
+    midi_sync::Mode syncMode = midi_sync::Mode::Internal;
+    midi_sync::ClockFollower clockFollower;
+    midi_sync::JackFollower jackFollower;
+    double clockTempoAt_ = -1e9, jackMasterAt_ = -1e9;
     void showRecordOffset();             // Options → Recording offset…
     void fillGridMenu(ui::Menu* menu);   // the Grid ▾ button's menu
     void changeGrid(std::optional<double> grid, std::optional<bool> snap = {}, std::optional<bool> finer = {});

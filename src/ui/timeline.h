@@ -323,7 +323,7 @@ public:
     bool randomTrackColors = false;      // new tracks get a random colour (Options → Colours)
     TrackPtr currentTrack;               // the selected track: the lane (or panel row) clicked last
     AutomationPtr currentAutomation;     // the automation lane clicked last (null: another lane): its range's Ctrl+C / V, Del
-    std::optional<std::pair<TrackPtr, int64_t>> recording;  // (track, start frame) while recording: the take grows
+    std::vector<std::pair<TrackPtr, int64_t>> recording;  // (track, start frame) of each take while recording: they grow
     MasterLaneView* masterView = nullptr;  // the main window pins it to the bottom of the view
     bool masterBelowView = false;        // it is pinned under the view (not over it): its place isn't counted in the height
     // hands the master lane widget over to whoever shows it (the main window adopts it into the viewport)

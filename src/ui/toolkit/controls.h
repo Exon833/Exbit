@@ -601,6 +601,11 @@ public:
     Signal<int> itemActivated;                    // double-click or Return
     Signal<int> itemClicked;
     Signal<int, bool> itemChecked;
+    // with the keyboard focus on a row that can be ticked, Space ticks it (not the program's Play), as a CheckBox's
+    bool overridesShortcut(const KeyEvent& e) const override {
+        return e.key == plat::Key_Space && !(e.mods & (plat::ModCtrl | plat::ModAlt | plat::ModMeta)) && current_ >= 0 &&
+               current_ < (int)items_.size() && items_[current_].checkable;
+    }
     Signal<int, MouseEvent&> itemContextMenu;
     void paint(Painter& p) override;
     bool mousePress(MouseEvent& e) override;

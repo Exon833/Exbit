@@ -168,7 +168,7 @@ std::vector<SlotPtr> Track::instruments() const {
 }
 
 bool Track::playsPlugins() const {
-    if (kind != Kind::Midi || needsInstrument) return false;
+    if (kind != Kind::Midi || needsInstrument || ext.on) return false;
     if (usesRack) return true;
     SlotPtr inst = std::atomic_load(&instrument);
     return inst && std::atomic_load(&inst->instance) && !inst->failed.load();
@@ -240,7 +240,7 @@ void Clip::prepare(int sr, int64_t reach) {
     if (t && clip_hooks::midiEffects && !effectsCommitted)  // (the song's swing, then its track's MIDI effects: arpeggiator, chord…)
         notesPlayed = clip_hooks::midiEffects(*t, notesPlayed, (double)(start - offset) / sr);
     double len = loop && length >= 0 ? std::max(lengthS, (double)(offset + length) / sr) : lengthS;
-    if (t && t->playsPlugins()) {  // (its instrument plugins play its events: as long, silent)
+    if (t && (t->playsPlugins() || t->ext.on)) {  // (its instrument plugins or External synth play its events: silent)
         auto silent = std::make_shared<AudioBuffer>();
         silent->samples.assign((size_t)((int64_t)((len + synth::RELEASE_S) * sr) + 1) * 2, 0.0f);
         data = silent;

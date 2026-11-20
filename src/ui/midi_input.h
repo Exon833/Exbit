@@ -1,11 +1,15 @@
-// Playing a MIDI keyboard into Tiny DAW (the GUI half of daw/ui/midi_input.py; the ALSA side and the
-// sustain pedal are audio/midi_in.h): Options → MIDI input… chooses the port (remembered by its stable
-// name in "options/midi_input").
+// Playing MIDI keyboards into Tiny DAW (the GUI half of daw/ui/midi_input.py; the ports are audio/midi_ports.h,
+// the sustain pedal audio/midi_in.h): Options → MIDI ports… chooses the inputs listened to, several at once
+// (`hub`: remembered by their stable names in the preferences, Preferences::midiPorts).
 //
-// Notes go to the selected track (the lane or row clicked last) when it is a MIDI track that has an
-// instrument and isn't frozen, heard through it as the MIDI editor's keys are (audio/live.h): its
-// MIDI effects (those that work live), its VST instrument, the built-in synth or sampler, then its
-// effects. A note is let go on the track it started on, even if another track was selected meanwhile.
+// ROUTING. A MIDI track's MIDI input (Track::midiIn; its menu's "MIDI input ▸") is "All" (the default) or one port,
+// optionally one channel. What is played goes to the selected track (the lane or row clicked last) when its input
+// is All, and to every MIDI track whose input is that very port (and channel), selected or not; each when it has an
+// instrument and isn't frozen, heard through it as the MIDI editor's keys are (audio/live.h): its MIDI effects
+// (those that work live), its VST instrument, the built-in synth or sampler, then its effects. An External synth
+// track gets it as MIDI on its port and channel at once (bends and controls too). The computer keyboard plays the
+// selected track. A note is let go on the tracks it started on, even if another track was selected meanwhile; a
+// port unplugged lets its notes go.
 //
 // The bend wheel bends what the selected track plays live (a VST instrument by its own range; the
 // built-in synth and sampler by the track's bend range, Track::bendRange: live.h), and the mod wheel
@@ -16,7 +20,7 @@
 // The sustain pedal (control 64) holds notes (midi_in::Sustain): while it is down, a key let go keeps
 // sounding until the pedal is let go (or the key is struck again). It is applied before anything else
 // sees the notes, so it works the same for every instrument, and ● Rec and Capture keep the notes as
-// long as they sounded. The computer keyboard (computer_keyboard.h) plays through handle() too.
+// long as they sounded (one pedal per port). The computer keyboard (computer_keyboard.h) plays through handle() too.
 //
 // Every note is also noted down in `log` (when, and where the playhead was heard then), recording or
 // not, so Capture (capture.h) can turn what was just played into a clip.
@@ -24,10 +28,10 @@
 // THE MAIN WINDOW:
 //   midiInput = std::make_unique<midi_input::MidiInput>(engine, project,
 //       [this] { return timeline->currentTrack; }, [this](const std::string& m, int ms) { status(m, ms); });
-//   if (!midiInput->open(midi_input::savedName()))
-//       status("MIDI input “" + name + "” isn't connected now (Options → MIDI input…)", 5000);
+//   midiInput->hub.load(…the preferences…); midiInput->hub.start();
 //   every frame: midiInput->poll();
-//   Options → "MIDI input…": midi_input::chooseInput(this, *midiInput);
+//   Options → "MIDI ports…": midi_ports_dialog (ui/midi_ports_dialog.h);
+//   the clock-in port's Start / Stop / clock (Sync: MIDI clock): midiInput->realtime = [](const midi_in::Event&) {…};
 //   recording MIDI (ui/recording): midiInput->recorder = [](const midi_in::Event&) {…}; null when done
 //   closing: midiInput->close().
 #pragma once
@@ -43,6 +47,7 @@
 
 #include "audio/engine.h"
 #include "audio/midi_in.h"
+#include "audio/midi_ports.h"
 #include "model/model.h"
 
 namespace ui { class Window; }
@@ -67,8 +72,8 @@ struct LogEntry {
     int pitch = 0, velocity = 0;
 };
 
-std::string savedName();                   // the port remembered ("" none)
-void saveName(const std::string& name);
+// the port the program before MIDI ports remembered ("options/midi_input"; "" none): on from then on
+std::string savedName();
 
 class MidiInput {
 public:
@@ -76,13 +81,17 @@ public:
               std::function<void(const std::string&, int)> status);
     ~MidiInput();
 
-    // listen to the port called `name` (its stable name; "" for none); false if it isn't there now
+    // listen to the input called `name` too (its stable name; "" for none); false if it isn't there now
     bool open(const std::string& name);
-    void close();
-    const std::string& name() const { return name_; }
+    void close();  // every note let go, every port closed
+    const std::string& name() const { return name_; }  // the port open() was asked for last
+    std::string portName(int slot) const;  // an event's port's name ("" the computer keyboard)
 
     // the track notes go to: the selected one, if it is a MIDI track that can play them (else null)
     TrackPtr target() const;
+    // the tracks an event from port `slot` (channel 0-15) plays: the selected one if its input is All, and every
+    // MIDI track listening to that port (and channel); for the computer keyboard (slot < 0) the selected one
+    std::vector<TrackPtr> targets(int slot, int channel) const;
     // an event from the MIDI keyboard or the computer keyboard: the sustain pedal first, then played
     void handle(const midi_in::Event& e);
     // GUI thread, every frame: what arrived from the port, handled; a port unplugged is closed
@@ -95,6 +104,8 @@ public:
     std::function<void(const midi_in::Event&)> recorder;
     // control changes are offered here first (GUI thread; MIDI learn: midi_learn.h): true = used, not played
     std::function<bool(const midi_in::Event&)> controlHook;
+    // MIDI clock and Start / Continue / Stop / Song Position from an input with Clock in (midi_sync.h)
+    std::function<void(const midi_in::Event&)> realtime;
     std::deque<LogEntry> log;              // (clock, heard frame, on, pitch, velocity), for Capture
     double capturedAt = -1.0;              // clock time of the last Capture: notes before it were captured
     double now() const;                    // the log's clock (plat::now(); tests may set `clock`)
@@ -104,24 +115,27 @@ public:
     Project& project;
     std::function<TrackPtr()> currentTrack;
     std::function<void(const std::string&, int)> status;
-    midi_in::Input input;
-    midi_in::Sustain sustain;
+    midi_ports::Hub hub;
+    midi_in::Sustain sustain;  // (the computer keyboard's; each port has its own)
 
 private:
     void play(const midi_in::Event& e);    // as played (the pedal already taken into account)
     void noteDown(const midi_in::Event& e);
-    void letGo(int note);
+    void letGo(int key);                         // (key: heldKey)
+    static int heldKey(const midi_in::Event& e) { return (e.port + 1) * 128 + e.data1; }
+    void releasePort(int slot);                  // its notes let go (closed, unplugged)
+    midi_in::Sustain& sustainOf(int slot);
+    void sendExternal(const TrackPtr& track, uint8_t status, int d1, int d2);  // to its External synth now
     // --- the bend wheel and the mod wheel (live) ---
     void controllers(const midi_in::Event& e);  // (as played) a bend or the mod wheel to the selected track
     void unbend();                               // the track bent last set straight again
     TrackPtr bent_;                              // the track the wheel bent last (null: none bent)
     std::string name_;
-    std::map<int, std::pair<TrackPtr, std::vector<int>>> held_;  // key -> (the track it went to, its pitches)
+    // heldKey -> (each track it went to, the pitches it sounds there)
+    std::map<int, std::vector<std::pair<TrackPtr, std::vector<int>>>> held_;
+    std::map<int, midi_in::Sustain> sustains_;   // each port's pedal
     std::vector<midi_in::Event> events_, out_;
-    bool lostReported_ = false;
+    std::vector<int> lost_;
 };
-
-// Options → MIDI input…: the keyboard played into the selected MIDI track (remembered)
-void chooseInput(ui::Window* parent, MidiInput& input);
 
 }  // namespace midi_input

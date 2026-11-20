@@ -47,6 +47,12 @@ TrackPtr copyOf(const Track& t) {
     c->padKit = std::atomic_load(&t.padKit);
     c->needsInstrument = t.needsInstrument;
     c->bendRange = t.bendRange;
+    c->midiIn = t.midiIn;
+    c->midiInChannel = t.midiInChannel;
+    c->ext = t.ext;
+    c->monitor = t.monitor;  // (not armed: a copy is recorded onto only when armed itself)
+    c->inputCh = t.inputCh;
+    c->inputStereo = t.inputStereo;
     c->color = t.color;
     c->tone = t.tone;
     c->group = t.group;

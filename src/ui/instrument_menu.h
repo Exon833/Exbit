@@ -15,6 +15,9 @@
 // it, to come back to; the built-in synth and the built-in sampler forget it (undo brings it back). "Pads to tracks"
 // (once it has pads) gives every used pad a track of its own (model/pad_tracks.h).
 //
+// "External synth…" makes the track play a hardware synth (ui/midi_ports_dialog.h): its notes out on a MIDI port, its
+// sound back on an audio input; 🎹 then opens its settings. Choosing another instrument keeps them, to come back to.
+//
 // "Instrument patch panel…" makes the track play several instruments at once instead, from its
 // instrument patch panel (InstrumentPanelDialog; 🎹 then opens it). Its one instrument goes in it
 // first, wired, so it keeps sounding. Choosing a single instrument again leaves the panel as it is
@@ -39,6 +42,7 @@ constexpr const char* BUILTIN = "Built-in synth";
 constexpr const char* RACK = "Instrument patch panel…";
 constexpr const char* SAMPLER = "Built-in sampler…";
 constexpr const char* PAD_KIT = "Pad Kit…";
+constexpr const char* EXTERNAL = "External synth…";  // a hardware synth (ui/midi_ports_dialog.h)
 using OpenPanel = std::function<void(const TrackPtr&)>;
 
 bool samePlugin(const plug::PluginInfo& info, const PluginSlot* slot);

@@ -417,6 +417,9 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
         automation::apply(track, start - st.inLate[ti], sr, &tracks);
     bool vstInstrument = playsPlugins(track);
     bool instrument = vstInstrument && plugins;  // its instrument plugins play the notes
+    // an External synth: its sound from the device's inputs (EXTERNAL SYNTHS)
+    const bool external = track.kind == Kind::Midi && track.ext.on && !track.needsInstrument && st.input &&
+                          track.ext.input >= 0 && track.ext.input < st.inputChannels;
     auto effects = track.effects.get();
     bool hasPlugins = false;
     if (plugins) {
@@ -436,6 +439,11 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
         }
         vstInstrument = instrument = hasPlugins = false;
     }
+    // MONITORING (mixer.h): recorded onto, its clips are muted; its input heard through it
+    if (track.kind == Kind::Audio && !frozen)
+        for (int r = 0; r < st.recordingCount; r++)
+            if (st.recording[r] == &track) clipCount = 0;
+    const float* heard = st.input && !frozen && hearsInput(track) && track.inputCh < st.inputChannels ? st.input : nullptr;
     // (the output pair it reaches: its own, or the outermost bus's it passes; device lacks that output: use 1/2)
     int first = st.firstOut[ti] < b.outChannels ? st.firstOut[ti] : 0;
     int channels = std::min(2, b.outChannels - first);
@@ -478,7 +486,8 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
     live::Clock liveClock = playingLive ? live::clockAt(*b.tempoMap, hasStart, start, sr) : live::Clock();
     // (an instrument chosen this very moment, after the buffer's preparation: it starts with the next one, so
     // no note is sent it without its held notes being kept: instrument && !heldOf)
-    if (!(audible || feeds || padsOut) || !(clipCount || (padsOut && ownCount) || hasPlugins || playingLive || into || padIn ||
+    if (!(audible || feeds || padsOut) || !(clipCount || (padsOut && ownCount) || hasPlugins || playingLive || into || padIn || heard ||
+                                            (external && !frozen) ||
                                             (line && line->sounding) || (sendLine && sendLine->sounding)) ||
         (vstInstrument && !plugins) || (instrument && !st.heldOf[ti])) {
         res.seconds = secondsSince(t0);
@@ -534,6 +543,16 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
                 letGo(aload(track.instrument));
             }
         }
+    } else if (external && !frozen) {  // (EXTERNAL SYNTHS: what its synth played, on the inputs it names)
+        const float* in = st.input;
+        int ic = st.inputChannels, left = track.ext.input;
+        int right = track.ext.stereo && left + 1 < ic ? left + 1 : left;
+        for (int i = 0; i < frames; i++) {
+            sig[0][i] = in[(size_t)i * ic + left];
+            if (channels > 1) sig[1][i] = in[(size_t)i * ic + right];
+        }
+        addInput();
+        if (notes) notes->clear();  // (its notes played live went out as MIDI)
     } else {
         for (size_t k = 0; k < clipCount; k++) addClip(sig, channels, frames, *clips[k], start);
         // a kit's pads kept apart: into their tracks' input (one whose track isn't there: into its own sound)
@@ -563,6 +582,13 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
             }
         }
         addInput();
+        if (heard) {  // (its device input: a pair, or a mono one on both sides)
+            const int w = st.inputChannels, l = track.inputCh, r = track.inputStereo && l + 1 < w ? l + 1 : l;
+            for (int i = 0; i < frames; i++) {
+                sig[0][i] += heard[(size_t)i * w + l];
+                if (channels > 1) sig[1][i] += heard[(size_t)i * w + r];
+            }
+        }
         if (notes) {
             scratch.messages.clear();
             notes->take(frames, sr, scratch.messages, &liveClock);

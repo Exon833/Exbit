@@ -21,7 +21,10 @@
 #include "ui/colors.h"
 #include "ui/master_strip.h"
 #include "ui/midi_effects_dialog.h"
+#include "ui/midi_ports_dialog.h"
 #include "ui/paint_helpers.h"
+#include "ui/record_arm.h"
+#include "ui/recording.h"
 #include "ui/solo_button.h"
 #include "ui/theme.h"
 #include "ui/timeline.h"
@@ -481,6 +484,10 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
             }
             tl->update();  // silent clips are drawn grey
         }));
+    if (track->kind != Kind::Return && !asGroup)  // ● (recording several tracks: ui/recording.h)
+        row->addWidget(frame->add<ArmButton>(track, [this, alive, track](bool on, bool more) {
+            if (!alive.expired()) armTrack(track, on, more);
+        }));
     row->addWidget(remove);
 
     auto* meter = frame->add<LevelMeter>(channels);
@@ -521,7 +528,28 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
     // (as tall as Qt's flat combo box comes out in a default-height row: the row's controls fit in 72 px)
     outputs->setFixedHeight(theme::metric("output-selector-height", 18));
     bottom->addWidget(outputs, 0, 0, 1, 1, AlignTop);
-    bottom->addWidget(meter, 0, 1);
+    bool recordsAudio = track->kind == Kind::Audio && !asGroup;  // (its input and monitoring: ui/recording.h)
+    if (recordsAudio) {  // its input, then the meter
+        ui::Widget* meterCell;
+        ui::HBox* meterRow = cellRow(frame, meterCell, std::max(0, ui::style::px(style.volume, "column-gap", 4)));
+        auto* input = record_arm::inputSelector(frame, *track, inputs, [this, alive, track](const std::string& setting) {
+            if (alive.expired()) return;
+            auto ts = targets(track);
+            for (auto& t : ts)
+                if (t->kind == Kind::Audio) recording::setInput(*t, setting);
+            util::debugf("recording: input %s for %zu track(s)\n", setting.c_str(), ts.size());
+            if (ts.size() > 1) rebuild();
+            say("Input " + recording::inputName(*track), ts.size());
+        });
+        input->setFixedHeight(theme::metric("output-selector-height", 18));
+        meterCell->adopt(frame->release(input));
+        meterCell->adopt(frame->release(meter));
+        meterRow->addWidget(input, 0, AlignTop);
+        meterRow->addWidget(meter, 1);
+        bottom->addWidget(meterCell, 0, 1);
+    } else {
+        bottom->addWidget(meter, 0, 1);
+    }
     bottom->addWidget(display, 0, 2, 2, 1, AlignVCenter | AlignRight);
     ui::Widget* volumeCell;
     ui::HBox* volume = cellRow(frame, volumeCell, std::max(0, ui::style::px(style.volume, "column-gap", 4)));
@@ -536,7 +564,7 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
     autoButton->setStyle(ui::Button::Style::Tool);
     autoButton->setCheckable(true);
     autoButton->setCheckedSilently(track->showAutomation);
-    bool alone = track->kind == Kind::Return || returns.empty();  // (narrower beside the sends button)
+    bool alone = (track->kind == Kind::Return || returns.empty()) && !recordsAudio;  // (narrower beside others)
     autoButton->setFixedSize(alone ? theme::metric("auto-button-width", 58) : theme::metric("auto-button-short-width", 36),
                              theme::metric("auto-button-height", 16));
     autoButton->setFocusPolicy(ui::FocusPolicy::None);
@@ -556,6 +584,15 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
         Timeline* tl = &timeline;
         cell->addWidget(autoCell->add<SendsButton>(track, returns, [tl] { tl->update(); }));
     }
+    if (recordsAudio)  // its monitoring (the speaker): every selected audio track's
+        cell->addWidget(autoCell->add<MonitorButton>(track, [this, alive, track](Track::Monitor m) {
+            if (alive.expired()) return;
+            auto ts = targets(track);
+            for (auto& t : ts)
+                if (t->kind == Kind::Audio) t->monitor = m;
+            if (ts.size() > 1) rebuild();
+            say(std::string("Monitoring ") + record_arm::monitorName(m), ts.size());
+        }));
     cell->addStretch(1);
     bottom->addWidget(autoCell, 1, 0);
     bottom->setColumnStretch(1, 1);
@@ -831,6 +868,13 @@ void LanePanel::fillTrackMenu(ui::Menu& menu, const TrackPtr& track) {
         auto openFx = openMidiEffects;
         menu.addAction("MIDI effects…" + (count ? " (" + std::to_string(count) + ")" : std::string()),
                        [openFx, track] { openFx(track); });
+    }
+    if (track->kind == Kind::Midi && !track->frozen) {  // its MIDI input, its External synth (ui/midi_ports_dialog.h)
+        Timeline* tl = &timeline;
+        midi_ports_dialog::addTrackMenu(menu, track, [tl] { tl->update(); });
+        if (track->ext.on)
+            menu.addAction("External synth: " + track->ext.port + "\xe2\x80\xa6",
+                           guard([this, track] { midi_ports_dialog::editExternal(dialogParent(), track); }));
     }
     if (track->kind == Kind::Midi)  // (the bend wheel of a MIDI keyboard: midi_input.h)
         menu.addAction("Pitch bend range…" + (track->bendRange != live::DEFAULT_BEND_RANGE

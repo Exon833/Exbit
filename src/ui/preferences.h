@@ -41,6 +41,8 @@ struct Preferences {
     std::string recordInput = "1";          // "1" (mono) or "1/2" (a pair)
     int countInBars = 0;
     bool loopTakes = true;                  // recording audio with the loop on: a take each pass (ui/recording.h)
+    bool midiLoopTakes = false;             // recording MIDI round the loop: each pass a take (else merged into one clip)
+    bool lowLatencyMonitoring = false;      // Options → Audio properties: effects with look-ahead left out while recording
     bool recordEffectsNotes = false;        // recording MIDI keeps the notes the track's MIDI effects make, not the keys
     std::string vst2Folders;                // separated by "|"
     std::string winePrefixes;               // the Wine prefixes Windows plugins are found in, separated by "|"
@@ -48,6 +50,9 @@ struct Preferences {
     std::string winePrograms;               // …the wine program chosen for some of them: JSON {"prefix": "program"}
                                             // (the others: automatic, wine::winePathFor)
     std::string midiInput;                  // the MIDI keyboard played into the selected MIDI track; "" = none
+                                            // (before MIDI ports: turned on in them, midi_input::savedName)
+    std::string midiPorts;                  // Options → MIDI ports…: JSON (midi_ports::Hub::settings); "" = none yet
+    std::string sync = "Internal";          // the transport bar's Sync ▾: "Internal", "MIDI clock", "JACK" (midi_sync.h)
     bool computerKeyboard = false;          // the computer keyboard plays the selected MIDI track
     int keyboardOctave = 4;                 // …its A key plays C of this octave (C4 = MIDI note 60)
     int keyboardVelocity = 100;             // …at this velocity (1…127)

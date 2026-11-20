@@ -123,10 +123,14 @@ Preferences Preferences::load() {
     p.countInBars = getInt("count_in_bars", p.countInBars);
     p.loopTakes = getBool("loop_takes", p.loopTakes);
     p.recordEffectsNotes = getBool("record_effects_notes", p.recordEffectsNotes);
+    p.midiLoopTakes = getBool("midi_loop_takes", p.midiLoopTakes);
+    p.lowLatencyMonitoring = getBool("low_latency_monitoring", p.lowLatencyMonitoring);
     p.vst2Folders = getStr("vst2_folders", p.vst2Folders);
     p.winePrefixes = getStr("wine_prefixes", wine::defaultPrefix());
     p.winePrograms = getStr("wine_programs", p.winePrograms);
     p.midiInput = getStr("midi_input", p.midiInput);
+    p.midiPorts = getStr("midi_ports", p.midiPorts);
+    p.sync = getStr("sync", p.sync);
     p.computerKeyboard = getBool("computer_keyboard", p.computerKeyboard);
     p.keyboardOctave = getInt("keyboard_octave", p.keyboardOctave);
     p.keyboardVelocity = getInt("keyboard_velocity", p.keyboardVelocity);
@@ -170,9 +174,13 @@ Preferences Preferences::load() {
     p.known_["count_in_bars"] = Json(p.countInBars);
     p.known_["loop_takes"] = Json(p.loopTakes);
     p.known_["record_effects_notes"] = Json(p.recordEffectsNotes);
+    p.known_["midi_loop_takes"] = Json(p.midiLoopTakes);
+    p.known_["low_latency_monitoring"] = Json(p.lowLatencyMonitoring);
     p.known_["vst2_folders"] = Json(p.vst2Folders);
     p.known_["wine_prefixes"] = Json(p.winePrefixes);  // (so the default prefix is only written once changed)
     p.known_["midi_input"] = Json(p.midiInput);
+    p.known_["midi_ports"] = Json(p.midiPorts);
+    p.known_["sync"] = Json(p.sync);
     p.known_["computer_keyboard"] = Json(p.computerKeyboard);
     p.known_["keyboard_octave"] = Json(p.keyboardOctave);
     p.known_["keyboard_velocity"] = Json(p.keyboardVelocity);
@@ -225,9 +233,13 @@ void Preferences::save() const {
     put("count_in_bars", countInBars);
     put("loop_takes", loopTakes);
     put("record_effects_notes", recordEffectsNotes);
+    put("midi_loop_takes", midiLoopTakes);
+    put("low_latency_monitoring", lowLatencyMonitoring);
     put("vst2_folders", vst2Folders);
     put("wine_prefixes", winePrefixes);
     put("midi_input", midiInput);
+    put("midi_ports", midiPorts);
+    put("sync", sync);
     put("computer_keyboard", computerKeyboard);
     put("keyboard_octave", keyboardOctave);
     put("keyboard_velocity", keyboardVelocity);
