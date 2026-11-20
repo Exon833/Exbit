@@ -924,7 +924,7 @@ static void testMidiEffectsDialog() {
     // Add ▾: the eight, clips-only ones marked
     Menu* menu = d->addButton->menu();
     CHECK(menu->actions().size() == 8);
-    CHECK(menu->actions()[0]->text == "Arpeggiator  (clips only)" && menu->actions()[1]->text == "Chord");
+    CHECK(menu->actions()[0]->text == "Arpeggiator  (timing)" && menu->actions()[1]->text == "Chord");
     Menu::activate(menu->actions()[6].get());  // Pitch
     Menu::activate(menu->actions()[1].get());  // Chord
     CHECK(f.track->midiEffects.size() == 2 && f.track->midiEffects[1].kind == "Chord");

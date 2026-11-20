@@ -24,11 +24,21 @@
 // (Ctrl+V), shortcuts of the main window only (the MIDI editor copies notes with the same keys), and
 // the timeline's `clipboardChosen` signal ("cut" / "copy" / "paste", from its right-click menu), call
 // clipboard::use(timeline, what) and show the message it returns in the status bar for 4 s.
+//
+// AUTOMATION (auto_follow.h). While automation follows clips, copying takes the automation of the copied
+// clips' tracks over their spans (with a time range: over the whole range, on each of its tracks), cutting
+// clears it there, and pasting lays it where the clips go, on lanes of the same parameter (made if the
+// track has the parameter but no lane for it; a track without it gets none).
+// In an automation lane (Timeline::currentAutomation: the lane clicked last, or the TUI's lane) a time range
+// (Shift+drag in the lane; the TUI's I / O) is its curve's own: Ctrl+C copies that part of the curve, Ctrl+X
+// cuts it, Del clears it (a straight line between its values at the edges), and Ctrl+V pastes what was
+// copied at the cursor, in the lane (any lane: values are 0 … 1), the cursor then moving to its end.
 #pragma once
 #include <optional>
 #include <string>
 #include <vector>
 
+#include "model/auto_follow.h"
 #include "model/model.h"
 
 class Timeline;
@@ -44,9 +54,28 @@ struct Copied {
     std::vector<Item> clips;
     int64_t span = 0;     // frames from the start of what was copied to its end
     int sr = 0;
+    struct Lanes {        // a track's automation over a copied span (auto_follow.h)
+        TrackPtr from;
+        int lane;         // lanes below the topmost
+        int64_t offset, length;  // frames after the copied part's start; how long
+        std::vector<auto_follow::Piece> pieces;
+    };
+    std::vector<Lanes> automation;
 };
 
 extern std::optional<Copied> held;  // what was copied last
+
+// --- an automation lane's own range (see AUTOMATION above) ---
+struct CopiedCurve {
+    std::vector<AutoPoint> points;  // from 0 s (auto_follow::cut)
+    double length = 0;              // seconds
+};
+extern std::optional<CopiedCurve> heldCurve;
+// the automation lane whose range Ctrl+C / X / V and Del work on: the timeline's current one, while its
+// track is in the project, not frozen, and (for copy, cut and Del) a time range is selected over it; else null
+AutomationPtr laneInUse(const Timeline& timeline, bool needsRange = true);
+// Del in an automation lane: the range of its curve cleared; false if no lane is in use (nothing done)
+bool clearLaneRange(Timeline& timeline);
 
 // keep the selection (clips, or what lies in the time range); returns how many clips were copied
 int copy(Timeline& timeline);

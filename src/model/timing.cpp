@@ -165,7 +165,8 @@ Timing::Timing() : bpm(config::DEFAULT_BPM), beatsPerBar(config::DEFAULT_BEATS_P
 Timing::Timing(const Timing& o)
     : bpm(o.bpm), beatsPerBar(o.beatsPerBar), beats(o.beats), thirds(o.thirds), loopStart(o.loopStart),
       loopEnd(o.loopEnd), looping(o.looping), changes(o.changes), grid(o.grid), snapOn(o.snapOn), key(o.key),
-      scale(o.scale), swing(o.swing), swingGrid(o.swingGrid), map_(std::atomic_load(&o.map_)) {}
+      scale(o.scale), swing(o.swing), swingGrid(o.swingGrid), automationFollows(o.automationFollows),
+      map_(std::atomic_load(&o.map_)) {}
 
 Timing& Timing::operator=(const Timing& o) {
     if (this == &o) return *this;
@@ -183,6 +184,7 @@ Timing& Timing::operator=(const Timing& o) {
     scale = o.scale;
     swing = o.swing;
     swingGrid = o.swingGrid;
+    automationFollows = o.automationFollows;
     publish();  // (the audio thread hears the new tempo map at once)
     return *this;
 }

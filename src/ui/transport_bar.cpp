@@ -606,6 +606,13 @@ void fillGridMenu(ui::Menu& menu, const Timing& timing, const std::function<void
     snap->checked = on;
     menu.addAction("Finer", [choose] { choose({GridChange::Finer, 0.0, true}); }, "Ctrl+1");
     menu.addAction("Coarser", [choose] { choose({GridChange::Coarser, 0.0, true}); }, "Ctrl+2");
+    menu.addSeparator();
+    bool follows = timing.automationFollows;
+    ui::Action* follow = menu.addAction("Automation follows clips", [choose, follows] {
+        choose({GridChange::Follow, 0.0, !follows});
+    });
+    follow->checkable = true;
+    follow->checked = follows;
 }
 
 }  // namespace transport_bar

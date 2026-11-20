@@ -587,7 +587,9 @@ Json describeMidiEffects(const std::vector<MidiEffect>& effects) {
             }
         if (!known)
             for (auto& v : e.values) values.set(v.first, Json(v.second));
-        out.push(Json::object({{"kind", Json(e.kind)}, {"values", values}}));
+        Json entry = Json::object({{"kind", Json(e.kind)}, {"values", values}});
+        if (e.bypass) entry.set("bypass", Json(true));  // (only then: older files unchanged)
+        out.push(entry);
     }
     return out;
 }
@@ -601,7 +603,9 @@ std::vector<MidiEffect> readMidiEffects(const Json& entries) {
             if (m.second.isNumber() || m.second.isBool())
                 values[m.first] = m.second.isBool() ? (m.second.toBool() ? 1.0 : 0.0) : m.second.toDouble();
         MidiEffect effect;
-        if (MidiEffect::make(e.str("kind"), values, effect)) out.push_back(effect);
+        if (!MidiEffect::make(e.str("kind"), values, effect)) continue;
+        effect.bypass = e.flag("bypass", false);
+        out.push_back(effect);
     }
     return out;
 }
@@ -631,6 +635,7 @@ Json describeTiming(const Timing& t) {
         out.set("swing", Json(t.swing));
         out.set("swing_grid", Json(t.swingGrid));
     }
+    if (!t.automationFollows) out.set("automation_follows_clips", Json(false));  // (only when off: the default is on)
     return out;
 }
 
@@ -644,6 +649,7 @@ Timing readTiming(const Json& entry) {
         t.loopStart = entry.num("loop_start", t.loopStart);
         t.loopEnd = entry.num("loop_end", t.loopEnd);
         t.looping = entry.flag("looping", t.looping);
+        t.automationFollows = entry.flag("automation_follows_clips", t.automationFollows);
         const Json& snap = entry["snap_on"];
         t.snapOn = snap.isBool() ? snap.toBool() : snap.isNumber() ? snap.toDouble() != 0 : t.snapOn;
         const Json& grid = entry["grid"];
@@ -746,6 +752,7 @@ Json describe(const Project& project, int sr, const MasterSettings& master, Audi
             entry.set("midi_length", Json(clip->lengthS));
             entry.set("muted_notes", notesJson(clip->mutedNotes));
             entry.set("loop", Json(clip->loop));
+            if (clip->effectsCommitted) entry.set("effects_committed", Json(true));
             if (clip->key >= 0) {  // its own scale (only then: older files unchanged)
                 entry.set("key", Json(clip->key));
                 entry.set("scale", Json(clip->scale));
@@ -1267,6 +1274,7 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
                 clip->mutedNotes = readNotes(entry["muted_notes"], false);
                 clip->lengthS = need(entry, "midi_length").toDouble();
                 clip->loop = entry.flag("loop", false);
+                clip->effectsCommitted = entry.flag("effects_committed", false);
                 int key = entry.integer("key", -1);
                 std::string scale = entry.str("scale");
                 const auto& names = scaleNames();

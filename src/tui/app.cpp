@@ -16,10 +16,12 @@
 #include "audio/file_io.h"
 #include "config.h"
 #include "core/util.h"
+#include "model/auto_follow.h"
 #include "model/edits.h"
 #include "paths.h"
 #include "platform/platform.h"
 #include "ui/autosave.h"
+#include "ui/clipboard.h"
 #include "ui/computer_keyboard.h"
 #include "ui/recording.h"
 #include "ui/transport_bar.h"
@@ -28,6 +30,7 @@
 #include "ui/level_meter.h"
 #include "ui/main_window.h"
 #include "ui/master_strip.h"
+#include "ui/midi_editor.h"
 #include "ui/plugin_host.h"
 #include "ui/timeline.h"
 #include "ui/toolkit/controls.h"
@@ -228,6 +231,7 @@ bool Front::automationKey(const Key& k, const Lane& lane) {
         break;
     }
     case plat::Key_Delete:
+        if (w_.timeline->selection.range && clipboard::clearLaneRange(*w_.timeline)) return true;  // (I / O: a range)
         if (at < 0) return true;
         pts.erase(pts.begin() + at);
         break;
@@ -284,6 +288,10 @@ void Front::dropGoneMenus() {
 
 void Front::key(const Key& k) {
     dropGoneMenus();
+    {  // the automation lane with the keyboard is the timeline's current one (its range: Ctrl+C / X / V, Del)
+        std::optional<Lane> lane = pane == Pane::Timeline ? currentLane() : std::nullopt;
+        w_.timeline->currentAutomation = lane && lane->automation ? lane->automation : nullptr;
+    }
     // F12: the open windows (an editor, an effect's) hidden, the main window's keys; again, back
     int n = openWindows();
     if (n > shownWindows_) windowsHidden = false;  // (one just opened: shown)
@@ -602,13 +610,16 @@ void Front::moveSelection(int64_t df, int rows) {
     }
     std::map<ClipPtr, TrackPtr> before;
     std::map<ClipPtr, std::optional<int64_t>> starts;
+    std::vector<auto_follow::Move> follow;
     for (auto& c : clips) {
         before[c] = c->track;
         starts[c] = c->start;
         c->start += df;
         if (rows) std::atomic_store(&c->track, ts[(size_t)(rowOf(c->track) + rows)]);  // (the audio thread atomic_loads it)
+        follow.push_back(auto_follow::moveOf(*c, before[c], *starts[c], w_.engine.sr));
     }
     edits::clearUnder(w_.project, clips);  // moved clips replace what they now cover
+    if (auto_follow::carry(w_.project, follow, false)) tl.lanesChanged();  // (their automation along)
     tl.rerenderMoved(before, starts);
     tl.relayout();
     tl.update();
@@ -1156,6 +1167,7 @@ void Front::draw(Screen& s) {
         if (drawsWindow(win) && !ui::Menu::ofWindow(win)) drawWindow(s, *win, 2, 1, W - 4, H - 2);
     if (topWindow() && !ui::Menu::ofWindow(topWindow())) {  // (how to get out of it)
         std::string help = topWindow()->isModal() ? " Tab: next  Enter: OK  Esc: cancel " : " Ctrl+W: close it  F12: the main window ";
+        if (dynamic_cast<MidiEditor*>(topWindow())) help = " F2: tools  K: knife  Ctrl+J: join  P: row" + help;
         s.text(std::max(0, W - columns(help) - 1), H - 1, help, style(Black, Yellow));
     } else if (windowsHidden && n) {
         std::string help = " F12: " + std::to_string(n) + (n == 1 ? " window" : " windows") + " open ";
@@ -1505,7 +1517,8 @@ void Front::drawStatus(Screen& s) {
         case Pane::Timeline:
             if (laneRow < 0) msg = "The ruler: Enter: a tempo change at this bar  F2: its menu (markers, loop)  Down: the lanes";
             else if (currentLane() && currentLane()->automation)
-                msg = "Automation: Enter: a point at the cursor  [ ]: lower / raise it  Del: remove it  F2: its menu";
+                msg = "Automation: Enter: a point at the cursor  [ ]: lower / raise it  Del: remove it (or the range)  "
+                      "I/O: range  Ctrl+C/X/V: its curve  F2: its menu";
             else if (currentLane() && currentLane()->take) msg = "A take: Enter: use it (or the range selected of it)  Del: delete it  F2: menu";
             else
                 msg = "Left/Right: grid  PgUp/PgDn: bar  Up/Down: lane  Enter: select clip  I/O: range  ,/.: move  "
@@ -1625,11 +1638,19 @@ void Front::drawHelp(Screen& s) {
         "  S  Del  C  0      split, delete, colour, switch off   Ctrl+C/X/V/D/J/R  as in the window",
         "  L                 loop the range (or switch looping on and off)",
         "  E  N              the MIDI editor of the clip (N: a new MIDI clip at the cursor, edited)",
+        "  F2: Slip contents… the selected clips' audio or notes moved inside them (Left/Right: by the grid);",
+        "                    Crop to the selection, Fades at every boundary… (every selected clip)",
+        "  automation lane   Enter, [ ]: a point; I then O: a range of its curve: Ctrl+C/X/V, Del clears it",
+        "                    (Edit → Automation follows clips: moved and copied clips take it along)",
         "MIDI editor (Tab to its notes)",
         "  arrows            no note selected: the cursor (a grid step, a pitch); else move the notes",
         "  Enter             select the note at the cursor, or put one there   Esc: let them go",
         "  , .  + -          shorter, longer; velocity    Del  0  G  Ctrl+D/U/C/X/V as in the window",
         "  F2 (Steps view)   the row at the cursor: its swing (the track's, or its own)",
+        "  F2 (piano roll)   the note tools: Tools… (strum, arpeggiate, chop, flam, legato, quantize,",
+        "                    humanize, velocity shape: previewed, Enter applies), overlaps, legato",
+        "  K, Enter          the knife: Enter splits the notes at the cursor (K or Esc: put it away)",
+        "  Ctrl+J  P         join the selected notes of a pitch; select the cursor's row (every note of it)",
         "Track panel",
         "  M S               mute, solo      Left/Right: volume (dB)    [ ]: pan",
         "  Shift+S           solo safe: heard while other tracks are soloed (a blue s)",

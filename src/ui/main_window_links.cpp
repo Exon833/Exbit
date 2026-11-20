@@ -17,9 +17,11 @@
 #include "ui/midi_input.h"
 #include "ui/mix_export.h"
 #include "ui/pad_kit_dialog.h"
+#include "ui/plugin_host.h"
 #include "ui/record_offset_dialog.h"
 #include "ui/recording.h"
 #include "ui/sampler_dialog.h"
+#include "ui/song_scale.h"
 #include "ui/timeline.h"
 #include "ui/toolkit/dialogs.h"
 #include "ui/transport_bar.h"
@@ -155,6 +157,17 @@ void MainWindow::setUpMidi() {
     sh.relayout = [this] { timeline->relayout(); };
     sampler_dialog::setHost(sh);
     midi_effects::install(&project.timing);
+    midi_effects_dialog::Hooks fx;  // (Commit to notes)
+    fx.selectedClips = [this] { return timeline->selection.clipList(); };
+    fx.loadPlugins = [this](const std::vector<SlotPtr>& slots) { return plugins->restore(slots); };
+    fx.committed = [this](const midi_commit::Result& r, const std::string& text) {
+        if (r.track) timeline->setCurrentTrack(r.track);
+        timeline->relayout();
+        timeline->tracksChanged.emit();  // (the rows: a new track)
+        if (r.clips && song_scale::notesCommitted) song_scale::notesCommitted();  // (open MIDI editors: the notes)
+        showStatus(text, 6000);
+    };
+    midi_effects_dialog::setHooks(fx);
 }
 
 // --- the project replaced, the sample rate, closing ---------------------------------------------

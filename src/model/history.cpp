@@ -22,11 +22,12 @@ namespace history {
     X(kind) X(name) X(track) X(start) X(offset) X(length) X(color) X(tone) X(disabled) X(gainDb) X(fadeIn)     \
     X(fadeOut) X(fadeLead) X(fadeTail) X(fadeInShape) X(fadeOutShape) X(loop) X(source) X(sourceSr)            \
     X(sourcePath) X(stretch) X(pitch) X(sourceBpm) X(reverse) X(loopStart) X(loopLength) X(notes) X(lengthS)   \
-    X(mutedNotes) X(played) X(events) X(link) X(gainEnvelope) X(key) X(scale)
+    X(mutedNotes) X(played) X(events) X(link) X(gainEnvelope) X(key) X(scale) X(effectsCommitted)
 #define CLIP_AUDIO_FIELDS(X) X(data) X(peaks) X(baseFrames)  // (not for looping audio clips)
 #define SLOT_FIELDS(X) X(path) X(name) X(kind) X(pluginName) X(bypass) X(placed) X(atX) X(atY) X(volumeDb) X(mix)
 #define LANE_FIELDS(X) X(slot) X(param) X(points)
-#define TIMING_FIELDS(X) X(bpm) X(beatsPerBar) X(loopStart) X(loopEnd) X(changes) X(key) X(scale) X(swing) X(swingGrid)
+#define TIMING_FIELDS(X)                                                                                         \
+    X(bpm) X(beatsPerBar) X(loopStart) X(loopEnd) X(changes) X(key) X(scale) X(swing) X(swingGrid) X(automationFollows)
 
 #define DECL_TRACK(f) decltype(Track::f) f;
 #define DECL_GROUP(f) decltype(Group::f) f;
@@ -311,6 +312,7 @@ std::string Snapshot::describe(const Project& p) const {
         if (!same(t.loopStart, o.loopStart) || !same(t.loopEnd, o.loopEnd)) return "Loop range";
         if (!same(t.key, o.key) || !same(t.scale, o.scale)) return "Key";
         if (!same(t.swing, o.swing) || !same(t.swingGrid, o.swingGrid)) return "Swing";
+        if (!same(t.automationFollows, o.automationFollows)) return "Automation follows clips";
     }
     for (auto& t : d.trackData)  // (before the clips: a track's swing prepares its clips again)
         if (!same(t.second.swing, t.first->swing)) return "Swing";

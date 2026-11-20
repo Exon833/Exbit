@@ -5,6 +5,7 @@
 #include <cmath>
 
 #include "audio/midi_cc.h"
+#include "audio/live_fx.h"
 #include "audio/midi_effects.h"
 #include "audio/sampler.h"
 #include "core/json.h"
@@ -26,6 +27,11 @@ std::vector<int> playLive(audio::Engine& engine, const TrackPtr& track, int pitc
     bool builtin = !track->playsPlugins();
     live::NoteRender render = sampler::noteRenderer(*track);  // (its sampler's; empty: the built-in synth)
     const live::NoteRender* how = builtin && render.render ? &render : nullptr;
+    if (live_fx::timed(*track)) {  // (an arpeggiator, a groove…: the audio thread runs the whole chain, in time)
+        live->useEffects(*track, builtin, engine.sr, pitch, how);
+        if (live->keyOn(pitch, velocity, engine.sr, lengthS)) pitches.push_back(pitch);
+        return pitches;
+    }
     for (auto& pv : throughEffects(*track, pitch, velocity)) {
         live->noteOn(pv.first, pv.second, engine.sr, builtin, lengthS, how);
         pitches.push_back(pv.first);

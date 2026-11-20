@@ -160,6 +160,10 @@ public:
     const std::string& text() const { return text_; }
     void setChecked(bool on);
     void setCheckedSilently(bool on) { checked_ = on; update(); }
+    // with the keyboard focus, Space is its own (not the program's Play), as a Button's
+    bool overridesShortcut(const KeyEvent& e) const override {
+        return e.key == plat::Key_Space && !(e.mods & (plat::ModCtrl | plat::ModAlt | plat::ModMeta));
+    }
     bool isChecked() const { return checked_; }
     Signal<bool> toggled;
     Point sizeHint() const override;

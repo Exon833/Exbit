@@ -18,6 +18,13 @@
 // recording does; notes still held at the end end there. The main window sends the notes played
 // to midiNote() while recordingMidi().
 //
+// RECORD: THE PLAYED NOTES / THE EFFECTS' NOTES (right-click ● Rec: Preferences::recordEffectsNotes). The played
+// notes are the keys (the track's MIDI effects then play on them, as on any clip). The effects' notes are what
+// the track's MIDI effects made of them as they played (an arpeggio, chords, a groove: live.h's report()), each
+// where it was played on the timeline; the main window calls poll() every frame to take them in. The track's
+// MIDI effects still change the take as it plays back: bypass them (the MIDI effects window) to hear it as
+// recorded.
+//
 // The count-in's clicks are on the song's beats (its bar lines accented), at the tempo and time
 // signature where recording starts: starting off a beat, the next beat after the count-in comes
 // as counted.
@@ -76,6 +83,7 @@ public:
     ui::ComboBox* input;
     ui::ComboBox* countIn;
     ui::CheckBox* loopTakes;
+    ui::ComboBox* midiNotes;  // Record: the played notes (0) / the effects' notes (1)
 };
 
 // What Recording needs from the main window and the timeline.
@@ -135,6 +143,12 @@ public:
     void midiNote(int pitch, int velocity);
     // the same with the time it was heard given (timeline frame; tests)
     void midiNoteAt(int pitch, int velocity, double heardFrame);
+    // record the notes the track's MIDI effects make instead of the keys played (see the top); set when a
+    // MIDI recording starts, from the preferences
+    void recordEffectsNotes(bool on);
+    bool recordingEffectsNotes() const { return processed_; }
+    // (every frame) the effects' notes played since the last call, into the take
+    void poll();
     // (tests) a MIDI take from timeline frame `start` onto `track`, as startMidi() begins one
     void beginMidiTake(const TrackPtr& track, int64_t start);
     RecordingHost host;
@@ -144,6 +158,7 @@ private:
     int64_t start_ = 0;
     std::optional<audio::LoopRange> loop_;  // recording audio round this loop: a take each pass
     std::optional<audio::MidiTake> midi_;
+    bool processed_ = false;
     bool startMidi(const TrackPtr& track);
     ClipPtr finishMidi();
     ClipPtr finishMidiAt(std::optional<double> heard);

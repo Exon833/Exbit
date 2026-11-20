@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <set>
 
+#include "model/auto_follow.h"
 #include "model/edits.h"
 #include "ui/clip_painter.h"
 #include "ui/timeline.h"
@@ -22,6 +23,10 @@ void Timeline::duplicateLinkedSelected() {
         copies.push_back(k);
     }
     edits::placeCopies(project, copies);
+    std::vector<auto_follow::Move> follow;  // (their automation copied along)
+    for (size_t i = 0; i < copies.size(); i++)
+        follow.push_back(auto_follow::moveOf(*copies[i], chosen[i]->track, chosen[i]->start, engine.sr));
+    if (auto_follow::carry(project, follow, true)) lanesChanged();
     selection.clear();
     std::map<ClipPtr, TrackPtr> tracks;
     std::map<ClipPtr, std::optional<int64_t>> starts;

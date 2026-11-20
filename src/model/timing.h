@@ -142,6 +142,7 @@ struct Timing {
     std::string scale;     // a scale of the MIDI effects' SCALES ("Major", "Minor"…); "" = none
     double swing = 0;      // the song's swing, 0 % (straight) … 100 %: off-beats later (midi_effects.h SWING)
     int swingGrid = 1;     // what swings: 0 the 8ths, 1 the 16ths
+    bool automationFollows = true;  // moved, copied and duplicated clips take their tracks' automation along (auto_follow.h)
 
     Timing();
     Timing(const Timing& o);

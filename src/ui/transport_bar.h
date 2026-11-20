@@ -114,9 +114,9 @@ private:
 
 // What the Grid ▾ menu chose (main_window.py's change_grid arguments)
 struct GridChange {
-    enum What { Grid, Snap, Finer, Coarser } what = Grid;
+    enum What { Grid, Snap, Finer, Coarser, Follow } what = Grid;
     double grid = 0;    // Grid: the fixed step in beats (0: it follows the zoom)
-    bool snap = true;   // Snap: snapping on or off
+    bool snap = true;   // Snap: snapping on or off; Follow: automation follows clips or not (auto_follow.h)
 };
 
 namespace transport_bar {

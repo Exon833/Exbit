@@ -41,6 +41,7 @@ struct Preferences {
     std::string recordInput = "1";          // "1" (mono) or "1/2" (a pair)
     int countInBars = 0;
     bool loopTakes = true;                  // recording audio with the loop on: a take each pass (ui/recording.h)
+    bool recordEffectsNotes = false;        // recording MIDI keeps the notes the track's MIDI effects make, not the keys
     std::string vst2Folders;                // separated by "|"
     std::string winePrefixes;               // the Wine prefixes Windows plugins are found in, separated by "|"
                                             // (not set yet: the default prefix, ~/.wine, if there is one)

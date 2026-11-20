@@ -213,9 +213,10 @@ struct Automation {
 struct MidiEffect {
     std::string kind;                     // "Arpeggiator", "Chord", "Scale", "Note Length", "Velocity", "Random", "Pitch", "Groove"
     std::map<std::string, double> values;  // every parameter's value (MidiEffect::make fills the defaults)
+    bool bypass = false;                  // switched off: kept in the chain, changing nothing (Commit to notes sets it)
     double get(const std::string& key) const;  // its value (the default if not set)
     MidiEffect with(const std::string& key, double value) const;
-    bool operator==(const MidiEffect& o) const { return kind == o.kind && values == o.values; }
+    bool operator==(const MidiEffect& o) const { return kind == o.kind && values == o.values && bypass == o.bypass; }
     bool operator!=(const MidiEffect& o) const { return !(*this == o); }
     // an effect of that kind with its default values, updated from `values` (unknown keys left out);
     // false if the kind is unknown
@@ -463,6 +464,9 @@ struct Clip {
     std::shared_ptr<const std::vector<Event>> events;  // for VST instruments (frames, relative to the clip start)
     // MIDI clips linked to each other share it (see "linked MIDI clips" at the end); null = its notes are its own
     std::shared_ptr<ClipLink> link;
+    // its track's MIDI effects and swing are already written into its notes (Commit to notes, ui/midi_commit.h):
+    // prepared without them
+    bool effectsCommitted = false;
     int key = -1;         // MIDI clips: its own key (0 = C … 11 = B) and scale (SCALES name, "" = none) for the
     std::string scale;    // MIDI editor, instead of the song's (Timing::key / scale); -1 = the song's
 
@@ -582,7 +586,7 @@ private:
 };
 
 // --- linked MIDI clips ---
-// Copies of a MIDI clip can be LINKED (the timeline's Ctrl+Alt-drag or "Duplicate as linked"): they hold
+// Copies of a MIDI clip can be LINKED (the timeline's Alt+Shift-drag or "Duplicate as linked"): they hold
 // the same ClipLink and always the same notes, switched-off notes, lengthS (a loop's pass) and loop switch,
 // the very same immutable note vectors. After editing one (the MIDI editor, quantize, the loop switch, a
 // length), links::notesChanged gives every other one the same and prepares it again (its audio and events,

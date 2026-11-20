@@ -227,15 +227,15 @@ bool isLive(const std::string& kind) { return kind != "Arpeggiator" && kind != "
 
 std::string describe(const std::string& kind) {
     static const std::map<std::string, std::string> d = {
-        {"Arpeggiator", "Plays the notes held one after another, on a beat grid (clips only)"},
+        {"Arpeggiator", "Plays the notes held one after another, on a beat grid"},
         {"Chord", "Adds notes above (or below) each note: a chord"},
         {"Scale", "Moves every note to the nearest note of a scale"},
-        {"Note Length", "Makes every note a set length, or a share of its own (clips only)"},
+        {"Note Length", "Makes every note a set length, or a share of its own"},
         {"Velocity", "Scales, offsets, randomises and limits how hard the notes are played"},
         {"Random", "Moves some notes up or down at random (the same each time a clip plays)"},
         {"Pitch", "Transposes every note"},
         {"Groove", "Swing: notes on the off-beats of a 1/8, 1/16 or 1/32 grid come later (those between move in "
-                   "proportion), with an accent; and a little humanizing of timing and velocity (clips only)"},
+                   "proportion), with an accent; and a little humanizing of timing and velocity"},
     };
     auto it = d.find(kind);
     return it == d.end() ? std::string() : it->second;
@@ -480,7 +480,7 @@ double rowSwing(const Track& t, int pitch) {
     auto effects = t.midiEffects.get();
     std::string key = rowKey(pitch);
     for (auto& e : *effects) {
-        if (e.kind != "Groove") continue;
+        if (e.kind != "Groove" || e.bypass) continue;
         auto it = e.values.find(key);
         if (it != e.values.end()) return std::min(100.0, std::max(0.0, it->second));
     }
@@ -497,7 +497,7 @@ bool swings(const Track& t) {
     if ((t.swing >= 0 ? t.swing : songSwing()) > 0) return true;
     auto effects = t.midiEffects.get();
     for (auto& e : *effects)
-        if (e.kind == "Groove")
+        if (e.kind == "Groove" && !e.bypass)
             for (auto& v : e.values)
                 if (v.first.compare(0, 4, "row:") == 0 && v.second > 0) return true;
     return false;
@@ -532,7 +532,7 @@ std::vector<Note> apply(const Track& track, std::vector<Note> notes, double orig
     if (effects->empty() && !swinging) return notes;  // (as they are: not even sorted)
     if (swinging) notes = swung(track, std::move(notes), origin);
     for (auto& e : *effects)
-        if (!notes.empty()) notes = process(e, notes, origin);
+        if (!notes.empty() && !e.bypass) notes = process(e, notes, origin);
     std::stable_sort(notes.begin(), notes.end(), [](const Note& a, const Note& b) {
         if (a.start != b.start) return a.start < b.start;
         return a.pitch < b.pitch;
@@ -544,7 +544,7 @@ std::vector<std::pair<int, int>> live(const Track& track, int pitch, int velocit
     std::vector<std::pair<double, double>> pairs{{(double)pitch, (double)velocity}}, next;
     auto effects = track.midiEffects.get();
     for (auto& e : *effects) {
-        if (!isLive(e.kind)) continue;
+        if (!isLive(e.kind) || e.bypass) continue;
         next.clear();
         for (auto& pv : pairs)
             for (auto& q : liveOne(e, pv.first, pv.second)) next.push_back(q);

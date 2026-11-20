@@ -137,6 +137,13 @@ RecordSettingsDialog::RecordSettingsDialog(Window* parent, const Preferences& pr
                           "recording, and each pass becomes a take of its own: the last one plays, the others are in "
                           "the track's takes to comp from. Off: recording plays straight on past the loop.");
     f->addRow(loopTakes);
+    midiNotes = add<ComboBox>();
+    midiNotes->addItem("The played notes", 0);
+    midiNotes->addItem("The effects' notes", 1);
+    midiNotes->setCurrentIndexSilently(prefs.recordEffectsNotes ? 1 : 0);
+    midiNotes->setToolTip("Recording MIDI keeps the keys played (the track's MIDI effects then play on them), or the "
+                          "notes the track's MIDI effects made of them (an arpeggio, chords, a groove) as they played");
+    f->addRow("Record (MIDI)", midiNotes);
     Label* hint = add<Label>(inputs ? "The count-in plays the metronome's clicks (its sounds: right-click Metronome) "
                                       "before recording starts at the selection cursor."
                                     : "This audio device has no inputs: choose one that has (e.g. your audio "
@@ -167,6 +174,7 @@ void Recording::showSettings() {
         if (!dialog.input->currentData().empty()) prefs.recordInput = dialog.input->currentData();
         prefs.countInBars = dialog.countIn->currentDataInt(0);
         prefs.loopTakes = dialog.loopTakes->isChecked();
+        prefs.recordEffectsNotes = dialog.midiNotes->currentDataInt(0) == 1;
         prefs.save();
     }
 }
@@ -346,6 +354,7 @@ bool Recording::startMidi(const TrackPtr& track) {
     if (host.resetMeters) host.resetMeters();
     track_ = track;
     start_ = start;
+    recordEffectsNotes(prefs.recordEffectsNotes);
     if (host.showRecording) host.showRecording(track, start);
     if (host.setPlaying) host.setPlaying(true);
     message("Recording MIDI onto " + track->name + (frames ? " after the count-in" : "") + "…", 0);
@@ -358,8 +367,25 @@ void Recording::beginMidiTake(const TrackPtr& track, int64_t start) {
     start_ = start;
 }
 
+void Recording::recordEffectsNotes(bool on) {
+    processed_ = on && midi_ && track_;
+    if (!processed_) return;
+    auto live = engine_.liveNotes(track_.get());
+    std::vector<live::Played> old;
+    live->played(old);  // (from before: not this take's)
+    live->report(true);
+    util::debugf("recording: the MIDI effects' notes of \"%s\" are recorded (not the keys)\n", track_->name.c_str());
+}
+
+void Recording::poll() {
+    if (!midi_ || !processed_ || !track_) return;
+    std::vector<live::Played> notes;
+    engine_.liveNotes(track_.get())->played(notes);
+    for (auto& n : notes) midiNoteAt(n.pitch, n.on ? std::max(1, n.velocity) : 0, (double)n.frame);
+}
+
 void Recording::midiNote(int pitch, int velocity) {
-    if (!midi_) return;
+    if (!midi_ || processed_) return;  // (recording the effects' notes: poll() takes them)
     double heard = -1;
     if (!engine_.heardNow(heard)) heard = -1;  // (counting in: where the recording starts)
     midiNoteAt(pitch, velocity, heard);
@@ -377,6 +403,9 @@ ClipPtr Recording::finishMidi() {
 }
 
 ClipPtr Recording::finishMidiAt(std::optional<double> heard) {
+    poll();  // (the effects' notes played until now)
+    if (processed_ && track_) engine_.liveNotes(track_.get())->report(false);
+    processed_ = false;
     engine_.finishMidiRecording();
     audio::MidiTake take = std::move(*midi_);
     midi_.reset();

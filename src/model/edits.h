@@ -36,6 +36,8 @@ ClipPtr reversedClip(const ClipPtr& clip, int sr);
 // start to the last's end, named "<first> (joined)": audio as it comes out of the clips (their gain, gain envelopes and
 // fades), MIDI notes as they play (heardNotes: a loop's repeats, notes cut to each clip's window), and their
 // switched-off notes cut to the windows too. Returns the new clip (not placed), or null if clips is empty.
+// MIDI clips must agree on effectsCommitted (the joined clip takes it): a mix would play some notes' effects
+// twice or not at all, so the caller refuses it (Timeline::joinSelected).
 ClipPtr consolidated(const std::vector<ClipPtr>& clips, int sr);
 // (left, right) as new clips that overlap by up to `frames` around the middle of where left ends and right
 // starts (of a gap between them, or of an overlap they already have), left fading out and right fading in

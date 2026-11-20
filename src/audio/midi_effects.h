@@ -4,8 +4,9 @@
 // They work on a clip's notes when it is prepared (Clip::prepare → clip_hooks::midiEffects = apply()), so
 // the built-in synth and sampler, VST instruments and freezes all hear the result, and on notes played
 // live (MIDI editor keys, a MIDI keyboard → live()) for those that need no time to pass: Chord, Scale,
-// Pitch, Velocity and Random (Arpeggiator, Note Length and Groove change the notes' timing, so they apply
-// to clips only). Each has parameters like an audio effect (params(kind): key, name, range, unit, choices), set in
+// Pitch, Velocity and Random. A chain with an Arpeggiator, Note Length or Groove (they change the notes'
+// timing) is played live by the audio thread instead, whole and in time (audio/live_fx.h). An effect can be
+// switched off (MidiEffect::bypass): it stays in the chain, changing nothing. Each has parameters like an audio effect (params(kind): key, name, range, unit, choices), set in
 // the track's MIDI effects window. An effect never changes in place (MidiEffect::with), so undo and the
 // audio thread see whole ones.
 //

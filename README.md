@@ -21,7 +21,10 @@ extends; that program is in the repository's history.
   all); clips you
   move, trim, split, duplicate, copy and paste, colour, loop, reverse, join, crossfade, stretch and
   pitch, with gain and fades (linear, smooth, fast, slow or equal power; crossfades equal power) and a
-  gain envelope inside an audio clip (right-click it → Gain envelope), before the track's effects;
+  gain envelope inside an audio clip (right-click it → Gain envelope), before the track's effects; slip
+  (Ctrl+Alt-drag a clip: its audio or notes move inside it), edges and fades dragged on every selected clip
+  at once, Crop to the selection, Fades at every boundary…; automation that follows moved, copied and
+  duplicated clips (Edit → Automation follows clips) and a lane's range copied and pasted;
   takes with comping; markers, tempo and time-signature changes,
   insert/delete time, a fixed or zoom-following grid; undo and redo of every kind of edit (the last
   100 steps), with a list of the steps to jump back to (Edit → History…); what the control under the mouse does, in the
@@ -29,9 +32,12 @@ extends; that program is in the repository's history.
 - **MIDI**: a piano roll with ghost notes of other clips, the song's key and scale (Key ▾ in the
   transport: detected from the notes; a clip may have its own; Snap to scale), swing for the song, a
   track or a Steps row (Swing ▾, applied as it plays, committed into the notes on request), chord stamp,
-  quantize, box select; a Steps view of the same clip; notes with their own chance, repeats (rolls),
+  quantize, box select; a Tools panel previewing strum, arpeggiate, chop, flam, legato, quantize,
+  humanize and velocity shapes before applying them; a knife (K), join (Ctrl+J), a pitch's row selected
+  (Shift-click its key), overlaps removed; a Steps view of the same clip; notes with their own chance, repeats (rolls),
   slide, pan and fine pitch; linked clips (edit one, every linked copy changes); the built-in synth,
-  sampler and Pad Kit (a sample per pad, choke groups; slice a loop onto one); MIDI effects (arpeggiator, chord, scale, note length, velocity, random, pitch, groove); a MIDI keyboard (with sustain pedal) or the computer
+  sampler and Pad Kit (a sample per pad, choke groups; slice a loop onto one); MIDI effects (arpeggiator, chord, scale, note length, velocity, random, pitch, groove), also on notes
+  played live, and committed into the notes (this clip, every clip, or onto a new track); a MIDI keyboard (with sustain pedal) or the computer
   keyboard; MIDI recording, Capture of what you just played, MIDI file import and export.
 - **Modulators**: an LFO, Random, a Level Follower, a Macro knob and MIDI Control (the mod wheel or any
   controller of a MIDI keyboard), placed in the effects window like
@@ -206,7 +212,7 @@ ordinary notes into the clip, so MIDI effects, linked copies, freezing and expor
 
 ## Linked clips and Groove
 
-**Linked clips**: Ctrl+Alt-drag a MIDI clip (or right-click it → **Duplicate as linked**) to make a
+**Linked clips**: Alt+Shift-drag a MIDI clip by its name (or right-click it → **Duplicate as linked**) to make a
 copy that shares its notes: editing the notes of any of them (in the MIDI editor, quantize, switching
 notes off), its loop length or its loop switch changes every linked copy at once. Each copy keeps its
 own place, track, name, colour and trim. A chain mark on the clip's name strip shows it is linked

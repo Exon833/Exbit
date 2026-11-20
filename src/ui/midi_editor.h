@@ -41,6 +41,12 @@
 //     G / Slide                the selected notes glide from the previous note's pitch (again: not); drawn as
 //                              a short tail into the note
 //     Steps                    the clip as steps instead of the piano roll (see the Steps view below)
+//     Tools ▾ / F2 → Tools…    the note tools on the selected notes (none: all), previewed ghosted until
+//                              Apply (ui/note_tools_panel.h); its ▾: Remove overlaps (same pitch), Legato, Join
+//     K                        the knife: a click or a drag cuts the notes it crosses at the line (Enter: at the
+//                              keyboard's cursor); K again, or Esc, puts it away
+//     Ctrl+J                   join the selected notes of a pitch that touch or overlap into one
+//     Shift+click a key / P    select every note of that pitch (Ctrl too: added; P: the keyboard's cursor's row)
 //     keys on the left         press to play a pitch; drag over them to play every key passed
 //     wheel / Shift+wheel / Ctrl+wheel / Alt+wheel: scroll up and down / sideways / zoom / key height
 //     ⤢ Expand                 the editor fills the screen (Keys − / + change the key height)
@@ -128,6 +134,7 @@
 
 #include "audio/engine.h"
 #include "model/model.h"
+#include "model/note_tools.h"
 #include "ui/toolkit/controls.h"
 #include "ui/panel_style.h"
 #include "ui/toolkit/menu.h"
@@ -221,6 +228,7 @@ struct NoteLook {
 }  // namespace midi_editor
 
 class MidiEditor;
+class NoteToolsPanel;
 
 // The keys (left) and the notes; all its editing goes through the MidiEditor.
 class PianoRoll : public ui::Widget {
@@ -402,7 +410,7 @@ public:
     struct Drag {
         // (Velocity: the lane's value set under the mouse; LaneShift: the selected notes' values moved by as
         // much as the mouse; Cells: pads of the Steps view lit or cleared)
-        enum Kind { None, Keys, Move, Resize, Velocity, Box, Copy, LaneShift, Cells } kind = None;
+        enum Kind { None, Keys, Move, Resize, Velocity, Box, Copy, LaneShift, Cells, Cut } kind = None;
         Point startPos;
         int index = -1;
         std::map<int, Note> origin;  // the dragged notes as they were at the press
@@ -568,6 +576,26 @@ public:
     void addStepRow(int pitch);
     void syncNoteTools();            // Slide shows whether the selected notes slide
 
+    // --- the note tools (ui/note_tools_panel.cpp): Tools ▾, the knife, join, a key's row, overlaps ---
+    NoteToolsPanel* toolsPanel = nullptr;  // open (Tools ▾); its preview drawn ghosted, never in the clip
+    std::vector<Note> preview;       // what the open tool would make of the targets (empty: none)
+    ui::Button* toolsButton = nullptr;
+    bool knife = false;              // K: clicks and drags cut notes
+    std::vector<int> toolTargets() const;  // the selected notes (none selected: all)
+    void openTools();                // Tools…: the panel (again: raised)
+    void cancelPreview();            // the panel closed without applying (switching clips, closing the editor)
+    // the working copy becomes r (the selection and switched-off marks go with the notes made from them),
+    // committed: one undo step; false when nothing changed
+    bool applyResult(const note_tools::Result& r, const char* what);
+    void splitNotes(double at, const std::vector<int>& which);
+    void splitAtKeyCursor();         // the knife's Enter: the targets at the keyboard's cursor
+    void joinNotes();                // Ctrl+J
+    void selectRow(int pitch, bool add);
+    void removeOverlaps();           // the same pitch only
+    void legatoAll();                // every target ends where the next starts
+    void setKnife(bool on);
+    void toolsMenu(ui::Menu& menu);  // Tools ▾'s menu, F2's too
+
     // ui::Window
     bool keyPress(ui::KeyEvent& e) override;
     void resized() override;
@@ -597,5 +625,6 @@ private:
     ui::Button* buildStampButton();
     void buildScaleTools(ui::HBox* tools);
     int rollScroll_ = 0;             // the piano roll's scroll while the Steps view shows
-    void eraseNotes(const std::set<int>& gone);  // (the selection and switched-off marks stay on the others)
+    void eraseNotes(const std::set<int>& gone);
+    ui::Button* buildToolsButton();  // (the selection and switched-off marks stay on the others)
 };

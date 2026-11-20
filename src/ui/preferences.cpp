@@ -121,6 +121,7 @@ Preferences Preferences::load() {
     p.recordInput = getStr("record_input", p.recordInput);
     p.countInBars = getInt("count_in_bars", p.countInBars);
     p.loopTakes = getBool("loop_takes", p.loopTakes);
+    p.recordEffectsNotes = getBool("record_effects_notes", p.recordEffectsNotes);
     p.vst2Folders = getStr("vst2_folders", p.vst2Folders);
     p.winePrefixes = getStr("wine_prefixes", wine::defaultPrefix());
     p.winePrograms = getStr("wine_programs", p.winePrograms);
@@ -165,6 +166,7 @@ Preferences Preferences::load() {
     p.known_["record_input"] = Json(p.recordInput);
     p.known_["count_in_bars"] = Json(p.countInBars);
     p.known_["loop_takes"] = Json(p.loopTakes);
+    p.known_["record_effects_notes"] = Json(p.recordEffectsNotes);
     p.known_["vst2_folders"] = Json(p.vst2Folders);
     p.known_["wine_prefixes"] = Json(p.winePrefixes);  // (so the default prefix is only written once changed)
     p.known_["midi_input"] = Json(p.midiInput);
@@ -217,6 +219,7 @@ void Preferences::save() const {
     put("record_input", recordInput);
     put("count_in_bars", countInBars);
     put("loop_takes", loopTakes);
+    put("record_effects_notes", recordEffectsNotes);
     put("vst2_folders", vst2Folders);
     put("wine_prefixes", winePrefixes);
     put("midi_input", midiInput);

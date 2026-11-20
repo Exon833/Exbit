@@ -204,6 +204,7 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
                                    [this](const TrackPtr& t) { editInstrument(t); }});
         panel = p.get();
         panel->status = [this](const std::string& t, int ms) { showStatus(t, ms); };  // (TRACK SELECTION)
+        timeline->status = [this](const std::string& t, int ms) { showStatus(t, ms); };  // (slip, crop, fades)
         panel->loadPlugins = [this](const std::vector<SlotPtr>& slots) { return plugins->restore(slots); };
         panelScroll->setContent(std::move(p), false);  // (it sets its own height)
     }
@@ -476,12 +477,29 @@ void MainWindow::buildEditMenu() {
     menu->addAction("Cu&t clips", [this] { useClipboard("cut"); }, "Ctrl+X");
     menu->addAction("&Copy clips", [this] { useClipboard("copy"); }, "Ctrl+C");
     menu->addAction("&Paste clips at the cursor", [this] { useClipboard("paste"); }, "Ctrl+V");
+    // (auto_follow.h: a project setting, saved and undoable; also in the transport's Grid menu)
+    ui::Action* follows = menu->addAction("&Automation follows clips", [this] {
+        setAutomationFollows(!project.timing.automationFollows);
+    });
+    follows->checkable = true;
+    follows->tooltip = "Moving, copying and duplicating clips takes the automation under them along";
+    menu->aboutToShow = [this, follows](ui::Menu*) {
+        showUndoState();
+        follows->checked = project.timing.automationFollows;
+    };
     menu->addSeparator();
     // (in the whole song: song_time.h)
     menu->addAction("&Insert time…", [this] { showTimeEdit(insertTime()); }, "Ctrl+Shift+I");
     menu->addAction("&Delete time", [this] { showTimeEdit(deleteTime()); }, "Ctrl+Shift+Del");
     menu->addSeparator();
     addCaptureAction(menu);  // (Capture: capture.h)
+}
+
+void MainWindow::setAutomationFollows(bool on) {
+    project.timing.automationFollows = on;
+    util::debugf("automation follows clips: %s\n", on ? "on" : "off");
+    showStatus(on ? "Automation follows clips: moving, copying and duplicating clips takes it along"
+                  : "Automation stays on the timeline when clips move", 4000);
 }
 
 void MainWindow::showTimeEdit(const std::string& message) {
@@ -1133,6 +1151,7 @@ void MainWindow::connectControls() {
         case GridChange::Snap: changeGrid({}, c.snap); break;
         case GridChange::Finer: changeGrid({}, {}, true); break;
         case GridChange::Coarser: changeGrid({}, {}, false); break;
+        case GridChange::Follow: setAutomationFollows(c.snap); break;
         }
     };
     t->gridActions["finer"]->triggered.connect([this] { changeGrid({}, {}, true); });
@@ -1722,6 +1741,7 @@ void MainWindow::onFrame() {
     syncLoop();  // (also after opening a project or changing the sample rate)
     engine.idle();
     if (midiInput) midiInput->poll();  // (what the MIDI keyboard played)
+    if (recording) recording->poll();  // (recording the MIDI effects' notes: those played since)
     automation::resolve(project);  // (parameters of plugins just loaded)
     modulation::resolve(project);  // (and the modulation cables' parameters)
     {  // writing automation (automation_write.h): touches idle long enough end; the curves being written show

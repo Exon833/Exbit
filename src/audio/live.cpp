@@ -4,6 +4,8 @@
 #include <cmath>
 
 #include "audio/synth.h"
+#include "audio/workers.h"
+#include "core/util.h"
 
 namespace live {
 
@@ -63,6 +65,13 @@ std::vector<float> builtInNote(const NoteRender& r, int pitch, int velocity, dou
 }
 
 bool LiveVoice::addTo(float* const signal[2], int signalChannels, int n, int fade, const float* rates) {
+    if (delay > 0) {  // (starting later in this buffer: from its frame on)
+        int d = std::min(delay, n);
+        delay -= d;
+        if (d >= n) return true;
+        float* const later[2] = {signal[0] + d, signalChannels > 1 ? signal[1] + d : nullptr};
+        return addTo(later, signalChannels, n - d, fade, rates ? rates + d : nullptr);
+    }
     int64_t len = length();
     bool loops = loopStart >= 0;
     if (this->fade > 0) fade = this->fade;  // (cut off by its choke group: quickly)
@@ -82,7 +91,7 @@ bool LiveVoice::addTo(float* const signal[2], int signalChannels, int n, int fad
             if (loops && at >= len) at = loopStart + (at - loopStart) % span;
             for (int c = 0; c < signalChannels; c++) {
                 int source = ch == 1 ? 0 : std::min(c, ch - 1);
-                signal[c][i] += (float)(d[at * ch + source] * gain);
+                signal[c][i] += (float)(d[at * ch + source] * gain * level);
             }
         }
         pos += n;
@@ -109,7 +118,7 @@ bool LiveVoice::addTo(float* const signal[2], int signalChannels, int n, int fad
         for (int c = 0; c < signalChannels; c++) {
             int source = ch == 1 ? 0 : std::min(c, ch - 1);
             double a = d[pos * ch + source], b = next >= 0 ? d[next * ch + source] : 0.0;
-            signal[c][i] += (float)((a + (b - a) * frac) * gain);
+            signal[c][i] += (float)((a + (b - a) * frac) * gain * level);
         }
         frac += rates ? (double)rates[i] : 1.0;
         int64_t whole = (int64_t)frac;
@@ -121,10 +130,25 @@ bool LiveVoice::addTo(float* const signal[2], int signalChannels, int n, int fad
     return !faded && !ended;
 }
 
-LiveNotes::LiveNotes(size_t capacity) : inbox_(std::max<size_t>(capacity, 2)), done_(std::max<size_t>(capacity, 2)) {
-    voices_.reserve(128);
+LiveNotes::LiveNotes(size_t capacity)
+    : inbox_(std::max<size_t>(capacity, 2)), done_(std::max<size_t>(capacity, 2) + MAX_VOICES), playedRing_(4096) {
+    voices_.reserve(MAX_VOICES);
     timedOffs_.reserve(256);
-    finished_.reserve(128);
+    finished_.reserve(MAX_VOICES);
+}
+
+Bank::Bank() {
+    for (int p = 0; p < 128; p++) loopStart[p] = -1, channels[p] = 1, floor[p] = 0, oneShot[p] = false;
+}
+
+Clock clockAt(const TempoMap& map, bool playing, int64_t start, int sr) {
+    Clock c;
+    double seconds = playing && sr > 0 ? (double)start / sr : 0.0;
+    c.playing = playing;
+    c.start = start;
+    c.beat = playing ? map.beatAt(seconds) : 0.0;
+    c.beatsPerFrame = sr > 0 ? 1.0 / (map.beatSAt(seconds) * sr) : 0.0;
+    return c;
 }
 
 bool LiveNotes::push(const Item& item) {
@@ -188,6 +212,15 @@ bool LiveNotes::noteOn(int pitch, int velocity, int sr, bool builtin, double len
 
 bool LiveNotes::noteOff(int pitch) {
     collect();
+    if (pitch >= 0 && pitch < 128 && timedKeys_[pitch] > 0) {  // (a key into the chain: let go there)
+        Item it;
+        it.kind = Item::KeyItem;
+        it.on = false;
+        it.pitch = pitch;
+        if (!push(it)) return false;
+        timedKeys_[pitch]--;
+        return true;
+    }
     auto one = oneShots_.find(pitch);
     if (one != oneShots_.end()) {  // (the key let go played a one-shot note: it goes on to its end)
         if (--one->second <= 0) oneShots_.erase(one);
@@ -225,12 +258,12 @@ void LiveNotes::retire(NoteAudio&& audio) {
 
 bool LiveNotes::active() const {
     return inHead_.load(std::memory_order_acquire) != inTail_.load(std::memory_order_relaxed) || !voices_.empty() ||
-           !timedOffs_.empty() || resendBend_ != NO_BEND;
+           !timedOffs_.empty() || resendBend_ != NO_BEND || runner_.busy();
 }
 
 bool LiveNotes::holding() const {
     return inHead_.load(std::memory_order_acquire) != inTail_.load(std::memory_order_relaxed) || !timedOffs_.empty() ||
-           heldTotal_ > 0;
+           heldTotal_ > 0 || runner_.busy();
 }
 
 void LiveNotes::clear() {
@@ -250,18 +283,26 @@ void LiveNotes::clear() {
     timedOffs_.clear();
     std::fill(std::begin(held_), std::end(held_), 0);
     heldTotal_ = 0;
+    runner_.reset();  // (the chain's notes are gone with the voices; its keys are forgotten)
 }
 
 plugin_audio::MidiMsg LiveNotes::release(int pitch, int64_t atFrame) {
     for (auto& v : voices_)
-        if (v.pitch == pitch && v.releasedAt < 0) v.releasedAt = v.clock + atFrame;
+        if (v.pitch == pitch && v.releasedAt < 0 && v.id == 0) v.releasedAt = v.clock + atFrame;
     plugin_audio::MidiMsg m;
     m.type = plugin_audio::MidiMsg::NoteOff;
     m.frame = atFrame, m.pitch = pitch, m.velocity = 0;
     return m;
 }
 
-void LiveNotes::take(int frames, int sr, plugin_audio::Messages& out) {
+void LiveNotes::take(int frames, int sr, plugin_audio::Messages& out, const Clock* clock) {
+    // the timed path's chain and notes, as the GUI thread last gave them (it keeps the ones replaced alive)
+    programNow_ = std::atomic_load(&program_);
+    bankNow_ = std::atomic_load(&bank_);
+    out_ = &out;
+    frames_ = frames;
+    clock_ = clock ? *clock : Clock();
+    if (programNow_) runner_.use(*programNow_, now_, &LiveNotes::emitted, this);
     if (resendBend_ != NO_BEND) {  // (a bend cleared away before an instrument got it)
         plugin_audio::MidiMsg m;
         m.type = plugin_audio::MidiMsg::PitchBend;
@@ -275,6 +316,11 @@ void LiveNotes::take(int frames, int sr, plugin_audio::Messages& out) {
     for (; tail < head; tail++) {
         Item& item = inbox_[tail % inbox_.size()];
         int p = std::min(127, std::max(0, item.pitch));
+        if (item.kind == Item::KeyItem) {  // into the chain (live_fx): played by run() below
+            if (programNow_)
+                runner_.key(item.on, item.pitch, item.velocity, now_, item.length >= 0 ? now_ + item.length : -1);
+            continue;
+        }
         if (item.kind != Item::NoteItem) {  // the bend wheel, a control: to a VST instrument as MIDI
             plugin_audio::MidiMsg m;
             m.type = item.kind == Item::BendItem ? plugin_audio::MidiMsg::PitchBend : plugin_audio::MidiMsg::Control;
@@ -310,19 +356,30 @@ void LiveNotes::take(int frames, int sr, plugin_audio::Messages& out) {
                 if (item.length < 0) held_[p]++, heldTotal_++;
             }
             if (item.length >= 0) timedOffs_.push_back({item.length, item.pitch});
+            handBack(true, item.pitch, item.velocity, 0);
         } else {
             out.push_back(release(item.pitch, 0));
             if (held_[p] > 0) held_[p]--, heldTotal_--;
+            handBack(false, item.pitch, 0, 0);
         }
     }
     inTail_.store(tail, std::memory_order_release);
+    if (programNow_) {  // the chain's notes of this buffer, at their frames (emitted())
+        double bpf = clock_.beatsPerFrame > 0 ? clock_.beatsPerFrame : 2.0 / std::max(1, sr);
+        double beat = clock_.playing ? clock_.beat : freeBeat_;
+        runner_.run(now_, frames, beat, bpf, sr, &LiveNotes::emitted, this);
+        freeBeat_ = beat + frames * bpf;  // (stopped: it goes on from where it was)
+    }
+    now_ += frames;
+    out_ = nullptr;
     size_t keep = 0;
     for (size_t i = 0; i < timedOffs_.size(); i++) {
         auto& e = timedOffs_[i];
         e.first -= frames;
-        if (e.first <= 0)
+        if (e.first <= 0) {
             out.push_back(release(e.second, std::max<int64_t>(0, frames + e.first)));
-        else
+            handBack(false, e.second, 0, (int)std::max<int64_t>(0, frames + e.first));
+        } else
             timedOffs_[keep++] = e;
     }
     timedOffs_.resize(keep);
@@ -370,6 +427,142 @@ void LiveNotes::addVoices(float* const signal[2], int channels, int frames, int 
         }
     }
     voices_.resize(keep);
+}
+
+// --- the timed path (live_fx) ---
+
+void LiveNotes::retireOld() {
+    // the audio thread only reaches a program or bank through program_ / bank_: one held by nothing else but
+    // this list can't be taken any more, so it is freed here, never on the audio thread
+    kept_.erase(std::remove_if(kept_.begin(), kept_.end(),
+                               [](const std::shared_ptr<const void>& p) { return p.use_count() == 1; }),
+                kept_.end());
+}
+
+void LiveNotes::useEffects(const Track& track, bool builtin, int sr, int pitch, const NoteRender* render) {
+    collect();
+    retireOld();
+    auto source = track.midiEffects.get();
+    auto program = std::atomic_load(&program_);
+    if (!program || source != fxSource_) {
+        program = live_fx::compile(track);
+        fxSource_ = source;
+        kept_.push_back(program);
+        std::atomic_store(&program_, program);
+        util::debugf("live: \"%s\": %zu MIDI effects played live by the audio thread (they change timing)\n",
+                     track.name.c_str(), program->stages.size());
+    }
+    if (!builtin) {  // (a VST instrument: the notes go to it as MIDI)
+        if (std::atomic_load(&bank_)) std::atomic_store(&bank_, std::shared_ptr<const Bank>());
+        return;
+    }
+    const void* key0 = std::atomic_load(&track.sampler).get();
+    const void* key1 = std::atomic_load(&track.padKit).get();
+    auto bank = std::atomic_load(&bank_);
+    bool fresh = !bank || bank->key[0] != key0 || bank->key[1] != key1 || bank->sr != sr;
+    bool want[128] = {};
+    live_fx::reach(*program, pitch, want);
+    std::vector<int> missing;
+    for (int p = 0; p < 128; p++)
+        if (want[p] && (fresh || !bank->audio[p])) missing.push_back(p);
+    if (missing.empty() && !fresh) return;
+    auto next = fresh ? std::make_shared<Bank>() : std::make_shared<Bank>(*bank);
+    next->key[0] = key0, next->key[1] = key1, next->sr = sr;
+    struct Work {
+        const NoteRender* given;
+        const std::vector<int>* missing;
+        Bank* bank;
+        int sr;
+    } work{render ? render : &renderer_, &missing, next.get(), sr};
+    auto job = [](void* ctx, int i) {  // (each pitch its own: on every core)
+        Work& w = *static_cast<Work*>(ctx);
+        int p = (*w.missing)[(size_t)i];
+        NoteRender keyed;
+        if (w.given->perKey) w.given->perKey(p, keyed);
+        const NoteRender& r = w.given->perKey ? keyed : *w.given;
+        int64_t loopStart = -1;
+        auto audio = std::make_shared<const std::vector<float>>(builtInNote(r, p, 127, -1, w.sr, loopStart));
+        int channels = r.render ? std::max(1, r.channels) : 1;
+        int64_t frames = (int64_t)audio->size() / channels;
+        w.bank->loopStart[p] = loopStart >= 0 && loopStart < frames - 1 ? loopStart : -1;
+        w.bank->channels[p] = channels;
+        w.bank->floor[p] = std::min(1.0, std::max(0.0, r.velocityFloor));
+        w.bank->oneShot[p] = r.oneShot;
+        w.bank->audio[p] = std::move(audio);
+    };
+    int threads = missing.size() >= 4 ? workers::workersFor(workers::chosenCores()) : 0;
+    {
+        workers::Pool pool(threads, false);
+        pool.run((int)missing.size(), job, &work);
+    }
+    kept_.push_back(next);
+    std::atomic_store(&bank_, std::shared_ptr<const Bank>(next));
+    util::debugf("live: \"%s\": %zu notes rendered for the live MIDI effects (%d threads)\n", track.name.c_str(),
+                 missing.size(), threads + 1);
+}
+
+bool LiveNotes::keyOn(int pitch, int velocity, int sr, double lengthS) {
+    if (pitch < 0 || pitch > 127) return false;
+    Item it;
+    it.kind = Item::KeyItem;
+    it.on = true;
+    it.pitch = pitch;
+    it.velocity = std::max(1, std::min(127, velocity));
+    it.length = lengthS < 0 ? -1 : (int64_t)(lengthS * sr);
+    if (!push(it)) return false;
+    if (lengthS < 0) timedKeys_[pitch]++;
+    return true;
+}
+
+void LiveNotes::report(bool on) { report_.store(on, std::memory_order_release); }
+
+void LiveNotes::played(std::vector<Played>& out) {
+    uint64_t head = playedHead_.load(std::memory_order_acquire);
+    uint64_t tail = playedTail_.load(std::memory_order_relaxed);
+    for (; tail < head; tail++) out.push_back(playedRing_[tail % playedRing_.size()]);
+    playedTail_.store(tail, std::memory_order_release);
+}
+
+void LiveNotes::handBack(bool on, int pitch, int velocity, int at) {
+    if (!report_.load(std::memory_order_acquire)) return;
+    uint64_t head = playedHead_.load(std::memory_order_relaxed);
+    if (head - playedTail_.load(std::memory_order_acquire) >= playedRing_.size()) return;  // (not read for long)
+    Played& p = playedRing_[head % playedRing_.size()];
+    p.on = on, p.pitch = pitch, p.velocity = velocity;
+    p.frame = clock_.playing ? clock_.start + at : -1;
+    playedHead_.store(head + 1, std::memory_order_release);
+}
+
+void LiveNotes::emitted(void* ctx, const live_fx::Ev& e) {
+    LiveNotes& self = *static_cast<LiveNotes*>(ctx);
+    int at = (int)std::max<int64_t>(0, std::min<int64_t>(self.frames_ - 1, e.at - self.now_));
+    self.handBack(e.on, e.pitch, e.velocity, at);
+    const Bank* bank = self.bankNow_.get();
+    if (!bank) {  // a VST instrument: MIDI at the very frame
+        if (!self.out_) return;
+        plugin_audio::MidiMsg m;
+        m.type = e.on ? plugin_audio::MidiMsg::NoteOn : plugin_audio::MidiMsg::NoteOff;
+        m.frame = at, m.pitch = e.pitch, m.velocity = e.on ? std::max<int>(1, e.velocity) : 0;
+        self.out_->push_back(m);
+        return;
+    }
+    if (!e.on) {
+        for (auto& v : self.voices_)
+            if (v.id == e.id && v.releasedAt < 0 && !v.oneShot) v.releasedAt = v.clock + std::max(0, at - v.delay);
+        return;
+    }
+    int p = e.pitch;
+    if (!bank->audio[p] || self.voices_.size() >= (size_t)MAX_VOICES) return;  // (not rendered, or no room)
+    LiveVoice v;
+    v.pitch = p;
+    v.id = e.id;
+    v.data = bank->audio[p];
+    v.channels = bank->channels[p];
+    v.loopStart = bank->loopStart[p];
+    v.oneShot = bank->oneShot[p];
+    v.delay = at;
+    v.level = (float)(bank->floor[p] + (1 - bank->floor[p]) * e.velocity / 127.0);
+    self.voices_.push_back(std::move(v));
 }
 
 LiveNotes* find(const LiveMap* map, const Track* track) {

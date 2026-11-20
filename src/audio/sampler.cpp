@@ -295,6 +295,7 @@ live::NoteRender noteRenderer(const Track& track) {
     r.channels = 2;
     r.oneShot = s->oneShot;  // (such a note plays to its end, letting go of the key or not)
     r.sustains = s->loop;    // (a held note loops; else it plays the sample to its end)
+    r.velocityFloor = 1 - s->velocity;  // (renderNote's level: 1 - velocity + velocity * v / 127)
     r.period = [s](int pitch, int sr) { return loopPeriod(*s, pitch, sr); };
     return r;
 }

@@ -190,6 +190,7 @@ public:
     void reloadEditors();                // the MIDI editors show their clip as it is now (after undo)
     std::string insertTime();            // Edit → Insert time… (the timeline's; a message for the status bar)
     std::string deleteTime();
+    void setAutomationFollows(bool on);  // Edit → Automation follows clips (auto_follow.h)
     void addCaptureAction(ui::Menu* menu);
 
     // --- File menu additions ---

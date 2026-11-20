@@ -113,6 +113,12 @@ void Timeline::paintArea(Painter& p, const Rect& r) {
             auto it = tops.find(t.get());
             if (it != tops.end()) spans.push_back({it->second, t->height});
         }
+        if (currentAutomation)  // (the automation lane clicked last: its range is its curve's, clipboard.h)
+            for (auto& l : lanes())
+                if (l.automation == currentAutomation &&
+                    std::find(selection.range->tracks.begin(), selection.range->tracks.end(), l.owner) !=
+                        selection.range->tracks.end())
+                    spans.push_back({l.top, l.height});
         if (!spans.empty())
             clip_painter::paintRange(p, *selection.range, spans, [this](int64_t f) { return xOf(f); }, r, lk.selection,
                                      lk.selectionEdge.color, lk.selectionEdge.width);

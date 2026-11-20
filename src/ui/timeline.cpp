@@ -10,7 +10,9 @@
 #include "audio/file_io.h"
 #include "audio/plugin_audio.h"
 #include "core/util.h"
+#include "model/auto_follow.h"
 #include "model/edits.h"
+#include "ui/clipboard.h"
 #include "ui/color_picker.h"
 #include "ui/colors.h"
 #include "ui/master_lane.h"
@@ -169,20 +171,30 @@ std::pair<ClipPtr, ClipSide> Timeline::edgeAt(PointF pos) const {
 }
 
 void Timeline::dragEdge(PointF pos, int mods) {
-    // Move the grabbed end of a clip to the mouse (snapped): no shorter than CLIP_MIN_S, not past its
-    // audio (an audio clip), not before its start (offset 0). The clip is changed in place, one value
-    // at a time in an order the audio thread can always play from (at worst a buffer of the old window).
+    // The grabbed end of a clip to the mouse (snapped); the other selected clips' ends on that side move by as much.
     auto& d = std::get<EdgeDrag>(drag);
-    Clip& clip = *d.clip;
-    int sr = engine.sr;
     int64_t frame = snappedFrameAt(pos.x, mods);
+    auto grabbed = d.origin.find(d.clip);
+    if (grabbed != d.origin.end())
+        for (auto& [c, edge] : d.origin)
+            if (c != d.clip) trimTo(c, d.side, edge + frame - grabbed->second);
+    trimTo(d.clip, d.side, frame);
+    relayout();
+}
+
+void Timeline::trimTo(const ClipPtr& c, ClipSide side, int64_t frame) {
+    // Move an end of a clip to `frame`: no shorter than CLIP_MIN_S, not past its audio (an audio clip), not
+    // before its start (offset 0). The clip is changed in place, one value at a time in an order the audio
+    // thread can always play from (at worst a buffer of the old window).
+    Clip& clip = *c;
+    int sr = engine.sr;
     int64_t shortest = std::max<int64_t>(1, (int64_t)std::nearbyint(config::CLIP_MIN_S * sr));
-    if (d.side == ClipSide::Right) {
+    if (side == ClipSide::Right) {
         int64_t end = std::max(clip.start + shortest, frame);
         int64_t have = clip.data ? clip.data->frames() : 0;
         if (clip.kind == Kind::Audio && clip.loop) {  // (its loop repeats: its audio is built a little ahead of its end)
             if (clip.offset + end - clip.start > have)
-                prepareLive(d.clip, clip.offset + end - clip.start + (int64_t)std::nearbyint(config::LOOP_DRAG_AHEAD_S * sr));
+                prepareLive(c, clip.offset + end - clip.start + (int64_t)std::nearbyint(config::LOOP_DRAG_AHEAD_S * sr));
         } else if (clip.kind == Kind::Audio) {
             end = std::min(end, clip.start + have - clip.offset);
         }
@@ -201,26 +213,34 @@ void Timeline::dragEdge(PointF pos, int mods) {
             clip.length = end - start;
         }
     }
-    relayout();
 }
 
 void Timeline::endEdgeDrag() {
-    // A MIDI clip made longer than its notes were rendered: render it that long; then the clip
-    // replaces what it now covers.
-    ClipPtr clip = std::get<EdgeDrag>(drag).clip;
+    // A MIDI clip made longer than its notes were rendered: render it that long; then each clip
+    // replaces what it now covers (the one grabbed last: it wins where two selected clips now meet).
+    const EdgeDrag& d = std::get<EdgeDrag>(drag);
+    std::vector<ClipPtr> clips;
+    for (auto& [c, edge] : d.origin)
+        if (c != d.clip) clips.push_back(c);
+    clips.push_back(d.clip);
     int sr = engine.sr;
-    int64_t have = clip->data ? clip->data->frames() : 0;
-    int64_t spare = have - clip->offset - clip->frames();
-    if (clip->kind == Kind::Midi && clip->loop) {  // (its notes repeat as far as it now reaches)
-        prepareLive(clip);
-    } else if (clip->loop && !(0 <= spare && spare <= timeline::LOOP_SLACK_S * sr)) {
-        prepareLive(clip);  // (a loop: its audio built again only when it grew past it, or holds much more than it plays)
-    } else if (clip->kind == Kind::Midi && clip->offset + clip->frames() > have) {
-        clip->lengthS = std::max(clip->lengthS, (double)(clip->offset + clip->frames()) / sr);
-        prepareLive(clip);
-        linkedNotesChanged(clip);  // (its linked clips: as long a rendering)
+    for (const ClipPtr& clip : clips) {
+        int64_t have = clip->data ? clip->data->frames() : 0;
+        int64_t spare = have - clip->offset - clip->frames();
+        if (clip->kind == Kind::Midi && clip->loop) {  // (its notes repeat as far as it now reaches)
+            prepareLive(clip);
+        } else if (clip->loop && !(0 <= spare && spare <= timeline::LOOP_SLACK_S * sr)) {
+            prepareLive(clip);  // (a loop: its audio built again only when it grew past it, or holds much more than it plays)
+        } else if (clip->kind == Kind::Midi && clip->offset + clip->frames() > have) {
+            clip->lengthS = std::max(clip->lengthS, (double)(clip->offset + clip->frames()) / sr);
+            prepareLive(clip);
+            linkedNotesChanged(clip);  // (its linked clips: as long a rendering)
+        }
     }
-    edits::clearUnder(project, {clip});
+    edits::clearUnder(project, clips);  // (the other clips under any of them first: then the dragged ones among themselves)
+    for (const ClipPtr& clip : clips)
+        if (project.clips.contains(clip)) edits::clearUnder(project, {clip});
+    if (clips.size() > 1) util::debugf("timeline: %zu clips' ends dragged together\n", clips.size());
     relayout();
 }
 
@@ -427,6 +447,7 @@ void Timeline::addFile(const std::string& path, int64_t frame) {
 }
 
 void Timeline::deleteSelected() {
+    if (clipboard::clearLaneRange(*this)) return;  // (a range in an automation lane: its curve cleared there)
     if (selection.range) {
         TimeRange r = *selection.range;
         edits::deleteRange(project, r.tracks, r.start, r.end);
@@ -438,18 +459,25 @@ void Timeline::deleteSelected() {
 }
 
 void Timeline::duplicateSelected() {
+    std::vector<auto_follow::Move> follow;  // (the automation under what is duplicated, copied along)
+    double sr = engine.sr;
     if (selection.range) {
         TimeRange r = *selection.range;
         auto copies = edits::duplicateRange(project, r.tracks, r.start, r.end);
         int64_t span = r.end - r.start;
+        for (auto& t : r.tracks) follow.push_back({t, t, r.start / sr, span / sr, r.end / sr});
         selection.setRange(TimeRange{r.end, r.end + span, r.tracks}, copies);
     } else if (!selection.clips.empty()) {
-        auto copies = edits::duplicateClips(project, selection.clipList());
+        auto chosen = selection.clipList();
+        auto copies = edits::duplicateClips(project, chosen);
+        for (size_t i = 0; i < copies.size() && i < chosen.size(); i++)
+            follow.push_back(auto_follow::moveOf(*copies[i], chosen[i]->track, chosen[i]->start, engine.sr));
         selection.clips = std::set<ClipPtr>(copies.begin(), copies.end());
     } else {
         if (duplicateTracks) duplicateTracks();  // (nothing selected here: the selected tracks)
         return;
     }
+    if (auto_follow::carry(project, follow, true)) lanesChanged();
     std::map<ClipPtr, TrackPtr> tracks;
     std::map<ClipPtr, std::optional<int64_t>> starts;
     for (auto& c : selection.clips) {

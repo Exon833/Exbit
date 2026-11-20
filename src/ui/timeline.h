@@ -28,7 +28,7 @@
 // Ctrl+C / Ctrl+X / Ctrl+V copy, cut and paste clips (clipboard.h); Ctrl+drag a clip's name strip
 // drags copies, leaving the clips where they are (a Ctrl+click without dragging still adds or removes
 // it from the selection).
-// Linked MIDI clips (model.h, "linked MIDI clips"): Ctrl+Alt+drag a MIDI clip's name strip drags LINKED
+// Linked MIDI clips (model.h, "linked MIDI clips"): Alt+Shift+drag a MIDI clip's name strip drags LINKED
 // copies (audio clips in the selection are copied plainly); the Alt pressed with it doesn't free the drag
 // from the grid until it is let go and pressed again. Right-click → Duplicate as linked does the same
 // as Ctrl+D with linked copies, and Make unique takes the selected clips out of their links (keeping
@@ -41,6 +41,13 @@
 // open: slicePreview) and, on Slice, makes a new MIDI track under the clip's with a Pad Kit holding a slice
 // per pad and a MIDI clip playing them where the clip had them (makeSlicedKit; audio/padkit.h SLICING). The
 // audio clip stays as it was (mute or delete it to hear only the kit).
+// Editing every selected clip at once (timeline_slip.cpp, model/clip_edits.h): Ctrl+Alt+drag a clip (anywhere on
+// it) SLIPS the selected clips' contents: the audio (or notes) moves inside them while they stay put, by whole
+// grid steps (Shift as well: freely); the pointer is a ⇔ and the status bar says "Slip" and how far. Dragging an
+// end or a fade handle of a selected clip moves every selected clip's end (or fade) on that side by as much.
+// Right-click → Slip contents… asks how far (←/→ by the grid), Crop to the selection cuts the selected clips (and
+// every clip on the range's tracks) to the selected range, and Fades at every boundary… gives every selected
+// audio clip one fade-in and fade-out (length and shape).
 // Double-click a MIDI clip to edit its notes (editNotes → the MIDI editor); double-click empty space
 // on a MIDI track (or right-click → New MIDI clip) to make a new, empty MIDI clip there.
 // Clips are renamed with Ctrl+R, the right-click menu, or a double-click on their name strip.
@@ -61,6 +68,9 @@
 // lane's right-click menu curves and straightens the segment there too, and draws shapes (ramps, sine,
 // triangle, saw, square: a cycle per bar or beat) over the selected range or the loop
 // (automation_write.h). A lane armed for writing (Write on its row) is tinted red.
+// Shift+drag in a lane selects a time range of its curve (currentAutomation): Ctrl+C / Ctrl+X copy or cut
+// it, Ctrl+V pastes at the cursor, Del clears it (clipboard.h). While automation follows clips (Edit menu,
+// model/auto_follow.h) moving, copying, pasting and duplicating clips takes their tracks' automation along.
 //
 // The loop range (project.timing) is a band on the ruler, bright while looping is on; drag its ends
 // to change it (they snap like the cursor). The main window hands it to the engine (loopChanged).
@@ -118,6 +128,7 @@
 #include <vector>
 
 #include "audio/engine.h"
+#include "model/clip_edits.h"
 #include "model/model.h"
 #include "ui/clip_painter.h"
 #include "ui/lanes.h"
@@ -151,21 +162,30 @@ struct MoveDrag {               // dragging the selected clips; positions relati
     std::map<ClipPtr, Origin> origin;  // clip -> (start frame, lane index) when the drag began
     int64_t anchor = 0;         // start frame of the clip grabbed: it is the one put on the grid
     int rowsMoved = 0;          // last lane offset that suited every clip's kind
-    bool altLinks = false;      // Alt held since a Ctrl+Alt press (linked copies): it snaps until Alt is let go
+    bool altLinks = false;      // Alt held since an Alt+Shift press (linked copies): it snaps until Alt is let go
+    bool copies = false;        // copies dragged (Ctrl): automation following them is copied, not moved
 };
 enum class ClipSide { None, Left, Right };
 struct CopyDrag {               // Ctrl held on a clip's name strip: a click toggles it in the selection; dragging
     ClipPtr clip;               // drags copies of the selection (with it), leaving the clips where they are
     PointF pos;
-    bool linked = false;        // Ctrl+Alt: the MIDI clips' copies are linked to them (model.h)
+    bool linked = false;        // Alt+Shift: the MIDI clips' copies are linked to them (model.h)
 };
 struct EdgeDrag {               // dragging one end of a clip to trim it or lengthen it again
     ClipPtr clip;
     ClipSide side = ClipSide::Right;
+    std::map<ClipPtr, int64_t> origin;  // every selected clip's end on that side when the drag began (all move by as much)
 };
 struct FadeDrag {               // dragging an audio clip's fade handle to set how long it fades
     ClipPtr clip;
     bool in = true;             // its fade-in (else its fade-out)
+    std::map<ClipPtr, int64_t> origin;  // every selected audio clip's fade on that side (frames in its window) then
+};
+struct SlipDrag {               // Ctrl+Alt+dragging a clip: the selected clips' contents slip (model/clip_edits.h)
+    ClipPtr clip;               // the one grabbed (its place gives the grid's step)
+    double x = 0;               // mouse x when the drag began
+    std::vector<clip_edits::SlipStart> from;  // the clips as they were
+    int64_t frames = 0;         // how far they are slipped now (later: positive)
 };
 struct TakeDrag {               // dragging across a take lane: the part of the take to use
     Lane lane;
@@ -216,7 +236,8 @@ struct EnvelopeBendDrag {       // Ctrl+dragging a segment of a clip's gain enve
     double bend = 0;            // its bend then
 };
 using TimelineDrag = std::variant<std::monostate, MoveDrag, EdgeDrag, HeightDrag, PointDrag, LoopDrag, RangeDrag,
-                                  CopyDrag, FadeDrag, TakeDrag, MarkerDrag, BendDrag, EnvelopeDrag, EnvelopeBendDrag>;
+                                  CopyDrag, FadeDrag, TakeDrag, MarkerDrag, BendDrag, EnvelopeDrag, EnvelopeBendDrag,
+                                  SlipDrag>;
 
 // an audio clip's fade handle (Timeline::fadeHandleAt)
 struct FadeHit {
@@ -274,6 +295,7 @@ public:
     int viewLeft = 0;                    // horizontal scroll position, for onHscroll
     bool randomTrackColors = false;      // new tracks get a random colour (Options → Colours)
     TrackPtr currentTrack;               // the selected track: the lane (or panel row) clicked last
+    AutomationPtr currentAutomation;     // the automation lane clicked last (null: another lane): its range's Ctrl+C / V, Del
     std::optional<std::pair<TrackPtr, int64_t>> recording;  // (track, start frame) while recording: the take grows
     MasterLaneView* masterView = nullptr;  // the main window pins it to the bottom of the view
     bool masterBelowView = false;        // it is pinned under the view (not over it): its place isn't counted in the height
@@ -302,7 +324,8 @@ public:
     std::pair<ClipPtr, ClipZone> hit(PointF pos) const;    // later clips are on top
     std::pair<ClipPtr, ClipSide> edgeAt(PointF pos) const; // an end of a clip (wide enough to have ends)
     FadeHit fadeHandleAt(PointF pos) const;                // the audio clip whose fade handle is under pos
-    void dragEdge(PointF pos, int mods);
+    void dragEdge(PointF pos, int mods);  // (every selected clip's end on that side by as much: EdgeDrag::origin)
+    void trimTo(const ClipPtr& clip, ClipSide side, int64_t frame);  // one clip's end moved to frame (within its limits)
     void endEdgeDrag();
     // fade the grabbed side of the clip from its edge to the mouse (not snapped): no further than the other fade
     void dragFade(PointF pos);
@@ -367,6 +390,20 @@ public:
     // the project's clips that aren't in `before` (pieces an explicit split made) leave their links
     void splitPiecesUnique(const std::vector<ClipPtr>& before);
     void crossfadeSelected();   // Crossfade…: two selected audio clips that meet overlap, one fading into the other
+    // --- editing every selected clip at once: slip, crop, fades (timeline_slip.cpp, model/clip_edits.h) ---
+    std::function<void(const std::string& text, int ms)> status;  // a message for the status bar (main window)
+    std::vector<ClipPtr> editableSelected() const;  // the selected clips not on frozen tracks, in the project's order
+    void slipSelected(int64_t frames);   // their contents `frames` later (negative: earlier), each kept to its audio
+    void askSlip();                      // Slip contents…: how far, in beats (or seconds), ←/→ by the grid
+    void cropSelected();                 // Crop to the selection: the selected clips (and the range's) cut to the range
+    void askFades();                     // Fades at every boundary…: one fade-in and fade-out for every selected audio clip
+    // Slip contents…, Crop to the selection, Fades at every boundary… (the clip menu)
+    void addClipEditActions(ui::Menu& menu);
+    void startSlip(PointF pos, const ClipPtr& clip);  // Ctrl+Alt pressed on a clip
+    void dragSlip(PointF pos, int mods);              // …dragged: snapped to the grid's steps (Shift: freely)
+    // the grid's step at `frame`, in frames (as the slip moves); `beats`: in beats
+    double gridStepAt(int64_t frame, bool beats = false) const;
+    std::string slipText(int64_t frames, int64_t at) const;  // "+1.5 beats" / "-0.250 s"
     // --- gain envelopes (timeline_envelope.cpp, model/clip_envelope.h): a volume curve inside an audio clip ---
     void showEnvelopes(const std::vector<ClipPtr>& clips, bool on);  // Gain envelope: its line shown and edited, or not
     void removeEnvelopes(const std::vector<ClipPtr>& clips);         // Remove gain envelope

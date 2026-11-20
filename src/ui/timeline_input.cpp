@@ -7,6 +7,7 @@
 #include "audio/automation.h"
 #include "audio/automation_write.h"
 #include "core/util.h"
+#include "model/auto_follow.h"
 #include "model/edits.h"
 #include "model/presets.h"
 #include "ui/master_lane.h"
@@ -256,6 +257,22 @@ bool Timeline::mousePress(ui::MouseEvent& e) {
         return true;
     }
     auto lane = laneAt(pos.y);
+    currentAutomation = lane && lane->automation ? lane->automation : nullptr;
+    if (lane && lane->automation && (e.mods & plat::ModShift) && !lane->owner->frozen) {
+        // Shift+drag in an automation lane: a time range on its track (the lane's own: Ctrl+C / V, Del)
+        setCurrentTrack(lane->owner);
+        int64_t frame = snappedFrameAt(pos.x, e.mods);
+        setCursor(frame);
+        RangeDrag d;
+        d.x = pos.x;
+        d.frame = frame;
+        d.row = indexIn(visibleTracks(), lane->owner);
+        d.endRow = d.row;
+        drag = d;
+        selection.clear();
+        update();
+        return true;
+    }
     if (lane && lane->automation) {
         setCurrentTrack(lane->owner);
         automationPress(e, *lane);
@@ -270,14 +287,28 @@ bool Timeline::mousePress(ui::MouseEvent& e) {
     FadeHit fade = fadeHandleAt(pos);
     if (fade.clip && !ctrl) {  // a fade handle of an audio clip: drag to fade in or out
         if (!selection.contains(fade.clip)) selection.selectOnly(fade.clip);
-        drag = FadeDrag{fade.clip, fade.in};
+        FadeDrag d{fade.clip, fade.in, {}};
+        for (auto& c : editableSelected()) {  // (every selected audio clip's fade changes by as much)
+            int64_t partIn, partOut;
+            double a, b;
+            if (c->kind == Kind::Audio) c->fadeParts(partIn, partOut, a, b), d.origin[c] = fade.in ? partIn : partOut;
+        }
+        drag = d;
         update();
         return true;
     }
     auto end = edgeAt(pos);
     if (end.first && !ctrl) {  // an end of a clip: trim it, or bring back what was cut off
         if (!selection.contains(end.first)) selection.selectOnly(end.first);
-        drag = EdgeDrag{end.first, end.second};
+        EdgeDrag d{end.first, end.second, {}};
+        for (auto& c : editableSelected())  // (every selected clip's end on that side moves by as much)
+            d.origin[c] = end.second == ClipSide::Left ? c->start : c->end();
+        drag = d;
+        update();
+        return true;
+    }
+    if (clip && ctrl && e.alt()) {  // Ctrl+Alt on a clip: its contents (and the other selected clips') slip
+        startSlip(pos, clip);         // (timeline_slip.cpp)
         update();
         return true;
     }
@@ -289,8 +320,9 @@ bool Timeline::mousePress(ui::MouseEvent& e) {
     }
     if (zone == ClipZone::Handle) {
         if (ctrl) {
-            drag = CopyDrag{clip, pos, e.alt()};  // (a click toggles it, a drag copies: mouseMove, mouseRelease;
-                                                  // Ctrl+Alt: linked copies)
+            drag = CopyDrag{clip, pos, false};  // (a click toggles it, a drag copies: mouseMove, mouseRelease)
+        } else if (e.alt() && (e.mods & plat::ModShift)) {
+            drag = CopyDrag{clip, pos, true};   // Alt+Shift: linked copies
         } else {
             if (!selection.contains(clip)) selection.selectOnly(clip);
             startMove(pos, clip);
@@ -347,7 +379,10 @@ void Timeline::startCopyDrag() {
     }
     project.clips = all;
     startMove(d.pos, grabbed);
-    if (auto* m = std::get_if<MoveDrag>(&drag)) m->altLinks = d.linked;  // (that Alt doesn't free it from the grid)
+    if (auto* m = std::get_if<MoveDrag>(&drag)) {
+        m->altLinks = d.linked;  // (that Alt doesn't free it from the grid)
+        m->copies = true;
+    }
 }
 
 bool Timeline::mouseMove(ui::MouseEvent& e) {
@@ -356,7 +391,8 @@ bool Timeline::mouseMove(ui::MouseEvent& e) {
          std::holds_alternative<FadeDrag>(drag) || std::holds_alternative<MarkerDrag>(drag) ||
          std::holds_alternative<PointDrag>(drag) || std::holds_alternative<LoopDrag>(drag) ||
          std::holds_alternative<CopyDrag>(drag) || std::holds_alternative<BendDrag>(drag) ||
-         std::holds_alternative<EnvelopeDrag>(drag) || std::holds_alternative<EnvelopeBendDrag>(drag)) &&
+         std::holds_alternative<EnvelopeDrag>(drag) || std::holds_alternative<EnvelopeBendDrag>(drag) ||
+         std::holds_alternative<SlipDrag>(drag)) &&
         stillAClick(pos))
         return true;
     if (std::holds_alternative<CopyDrag>(drag)) startCopyDrag();
@@ -370,6 +406,8 @@ bool Timeline::mouseMove(ui::MouseEvent& e) {
         dragEdge(pos, e.mods);
     } else if (std::holds_alternative<FadeDrag>(drag)) {
         dragFade(pos);
+    } else if (std::holds_alternative<SlipDrag>(drag)) {
+        dragSlip(pos, e.mods);
     } else if (auto* t = std::get_if<TakeDrag>(&drag)) {
         t->to = snappedFrameAt(pos.x, e.mods);
         update();
@@ -406,9 +444,13 @@ bool Timeline::mouseMove(ui::MouseEvent& e) {
 }
 
 bool Timeline::mouseRelease(ui::MouseEvent& e) {
-    if (auto* d = std::get_if<CopyDrag>(&drag)) {  // Ctrl+click on a name strip, without dragging: in or out of the selection
-        selection.toggle(d->clip);
+    if (auto* d = std::get_if<CopyDrag>(&drag); d && !d->linked) {  // Ctrl+click on a name strip, without dragging:
+        selection.toggle(d->clip);                                      // in or out of the selection
         update();
+    }
+    if (auto* d = std::get_if<SlipDrag>(&drag)) {
+        util::debugf("timeline: slip of %zu clips ends at %lld frames\n", d->from.size(), (long long)d->frames);
+        if (status) status(d->frames ? "Slip " + slipText(d->frames, d->clip->start) : std::string(), d->frames ? 4000 : 0);
     }
     if (auto* d = std::get_if<RangeDrag>(&drag)) {
         if (d->active && selection.range) {
@@ -427,10 +469,13 @@ bool Timeline::mouseRelease(ui::MouseEvent& e) {
         auto shown = visibleTracks();       // (as when the drag began: its rows)
         std::map<ClipPtr, TrackPtr> tracks;
         std::map<ClipPtr, std::optional<int64_t>> starts;
+        std::vector<auto_follow::Move> follow;
         for (auto& [c, o] : d->origin) {
             tracks[c] = o.row < (int)shown.size() ? shown[o.row] : c->track;
             starts[c] = o.start;
+            if (project.clips.contains(c)) follow.push_back(auto_follow::moveOf(*c, tracks[c], o.start, engine.sr));
         }
+        if (auto_follow::carry(project, follow, d->copies)) lanesChanged();  // (their automation along)
         rerenderMoved(tracks, starts);
         relayout();
     }
@@ -516,7 +561,8 @@ void Timeline::updateCursor(PointF pos) {
     if (std::holds_alternative<HeightDrag>(drag) || edge.first || edge.second) {
         setCursor(ui::Cursor::SizeVer);
     } else if (std::holds_alternative<LoopDrag>(drag) || std::holds_alternative<EdgeDrag>(drag) ||
-               std::holds_alternative<FadeDrag>(drag) || std::holds_alternative<MarkerDrag>(drag) || loopEndAt(pos) >= 0) {
+               std::holds_alternative<FadeDrag>(drag) || std::holds_alternative<MarkerDrag>(drag) ||
+               std::holds_alternative<SlipDrag>(drag) || loopEndAt(pos) >= 0) {
         setCursor(ui::Cursor::SizeHor);
     } else if (std::holds_alternative<BendDrag>(drag) || std::holds_alternative<EnvelopeBendDrag>(drag)) {
         setCursor(ui::Cursor::SizeVer);  // (curving a segment: up or down)
@@ -623,7 +669,7 @@ void Timeline::fillMenu(ui::Menu& menu, std::optional<Point> pos) {
     }
     ui::Action* dupLinked = menu.addAction("Duplicate as linked", [this] { duplicateLinkedSelected(); });
     dupLinked->tooltip = "Copies of the selected MIDI clips right after them, LINKED to them: editing the notes of "
-                         "one changes them all (Ctrl+Alt+drag a clip's name strip does the same)";
+                         "one changes them all (Alt+Shift+drag a clip's name strip does the same)";
     dupLinked->setEnabled(!linkable.empty());
     ui::Action* unique = menu.addAction("Make unique", [this] { makeUniqueSelected(); });
     unique->tooltip = "The selected linked clips keep their notes but no longer change with their linked copies";
@@ -695,6 +741,7 @@ void Timeline::fillMenu(ui::Menu& menu, std::optional<Point> pos) {
     ui::Action* noFades = menu.addAction("Remove fades", [this] { removeFadesSelected(); });
     noFades->setEnabled(anyFades);
     addFadeShapeMenus(menu, audioClips);  // Fade-in shape ▸, Fade-out shape ▸ (model.h FADE SHAPES)
+    addClipEditActions(menu);  // Slip contents…, Crop to the selection, Fades at every boundary… (timeline_slip.cpp)
     ui::Action* stretch = menu.addAction("Stretch and pitch…", [this] { stretchSelected(); });
     stretch->setEnabled(!audioClips.empty());
     ui::Action* reverse = menu.addAction(allReversed ? "Play forwards again" : "Reverse (play backwards)",
@@ -755,7 +802,7 @@ void Timeline::moveSelected(PointF pos, int mods) {
     auto tracks = visibleTracks();
     const Timing& t = project.timing;
     int64_t df = frameAt(pos.x) - d.frame;
-    if (d.altLinks && !(mods & plat::ModAlt)) d.altLinks = false;  // (the Alt of Ctrl+Alt let go: Alt frees it again)
+    if (d.altLinks && !(mods & plat::ModAlt)) d.altLinks = false;  // (the Alt of Alt+Shift let go: Alt frees it again)
     if (t.snaps((mods & plat::ModAlt) && !d.altLinks)) {
         int sr = engine.sr;
         df = (int64_t)std::nearbyint(t.snap((double)(d.anchor + df) / sr, pps) * sr) - d.anchor;

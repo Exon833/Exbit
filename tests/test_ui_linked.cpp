@@ -1,4 +1,4 @@
-// Linked MIDI clips on the timeline, headless (timeline.h, model.h): Ctrl+Alt+drag makes linked copies
+// Linked MIDI clips on the timeline, headless (timeline.h, model.h): Alt+Shift+drag makes linked copies
 // (staying on the grid while that Alt is held), Ctrl+drag plain ones; the right-click menu's Duplicate as
 // linked and Make unique (with tooltips); splitting and joining make unique pieces; paste keeps clips
 // copied together linked among themselves only; the loop switch and the MIDI editor's edits reach every
@@ -81,16 +81,16 @@ struct Rig {
     int64_t sec(double s) const { return (int64_t)std::llround(s * SR); }
 };
 
-void testCtrlAltDrag() {
+void testAltShiftDrag() {
     Rig r;
     Timeline& tl = *r.tl;
     auto clip = midiClip(r.project, r.m1, 1, 2);  // x 100…300
     tl.relayout();
-    // Ctrl+Alt+drag on its name strip: a linked copy moves, the clip stays
-    auto e = mouse(150, 30, plat::LeftButton, plat::ModCtrl | plat::ModAlt);
+    // Alt+Shift+drag on its name strip: a linked copy moves, the clip stays
+    auto e = mouse(150, 30, plat::LeftButton, plat::ModAlt | plat::ModShift);
     tl.mousePress(e);
     CHECK(std::holds_alternative<CopyDrag>(tl.drag) && std::get<CopyDrag>(tl.drag).linked);
-    e = mouse(463, 30, plat::LeftButton, plat::ModCtrl | plat::ModAlt);  // (+3.13 s)
+    e = mouse(463, 30, plat::LeftButton, plat::ModAlt | plat::ModShift);  // (+3.13 s)
     tl.mouseMove(e);
     CHECK(std::holds_alternative<MoveDrag>(tl.drag) && std::get<MoveDrag>(tl.drag).altLinks);
     CHECK(r.project.clips.size() == 2);
@@ -98,9 +98,9 @@ void testCtrlAltDrag() {
     // that Alt doesn't free it: it is on the grid
     CHECK(copy && copy->start % (SR / 4) == 0);
     // Alt let go, then held again: freely
-    e = mouse(463, 30, plat::LeftButton, plat::ModCtrl);
+    e = mouse(463, 30, plat::LeftButton, plat::ModShift);
     tl.mouseMove(e);
-    e = mouse(463, 30, plat::LeftButton, plat::ModCtrl | plat::ModAlt);
+    e = mouse(463, 30, plat::LeftButton, plat::ModAlt | plat::ModShift);
     tl.mouseMove(e);
     CHECK(copy && copy->start == r.sec(1) + tl.frameAt(463) - tl.frameAt(150));
     tl.mouseRelease(e);
@@ -119,7 +119,7 @@ void testCtrlAltDrag() {
         ClipPtr plain = r.project.clips[2];
         CHECK(!plain->link && plain->track == r.m2 && links::count(r.project, *clip) == 2);
     }
-    // an audio clip in a Ctrl+Alt drag: copied plainly
+    // an audio clip in an Alt+Shift drag: copied plainly
     auto a = r.project.addTrack(Kind::Audio);
     auto audio = makeAudioClip("Tone", std::make_shared<AudioBuffer>(), SR, SR);
     CHECK(!links::linkedCopy(audio)->link && !audio->link);
@@ -314,7 +314,7 @@ void testGrooveWindow() {
     midi_effects_dialog::MidiEffectsDialog& dialog = *d;
     ui::Menu* menu = dialog.addButton->menu();
     ui::Action* groove = menu ? actionStarting(*menu, "Groove") : nullptr;
-    CHECK(groove && groove->text == "Groove  (clips only)" && !groove->tooltip.empty());
+    CHECK(groove && groove->text == "Groove  (timing)" && !groove->tooltip.empty());
     if (menu)
         for (auto& act : menu->actions()) CHECK(!act->tooltip.empty());
     if (groove) ui::Menu::activate(groove);
@@ -339,7 +339,7 @@ int main() {
     util::makeDirs("build/test-linked");
     std::remove("build/test-linked/settings.json");
     settings::setPath("build/test-linked/settings.json");
-    testCtrlAltDrag();
+    testAltShiftDrag();
     testMenuAndEdits();
     testSplitJoinPaste();
     testEditorEdits();

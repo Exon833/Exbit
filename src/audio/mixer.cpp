@@ -329,6 +329,8 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
     live::LiveNotes* notes = live::find(b.live, &track);
     if (notes && (!audible || frozen || (vstInstrument && !plugins))) notes->clear();  // nothing to hear them through now
     bool playingLive = notes && notes->active();
+    // (the song's beats for the MIDI effects that time notes played live: live_fx)
+    live::Clock liveClock = playingLive ? live::clockAt(*b.tempoMap, hasStart, start, sr) : live::Clock();
     // (an instrument chosen this very moment, after the buffer's preparation: it starts with the next one, so
     // no note is sent it without its held notes being kept: instrument && !heldOf)
     if (!(audible || feeds) || !(clipCount || hasPlugins || playingLive || into || (line && line->sounding)) ||
@@ -355,7 +357,7 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
     if (instrument) {  // keeps rendering even without notes, so releases ring out
         noteMessages(clips, clipCount, hasStart, start, frames, b.restart, scratch.messages, scratch.events,
                      st.heldOf[ti]);
-        if (notes) notes->take(frames, sr, scratch.messages);
+        if (notes) notes->take(frames, sr, scratch.messages, &liveClock);
         auto rack = patch::rackStateOf(track.rackState);
         patch::playInstruments(track, scratch.messages.data(), scratch.messages.size(), sig, channels, frames, sr,
                                *rack, b.transport);
@@ -382,7 +384,7 @@ void processTrack(Buffer& b, int ti, MixState::Scratch& scratch) {
         }
         if (notes) {
             scratch.messages.clear();
-            notes->take(frames, sr, scratch.messages);
+            notes->take(frames, sr, scratch.messages, &liveClock);
             notes->addVoices(sig, channels, frames, sr);
         }
     }

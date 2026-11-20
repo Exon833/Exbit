@@ -5,12 +5,19 @@
 //
 // THE MAIN WINDOW (after sampler_dialog::setHost): the lane panel's "MIDI effects…" →
 // midi_effects_dialog::openMidiEffects(track); after undo / redo midi_effects_dialog::reloadAll(); when
-// tracks go away midi_effects_dialog::closeGone(project).
+// tracks go away midi_effects_dialog::closeGone(project); setHooks() for Commit to notes.
+//
+// Each effect can be switched off (its "On" box: bypassed, MidiEffect::bypass; "(off)" in the list), kept in
+// the chain. "Commit to notes ▾" writes what the effects make into notes (ui/midi_commit.h): the clips selected
+// on the timeline (of this track) or every clip of the track, into the same clips or into new clips on a new
+// track below. In the terminal (--tui) the window is drawn as text: Tab to the button, Enter opens its menu.
 #pragma once
+#include <functional>
 #include <string>
 #include <vector>
 
 #include "model/model.h"
+#include "ui/midi_commit.h"
 #include "ui/toolkit/controls.h"
 #include "ui/toolkit/dialogs.h"
 
@@ -56,6 +63,11 @@ public:
     void remove();
     void move(int step);
     void setValue(int row, const std::string& key, double value);
+    void setBypass(int row, bool bypass);  // an effect switched off (kept in the chain) or on again
+    // Commit to notes: the clips selected on the timeline (of this track), or every one of its clips; into
+    // them, or onto a new track below
+    midi_commit::Result commit(bool everyClip, bool newTrack);
+    ui::Button* commitButton;
     void showSettings(int row);
     void done(int result) override;
 
@@ -63,6 +75,14 @@ private:
     int renderTimer_ = -1;
     bool filling_ = false;
 };
+
+// what Commit to notes needs from the main window
+struct Hooks {
+    std::function<std::vector<ClipPtr>()> selectedClips;   // the clips selected on the timeline
+    midi_commit::Loader loadPlugins;                       // loads a new track's plugins
+    std::function<void(const midi_commit::Result&, const std::string& message)> committed;  // after one
+};
+void setHooks(Hooks hooks);
 
 MidiEffectsDialog* openMidiEffects(const TrackPtr& track);
 MidiEffectsDialog* openFor(const Track* track);

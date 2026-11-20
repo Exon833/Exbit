@@ -15,6 +15,7 @@
 #include "ui/computer_keyboard.h"
 #include "ui/formatting.h"
 #include "ui/midi_input.h"
+#include "ui/note_tools_panel.h"
 #include "ui/paint_helpers.h"
 #include "ui/theme.h"
 #include "ui/toolkit/layout.h"
@@ -212,7 +213,10 @@ int wrappedHeight(const std::string& text, const Font& f, float width) {
 const char* const ROLL_HINT =
     "Click to add a note, drag to move, drag its right end to resize, right-click to delete. Shift+drag: select "
     "with a box; Ctrl+drag: copy; arrows: move (Shift+arrows: octave, length); Ctrl+C / X / V, Ctrl+D duplicate, "
-    "Ctrl+U quantize, G slide. Alt: no snapping (to the grid or the scale).";
+    "Ctrl+U quantize, G slide, K knife, Ctrl+J join, Shift+click a key: its row. Alt: no snapping (to the grid or the scale).";
+const char* const KNIFE_HINT =
+    "The knife: click a note, or drag across notes, to cut them at the line (Enter: at the keyboard's cursor). "
+    "K or Esc puts it away.";
 const char* const STEPS_HINT =
     "Click a pad to add a note one step long, click a lit pad to remove it; drag along to paint (or clear) more. "
     "Ctrl+click: select; right-click: delete; + Row: another pitch; G slide. Ctrl+wheel: zoom (the grid follows).";
@@ -333,6 +337,7 @@ MidiEditor::MidiEditor(ui::Window* parent, ClipPtr clip_, Project& project_, aud
         quantizeButton->setMenu(menu, true);  // MenuButtonPopup
     }
     tools->addWidget(quantizeButton);
+    tools->addWidget(buildToolsButton());
     switchButton = ui::toolButton(this, "Switch off", [this] { toggleOff(); },
                                   "The selected notes stop playing but stay where they are; again to switch them back "
                                   "on (0)");
@@ -399,6 +404,10 @@ MidiEditor::MidiEditor(ui::Window* parent, ClipPtr clip_, Project& project_, aud
 }
 
 MidiEditor::~MidiEditor() {
+    if (toolsPanel) {  // (it never outlives its editor)
+        toolsPanel->editor = nullptr;
+        toolsPanel->close();
+    }
     if (cursorTimer_ >= 0) ui::App::get().cancelTimer(cursorTimer_);
     cursorTimer_ = -1;
     release();
@@ -716,6 +725,7 @@ void MidiEditor::resized() {
 }
 
 void MidiEditor::close() {
+    cancelPreview();
     if (cursorTimer_ >= 0) ui::App::get().cancelTimer(cursorTimer_);
     cursorTimer_ = -1;
     release();
@@ -823,6 +833,7 @@ void MidiEditor::commit() {
     if (grew) edits::clearUnder(project, {clip});  // (as a drag of its end: it replaces what it now covers)
     takeUsed();
     updateRanges();
+    if (toolsPanel) toolsPanel->updatePreview();  // (the open tool on the notes as they now are)
     refresh();
     if (onChange) onChange();
 }
@@ -865,29 +876,6 @@ void MidiEditor::duplicate(int mods) {
     commit();
 }
 
-void MidiEditor::quantize(double strength) {
-    std::vector<int> indexes;
-    for (int i : selected)
-        if (i < (int)notes.size()) indexes.push_back(i);
-    if (indexes.empty())
-        for (int i = 0; i < (int)notes.size(); ++i) indexes.push_back(i);
-    const Timing& timing = project.timing;
-    double step = stepS(), origin = originS();
-    auto onGrid = [&](double t) {
-        return timing.beats ? timing.snap(origin + t, pps) - origin : pyRound((origin + t) / step) * step - origin;
-    };
-    bool ends = quantizeEnds && quantizeEnds->checked;
-    for (int i : indexes) {
-        Note& n = notes[i];
-        double start = std::max(0.0, n.start + (onGrid(n.start) - n.start) * strength);
-        double end = n.end + start - n.start;
-        if (ends) end += (std::max(onGrid(end), start + stepS(start)) - end) * strength;
-        n.start = start;
-        n.end = std::max(end, start + 1e-3);
-    }
-    if (!indexes.empty()) commit();
-}
-
 void MidiEditor::reload() {
     drag = Drag();
     release();
@@ -897,6 +885,7 @@ void MidiEditor::reload() {
     takeUsed();
     syncScaleTools();  // (the scale may have been undone too)
     updateRanges();
+    if (toolsPanel) toolsPanel->updatePreview();
     refresh();
 }
 
@@ -1235,13 +1224,27 @@ bool MidiEditor::keyPress(ui::KeyEvent& e) {
             if (first < (int)notes.size()) keyT = notes[first].start, keyPitch = (int)notes[first].pitch;
         }
     } else if ((e.key == plat::Key_Return || e.key == plat::Key_Enter) && !ctrl) {
-        keyNote();
+        if (knife) splitAtKeyCursor();
+        else keyNote();
+    } else if (e.key == 'K' && !(e.mods & (plat::ModCtrl | plat::ModAlt | plat::ModShift | plat::ModMeta))) {
+        setKnife(!knife);
+    } else if (e.key == 'J' && ctrl) {
+        joinNotes();
+    } else if (e.key == 'P' && !(e.mods & (plat::ModCtrl | plat::ModAlt | plat::ModShift | plat::ModMeta))) {
+        startKeyCursor();
+        int first = selected.empty() ? -1 : *selected.begin();
+        selectRow(first >= 0 && first < (int)notes.size() ? (int)notes[first].pitch : keyPitch, false);
     } else if (e.key == plat::Key_F2 && !e.mods && stepsView && steps) {  // the row at the cursor: its swing
         std::vector<int> rs = stepRows();
         if (!rs.empty()) {
             int pitch = std::find(rs.begin(), rs.end(), keyPitch) != rs.end() ? keyPitch : rs.front();
             steps->rowSwingMenu(pitch, steps->mapToGlobal(Point(0, 0)));
         }
+    } else if (e.key == plat::Key_F2 && !e.mods) {  // the tools' menu (tinydaw --tui's way to them)
+        ui::Menu menu;
+        toolsMenu(menu);
+        ui::Widget* v = view();
+        menu.exec(v->mapToGlobal(Point(v->width() / 2, v->height() / 3)), v);
     } else if (e.key == 'R' && !e.mods && stepsView && steps && steps->rowMenu) {  // "+ Row"
         steps->rowMenu->exec(steps->mapToGlobal(Point(0, 0)), steps);
     } else if ((e.key == ',' || e.key == '.') && !ctrl && !selected.empty()) {  // (Shift+Left / Right, which consoles can't send)
@@ -1249,7 +1252,8 @@ bool MidiEditor::keyPress(ui::KeyEvent& e) {
     } else if ((e.key == '+' || e.key == '=' || e.key == '-') && !ctrl) {
         velocityBy(e.key == '-' ? -8 : 8);
     } else if (e.key == plat::Key_Escape) {
-        selected.clear();
+        if (knife) setKnife(false);
+        else selected.clear();
         refresh();
     } else {
         return false;
@@ -1343,6 +1347,7 @@ ClipPtr MidiEditor::ghostAt(double x, double y) {
 }
 
 void MidiEditor::editOther(const ClipPtr& other) {
+    cancelPreview();  // (a tool's preview never follows to another clip)
     if (timeline.editNotes) timeline.editNotes(other);  // (the main window opens, or raises, its editor)
 }
 
@@ -1570,6 +1575,15 @@ bool PianoRoll::textCells(int cols, int rows, std::vector<ui::TextCell>& cells) 
             for (int c = std::max(0, a); c < std::min(noteCols, b); c++)
                 at(KEYS + c, r + 1) = ui::TextCell{off ? U'░' : c == a ? U'▐' : U'█', 2, 9, (uint8_t)(sel ? 1 | 2 : 0)};
         }
+        for (const Note& n : ed.preview) {  // the open tool's result: ▒ where no note is, ▌ where each starts
+            if ((int)std::lround(n.pitch) != pitch) continue;
+            int a = (int)std::floor((n.start - t0) / dt + 1e-9), b = std::max(a + 1, (int)std::ceil((n.end - t0) / dt - 1e-9));
+            for (int c = std::max(0, a); c < std::min(noteCols, b); c++) {
+                ui::TextCell& cell = at(KEYS + c, r + 1);
+                if (c == a) cell = ui::TextCell{U'▌', 6, 9, 1};
+                else if (cell.ch == U' ' || cell.ch == U'·') cell = ui::TextCell{U'▒', 6, 9, 0};
+            }
+        }
     }
     // the keyboard's cursor
     int kr = -1;
@@ -1692,8 +1706,10 @@ bool PianoRoll::overridesShortcut(const ui::KeyEvent& e) const {
         return !ctrl && !(e.mods & plat::ModShift);
     case plat::Key_Return: case plat::Key_Enter: case ',': case '.': case '+': case '=': case '-':  // (the keyboard's cursor)
         return !ctrl;
-    case 'A': case 'C': case 'D': case 'U': case 'V': case 'X':
+    case 'A': case 'C': case 'D': case 'U': case 'V': case 'X': case 'J':
         return ctrl && !(e.mods & plat::ModShift);
+    case 'K': case 'P': case plat::Key_F2:  // (the note tools: the knife, a row, their menu)
+        return !ctrl && !(e.mods & plat::ModShift);
     default:
         return false;
     }
@@ -1797,7 +1813,26 @@ void PianoRoll::paint(Painter& p) {
         from = std::min(mid + most, std::max(mid - most, from));
         paintSlideTail(p, PointF(x - 14, from), PointF(x + 1, mid), color.lighter(170), look.notes);
     }
+    if (!ed.preview.empty()) {  // the open tool's result (note_tools_panel.h), ghosted over the notes
+        Color fill = color.lighter(150).withAlpha(GHOST_ALPHA), edge = look.notes.selected;
+        for (const Note& n : ed.preview) {
+            std::optional<double> y = ed.yOf(n.pitch);
+            if (!y) continue;
+            RectF r((float)ed.xOf(n.start), (float)(*y + 1), (float)std::max(NOTE_MIN_PX, (n.end - n.start) * ed.pps),
+                    (float)(ed.rowH - 2));
+            if (r.right() < KEYS_W || r.x > w || r.bottom() < 0 || r.y > h) continue;
+            p.fillRect(r, fill);
+            dashedBox(p, r, edge);
+        }
+    }
     ed.paintCursorLines(p, h, look.notes);
+    if (ed.drag.kind == MidiEditor::Drag::Cut) {  // the knife's line, across the rows dragged over
+        int x = (int)ed.xOf(ed.snap(ed.tAt(ed.drag.startPos.x), 0));
+        int y0 = std::min(ed.drag.startPos.y, ed.drag.pos.y), y1 = std::max(ed.drag.startPos.y, ed.drag.pos.y);
+        y0 = ed.rowAt(y0) * ed.rowH - ed.vbar->value();
+        y1 = (ed.rowAt(y1) + 1) * ed.rowH - ed.vbar->value();
+        p.fillRect(Rect(x, y0, std::max(1, look.notes.cursorW), y1 - y0), look.notes.cursor);
+    }
     if (ed.drag.kind == MidiEditor::Drag::Box) {  // (Shift+drag: the selection box)
         RectF box = normalized(ed.drag.startPos, ed.drag.pos);
         // (whole pixels: the mouse's positions) its fill as a box, then its dashed edge in border-color
@@ -1913,12 +1948,22 @@ bool PianoRoll::mousePress(ui::MouseEvent& e) {
     Point pos = e.pos;
     if (pos.y + ed.vbar->value() >= (int)ed.rows().size() * ed.rowH) return true;  // (below the last row, folded)
     if (pos.x < keysW()) {  // a key: it sounds while held; dragging over the keys plays each one passed
-        if (e.button == plat::LeftButton) {
+        if (e.button == plat::LeftButton && (e.mods & plat::ModShift)) {  // Shift: its row selected (Ctrl: added)
+            ed.selectRow(ed.pitchAt(pos.y), e.mods & plat::ModCtrl);
+        } else if (e.button == plat::LeftButton) {
             ed.hold(ed.pitchAt(pos.y));
             ed.drag = MidiEditor::Drag();
             ed.drag.kind = K::Keys;
             ed.refresh();
         }
+        return true;
+    }
+    if (ed.knife && e.button == plat::LeftButton) {  // the knife: a line, cutting on release
+        MidiEditor::Drag d;
+        d.kind = MidiEditor::Drag::Cut;
+        d.startPos = d.pos = pos;
+        ed.drag = d;
+        ed.refresh();
         return true;
     }
     bool atEnd = false;
@@ -2000,11 +2045,19 @@ bool PianoRoll::mouseMove(ui::MouseEvent& e) {
     if (ed.drag.kind == K::None) {
         bool atEnd = false;
         int index = pos.x >= keysW() ? ed.noteAt(pos.x, pos.y, &atEnd) : -1;
-        setCursor(index < 0 ? ui::Cursor::Arrow : atEnd ? ui::Cursor::SizeHor : ui::Cursor::OpenHand);
+        setCursor(ed.knife && pos.x >= keysW() ? ui::Cursor::Cross
+                  : index < 0                  ? ui::Cursor::Arrow
+                  : atEnd                      ? ui::Cursor::SizeHor
+                                               : ui::Cursor::OpenHand);
         return true;
     }
     if (ed.drag.kind == K::Keys) {
         ed.glide(ed.pitchAt(pos.y));
+        ed.refresh();
+        return true;
+    }
+    if (ed.drag.kind == K::Cut) {
+        ed.drag.pos = pos;
         ed.refresh();
         return true;
     }
@@ -2065,6 +2118,15 @@ bool PianoRoll::mouseRelease(ui::MouseEvent& e) {
         else ed.selected.insert(d.index);
     } else if ((d.kind == K::Move || d.kind == K::Resize) && d.changed) {
         ed.commit();  // something changed: into the clip
+    } else if (d.kind == K::Cut) {  // the knife: the notes on the rows passed, crossing the line, cut there
+        double at = ed.snap(ed.tAt(d.startPos.x), e.mods);
+        int r0 = ed.rowAt(std::min(d.startPos.y, d.pos.y)), r1 = ed.rowAt(std::max(d.startPos.y, d.pos.y));
+        std::vector<int> which;
+        for (int i = 0; i < (int)ed.notes.size(); ++i) {
+            std::optional<int> r = ed.rowOf((int)ed.notes[i].pitch);
+            if (r && r0 <= *r && *r <= r1) which.push_back(i);
+        }
+        ed.splitNotes(at, which);
     }
     if (ui::Widget::alive(this)) ed.refresh();
     return true;
@@ -2461,6 +2523,7 @@ void MidiEditor::eraseNotes(const std::set<int>& gone) {
 void MidiEditor::setStepsView(bool on) {
     if (on != stepsView) {
         drag = Drag();
+        knife = false;  // (the piano roll's tool)
         release();
         double from = tAt(keysW());
         if (on) {
@@ -2489,6 +2552,15 @@ void MidiEditor::setStepsView(bool on) {
         view()->setFocus();
     }
     if (stepsButton && stepsButton->isChecked() != on) stepsButton->setCheckedSilently(on);
+    refresh();
+}
+
+void MidiEditor::setKnife(bool on) {
+    knife = on && !stepsView;  // (the piano roll's)
+    hint->setText(knife ? KNIFE_HINT : stepsView ? STEPS_HINT : ROLL_HINT);
+    resized();  // (the hint's height)
+    roll->setCursor(knife ? ui::Cursor::Cross : ui::Cursor::Arrow);
+    util::debugf("MIDI editor: the knife %s\n", knife ? "out" : "away");
     refresh();
 }
 

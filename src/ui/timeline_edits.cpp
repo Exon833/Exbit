@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 
+#include "core/util.h"
 #include "model/edits.h"
 #include "model/song_time.h"
 #include "ui/clip_painter.h"
@@ -60,19 +61,27 @@ FadeHit Timeline::fadeHandleAt(PointF pos) const {
 }
 
 void Timeline::dragFade(PointF pos) {
+    // the grabbed fade to the mouse; the other selected audio clips' fades on that side change by as much
     auto& d = std::get<FadeDrag>(drag);
-    Clip& clip = *d.clip;
+    auto setFade = [&d](Clip& clip, int64_t frames) {
+        int64_t partIn, partOut;
+        double a, b;
+        clip.fadeParts(partIn, partOut, a, b);  // (a piece of a longer fade: it starts afresh at the edge)
+        if (d.in) {
+            clip.fadeIn = std::max<int64_t>(0, std::min(frames, clip.frames() - partOut));
+            clip.fadeLead = 0;
+        } else {
+            clip.fadeOut = std::max<int64_t>(0, std::min(frames, clip.frames() - partIn));
+            clip.fadeTail = 0;
+        }
+    };
     int64_t frame = frameAt(pos.x);
-    int64_t partIn, partOut;
-    double a, b;
-    clip.fadeParts(partIn, partOut, a, b);  // (a piece of a longer fade: it starts afresh at the edge)
-    if (d.in) {
-        clip.fadeIn = std::max<int64_t>(0, std::min(frame - clip.start, clip.frames() - partOut));
-        clip.fadeLead = 0;
-    } else {
-        clip.fadeOut = std::max<int64_t>(0, std::min(clip.end() - frame, clip.frames() - partIn));
-        clip.fadeTail = 0;
-    }
+    int64_t grabbed = d.in ? frame - d.clip->start : d.clip->end() - frame;
+    auto it = d.origin.find(d.clip);
+    if (it != d.origin.end())
+        for (auto& [c, fade] : d.origin)
+            if (c != d.clip) setFade(*c, fade + grabbed - it->second);
+    setFade(*d.clip, grabbed);
     update();
 }
 
@@ -257,6 +266,16 @@ void Timeline::joinSelected() {
         if (!byTrack.count(c->track)) order.push_back(c->track);
         byTrack[c->track].push_back(c);
         used.push_back(c);
+    }
+    for (auto& t : order) {  // (some clips with their MIDI effects committed into their notes, some not: refused)
+        auto& cs = byTrack[t];
+        bool some = std::any_of(cs.begin(), cs.end(), [](const ClipPtr& c) { return c->effectsCommitted; });
+        bool all = std::all_of(cs.begin(), cs.end(), [](const ClipPtr& c) { return c->effectsCommitted; });
+        if (some && !all) {
+            util::debugf("join refused on %s: clips with and without committed MIDI effects\n", t->name.c_str());
+            if (status) status("Can't join: some of these clips have their MIDI effects committed and some don't", 6000);
+            return;
+        }
     }
     std::vector<ClipPtr> joined;
     for (auto& t : order)

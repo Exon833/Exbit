@@ -176,6 +176,7 @@ live::NoteRender noteRenderer(const PadKitPtr& kit) {
         out.oneShot = p.sound.oneShot;
         out.sustains = p.sound.loop;
         out.choke = p.choke;
+        out.velocityFloor = 1 - p.sound.velocity;
         out.period = [kit, pad](int, int sr) {
             const SamplerSettings& s = kit->pads[(size_t)pad].sound;
             return sampler::loopPeriod(s, s.root, sr);

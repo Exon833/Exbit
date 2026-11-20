@@ -237,6 +237,7 @@ ClipPtr consolidated(const std::vector<ClipPtr>& clips, int sr) {
         c->sourceSr = sr;
     } else {
         c->kind = Kind::Midi;
+        c->effectsCommitted = first->effectsCommitted;  // (callers join only clips that agree: see the header)
         std::vector<Note> notes, muted;
         for (auto& clip : clips) {
             double shift = (double)(clip->start - start) / sr;

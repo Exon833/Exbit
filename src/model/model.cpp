@@ -213,7 +213,7 @@ void Clip::prepare(int sr, int64_t reach) {
     }
     std::vector<Note> notesPlayed = performed(sr);  // (its notes' chances and repeats, then the MIDI effects)
     TrackPtr t = std::atomic_load(&track);
-    if (t && clip_hooks::midiEffects)  // (the song's swing, then its track's MIDI effects: arpeggiator, chord…)
+    if (t && clip_hooks::midiEffects && !effectsCommitted)  // (the song's swing, then its track's MIDI effects: arpeggiator, chord…)
         notesPlayed = clip_hooks::midiEffects(*t, notesPlayed, (double)(start - offset) / sr);
     double len = loop && length >= 0 ? std::max(lengthS, (double)(offset + length) / sr) : lengthS;
     if (t && t->playsPlugins()) {  // (its instrument plugins play its events: as long, silent)
