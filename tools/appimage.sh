@@ -102,7 +102,7 @@ chmod +x "$image"
 echo "== $image ($(du -h "$image" | cut -f1))"
 
 if [ "$publish" = 1 ]; then
-    git tag -a "$version" -m "Tiny DAW $version" HEAD
+    git tag "$version" HEAD  # (a plain tag: no git identity needed)
     git push origin "refs/tags/$version"
     gh release create "$version" "$image" --verify-tag --title "Tiny DAW $version" --notes \
 "Tiny DAW built from $(git rev-parse --short HEAD), as one file: download it, make it executable (chmod +x), run it.
