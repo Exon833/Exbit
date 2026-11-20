@@ -284,6 +284,7 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     if (!skinProblems.empty())
         showStatus("The skin " + skin.name + " has " + std::to_string(skinProblems.size()) +
                        " problem(s): Options → Skin → Problems", 10000);
+    for (const std::string& p : skinProblems) util::debugf("skin: %s\n", p.c_str());
 }
 
 MainWindow::~MainWindow() {

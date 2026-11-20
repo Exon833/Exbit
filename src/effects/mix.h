@@ -20,6 +20,7 @@
 // room for, or a buffer is longer than maxBlock: then it grows once, as engine.cpp's HoldBack::set
 // does.
 #pragma once
+#include <cstddef>
 #include <vector>
 
 namespace effects {

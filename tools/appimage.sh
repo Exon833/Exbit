@@ -37,9 +37,10 @@ echo "== Tiny DAW $version ($(git rev-parse --short HEAD))"
 # NATIVE=1 builds it here instead (then it needs this machine's glibc or newer).
 mkdir -p "$out"
 build="BUILD=build-appimage TARGET=build-appimage/tinydaw LDOPT=-static-libstdc++\ -static-libgcc"
+objects=build-appimage  # (the container's objects: never mixed with this machine's, built against another glibc)
 if [ "${NATIVE:-0}" = 1 ]; then
-    make -j"$(nproc)" BUILD=build-appimage TARGET=build-appimage/tinydaw LDOPT="-static-libstdc++ -static-libgcc" \
-        build-appimage/tinydaw
+    objects=build-appimage-native
+    make -j"$(nproc)" BUILD=$objects TARGET=$objects/tinydaw LDOPT="-static-libstdc++ -static-libgcc" $objects/tinydaw
 else
     if command -v podman >/dev/null 2>&1; then engine=podman; user="--userns=keep-id"
     elif command -v docker >/dev/null 2>&1; then engine=docker; user="--user $(id -u):$(id -g)"
@@ -51,9 +52,13 @@ else
         -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/src \
         tinydaw-appimage-build sh -c "make -j$(nproc) CXX=g++-12 $build build-appimage/tinydaw"
 fi
-cp build-appimage/tinydaw "$out/tinydaw"
+cp $objects/tinydaw "$out/tinydaw"
 glibc=$(objdump -T "$out/tinydaw" | grep -oE 'GLIBC_[0-9.]+' | sort -Vu | tail -1)
 echo "== the program needs $glibc or newer"
+if [ "${NATIVE:-0}" != 1 ] && [ "$(printf '%s\n' GLIBC_2.35 "$glibc" | sort -V | tail -1)" != GLIBC_2.35 ]; then
+    echo "it should need GLIBC_2.35 at most (built in Ubuntu 22.04): not packed" >&2
+    exit 1
+fi
 
 # the folder
 rm -rf -- "$app"
@@ -66,6 +71,7 @@ done
 cp -r data/icons data/skins data/templates "$app/usr/share/tinydaw/"
 cp LICENSE LICENSE.md "$app/usr/share/tinydaw/"
 cp data/icons/tinydaw.svg "$app/tinydaw.svg"
+ln -s tinydaw.svg "$app/.DirIcon"
 cp data/icons/tinydaw.svg "$app/usr/share/icons/hicolor/scalable/apps/tinydaw.svg"
 cat > "$app/tinydaw.desktop" <<EOF
 [Desktop Entry]

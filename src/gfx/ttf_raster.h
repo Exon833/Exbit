@@ -4,6 +4,7 @@
 // row gives the winding-weighted coverage of every pixel. Coverage = min(1, |sum|) (non-zero rule
 // for shapes whose pieces all wind the same way) or the even-odd fold.
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
