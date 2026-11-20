@@ -320,6 +320,15 @@ void fillShape(Painter& p, const RoundRect& o, const Fill& f) {
     if (y1 < o.B) fillPolys(p, {clipAt(poly, y1, false)}, f);
 }
 
+// the same, only within `band` (device pixels): where a layer can show (outside it, its shader gives nothing)
+void fillShapeIn(Painter& p, const RoundRect& o, const Fill& f, const Rect& band) {
+    p.save();
+    p.setDeviceClip(band);
+    if (!p.deviceClip().empty()) fillShape(p, o, f);
+    p.restore();
+}
+const int kFar = 1 << 20;  // (a band's unlimited side)
+
 // the ring between two rounded rectangles (inner inside outer): the same, its sides' strips as spans
 void fillRing(Painter& p, const RoundRect& outer, const RoundRect& inner, const Fill& f) {
     if (outer.empty()) return;
@@ -537,6 +546,62 @@ bool sizeIndependent(const css::Style::Gradient& g) {
     return true;
 }
 
+// a linear gradient's line across its box (device px): from p0 (t = 0) to p1, along (dx, dy), len long
+struct GradientLine {
+    PointF p0, p1;
+    float dx = 0, dy = 0, len = 0;
+    bool across() const { return std::fabs(dy) < 1e-6f; }  // (left to right or right to left)
+    bool down() const { return std::fabs(dx) < 1e-6f; }
+};
+GradientLine lineOf(const css::Style::Gradient& g, const RoundRect& box) {
+    float W = box.R - box.L, H = box.B - box.T;
+    GradientLine ln;
+    if (g.toCorner) {  // perpendicular to the diagonal between the other two corners
+        ln.dx = g.cornerX * H;
+        ln.dy = g.cornerY * W;
+        float l = std::sqrt(ln.dx * ln.dx + ln.dy * ln.dy);
+        ln.dx /= l;
+        ln.dy /= l;
+    } else {
+        float a = (float)g.angle * kPi / 180;
+        ln.dx = std::sin(a);
+        ln.dy = -std::cos(a);
+    }
+    ln.len = std::fabs(W * ln.dx) + std::fabs(H * ln.dy);
+    PointF c((box.L + box.R) / 2, (box.T + box.B) / 2);
+    ln.p0 = PointF(c.x - ln.dx * ln.len / 2, c.y - ln.dy * ln.len / 2);
+    ln.p1 = PointF(c.x + ln.dx * ln.len / 2, c.y + ln.dy * ln.len / 2);
+    return ln;
+}
+
+// (device px) a rectangle the layer covers opaquely, else an empty one: a linear gradient, opaque all along, or along
+// an axis and opaque beyond its last stop (or before its first); within its clip, clear of its rounded corners, a
+// pixel in from every edge (anti-aliasing). 7.css's inside, over the frame's glass
+Rect opaqueRect(const BoxPaint::Layer& l, const RoundRect& clip, const RoundRect& box, float s) {
+    const css::Style::Gradient& g = l.g;
+    if (l.image || g.kind != css::Style::Gradient::Linear || g.repeating || clip.empty()) return Rect();
+    if (!(box.R - box.L > 0) || !(box.B - box.T > 0)) return Rect();
+    GradientLine ln = lineOf(g, box);
+    GradientRamp local;
+    const GradientRamp& r = l.ramp ? *l.ramp : (local = GradientRamp(fixStops(g.stops, ln.len, s), false));
+    if (r.empty()) return Rect();
+    float lo = -kFar, hi = kFar;  // where it is opaque along its axis
+    if (!r.opaque()) {
+        if (!ln.across() && !ln.down()) return Rect();
+        float a = ln.across() ? ln.p0.x : ln.p0.y, b = ln.across() ? ln.p1.x : ln.p1.y;
+        if (r.last() >> 24 == 255) (b > a ? lo : hi) = a + r.end() * (b - a);
+        else if (r.first() >> 24 == 255) (b > a ? hi : lo) = a + r.start() * (b - a);
+        else return Rect();
+    }
+    float m = 0;
+    for (int i = 0; i < 4; i++) m = std::max(m, std::max(clip.rx[i], clip.ry[i]));
+    float L = clip.L + m, T = clip.T + m, R = clip.R - m, B = clip.B - m;
+    if (ln.across()) L = std::max(L, lo), R = std::min(R, hi);
+    else if (ln.down()) T = std::max(T, lo), B = std::min(B, hi);
+    int x0 = (int)std::ceil(L) + 1, y0 = (int)std::ceil(T) + 1, x1 = (int)std::floor(R) - 1, y1 = (int)std::floor(B) - 1;
+    return x1 > x0 && y1 > y0 ? Rect(x0, y0, x1 - x0, y1 - y0) : Rect();
+}
+
 void paintGradient(Painter& p, const RoundRect& clip, const RoundRect& box,
                    const BoxPaint::Layer& layer, float s) {
     const css::Style::Gradient& g = layer.g;
@@ -549,23 +614,23 @@ void paintGradient(Painter& p, const RoundRect& clip, const RoundRect& box,
         return local;
     };
     if (g.kind == css::Style::Gradient::Linear) {
-        float dx, dy;
-        if (g.toCorner) {  // perpendicular to the diagonal between the other two corners
-            dx = g.cornerX * H;
-            dy = g.cornerY * W;
-            float l = std::sqrt(dx * dx + dy * dy);
-            dx /= l;
-            dy /= l;
-        } else {
-            float a = (float)g.angle * kPi / 180;
-            dx = std::sin(a);
-            dy = -std::cos(a);
-        }
-        float len = std::fabs(W * dx) + std::fabs(H * dy);
-        PointF c((box.L + box.R) / 2, (box.T + box.B) / 2);
-        PointF p0(c.x - dx * len / 2, c.y - dy * len / 2), p1(c.x + dx * len / 2, c.y + dy * len / 2);
-        const GradientRamp& r = ramp(len);
+        GradientLine ln = lineOf(g, box);
+        PointF p0 = ln.p0, p1 = ln.p1;
+        const GradientRamp& r = ramp(ln.len);
         LinearGradientShader sh(p0, p1, r);
+        // (along an axis, not repeating, transparent beyond its first or last stop: only between them, a pixel's
+        // footprint more; 7.css's frame lines are 2 px of a layer the whole window's size)
+        bool across = ln.across(), down = ln.down();
+        if (!r.repeating() && (across || down) && (r.first() == 0 || r.last() == 0)) {
+            float a = across ? p0.x : p0.y, b = across ? p1.x : p1.y;
+            float u = r.first() == 0 ? a + r.start() * (b - a) : (b > a ? -kFar : kFar);
+            float v = r.last() == 0 ? a + r.end() * (b - a) : (b > a ? kFar : -kFar);
+            int lo = (int)std::floor(std::max(std::min(u, v), (float)-kFar)) - 1;
+            int hi = (int)std::ceil(std::min(std::max(u, v), (float)kFar)) + 1;
+            Rect band = across ? Rect(lo, -kFar, hi - lo, 2 * kFar) : Rect(-kFar, lo, 2 * kFar, hi - lo);
+            fillShapeIn(p, clip, Fill{Color(), &sh}, band);
+            return;
+        }
         fillShape(p, clip, Fill{Color(), &sh});
         return;
     }
@@ -694,20 +759,11 @@ void paintImage(Painter& p, const RoundRect& clip, const RoundRect& area, const 
     place(bl.repeatY, area.T, H, th, bl.posY, bl.offY, s, oy, periodY, repeatY);
     int x0 = (int)std::floor(ox + 0.5f), y0 = (int)std::floor(oy + 0.5f);
     TileShader sh(*layer.tile, x0, y0, periodX, periodY, repeatX, repeatY);
-    // (one image across or down: only where it is)
-    RoundRect c = clip;
-    if (c.square()) {
-        if (!repeatX) {
-            c.L = std::max(c.L, (float)x0);
-            c.R = std::min(c.R, (float)(x0 + tw));
-        }
-        if (!repeatY) {
-            c.T = std::max(c.T, (float)y0);
-            c.B = std::min(c.B, (float)(y0 + th));
-        }
-    }
-    if (c.empty()) return;
-    fillShape(p, c, Fill{Color(), &sh});
+    // (one image across or down: only where it is, rounded corners or not)
+    Rect band(-kFar, -kFar, 2 * kFar, 2 * kFar);
+    if (!repeatX) band = Rect(x0, band.y, tw, band.h);
+    if (!repeatY) band = Rect(band.x, y0, band.w, th);
+    fillShapeIn(p, clip, Fill{Color(), &sh}, band);
 }
 
 // --- the shadows' masks, kept ---
@@ -725,7 +781,9 @@ MaskCache& masks() {
     static MaskCache c;
     return c;
 }
-const size_t kMaxMasks = 48, kMaxMaskBytes = 24u << 20;
+// shortcut: a fixed count (90s.css's main window needs ~50 a repaint; 48 rebuilt 42 every frame), raise it or
+// key it by the window's widgets if a skin's repaints make shadowMasksMade() climb again
+const size_t kMaxMasks = 128, kMaxMaskBytes = 24u << 20;
 
 int32_t q16(float v) { return (int32_t)std::lround(v * 16); }
 void keyOf(std::vector<int32_t>& k, const RoundRect& r, float ox, float oy) {
@@ -1137,14 +1195,38 @@ void drawBox(Painter& p, const RectF& r, const BoxLook& look) {
     bool coveredByImage = false;  // (an opaque gradient over all of the colour's box)
     for (const BoxPaint::Layer& l : b.layers)
         if (l.ramp && l.ramp->opaque() && l.bg.clip <= b.colorClip) coveredByImage = true;
+    // (a layer opaque over a rectangle: the colour and the layers under it only around it, the 4 bands of the
+    // repaint outside it; 7.css's window: its glass, lines and pictures not drawn under the inside each repaint)
+    Rect hole;
+    size_t holeAt = 0;
+    for (size_t i = 0; i < b.layers.size() && hole.empty() && p.opacity() >= 1; i++) {
+        const BoxPaint::Layer& l = b.layers[i];
+        hole = opaqueRect(l, boxOf(l.bg.clip, true), boxOf(l.bg.origin, false), s).intersected(p.deviceClip());
+        holeAt = i;
+    }
+    auto around = [&](bool under, const std::function<void()>& draw) {
+        if (!under || hole.empty()) return draw();
+        Rect c = p.deviceClip();
+        const Rect bands[4] = {Rect(c.x, c.y, c.w, hole.y - c.y), Rect(c.x, hole.bottom(), c.w, c.bottom() - hole.bottom()),
+                               Rect(c.x, hole.y, hole.x - c.x, hole.h), Rect(hole.right(), hole.y, c.right() - hole.right(), hole.h)};
+        for (const Rect& band : bands) {
+            if (band.empty()) continue;
+            p.save();
+            p.setDeviceClip(band);
+            draw();
+            p.restore();
+        }
+    };
     const RoundRect& colorShape = boxOf(b.colorClip, true);
-    if (b.bg.a && !coveredByImage && !colorShape.empty()) fillShape(p, colorShape, Fill{b.bg});
+    if (b.bg.a && !coveredByImage && !colorShape.empty()) around(true, [&] { fillShape(p, colorShape, Fill{b.bg}); });
     for (size_t i = b.layers.size(); i-- > 0;) {
         const BoxPaint::Layer& l = b.layers[i];
         const RoundRect& clip = boxOf(l.bg.clip, true);
         if (clip.empty()) continue;
-        if (l.image) paintImage(p, clip, boxOf(l.bg.origin, false), l, s);
-        else paintGradient(p, clip, boxOf(l.bg.origin, false), l, s);
+        around(i > holeAt, [&] {
+            if (l.image) paintImage(p, clip, boxOf(l.bg.origin, false), l, s);
+            else paintGradient(p, clip, boxOf(l.bg.origin, false), l, s);
+        });
     }
 
     // 3. the inset shadows, over the background, inside the padding box

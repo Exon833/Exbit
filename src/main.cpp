@@ -1,10 +1,14 @@
 // Start Tiny DAW (main.py):  tinydaw [project.json | audio and MIDI files to add...]
 //
+//   tinydaw --tui [...]          the same in the terminal, by the keyboard alone (tui/app.h): no window
+//                                system needed
 //   tinydaw --probe <listfile>   the background plugin probe's child process (plugins/probe.h): finds
 //                                out the kinds of the plugins listed, without touching the display
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "core/util.h"
 #include "platform/platform.h"
@@ -16,6 +20,7 @@
 #include "ui/test_script.h"
 #include "ui/timeline.h"
 #include "ui/toolkit/widget.h"
+#include "tui/app.h"
 
 int main(int argc, char** argv) {
     if (argc >= 2 && std::strcmp(argv[1], "--probe") == 0) {
@@ -26,9 +31,12 @@ int main(int argc, char** argv) {
         return plug::runProbe(argv[2]);
     }
     if (argc >= 2 && (std::strcmp(argv[1], "--help") == 0 || std::strcmp(argv[1], "-h") == 0)) {
-        printf("usage: tinydaw [project.json | audio and MIDI files to add...]\n");
+        printf("usage: tinydaw [--tui] [project.json | audio and MIDI files to add...]\n"
+               "  --tui  run in the terminal, by the keyboard alone (no window system needed)\n");
         return 0;
     }
+    if (argc >= 2 && std::strcmp(argv[1], "--tui") == 0) return tui::run(std::vector<std::string>(argv + 2, argv + argc));
+    if (util::debug()) setenv("TINYDAW_WINE_TRACE", "1", 0);  // (the Wine host's diagnostics too)
 
     ui::App& app = ui::App::get();
     app.init(argc, argv);

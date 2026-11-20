@@ -1,6 +1,8 @@
 // PulseAudio (or PipeWire's PulseAudio server): the sinks and sources (libpulse's asynchronous
 // API on a private main loop, briefly) and streams (libpulse-simple: a playback stream, and a
-// record stream for inputs, driven by one thread).
+// record stream for inputs, driven by one thread). libpulse and libpulse-simple are loaded with dlopen on
+// first use, never linked: the program starts where PulseAudio isn't installed (the type isn't offered).
+#include <dlfcn.h>
 #include <pulse/pulseaudio.h>
 #include <pulse/simple.h>
 
@@ -18,6 +20,35 @@ namespace detail {
 void raiseThreadPriority();
 
 namespace {
+
+// the functions called, as pointers of the same names (they hide <pulse/*.h>'s declarations here)
+#define TINYDAW_PULSE(F)                                                                                        \
+    F(pa_context_connect) F(pa_context_disconnect) F(pa_context_get_server_info) F(pa_context_get_sink_info_list) \
+    F(pa_context_get_source_info_list) F(pa_context_get_state) F(pa_context_new) F(pa_context_unref)            \
+    F(pa_mainloop_dispatch) F(pa_mainloop_free) F(pa_mainloop_get_api) F(pa_mainloop_new) F(pa_mainloop_poll)  \
+    F(pa_mainloop_prepare) F(pa_operation_unref) F(pa_simple_flush) F(pa_simple_free) F(pa_simple_get_latency)  \
+    F(pa_simple_new) F(pa_simple_read) F(pa_simple_write) F(pa_strerror)
+#define TINYDAW_PULSE_DEFINE(f) decltype(&::f) f = nullptr;
+TINYDAW_PULSE(TINYDAW_PULSE_DEFINE)
+#undef TINYDAW_PULSE_DEFINE
+
+// both libraries and every function found (once)
+bool pulseLoaded() {
+    static bool ok = [] {
+        void* libs[] = {dlopen("libpulse.so.0", RTLD_NOW | RTLD_LOCAL), dlopen("libpulse-simple.so.0", RTLD_NOW | RTLD_LOCAL)};
+        if (!libs[0] || !libs[1]) return false;
+        auto find = [&](const char* name) {
+            void* f = dlsym(libs[0], name);
+            return f ? f : dlsym(libs[1], name);
+        };
+        bool all = true;
+#define TINYDAW_PULSE_FIND(f) all = (f = reinterpret_cast<decltype(f)>(find(#f))) && all;
+        TINYDAW_PULSE(TINYDAW_PULSE_FIND)
+#undef TINYDAW_PULSE_FIND
+        return all;
+    }();
+    return ok;
+}
 
 const char* kDefaultId = "default";  // the server's default sink / source (follows changes)
 
@@ -85,6 +116,7 @@ void onSource(pa_context*, const pa_source_info* i, int eol, void* u) {
 
 // asks the server for its sinks, sources and defaults (at most ~1.5 s; cached for 2 s)
 PaState query() {
+    if (!pulseLoaded()) return PaState();  // (not installed: not ok)
     {
         std::lock_guard<std::mutex> lock(g_mutex);
         if (g_haveCache && std::chrono::steady_clock::now() - g_cachedAt < std::chrono::seconds(2)) return g_cache;
@@ -187,7 +219,7 @@ bool PulseStream::open(const StreamConfig& cfg, Callback cb, std::string& error)
     cb_ = std::move(cb);
     PaState st = query();
     if (!st.ok) {
-        error = "The sound server (PulseAudio / PipeWire) isn't running";
+        error = pulseLoaded() ? "The sound server (PulseAudio / PipeWire) isn't running" : "PulseAudio isn't installed";
         return false;
     }
     block_ = cfg.blocksize > 0 ? cfg.blocksize : 512;

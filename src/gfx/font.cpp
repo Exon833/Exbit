@@ -18,6 +18,7 @@
 #include <map>
 #include <unordered_map>
 
+#include "core/util.h"
 #include "gfx/ttf_raster.h"
 
 // ================================================================================================
@@ -996,7 +997,7 @@ void fillFace(FontFace* face, const std::string& family, bool bold) {
                     if ((face->primary = loadFont(*c))) break;
         }
     }
-    if (getenv("TINYDAW_FONT_DEBUG"))
+    if (util::debug())
         fprintf(stderr, "font: \"%s\"%s -> %s%s\n", family.c_str(), bold ? " bold" : "",
                 face->primary ? face->primary->path.c_str() : "(none)", face->synthBold ? " (synthetic bold)" : "");
 }

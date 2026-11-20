@@ -1103,6 +1103,86 @@ void MidiEditor::glide(int pitch) {
     hold(pitch);
 }
 
+void MidiEditor::startKeyCursor() {
+    if (keyT >= 0) return;
+    double t = timeline.cursor ? (double)timeline.cursor() / sr() - originS() : 0;
+    double from = 0, to = 0;
+    windowS(from, to);
+    keyT = snap(std::clamp(t, from, std::max(from, to - stepS(from))), 0, true);
+    keyPitch = notes.empty() ? 60 : (int)notes.front().pitch;
+}
+
+void MidiEditor::moveKeyCursor(int key) {
+    if (key == plat::Key_Left || key == plat::Key_Right) {
+        double d = key == plat::Key_Left ? -stepBeats(keyT) : stepBeats(keyT);
+        keyT = std::max(0.0, snap(shifted(keyT, d), 0));
+    } else {
+        std::vector<int> stepped = stepsView ? stepRows() : std::vector<int>();
+        const std::vector<int>& rs = stepsView ? stepped : rows();  // (top to bottom; the Steps view: its rows)
+        if (rs.empty()) return;
+        auto at = std::find(rs.begin(), rs.end(), keyPitch);
+        int i = at == rs.end() ? nearestRow(keyPitch) : (int)(at - rs.begin());
+        i = std::clamp(i + (key == plat::Key_Up ? -1 : 1), 0, (int)rs.size() - 1);
+        keyPitch = rs[(size_t)i];
+        hold(keyPitch);  // (heard a moment)
+        ui::App::get().singleShot(150, [this] {
+            if (ui::Widget::alive(this)) release();
+        });
+    }
+    refresh();
+}
+
+void MidiEditor::keyNote() {
+    startKeyCursor();
+    if (stepsView) {  // the Steps view: the pad at the cursor lit, or cleared (as a click)
+        std::vector<int> rs = stepRows();
+        if (rs.empty()) return;
+        if (std::find(rs.begin(), rs.end(), keyPitch) == rs.end()) keyPitch = rs.front();
+        bool light = notesInCell(keyPitch, keyT).empty();
+        if (setCell(keyPitch, keyT, light)) {
+            if (light) {
+                hold(keyPitch);
+                ui::App::get().singleShot(150, [this] {
+                    if (ui::Widget::alive(this)) release();
+                });
+            }
+            commit();
+        }
+        return;
+    }
+    for (int i = 0; i < (int)notes.size(); i++)
+        if ((int)notes[i].pitch == keyPitch && notes[i].start <= keyT + 1e-9 && keyT < notes[i].end - 1e-9) {
+            selected = {i};
+            lastVelocity = (int)notes[i].velocity;
+            refresh();
+            return;
+        }
+    Note n;
+    n.start = keyT;
+    n.end = keyT + stepS(keyT);
+    n.pitch = keyPitch;
+    n.velocity = lastVelocity;
+    notes.push_back(n);
+    selected = {(int)notes.size() - 1};
+    hold(keyPitch);
+    ui::App::get().singleShot(150, [this] {
+        if (ui::Widget::alive(this)) release();
+    });
+    commit();
+}
+
+void MidiEditor::velocityBy(int amount) {
+    if (selected.empty()) {
+        lastVelocity = std::clamp(lastVelocity + amount, 1, 127);
+        updateTitle();
+        return;
+    }
+    for (int i : selected)
+        if (i < (int)notes.size()) notes[i].velocity = std::clamp(notes[i].velocity + amount, 1.0, 127.0);
+    lastVelocity = (int)notes[*selected.begin()].velocity;
+    commit();
+}
+
 bool MidiEditor::keyPress(ui::KeyEvent& e) {
     bool ctrl = e.mods & plat::ModCtrl;
     if (e.key == plat::Key_Delete || e.key == plat::Key_Backspace) {
@@ -1126,7 +1206,22 @@ bool MidiEditor::keyPress(ui::KeyEvent& e) {
         pasteNotes();
     } else if (e.key == plat::Key_Left || e.key == plat::Key_Right || e.key == plat::Key_Up ||
                e.key == plat::Key_Down) {
-        nudge(e.key, e.mods & plat::ModShift, e.mods);
+        startKeyCursor();
+        if (selected.empty()) {
+            moveKeyCursor(e.key);
+        } else {
+            nudge(e.key, e.mods & plat::ModShift, e.mods);
+            int first = *selected.begin();  // (the cursor goes with the notes)
+            if (first < (int)notes.size()) keyT = notes[first].start, keyPitch = (int)notes[first].pitch;
+        }
+    } else if ((e.key == plat::Key_Return || e.key == plat::Key_Enter) && !ctrl) {
+        keyNote();
+    } else if (e.key == 'R' && !e.mods && stepsView && steps && steps->rowMenu) {  // "+ Row"
+        steps->rowMenu->exec(steps->mapToGlobal(Point(0, 0)), steps);
+    } else if ((e.key == ',' || e.key == '.') && !ctrl && !selected.empty()) {  // (Shift+Left / Right, which consoles can't send)
+        nudge(e.key == ',' ? plat::Key_Left : plat::Key_Right, true, 0);
+    } else if ((e.key == '+' || e.key == '=' || e.key == '-') && !ctrl) {
+        velocityBy(e.key == '-' ? -8 : 8);
     } else if (e.key == plat::Key_Escape) {
         selected.clear();
         refresh();
@@ -1375,6 +1470,170 @@ PianoRoll::PianoRoll(MidiEditor* editor) : ed_(editor) {
     setSizePolicy(ui::SizePolicy::Expanding, ui::SizePolicy::Expanding);
 }
 
+bool PianoRoll::textCells(int cols, int rows, std::vector<ui::TextCell>& cells) const {
+    const MidiEditor& ed = *ed_;
+    cells.assign((size_t)cols * rows, ui::TextCell());
+    const int KEYS = 5;  // the key names' column
+    if (cols <= KEYS + 2 || rows < 2) return true;
+    auto at = [&](int c, int r) -> ui::TextCell& { return cells[(size_t)(r * cols + c)]; };
+    auto put = [&](int c, int r, const std::string& text, uint8_t fg, uint8_t attr) {
+        for (size_t i = 0; i < text.size() && c + (int)i < cols; i++) at(c + (int)i, r) = ui::TextCell{(char32_t)text[i], fg, 9, attr};
+    };
+    // time across: the roll's pixels (its scroll and zoom), a share of them per column
+    int noteCols = cols - KEYS;
+    double x0 = midi_editor::keysW(), x1 = std::max(x0 + 1, (double)width());
+    auto tOf = [&](int c) { return ed.tAt(x0 + (x1 - x0) * c / noteCols); };
+    double t0 = tOf(0), dt = tOf(1) - t0;
+    // (the keyboard's cursor kept in view: the roll scrolls to it)
+    double keyT = ed.keyT >= 0 ? ed.keyT : 0;
+    const Timing& tm = ed.project.timing;
+    double origin = ed.originS();
+    // row 0: the bars
+    for (int c = 0; c < noteCols; c++) {
+        double a = origin + t0 + c * dt;
+        if (c == 0 || tm.barAt(a + dt - 1e-9) != tm.barAt(a - 1e-9)) put(KEYS + c, 0, std::to_string(tm.barAt(a + dt - 1e-9) + 1), 9, 1);
+    }
+    // the pitches around the cursor's
+    const std::vector<int>& rs = ed.rows();
+    if (rs.empty()) return true;
+    auto found = std::find(rs.begin(), rs.end(), ed.keyPitch);
+    int centre = found == rs.end() ? ed.nearestRow(ed.keyPitch) : (int)(found - rs.begin());
+    int shown = rows - 1;
+    int first = std::clamp(centre - shown / 2, 0, std::max(0, (int)rs.size() - shown));
+    double from = 0, to = 0;
+    ed.windowS(from, to);
+    for (int r = 0; r < shown && first + r < (int)rs.size(); r++) {
+        int pitch = rs[(size_t)(first + r)];
+        bool black = pitch % 12 == 1 || pitch % 12 == 3 || pitch % 12 == 6 || pitch % 12 == 8 || pitch % 12 == 10;
+        std::string name = ed.keyLabel(pitch);
+        if (name.empty()) name = midi_editor::noteName(pitch);
+        put(0, r + 1, name.substr(0, KEYS - 1), black ? 4 : 9, pitch == ed.keyPitch ? 2 : 0);
+        for (int c = 0; c < noteCols; c++) {
+            double a = t0 + c * dt;
+            bool beat = std::floor(tm.beatAt(origin + a + dt - 1e-9)) != std::floor(tm.beatAt(origin + a - 1e-9));
+            bool outside = a + dt <= from || a >= to;
+            at(KEYS + c, r + 1) = ui::TextCell{beat ? U'·' : U' ', (uint8_t)(outside ? 0 : 4), 9, 0};
+        }
+        for (int i = 0; i < (int)ed.notes.size(); i++) {
+            const Note& n = ed.notes[(size_t)i];
+            if ((int)std::lround(n.pitch) != pitch) continue;
+            int a = (int)std::floor((n.start - t0) / dt + 1e-9), b = (int)std::ceil((n.end - t0) / dt - 1e-9);
+            b = std::max(b, a + 1);
+            bool sel = ed.selected.count(i) > 0, off = ed.off.count(i) > 0;
+            for (int c = std::max(0, a); c < std::min(noteCols, b); c++)
+                at(KEYS + c, r + 1) = ui::TextCell{off ? U'░' : c == a ? U'▐' : U'█', 2, 9, (uint8_t)(sel ? 1 | 2 : 0)};
+        }
+    }
+    // the keyboard's cursor
+    int kr = -1;
+    for (int r = 0; r < shown && first + r < (int)rs.size(); r++)
+        if (rs[(size_t)(first + r)] == ed.keyPitch) kr = r + 1;
+    int kc = (int)std::floor((keyT - t0) / dt + 1e-9);
+    if (kr > 0 && kc >= 0 && kc < noteCols) {
+        ui::TextCell& k = at(KEYS + kc, kr);
+        if (k.ch == U' ' || k.ch == U'·') k.ch = U'│';
+        k.attr |= 2 | 1;
+        k.fg = 3;
+    }
+    return true;
+}
+
+namespace {
+void stepColumns(const MidiEditor& ed, int noteCols, double& t0, double& sb);
+int stepIndex(const MidiEditor& ed, double t0, double sb, double t);
+}  // namespace
+
+bool VelocityLane::textCells(int cols, int rows, std::vector<ui::TextCell>& cells) const {
+    const MidiEditor& ed = *ed_;
+    cells.assign((size_t)cols * rows, ui::TextCell());
+    const int KEYS = 5;
+    if (cols <= KEYS + 2 || rows < 1) return true;
+    const char* label = "vel.";
+    for (int i = 0; label[i] && i < KEYS; i++) cells[(size_t)((rows - 1) * cols + i)] = ui::TextCell{(char32_t)label[i], 9, 9, 0};
+    int noteCols = cols - KEYS;
+    double x0 = midi_editor::keysW(), x1 = std::max(x0 + 1, (double)width());
+    double t0 = ed.tAt(x0), dt = (ed.tAt(x1) - t0) / noteCols, sb = 1;
+    if (ed.stepsView) stepColumns(ed, noteCols, t0, sb);  // (under the Steps view's columns)
+    static const char32_t BLOCKS[] = {U'▁', U'▂', U'▃', U'▄', U'▅', U'▆', U'▇', U'█'};
+    for (int i = 0; i < (int)ed.notes.size(); i++) {
+        const Note& n = ed.notes[(size_t)i];
+        int c = ed.stepsView ? stepIndex(ed, t0, sb, n.start) : (int)std::floor((n.start - t0) / dt + 1e-9);
+        if (c < 0 || c >= noteCols) continue;
+        // (the loudest note starting in the column; several rows: a taller bar)
+        double v = std::clamp(n.velocity / 127.0, 0.0, 1.0) * rows;
+        bool sel = ed.selected.count(i) > 0;
+        for (int r = 0; r < rows; r++) {
+            double fill = std::clamp(v - (rows - 1 - r), 0.0, 1.0);
+            if (fill <= 0) continue;
+            ui::TextCell& cell = cells[(size_t)(r * cols + KEYS + c)];
+            char32_t ch = BLOCKS[std::clamp((int)std::lround(fill * 8) - 1, 0, 7)];
+            if (cell.ch == U' ' || ch > cell.ch) cell = ui::TextCell{ch, 2, 9, (uint8_t)(sel ? 1 : 0)};
+        }
+    }
+    return true;
+}
+
+namespace {
+// (as text) the Steps view's columns: the first one's note time and the step (beats), the keyboard's cursor in view
+void stepColumns(const MidiEditor& ed, int noteCols, double& t0, double& sb) {
+    t0 = ed.snap(std::max(0.0, ed.tAt(midi_editor::keysW())), 0, true);
+    sb = ed.stepBeats(t0);
+    const Timing& tm = ed.project.timing;
+    double origin = ed.originS();
+    double kt = ed.keyT >= 0 ? ed.keyT : t0;
+    if (kt < t0) t0 = kt;
+    else if ((tm.beatAt(origin + kt) - tm.beatAt(origin + t0)) / sb >= noteCols - 1e-6) t0 = ed.shifted(kt, -(noteCols - 1) * sb);
+}
+int stepIndex(const MidiEditor& ed, double t0, double sb, double t) {
+    const Timing& tm = ed.project.timing;
+    double origin = ed.originS();
+    return (int)std::floor((tm.beatAt(origin + t) - tm.beatAt(origin + t0)) / sb + 1e-6);
+}
+}  // namespace
+
+bool StepGrid::textCells(int cols, int rows, std::vector<ui::TextCell>& cells) const {
+    const MidiEditor& ed = *ed_;
+    cells.assign((size_t)cols * rows, ui::TextCell());
+    const int KEYS = 5;
+    if (cols <= KEYS + 2 || rows < 2) return true;
+    auto at = [&](int c, int r) -> ui::TextCell& { return cells[(size_t)(r * cols + c)]; };
+    auto put = [&](int c, int r, const std::string& text, uint8_t fg, uint8_t attr) {
+        for (size_t i = 0; i < text.size() && c + (int)i < cols; i++) at(c + (int)i, r) = ui::TextCell{(char32_t)text[i], fg, 9, attr};
+    };
+    int noteCols = cols - KEYS;
+    // a column per step, from the first in view; (the keyboard's cursor kept in view)
+    double t0 = 0, sb = 1;
+    stepColumns(ed, noteCols, t0, sb);
+    const Timing& tm = ed.project.timing;
+    double origin = ed.originS();
+    auto stepsFrom = [&](double a, double b) { return stepIndex(ed, a, sb, b); };
+    std::vector<int> rs = ed.stepRows();
+    int keyRow = -1;
+    for (int i = 0; i < (int)rs.size(); i++)
+        if (rs[(size_t)i] == ed.keyPitch) keyRow = i;
+    int shown = rows - 1;  // (the last: "+ Row")
+    int first = std::clamp(std::max(0, keyRow) - shown / 2, 0, std::max(0, (int)rs.size() - shown));
+    for (int r = 0; r < shown && first + r < (int)rs.size(); r++) {
+        int pitch = rs[(size_t)(first + r)];
+        std::string name = ed.keyLabel(pitch);
+        if (name.empty()) name = midi_editor::noteName(pitch);
+        put(0, r, name.substr(0, KEYS - 1), 9, first + r == keyRow ? 2 : 0);
+        for (int c = 0; c < noteCols; c++) {
+            double t = ed.shifted(t0, c * sb);
+            bool lit = !ed.notesInCell(pitch, t).empty();
+            bool beat = std::fabs(tm.beatAt(origin + t) - std::round(tm.beatAt(origin + t))) < 1e-6;
+            at(KEYS + c, r) = ui::TextCell{lit ? U'■' : beat ? U'▫' : U'·', (uint8_t)(lit ? 2 : 4), 9, (uint8_t)(lit ? 1 : 0)};
+            if (first + r == keyRow && ed.keyT >= 0 && stepsFrom(t, ed.keyT) == 0 && ed.keyT >= t - 1e-9) {
+                at(KEYS + c, r).attr |= 2 | 1;
+                at(KEYS + c, r).fg = 3;
+            }
+        }
+    }
+    if (rs.empty()) put(0, 0, "no rows yet: R adds one", 9, 0);
+    put(0, rows - 1, "+ Row (R)", 6, 0);
+    return true;
+}
+
 bool PianoRoll::overridesShortcut(const ui::KeyEvent& e) const {
     bool ctrl = e.mods & plat::ModCtrl;
     if (e.mods & plat::ModAlt) return false;
@@ -1384,6 +1643,8 @@ bool PianoRoll::overridesShortcut(const ui::KeyEvent& e) const {
         return !ctrl;
     case '0': case 'G':
         return !ctrl && !(e.mods & plat::ModShift);
+    case plat::Key_Return: case plat::Key_Enter: case ',': case '.': case '+': case '=': case '-':  // (the keyboard's cursor)
+        return !ctrl;
     case 'A': case 'C': case 'D': case 'U': case 'V': case 'X':
         return ctrl && !(e.mods & plat::ModShift);
     default:
@@ -2286,7 +2547,10 @@ std::optional<int> StepGrid::yOfRow(int row) const {
 
 void StepGrid::resized() { ed_->updateRanges(); }
 
-bool StepGrid::overridesShortcut(const ui::KeyEvent& e) const { return ed_->roll->overridesShortcut(e); }
+bool StepGrid::overridesShortcut(const ui::KeyEvent& e) const {
+    if (e.key == 'R' && !e.mods) return true;  // ("+ Row")
+    return ed_->roll->overridesShortcut(e);
+}
 
 std::string StepGrid::toolTipAt(Point p) const {
     int r = rowAt(p.y);

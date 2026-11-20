@@ -198,6 +198,7 @@ PluginsDialog::PluginsDialog(ui::Window* parent, PluginHost& host_, const std::s
     panel->reloadRequested.connect([this](int i) {
         if (i >= 0 && i < (int)effects().size()) reloadUnit(effects()[i]);
     });
+    panel->setFocus();  // (the keyboard on the units: Left/Right, Enter, B, C… patch_panel.h)
 
     {
         auto buttons = std::make_unique<ui::HBox>();
@@ -464,7 +465,11 @@ void PluginsDialog::addEffect(std::optional<Point> at) {
         if (slot) project.retire(slot->instance);
         return;
     }
-    if (slot) place(slot, at);
+    // (the keys work on it next: wiring it, its window; once the chooser has gone, which gives the focus back)
+    if (slot && place(slot, at))
+        ui::App::get().singleShot(0, [this, alive] {
+            if (*alive) panel->setFocus();
+        });
 }
 
 bool PluginsDialog::place(const SlotPtr& slot, std::optional<Point> at) {

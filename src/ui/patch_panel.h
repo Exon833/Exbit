@@ -254,7 +254,12 @@ public:
     bool mouseDoubleClick(ui::MouseEvent& e) override;
     bool wheel(ui::WheelEvent& e) override;
     bool contextMenu(ui::MouseEvent& e) override;
+    // keys (the keyboard alone, tinydaw --tui): Left/Right (Up/Down) a unit, Enter its window, Delete it, B or
+    // Space bypass it, + / - its fader, C plug a cable into or out of it (a menu of where it can go), X unplug
+    // one, Insert add an effect, F2 its menu (modulating a knob…), M the space's menu (wiring them all…)
     bool keyPress(ui::KeyEvent& e) override;
+    // (as text) IN, each unit (its light, name, fader, where its sound comes from and goes), OUT
+    bool listRows(std::vector<std::string>& rows, int& current) const override;
     void leave() override;
     std::string toolTipAt(Point p) const override;
     void hoverAt(Point pos);

@@ -284,6 +284,8 @@ private:
     double clockStart_ = 0, clockFrames_ = 0;
     bool clockValid_ = false;
     int lastUnderflows_ = 0;
+    int toldLate_ = 0;      // (GUI thread: idle) dropouts already in the diagnostics
+    double toldLateAt_ = 0;
     const float* input_ = nullptr;
     int inputChannels_ = 0;
     int inputStreamChannels_ = 0;

@@ -172,6 +172,8 @@ public:
 
 // --- the main loop ---
 void init(int argc, char** argv);      // connects to the display; call first
+// the loop's timers, watched fds and posted work without a display (tinydaw --tui); instead of init()
+void initWithoutDisplay();
 void shutdown();
 // handles events, timers, watched fds and posted work; waits at most timeoutMs (-1: until something happens)
 void processEvents(int timeoutMs);

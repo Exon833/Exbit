@@ -1,6 +1,7 @@
 // The update notice under the master row (update_notice.py).
 #include "ui/update_notice.h"
 
+#include <ctime>
 #include <thread>
 
 #include "platform/platform.h"
@@ -11,12 +12,17 @@
 UpdateChecker::~UpdateChecker() { *alive_ = false; }
 
 void UpdateChecker::start() {
+    if (*running_) return;
+    *running_ = true;
     std::weak_ptr<bool> alive = alive_;
+    std::shared_ptr<bool> running = running_;
     update_check::FetchFn fn = fetchFn;
     UpdateChecker* self = this;
-    std::thread([alive, fn, self] {
+    std::thread([alive, running, fn, self] {
         update_check::Result result = update_check::check(fn);
-        plat::postToMain([alive, self, result] {
+        result.checkedAt = (double)std::time(nullptr);
+        plat::postToMain([alive, running, self, result] {
+            *running = false;
             auto a = alive.lock();
             if (a && *a) self->done.emit(result);  // (the window closed before GitHub answered: nobody to tell)
         });
@@ -25,31 +31,73 @@ void UpdateChecker::start() {
 
 namespace update_notice {
 
-Text noticeText(const update_check::Result* result) {
+namespace {
+double clockNow(double now) { return now > 0 ? now : (double)std::time(nullptr); }
+std::string fullDate(double t) {  // "2026-11-18 16:49" (local time)
+    time_t tt = (time_t)t;
+    struct tm lt {};
+    localtime_r(&tt, &lt);
+    char buf[32];
+    std::strftime(buf, sizeof buf, "%Y-%m-%d %H:%M", &lt);
+    return buf;
+}
+}  // namespace
+
+std::string shortId(const std::string& commit) { return commit.substr(0, 7); }
+
+Text noticeText(const update_check::Result* result, double now) {
     if (!result) return {"Checking for updates…", "", "", ""};
-    const std::string& state = result->state;
+    now = clockNow(now);
+    const update_check::Result& r = *result;
     std::string name = version::REPOSITORY;
     name = name.substr(name.rfind('/') + 1);  // (the name alone: the line is narrow)
-    if (state == "waiting") {
-        bool one = result->count == 1;
-        return {"", one ? "1 update" : std::to_string(result->count) + " updates", result->url,
+    bool known = !r.latest.empty();
+    std::string when = known && r.latestTime > 0 ? update_check::ago(r.latestTime, now) : "";
+    if (r.state == "waiting") {
+        if (known) return {"Update available - ", shortId(r.latest), r.url, when.empty() ? "" : " - " + when};
+        bool one = r.count == 1;
+        return {"", one ? "1 update" : std::to_string(r.count) + " updates", r.url,
                 std::string(" ready · rebuild to get ") + (one ? "it" : "them")};
     }
-    if (state == "current") return {"Up to date · ", name, result->url, ""};
-    if (state == "off") return {"Updates off here · ", name, result->url, ""};
-    return {"Couldn't check · ", name, result->url, ""};
+    if (r.state == "current") {
+        if (known) return {"", shortId(r.latest), r.latestUrl, when.empty() ? "" : " · " + when};
+        return {"Up to date · ", name, r.url, ""};
+    }
+    if (r.state == "off") {
+        if (known) return {"Latest: ", shortId(r.latest), r.latestUrl, when.empty() ? "" : " · " + when};
+        return {"Updates off here · ", name, r.url, ""};
+    }
+    return {"Couldn't check · ", name, r.url, ""};
 }
 
-std::string noticeTip(const update_check::Result* result) {
+std::string noticeTip(const update_check::Result* result, double now, const update_check::Result* failed) {
+    now = clockNow(now);
     std::string state = result ? result->state : "";
-    if (state == "waiting")
-        return "New commits are on GitHub's main branch. Pull them (git pull) and build Tiny DAW again (make) to "
-               "get them; the link lists what changed";
-    if (state == "off")
-        return "This build can't tell whether there are updates: it wasn't built from a git checkout of "
-               "Tiny-DAW-Linux, or its commit isn't on GitHub (commits of its own)";
-    if (state == "failed") return "Couldn't check GitHub for updates when the program started (" + result->value + ")";
-    return "Checked on GitHub when the program starts: the commit this program was built from against the main branch";
+    std::string newest;
+    if (result && !result->latest.empty())
+        newest = shortId(result->latest) + (result->latestTime > 0 ? ", made " + fullDate(result->latestTime) : "");
+    std::string tip;
+    if (state == "waiting") {
+        bool one = result->count == 1;
+        tip = (one ? std::string("A new commit is") : std::to_string(result->count) + " new commits are") +
+              " on GitHub's main branch" + (newest.empty() ? "" : " (the newest: " + newest + ")") +
+              ". Tiny DAW doesn't update itself: pull " + (one ? "it" : "them") +
+              " (git pull) and build again (make) when you choose; the link lists what changed";
+    } else if (state == "current") {
+        tip = "Up to date: this program is GitHub's main branch" + (newest.empty() ? "" : " (its newest commit: " + newest + ")");
+    } else if (state == "off") {
+        tip = "This build can't tell whether there are updates: it wasn't built from a git checkout of Tiny-DAW, or its "
+              "commit isn't on GitHub (commits of its own)" +
+              (newest.empty() ? std::string() : ". GitHub's newest commit: " + newest);
+    } else if (state == "failed") {
+        tip = "Couldn't check GitHub for updates (" + result->value + ")";
+    } else {
+        tip = "Checking GitHub for updates";
+    }
+    if (result && result->checkedAt > 0)
+        tip += ". Checked every 30 minutes; last " + update_check::ago(result->checkedAt, now);
+    if (failed) tip += ". The last check failed (" + failed->value + ")";
+    return tip;
 }
 
 }  // namespace update_notice

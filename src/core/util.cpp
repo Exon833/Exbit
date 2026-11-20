@@ -18,6 +18,25 @@
 
 namespace util {
 
+namespace {
+bool& debugFlag() {
+    static bool on = [] {
+        const char* v = getenv("TINYDAW_DEBUG");
+        return !v || std::strcmp(v, "0") != 0;
+    }();
+    return on;
+}
+}  // namespace
+bool debug() { return debugFlag(); }
+void setDebug(bool on) { debugFlag() = on; }
+void debugf(const char* fmt, ...) {
+    if (!debug()) return;
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(stderr, fmt, ap);
+    va_end(ap);
+}
+
 bool readFile(const std::string& path, std::string& out) {
     FILE* f = fopen(path.c_str(), "rb");
     if (!f) return false;

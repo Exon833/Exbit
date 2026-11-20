@@ -236,7 +236,11 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     applyMeterOptions();
     updates = std::make_unique<UpdateChecker>();  // the notice under the master row: is there a newer version?
     updates->done.connect([this](const update_check::Result& r) { master->showUpdate(r); });
-    if (!getenv("TINYDAW_NO_UPDATE_CHECK")) updates->start();  // (hidden: tests leave GitHub alone)
+    if (!getenv("TINYDAW_NO_UPDATE_CHECK")) {  // (hidden: tests leave GitHub alone)
+        updates->start();  // now, and every half hour (never installing anything: update_check.h)
+        updateTimer_ = App::get().every(update_check::CHECK_EVERY_S * 1000, [this] { updates->start(); });
+    }
+    noticeTimer_ = App::get().every(60 * 1000, [this] { master->refreshUpdate(); });  // ("how long ago" counts on)
     openFirstDevice();
     setUpMidi();
     history = std::make_unique<history::History>(project, engine.sr);
@@ -295,6 +299,8 @@ MainWindow::~MainWindow() {
     if (cpuTimer_ >= 0) App::get().cancelTimer(cpuTimer_);
     if (historyTimer_ >= 0) App::get().cancelTimer(historyTimer_);
     if (skinTimer_ >= 0) App::get().cancelTimer(skinTimer_);
+    if (updateTimer_ >= 0) App::get().cancelTimer(updateTimer_);
+    if (noticeTimer_ >= 0) App::get().cancelTimer(noticeTimer_);
     for (auto& [key, w] : fxWindows) {
         (void)key;
         w->finished.disconnectAll();
@@ -317,6 +323,7 @@ MainWindow::~MainWindow() {
 }
 
 void MainWindow::showStatus(const std::string& text, int ms) {
+    if (!text.empty()) util::debugf("status: %s\n", text.c_str());
     if (status) status->showMessage(text, ms);
 }
 
@@ -1269,6 +1276,9 @@ void MainWindow::openFirstDevice() {
         }
     if (device.empty()) device = audio::defaultOutput(p.driverType);
     if (!device.empty()) openDevice();
+    else if (available.empty())  // (none of ALSA, PulseAudio and JACK is installed, or none has an output)
+        showStatus("No sound system found (ALSA, PulseAudio or JACK): projects can be edited but not heard. "
+                   "Install one, then Options → Audio properties…");
     else showStatus("No audio output device found.");
 }
 

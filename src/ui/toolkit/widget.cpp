@@ -9,6 +9,7 @@
 #include <map>
 #include <unordered_set>
 
+#include "core/util.h"
 #include "ui/theme.h"
 #include "ui/toolkit/frame.h"
 #include "ui/toolkit/layout.h"
@@ -1104,7 +1105,7 @@ void Window::setFocusWidget(Widget* w) {
 }
 
 void Window::flush() {
-    if (!shown_) return;
+    if (!shown_ || !App::get().paintWindows) return;
     // (the framebuffer is the whole native window: the frame around the inside, frame_ / deviceFrame(); its
     // painter is moved by the frame's insets, so the inside is painted at (0, 0) as without one)
     FrameInsets fd = deviceFrame();
@@ -2236,9 +2237,35 @@ void App::startFrameTimer() {
     frameTimer_ = addTimerMs(1000.0 / displayHz_, [this] { frameTimer(); }, true);
 }
 
+namespace {
+// (util::debug) a frame that took longer than a picture of the screen, on stderr: at most once a second, with how
+// many more there were since
+struct FrameClock {
+    double start, budget;  // (start < 0: not timed)
+    ~FrameClock() {
+        static double told = -1;
+        static int untold = 0;
+        if (start < 0) return;
+        double end = plat::now(), took = end - start;
+        if (took <= budget) return;
+        if (told >= 0 && end - told < 1) {
+            untold++;
+            return;
+        }
+        fprintf(stderr, "Tiny DAW: slow frame: %.1f ms (%.1f ms a picture at %.0f Hz)", took * 1000, budget * 1000,
+                1 / budget);
+        if (untold) fprintf(stderr, ", %d more in the last %.1f s", untold, end - told);
+        fprintf(stderr, "\n");
+        told = end;
+        untold = 0;
+    }
+};
+}  // namespace
+
 void App::frameTimer() {
     // the onFrame callbacks (playhead, meters, plugins' idle) at the chosen rate, in step with the
     // screen's pictures (60 a second on a 180 Hz screen: every third); painting at every picture
+    FrameClock clock{util::debug() && !headless_ ? plat::now() : -1, 1.0 / displayHz_};
     double t = now();
     double period = fps_ > 0 ? 1.0 / fps_ : 0;
     if (lastFrameFns_ < 0 || t - lastFrameFns_ >= period - 0.5 / displayHz_) {
@@ -2291,6 +2318,7 @@ void App::setFramesWhenHeadless(bool on) {
 }
 
 void App::initHeadless() {
+    util::setDebug(false);  // (tests: no diagnostics among their output)
     headless_ = true;
     inited_ = true;
     clock_ = 0;
@@ -2314,7 +2342,9 @@ void App::quit() {
 
 void App::runUntil(const std::function<bool()>& done) {
     ++depth_;
-    if (headless_) {
+    if (headless_ && nestedLoop) {
+        nestedLoop(done);
+    } else if (headless_) {
         // tests: only timers can end it; give up after a minute of virtual time
         for (int i = 0; i < 6000 && !done() && !quit_; ++i) {
             advanceTimers(0.01);

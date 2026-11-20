@@ -1,6 +1,7 @@
 // A small XML parser (see xml.h).
 #include "core/xml.h"
 
+#include <cstdint>
 #include <cstring>
 #include <unordered_set>
 

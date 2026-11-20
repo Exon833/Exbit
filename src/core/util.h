@@ -9,6 +9,14 @@
 
 namespace util {
 
+// --- debugging ---
+// diagnostics on stderr (fonts, slow frames, the audio device, dropouts, MIDI, plugins, status and message
+// texts): always on, unless TINYDAW_DEBUG=0. The terminal UI sends them to a file (tui/app.cpp)
+bool debug();
+void setDebug(bool on);  // (tests, headless: off)
+// printf to stderr when debug() is on (never from the audio thread: it may block)
+void debugf(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
+
 // --- files ---
 bool readFile(const std::string& path, std::string& out);
 bool writeFile(const std::string& path, const std::string& data);  // written to a temporary file, then renamed

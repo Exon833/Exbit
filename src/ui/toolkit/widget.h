@@ -128,6 +128,13 @@ class TitleBar;
 enum class FocusPolicy { None, Click, Tab, Strong };
 enum class SizePolicy { Fixed, Preferred, Expanding };
 
+// (tinydaw --tui) a cell of a widget's own picture as text: a character, the 8 terminal colours (0 black … 7
+// white, 9 the terminal's own) and attributes (1 bold, 2 reversed, 4 underlined)
+struct TextCell {
+    char32_t ch = U' ';
+    uint8_t fg = 9, bg = 9, attr = 0;
+};
+
 class Widget : public css::Node {
 public:
     explicit Widget(Widget* parent = nullptr);
@@ -265,6 +272,10 @@ public:
     void update();                     // repaint all of it at the next frame
     void update(const Rect& r);        // a part of it
     virtual void paint(Painter& p) {}  // draw itself; children are drawn over it
+    // (tinydaw --tui: drawn as text) a list of its own drawing: its rows' text and the current one (-1: none)
+    virtual bool listRows(std::vector<std::string>& rows, int& current) const { return false; }
+    // (tinydaw --tui) a picture of its own as text, cols × rows cells (row by row): a piano roll
+    virtual bool textCells(int cols, int rows, std::vector<TextCell>& cells) const { return false; }
     virtual void paintOver(Painter& p) {}  // drawn after the children (overlays)
     void setClipsChildren(bool on) { clipsChildren_ = on; }
 
@@ -603,6 +614,9 @@ public:
     void quit();
     // runs a nested loop until done() is true (Dialog::exec, blocking menus)
     void runUntil(const std::function<bool()>& done);
+    // (headless) runs runUntil's loops instead of the tests' virtual minute: the terminal's (tinydaw --tui)
+    std::function<void(const std::function<bool()>& done)> nestedLoop;
+    bool paintWindows = true;  // false: shown windows aren't painted (the terminal draws them as text)
     void processEvents();               // handle what is pending, without waiting (progress windows)
     // calls fn every frame (the playhead and meter refresh); returns an id
     int onFrame(std::function<void()> fn);

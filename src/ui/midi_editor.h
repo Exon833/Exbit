@@ -231,6 +231,9 @@ public:
     void resized() override;
     // the roll takes the editing keys itself (Delete, arrows, 0, Ctrl+A/C/V/X/D/U…), before any shortcut
     bool overridesShortcut(const ui::KeyEvent& e) const override;
+    // (as text) the bars, then a row per pitch around the keyboard's cursor: its name, the notes (selected ones
+    // reversed, switched-off ones shaded), the beats; the cursor reversed
+    bool textCells(int cols, int rows, std::vector<ui::TextCell>& cells) const override;
 private:
     MidiEditor* ed_;
     void paintGrid(Painter& p, int h);
@@ -260,6 +263,7 @@ private:
 class VelocityLane : public ui::Widget {
 public:
     explicit VelocityLane(MidiEditor* editor);
+    bool textCells(int cols, int rows, std::vector<ui::TextCell>& cells) const override;  // (as text: a block per note)
     int velocityAt(int y) const;
     // the chosen lane's value at y (rounded: as it is set; else as it lies, for relative drags)
     double valueAt(int y, bool rounded = true) const;
@@ -307,6 +311,8 @@ public:
     void resized() override;
     bool overridesShortcut(const ui::KeyEvent& e) const override;
     std::string toolTipAt(Point p) const override;
+    // (as text) a row per pitch, a column per step: lit pads filled, the keyboard's cursor reversed
+    bool textCells(int cols, int rows, std::vector<ui::TextCell>& cells) const override;
     ui::Menu* rowMenu = nullptr;  // "+ Row": the pitches to add a row for
 private:
     MidiEditor* ed_;
@@ -487,6 +493,17 @@ public:
     std::set<int> notesIn(const RectF& box) const;  // the (shown) notes touching a box of roll pixels
     void startCopyDrag(Point pos, int index);       // Ctrl+drag went past the threshold
     void nudge(int key, bool shift, int mods);      // the arrow keys
+    // THE KEYBOARD'S CURSOR (the keyboard alone, tinydaw --tui): a note time and a pitch. While no note is
+    // selected the arrows move it (a grid step, a row; it sounds the pitch); Enter selects the note there, or puts
+    // one there a grid step long (selected: the arrows then move it, ',' '.' make it shorter or longer, '+' '-'
+    // change its velocity); Esc lets the notes go, the arrows move the cursor again. Starts at the selection
+    // cursor (or the notes' start).
+    double keyT = -1;   // note time (-1: not placed yet)
+    int keyPitch = 60;
+    void startKeyCursor();
+    void keyNote();                          // Enter
+    void moveKeyCursor(int key);             // an arrow, no note selected
+    void velocityBy(int amount);             // + / -
 
     // --- hearing notes, through the track (audio/live.h) ---
     bool builtin() const;                    // the track plays the built-in synth or sampler

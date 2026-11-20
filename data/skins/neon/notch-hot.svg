@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 9 9">
+  <!-- the cut corner of a control under the pointer or with the keyboard: a yellow edge -->
+  <polygon points="9,0 9,9 0,9" fill="#0b0d12"/>
+  <line x1="0" y1="9" x2="9" y2="0" stroke="#fcee0a" stroke-width="1.2"/>
+</svg>
