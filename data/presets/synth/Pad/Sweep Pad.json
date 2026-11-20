@@ -1,0 +1,28 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "Sweep Pad",
+  "category": "Pad",
+  "params": {
+    "osc1_wave": 2,
+    "osc2_wave": 2,
+    "osc2_level": 0.7,
+    "unison": 4,
+    "spread": 14,
+    "cutoff": 300,
+    "resonance": 0.5,
+    "lfo_shape": 1,
+    "lfo_sync": 2,
+    "lfo_retrigger": 0,
+    "env1_attack": 0.6,
+    "env1_release": 1.5,
+    "output": -2
+  },
+  "mods": [
+    {
+      "source": "lfo",
+      "target": "cutoff",
+      "depth": 0.3
+    }
+  ]
+}

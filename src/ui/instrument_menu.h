@@ -4,7 +4,8 @@
 // ▾ of the instrument button (🎹) on its row once it has one: the built-in synth, or a VST
 // instrument found on this computer (plugins/library.h), loaded with the usual "please wait" window
 // (plugin_host.h). The track is silent until its first instrument is chosen and loaded. Clicking
-// 🎹 itself opens the instrument's own window (editInstrument).
+// 🎹 itself opens the instrument's own window (editInstrument); "Synth…" (and 🎹) the built-in synth's
+// (ui/synth_dialog.h) while the track plays it.
 //
 // "Built-in sampler…" plays one sample across the keyboard (audio/sampler; its window: sampler_dialog.h),
 // asking for the sample the first time; 🎹 then opens its window. Choosing another instrument keeps its
@@ -39,6 +40,7 @@ class PluginHost;
 namespace instrument_menu {
 
 constexpr const char* BUILTIN = "Built-in synth";
+constexpr const char* SYNTH = "Synth…";  // the built-in synth's window (ui/synth_dialog.h), while it plays
 constexpr const char* RACK = "Instrument patch panel…";
 constexpr const char* SAMPLER = "Built-in sampler…";
 constexpr const char* PAD_KIT = "Pad Kit…";
@@ -66,8 +68,8 @@ void usePadKit(ui::Window* parent, PluginHost& host, const TrackPtr& track, std:
 // has goes in it, wired, so it keeps sounding
 void useRack(ui::Window* parent, PluginHost& host, const TrackPtr& track, std::function<void()> chosen,
              OpenPanel openPanel);
-// open the track's VST instrument's own window (or its instrument patch panel); the built-in synth
-// has no settings
+// open the track's VST instrument's own window (or its instrument patch panel, sampler, Pad Kit, or the
+// built-in synth's window)
 void editInstrument(ui::Window* parent, PluginHost& host, const TrackPtr& track, OpenPanel openPanel);
 
 }  // namespace instrument_menu

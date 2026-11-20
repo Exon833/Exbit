@@ -1,0 +1,20 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "Acid Bass",
+  "category": "Bass",
+  "params": {
+    "osc1_wave": 2,
+    "osc1_octave": -1,
+    "cutoff": 250,
+    "resonance": 0.85,
+    "filter_env": 0.6,
+    "env2_decay": 0.18,
+    "env2_sustain": 0,
+    "mono": 1,
+    "glide": 0.08,
+    "drive": 0.4,
+    "env1_release": 0.05
+  },
+  "mods": []
+}

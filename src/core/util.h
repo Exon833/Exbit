@@ -67,5 +67,6 @@ Json value(const std::string& key, const Json& def);     // the value, or def
 void set(const std::string& key, const Json& v);         // and saves
 void remove(const std::string& key);
 void setPath(const std::string& path);                   // tests: use another file
+std::string filePath();                                  // the file (its folder: the settings folder, keymap.txt…)
 void flush();
 }  // namespace settings

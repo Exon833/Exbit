@@ -1,0 +1,26 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "Noise Sweep",
+  "category": "FX",
+  "params": {
+    "osc1_level": 0,
+    "noise": 1,
+    "filter_type": 2,
+    "cutoff": 500,
+    "resonance": 0.7,
+    "lfo_shape": 1,
+    "lfo_rate": 0.25,
+    "lfo_retrigger": 1,
+    "env1_attack": 0.2,
+    "env1_release": 0.8,
+    "output": 6
+  },
+  "mods": [
+    {
+      "source": "lfo",
+      "target": "cutoff",
+      "depth": 0.4
+    }
+  ]
+}

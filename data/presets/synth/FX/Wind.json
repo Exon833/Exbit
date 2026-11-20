@@ -1,0 +1,26 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "Wind",
+  "category": "FX",
+  "params": {
+    "osc1_level": 0,
+    "noise": 1,
+    "filter_type": 2,
+    "cutoff": 800,
+    "resonance": 0.6,
+    "drift": 1,
+    "lfo_rate": 0.1,
+    "lfo_retrigger": 0,
+    "env1_attack": 1.5,
+    "env1_release": 2,
+    "output": 3
+  },
+  "mods": [
+    {
+      "source": "lfo",
+      "target": "cutoff",
+      "depth": 0.2
+    }
+  ]
+}

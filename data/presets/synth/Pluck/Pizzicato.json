@@ -1,0 +1,22 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "Pizzicato",
+  "category": "Pluck",
+  "params": {
+    "osc1_wave": 1,
+    "osc2_wave": 2,
+    "osc2_level": 0.3,
+    "osc2_detune": 0,
+    "cutoff": 1500,
+    "filter_env": 0.4,
+    "env2_decay": 0.1,
+    "env2_sustain": 0,
+    "env1_attack": 0.001,
+    "env1_decay": 0.25,
+    "env1_sustain": 0,
+    "env1_release": 0.15,
+    "output": 2
+  },
+  "mods": []
+}

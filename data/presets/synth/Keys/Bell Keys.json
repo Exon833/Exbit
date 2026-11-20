@@ -1,0 +1,20 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "Bell Keys",
+  "category": "Keys",
+  "params": {
+    "osc1_wave": 0,
+    "osc2_wave": 0,
+    "osc2_octave": 1,
+    "osc2_semi": 7,
+    "osc2_level": 0.5,
+    "osc2_detune": 0,
+    "env1_attack": 0.001,
+    "env1_decay": 2,
+    "env1_sustain": 0,
+    "env1_release": 1.5,
+    "output": 2
+  },
+  "mods": []
+}

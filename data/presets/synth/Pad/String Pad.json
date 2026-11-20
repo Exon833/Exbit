@@ -1,0 +1,28 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "String Pad",
+  "category": "Pad",
+  "params": {
+    "osc1_wave": 2,
+    "unison": 6,
+    "spread": 18,
+    "cutoff": 3000,
+    "resonance": 0.05,
+    "env1_attack": 0.5,
+    "env1_decay": 0.5,
+    "env1_sustain": 0.9,
+    "env1_release": 1.2,
+    "lfo_rate": 5,
+    "lfo_retrigger": 0,
+    "drift": 0.2,
+    "output": -5
+  },
+  "mods": [
+    {
+      "source": "lfo",
+      "target": "osc1_semi",
+      "depth": 0.002
+    }
+  ]
+}

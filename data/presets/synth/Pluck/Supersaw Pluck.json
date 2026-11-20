@@ -1,0 +1,21 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "Supersaw Pluck",
+  "category": "Pluck",
+  "params": {
+    "osc1_wave": 2,
+    "unison": 7,
+    "spread": 25,
+    "cutoff": 800,
+    "filter_env": 0.5,
+    "env2_decay": 0.3,
+    "env2_sustain": 0,
+    "env1_attack": 0.001,
+    "env1_decay": 0.5,
+    "env1_sustain": 0,
+    "env1_release": 0.4,
+    "output": 0
+  },
+  "mods": []
+}

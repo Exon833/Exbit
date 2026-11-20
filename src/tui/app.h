@@ -133,6 +133,7 @@ private:
     void drawStatus(Screen& s);
     void drawMenus(Screen& s);
     void drawHelp(Screen& s);
+    std::string keysOf(const std::string& id) const;  // a command's keys as bound (ui/commands.h), those consoles send
 };
 
 // the colour of the 8 nearest a "#rrggbb" ("": none: def)

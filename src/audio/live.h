@@ -77,7 +77,7 @@ struct Bank {
     int channels[128];
     double floor[128];      // NoteRender::velocityFloor
     bool oneShot[128];
-    const void* key[2] = {nullptr, nullptr};  // (the sampler and Pad Kit it was rendered for)
+    const void* key[3] = {nullptr, nullptr, nullptr};  // (the sampler, Pad Kit and synth patch it was rendered for)
     int sr = 0;
     Bank();
 };
@@ -98,9 +98,13 @@ struct NoteRender {
     bool sustains = true;   // a held note loops (else: it plays to its end, at most WHOLE_S)
     std::function<double(int, int)> period;  // (pitch, sr) -> frames its sound repeats after (< 0: none); null: the synth's
     int choke = 0;          // its choke group (a Pad Kit's pad): it cuts off the group's notes sounding; 0: none
+    double releaseS = 0;    // a held note let go fades out over this (the built-in synth's patch: its release); 0: RELEASE_S
     // how loud a note of velocity v is, against one of velocity 127: floor + (1 - floor) * v / 127 (the synth's: 0,
     // a sampler's: 1 - its velocity setting), so notes rendered once at 127 can play at any velocity (live_fx)
     double velocityFloor = 0;
+    // (a sampler with glide) the note gliding from pitch `from`: (pitch, velocity, duration s, sr, from); null: none
+    std::function<std::vector<float>(int, int, double, int, double)> glideFrom;
+    bool mono = false;      // a new key lets go of the keys held (a mono sampler)
     // per key (a Pad Kit: each key its own pad): sets `out` to how that pitch is rendered (its own perKey
     // left empty); empty: every key as this says
     std::function<void(int pitch, NoteRender& out)> perKey;
@@ -194,6 +198,7 @@ private:
         int64_t loopStart = -1;
         int64_t length = -1;  // frames; -1 = until noteOff
         int choke = 0;        // NoteRender::choke
+        int fade = 0;         // NoteRender::releaseS in frames (0: the usual)
     };
     plugin_audio::MidiMsg release(int pitch, int64_t atFrame);
     void retire(NoteAudio&& audio);  // hand back to the GUI thread
@@ -204,6 +209,8 @@ private:
     std::vector<NoteAudio> done_;  // finished notes' audio, for the GUI thread to free
     NoteRender renderer_;          // GUI thread
     std::map<int, int> oneShots_;  // GUI thread: pitch -> one-shot sampler notes of it playing to their end
+    int heldKeys_[128] = {};       // GUI thread: built-in notes held down (no length), per pitch (mono lets go of them)
+    int lastPitch_ = -1;           // GUI thread: the last built-in note started (glideFrom glides from it)
     std::atomic<uint64_t> doneHead_{0}, doneTail_{0};
     // audio thread only
     std::vector<LiveVoice> voices_;

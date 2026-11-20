@@ -1,0 +1,33 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "Saw Lead",
+  "category": "Lead",
+  "params": {
+    "osc1_wave": 2,
+    "osc2_wave": 2,
+    "osc2_detune": 8,
+    "osc2_level": 0.8,
+    "unison": 3,
+    "spread": 12,
+    "cutoff": 4000,
+    "resonance": 0.2,
+    "filter_env": 0.2,
+    "mono": 1,
+    "glide": 0.05,
+    "lfo_rate": 5.5,
+    "output": -1
+  },
+  "mods": [
+    {
+      "source": "lfo",
+      "target": "osc1_semi",
+      "depth": 0.004
+    },
+    {
+      "source": "lfo",
+      "target": "osc2_semi",
+      "depth": 0.004
+    }
+  ]
+}

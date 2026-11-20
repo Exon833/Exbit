@@ -31,15 +31,18 @@ extends; that program is in the repository's history.
   file's tags, name or sound),
   insert/delete time, a fixed or zoom-following grid; undo and redo of every kind of edit (the last
   100 steps), with a list of the steps to jump back to (Edit → History…); what the control under the mouse does, in the
-  status bar.
+  status bar; every command found by typing (Ctrl+Shift+P, Ctrl+P in the terminal) and every key
+  rebindable (Options → Keyboard shortcuts…, kept in keymap.txt).
 - **MIDI**: a piano roll with ghost notes of other clips, the song's key and scale (Key ▾ in the
   transport: detected from the notes; a clip may have its own; Snap to scale), swing for the song, a
   track or a Steps row (Swing ▾, applied as it plays, committed into the notes on request), chord stamp,
   quantize, box select; a Tools panel previewing strum, arpeggiate, chop, flam, legato, quantize,
   humanize and velocity shapes before applying them; a knife (K), join (Ctrl+J), a pitch's row selected
   (Shift-click its key), overlaps removed; a Steps view of the same clip; notes with their own chance, repeats (rolls),
-  slide, pan and fine pitch; linked clips (edit one, every linked copy changes); the built-in synth,
-  sampler and Pad Kit (a sample per pad, choke groups; any pad on its own track, or Pads to tracks; slice a
+  slide, pan and fine pitch; linked clips (edit one, every linked copy changes); the built-in synth (two
+  oscillators and noise, unison, a filter, two envelopes, an LFO, glide, drift; drag a ⊕ onto a knob to
+  modulate it; 36 presets by category), the sampler (Classic, One-shot or Slice; a filter with its envelope, an
+  LFO, glide, warp, reverse, normalise) and Pad Kit (a sample per pad, choke groups; any pad on its own track, or Pads to tracks; slice a
   loop onto one by its hits, a grid or by hand, hearing each slice); MIDI effects (arpeggiator, chord, scale, note length, velocity, random, pitch, groove), also on notes
   played live, and committed into the notes (this clip, every clip, or onto a new track); MIDI keyboards (several ports at once: Options → MIDI ports…; a
   track can listen to one port and channel), hardware synths (External synth: notes out, audio back, its delay
@@ -65,7 +68,9 @@ extends; that program is in the repository's history.
 - **Presets and MIDI learn**: save and recall an effect's or instrument's settings, or a whole track's
   chain; compare two settings of one effect (Now / Kept); link any knob to a MIDI controller's knob.
 - **Projects**: templates, recent projects, backups of what each save replaces, autosave with crash
-  recovery, Ableton Live set import.
+  recovery, Ableton Live set import; missing samples found by one folder search (File → Find missing samples…);
+  Collect and save; a project and its samples in one archive (File → Save as archive…, opened by File →
+  Open); samples decoded on every core.
 - **Look**: skins written in CSS (Dark, Light, Midnight, OLED, High contrast; 90s, XP and 7, evoking classic
   desktops of those years; Neon District, a neon-noir near-future look; or your own): every colour,
   font, padding, border, corner and size of the interface, edited in your text editor and shown live; interface size

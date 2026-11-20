@@ -1,0 +1,29 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "Electric Piano",
+  "category": "Keys",
+  "params": {
+    "osc1_wave": 0,
+    "osc2_wave": 1,
+    "osc2_octave": 1,
+    "osc2_level": 0.25,
+    "osc2_detune": 0,
+    "env1_attack": 0.002,
+    "env1_decay": 1.2,
+    "env1_sustain": 0.3,
+    "env1_release": 0.4,
+    "cutoff": 4000,
+    "key_track": 0.5,
+    "lfo_rate": 4,
+    "lfo_retrigger": 0,
+    "output": 2
+  },
+  "mods": [
+    {
+      "source": "lfo",
+      "target": "output",
+      "depth": 0.05
+    }
+  ]
+}

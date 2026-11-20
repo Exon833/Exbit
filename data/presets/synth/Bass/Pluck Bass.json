@@ -1,0 +1,24 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "Pluck Bass",
+  "category": "Bass",
+  "params": {
+    "osc1_wave": 3,
+    "osc1_width": 0.3,
+    "osc1_octave": -1,
+    "osc2_wave": 0,
+    "osc2_octave": -2,
+    "osc2_level": 0.6,
+    "cutoff": 200,
+    "filter_env": 0.55,
+    "env2_decay": 0.15,
+    "env2_sustain": 0,
+    "env1_attack": 0.001,
+    "env1_decay": 0.5,
+    "env1_sustain": 0.2,
+    "env1_release": 0.1,
+    "mono": 1
+  },
+  "mods": []
+}

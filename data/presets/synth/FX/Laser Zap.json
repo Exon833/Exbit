@@ -1,0 +1,24 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "Laser Zap",
+  "category": "FX",
+  "params": {
+    "osc1_wave": 0,
+    "env2_attack": 0.001,
+    "env2_decay": 0.25,
+    "env2_sustain": 0,
+    "env1_attack": 0.001,
+    "env1_decay": 0.3,
+    "env1_sustain": 0,
+    "env1_release": 0.1,
+    "output": -2
+  },
+  "mods": [
+    {
+      "source": "env2",
+      "target": "osc1_semi",
+      "depth": 0.5
+    }
+  ]
+}

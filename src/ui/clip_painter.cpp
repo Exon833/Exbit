@@ -197,10 +197,11 @@ void paintFades(Painter& p, const Clip& clip, const RectF& body, double pps, int
 
 std::string clipLabel(const Clip& clip) {
     std::string env = clip.gainEnvelope ? "   env" : "";  // (a gain envelope: clip_envelope.h)
-    if (!clip.gainDb) return clip.name + env;
+    std::string name = clip.missing ? "[missing] " + clip.name : clip.name;  // (its file not found: relink.h)
+    if (!clip.gainDb) return name + env;
     char buf[32];
     std::snprintf(buf, sizeof buf, "   %+.1f dB", clip.gainDb);
-    return clip.name + buf + env;
+    return name + buf + env;
 }
 
 // --- gain envelopes (model/clip_envelope.h) ---

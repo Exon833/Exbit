@@ -1,0 +1,19 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "Square Lead",
+  "category": "Lead",
+  "params": {
+    "osc1_wave": 3,
+    "osc2_wave": 3,
+    "osc2_octave": 1,
+    "osc2_level": 0.3,
+    "osc2_detune": 0,
+    "cutoff": 3000,
+    "resonance": 0.15,
+    "mono": 1,
+    "glide": 0.08,
+    "output": -3
+  },
+  "mods": []
+}

@@ -7,6 +7,10 @@
 #include <map>
 #include <mutex>
 #include <set>
+#include <atomic>
+#include <chrono>
+#include <thread>
+#include <utility>
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -17,6 +21,7 @@
 #include "audio/md5.h"
 #include "audio/midi_effects.h"
 #include "audio/sound_file.h"
+#include "audio/workers.h"
 #include "core/util.h"
 #include "model/clip_envelope.h"
 #include "model/pad_tracks.h"
@@ -266,8 +271,27 @@ std::vector<AutomationPtr> readAutomation(const Track& track, const Json& entrie
     return lanes;
 }
 
+// the sampler's settings at Simpler's level (audio/sampler.h): (key, the field), each written only when it isn't as
+// it starts, so a sampler using none of them is saved as it always was
+const std::vector<std::pair<const char*, double SamplerSettings::*>> SAMPLER_NUMBERS = {
+    {"loop_start", &SamplerSettings::loopStart}, {"sensitivity", &SamplerSettings::sensitivity},
+    {"cutoff", &SamplerSettings::cutoff}, {"resonance", &SamplerSettings::resonance},
+    {"filter_env", &SamplerSettings::filterEnv}, {"key_track", &SamplerSettings::keyTrack},
+    {"filter_attack", &SamplerSettings::fAttack}, {"filter_decay", &SamplerSettings::fDecay},
+    {"filter_sustain", &SamplerSettings::fSustain}, {"filter_release", &SamplerSettings::fRelease},
+    {"lfo_rate", &SamplerSettings::lfoRate}, {"lfo_depth", &SamplerSettings::lfoDepth},
+    {"glide", &SamplerSettings::glide}, {"bpm", &SamplerSettings::bpm}};
+const std::vector<std::pair<const char*, int SamplerSettings::*>> SAMPLER_INTEGERS = {
+    {"slice_grid", &SamplerSettings::sliceGrid}, {"filter", &SamplerSettings::filter},
+    {"lfo_shape", &SamplerSettings::lfoShape}, {"lfo_beats", &SamplerSettings::lfoBeats},
+    {"lfo_target", &SamplerSettings::lfoTarget}, {"warp_mode", &SamplerSettings::warpMode}};
+const std::vector<std::pair<const char*, bool SamplerSettings::*>> SAMPLER_FLAGS = {
+    {"slice", &SamplerSettings::slice}, {"reverse", &SamplerSettings::reverse},
+    {"normalise", &SamplerSettings::normalise}, {"steep", &SamplerSettings::steep},
+    {"lfo_sync", &SamplerSettings::lfoSync}, {"mono", &SamplerSettings::mono}, {"warp", &SamplerSettings::warp}};
+
 Json describeSampler(const SamplerSettings& s, const AudioFileFn& audioFile) {
-    return Json::object({
+    Json j = Json::object({
         {"file", Json(s.sample ? audioFile(*s.sample) : std::string())},
         {"name", Json(s.sample ? s.sample->name : std::string())},
         {"root", Json(s.root)},
@@ -283,6 +307,14 @@ Json describeSampler(const SamplerSettings& s, const AudioFileFn& audioFile) {
         {"start", Json(s.start)},
         {"end", Json(s.end)},
     });
+    const SamplerSettings plain;
+    for (auto& f : SAMPLER_NUMBERS)
+        if (s.*f.second != plain.*f.second) j.set(f.first, Json(s.*f.second));
+    for (auto& f : SAMPLER_INTEGERS)
+        if (s.*f.second != plain.*f.second) j.set(f.first, Json(s.*f.second));
+    for (auto& f : SAMPLER_FLAGS)
+        if (s.*f.second != plain.*f.second) j.set(f.first, Json(s.*f.second));
+    return j;
 }
 
 // a Pad Kit: its pads that hold a sample or aren't as a new kit has them, each with its place ("pad", from 0),
@@ -316,6 +348,16 @@ void readSound(const Json& j, SamplerSettings& s) {
     s.loop = j.flag("loop", s.loop);
     s.start = j.num("start", s.start);
     s.end = j.num("end", s.end);
+    for (auto& f : SAMPLER_NUMBERS) s.*f.second = j.num(f.first, s.*f.second);
+    for (auto& f : SAMPLER_INTEGERS) s.*f.second = j.integer(f.first, s.*f.second);
+    for (auto& f : SAMPLER_FLAGS) s.*f.second = j.flag(f.first, s.*f.second);
+    // (kept within what they can be: a file edited by hand)
+    s.filter = std::min((int)SamplerSettings::Notch, std::max(0, s.filter));
+    s.lfoTarget = std::min((int)SamplerSettings::ToPan, std::max(0, s.lfoTarget));
+    s.resonance = std::min(1.0, std::max(0.0, s.resonance));
+    s.lfoDepth = std::min(1.0, std::max(0.0, s.lfoDepth));
+    s.glide = std::max(0.0, s.glide);
+    s.bpm = std::min(999.0, std::max(20.0, s.bpm));
 }
 
 Json describeTake(const Clip& take, int sr, const AudioFileFn& audioFile) {
@@ -443,6 +485,7 @@ Json describeTrack(const Track& track, const std::vector<GroupPtr>& groups, int 
     if (track.bendRange != 2) entry.set("bend_range", Json(track.bendRange));  // (only then: older files unchanged)
     if (track.swing >= 0) entry.set("swing", Json(track.swing));  // (likewise: none = the song's)
     if (track.padKit) entry.set("pad_kit", describePadKit(*track.padKit, audioFile));  // (likewise)
+    if (track.synth) entry.set("synth", subsynth::toJson(*track.synth));  // (the built-in synth's patch: likewise)
     if (track.soloSafe) entry.set("solo_safe", Json(true));  // (likewise)
     if (!track.midiIn.empty()) entry.set("midi_in", Json(track.midiIn));  // (its MIDI input: likewise)
     if (track.midiInChannel) entry.set("midi_in_channel", Json(track.midiInChannel));
@@ -745,6 +788,8 @@ Timing readTiming(const Json& entry) {
 Json describe(const Project& project, int sr, const MasterSettings& master, AudioFileFn audioFile, bool states) {
     if (!audioFile)
         audioFile = [](const Clip& clip) { return util::format("%p", (const void*)clip.source.get()); };
+    // a missing sample (relink.h) keeps the file it expected, until it is found
+    audioFile = [named = std::move(audioFile)](const Clip& clip) { return clip.missing ? clip.missing->path : named(clip); };
     std::vector<GroupPtr> groups = project.groups();
     std::vector<TrackPtr> tracks = *project.tracks;
     // (cables, sends and output routing name tracks by index: the tracks', then each group's bus, in groups order)
@@ -958,6 +1003,13 @@ bool keepBackup(const std::string& path, std::string& backupPath, std::string& e
 
 std::vector<ClipPtr> audioHolders(const Project& project) {
     std::vector<ClipPtr> out;
+    for (auto& c : allAudioHolders(project))
+        if (!c->missing) out.push_back(c);
+    return out;
+}
+
+std::vector<ClipPtr> allAudioHolders(const Project& project) {
+    std::vector<ClipPtr> out;
     for (auto& c : project.clips)
         if (c->kind != Kind::Midi && c->source) out.push_back(c);
     for (auto& t : project.tracks)
@@ -1075,7 +1127,7 @@ std::string uniqueFileName(const std::string& folder, const std::string& clipNam
 }
 
 bool saveProject(const std::string& path, Project& project, int sr, const MasterSettings& master,
-                 std::string& error) {
+                 std::string& error, const std::function<void(int done, int total)>& progress) {
     std::string folder = audioFolder(path);
     if (!util::makeDirs(folder) && !util::isDir(folder)) {
         error = "Cannot make the folder " + folder + ": " + strerror(errno);
@@ -1095,7 +1147,9 @@ bool saveProject(const std::string& path, Project& project, int sr, const Master
                 bySound.emplace(fingerprint(clip->source, clip->sourceSr), util::baseName(p)).first->second;
     }
     // everything else is written as a new file, never over an existing one (once per sound)
+    int done = 0;
     for (auto& clip : audio) {
+        if (progress) progress(done++, (int)audio.size());
         if (files.count(clip->source.get())) continue;
         std::string sound = fingerprint(clip->source, clip->sourceSr);
         auto it = bySound.find(sound);
@@ -1115,13 +1169,74 @@ bool saveProject(const std::string& path, Project& project, int sr, const Master
         auto it = files.find(clip.source.get());
         return it == files.end() ? std::string() : folderName + "/" + it->second;
     });
+    // each file's size and sound, to find it again if it goes missing (relink.h); the missing ones' as they were
+    Json::Members known;
+    std::set<std::string> named;
+    auto info = [](int64_t size, const std::string& sound) {
+        return Json::object({{"size", size >= 0 ? Json((long long)size) : Json()}, {"sound", nullOr(sound)}});
+    };
+    for (auto& [sound, name] : bySound)
+        if (named.insert(folderName + "/" + name).second)
+            known.emplace_back(folderName + "/" + name, info(util::fileSize(util::joinPath(folder, name)), sound));
+    for (auto& clip : allAudioHolders(project))
+        if (clip->missing && named.insert(clip->missing->path).second)
+            known.emplace_back(clip->missing->path, info(clip->missing->size, clip->missing->sound));
+    data.set("audio_files", Json::object(std::move(known)));
+    if (progress) progress((int)audio.size(), (int)audio.size());
     return writeJson(path, data, error);
+}
+
+std::vector<Decoded> decodeFiles(const std::vector<std::string>& paths, int threads,
+                                 const std::function<void(int done, int total)>& progress) {
+    std::vector<Decoded> out(paths.size());
+    if (paths.empty()) return out;
+    if (threads < 0) threads = workers::workersFor(workers::chosenCores());
+    if (workers::inJob() || paths.size() < 2) threads = 0;  // (inside another pool's job: never one of its own)
+    struct Work {
+        const std::vector<std::string>* paths;
+        std::vector<Decoded>* out;
+        std::atomic<int> done{0};
+    } work{&paths, &out};
+    workers::Job job = [](void* ctx, int i) {
+        Work& w = *static_cast<Work*>(ctx);
+        Decoded& d = (*w.out)[(size_t)i];
+        if (!file_io::loadAudio((*w.paths)[(size_t)i], d.audio, d.rate, d.error) && d.error.empty())
+            d.error = "cannot be read";
+        w.done++;
+    };
+    double t0 = util::wallClock();
+    {
+        workers::Pool pool(threads, false);  // (as a render's: never outranking playback)
+        if (!progress) {
+            pool.run((int)paths.size(), job, &work);
+        } else {  // (the pool's run on a thread of its own, so this one can show how far it is)
+            std::atomic<bool> finished{false};
+            std::thread runner([&] {
+                pool.run((int)paths.size(), job, &work);
+                finished = true;
+            });
+            while (!finished) {
+                progress(work.done, (int)paths.size());
+                std::this_thread::sleep_for(std::chrono::milliseconds(30));
+            }
+            runner.join();
+            progress((int)paths.size(), (int)paths.size());
+        }
+    }
+    util::debugf("project_io: %zu sound file(s) decoded on %d worker thread(s) + 1 in %.3f s\n", paths.size(),
+                 threads, util::wallClock() - t0);
+    return out;
 }
 
 namespace {
 struct AudioLoader {
     std::map<std::string, std::pair<AudioPtr, int>> sources;  // file path -> (audio, rate), loaded once and shared
+    std::map<std::string, std::string> failed;                // file path -> why it couldn't be (decodeFiles)
     bool load(const std::string& file, AudioPtr& audio, int& rate, std::string& error) {
+        if (auto f = failed.find(file); f != failed.end()) {
+            error = file + "\n\n" + f->second;
+            return false;
+        }
         auto it = sources.find(file);
         if (it == sources.end()) {
             AudioPtr source;
@@ -1141,7 +1256,34 @@ struct AudioLoader {
 struct LoadFailed {};  // (`error` says why)
 }  // namespace
 
-bool loadProject(const std::string& path, Project& project, int sr, MasterSettings& master, std::string& error) {
+namespace {
+// every sample file a project's JSON names (clips, takes, samplers, pads, frozen tracks; groups' buses too)
+std::vector<std::string> namedFiles(const Json& data, const std::function<std::string(const std::string&)>& fileIn) {
+    std::vector<std::string> out;
+    std::set<std::string> seen;
+    auto add = [&](const Json& entry) {
+        const Json& f = entry["file"];
+        if (f.isString() && !f.toString().empty() && seen.insert(fileIn(f.toString())).second)
+            out.push_back(fileIn(f.toString()));
+    };
+    auto track = [&](const Json& t) {
+        if (!t.isObject()) return;
+        add(t["sampler"]);
+        for (const Json& p : t["pad_kit"]["pads"].items()) add(p);
+        for (const Json& e : t["takes"].items())
+            if (e.str("kind") == "audio") add(e);
+        add(t["frozen"]);
+    };
+    for (const Json& t : data["tracks"].items()) track(t);
+    for (const Json& g : data["groups"].items()) track(g["bus"]);
+    for (const Json& c : data["clips"].items())
+        if (c.str("kind") == "audio") add(c);
+    return out;
+}
+}  // namespace
+
+bool loadProject(const std::string& path, Project& project, int sr, MasterSettings& master, std::string& error,
+                 const std::function<void(int done, int total)>& progress) {
     std::string text;
     if (!util::readFile(path, text)) {
         error = "Cannot read " + path + ": " + strerror(errno);
@@ -1158,6 +1300,54 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
         base = util::absolutePath(util::joinPath(base, data["base"].toString()));  // (a backup: see the top)
     auto fileIn = [&](const std::string& name) { return util::absolutePath(util::joinPath(base, name)); };
     AudioLoader loader;
+    {  // every file it names that is there, decoded at once (each once): the clips below take them from `loader`
+        std::vector<std::string> there;
+        for (auto& f : namedFiles(data, fileIn))
+            if (util::fileExists(f)) there.push_back(f);
+        std::vector<Decoded> decoded = decodeFiles(there, -1, progress);
+        for (size_t i = 0; i < there.size(); i++) {
+            if (decoded[i].error.empty()) loader.sources.emplace(there[i], std::make_pair(decoded[i].audio, decoded[i].rate));
+            else loader.failed.emplace(there[i], decoded[i].error);
+        }
+    }
+    // MISSING SAMPLES (see the header): silent stand-ins sharing one MissingFile per file
+    std::map<std::string, const Json*> savedInfo;  // "audio_files": name as written -> {"size", "sound"}
+    for (auto& m : std::as_const(data)["audio_files"].members()) savedInfo[m.first] = &m.second;
+    std::map<std::string, std::shared_ptr<const MissingFile>> missingFiles;
+    int missingClips = 0;
+    auto missingClip = [&](const std::string& name, const std::string& clipName, double seconds) {
+        std::string file = fileIn(name);
+        auto& m = missingFiles[file];
+        if (!m) {
+            auto f = std::make_shared<MissingFile>();
+            f->path = file;
+            auto it = savedInfo.find(name);
+            if (it != savedInfo.end()) {
+                f->size = (int64_t)it->second->num("size", -1);
+                f->sound = it->second->str("sound");
+            }
+            m = f;
+        }
+        // shortcut: at most 10 minutes of silence; a longer window plays its silence no further (never past its data)
+        seconds = std::isfinite(seconds) ? std::min(600.0, std::max(0.0, seconds)) : 1.0;
+        auto silent = std::make_shared<AudioBuffer>();
+        silent->samples.assign((size_t)std::max<int64_t>(1, (int64_t)std::ceil(seconds * sr)) * 2, 0.0f);
+        auto clip = std::make_shared<Clip>();
+        clip->kind = Kind::Audio;
+        clip->name = clipName;
+        clip->source = silent;
+        clip->sourceSr = sr;
+        clip->missing = m;
+        missingClips++;
+        return clip;
+    };
+    // as far as a clip's (or take's) window reaches into its audio, in seconds (none: a second)
+    auto reach = [](const Json& entry) {
+        const Json& length = entry["length"];
+        double s = entry.num("offset", 0.0) + (length.isNumber() ? length.toDouble() : 1.0);
+        double stretch = entry.num("stretch", 1.0);
+        return stretch > 0 && stretch < 1 ? s / stretch : s;  // (squeezed: its audio is longer)
+    };
     auto audioClip = [&](const std::string& file, const std::string& name) {
         auto clip = std::make_shared<Clip>();
         clip->kind = Kind::Audio;
@@ -1284,14 +1474,18 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
             track.modCables = readModulation(track, entry["modulation"]);
             const Json& sampler = entry["sampler"];
             if (sampler.isObject() && sampler.size()) {
-                std::string file = fileIn(strOf(need(sampler, "file")));
-                if (util::fileExists(file)) {  // (its sample missing: the built-in synth plays)
+                std::string name = strOf(need(sampler, "file"));
+                std::string file = fileIn(name);
+                if (!name.empty()) {  // (its sample missing: a silent stand-in until it is found)
                     auto s = std::make_shared<SamplerSettings>();
-                    s->sample = audioClip(file, sampler.str("name", util::baseName(file)));
+                    std::string clipName = sampler.str("name", util::baseName(file));
+                    s->sample = util::fileExists(file) ? audioClip(file, clipName) : missingClip(name, clipName, 0.1);
                     readSound(sampler, *s);
                     track.sampler = s;
                 }
             }
+            if (const Json& patch = entry["synth"]; patch.isObject())  // (none: the classic voice, as ever)
+                track.synth = std::make_shared<const subsynth::Patch>(subsynth::fromJson(patch));
             const Json& kitEntry = entry["pad_kit"];
             if (kitEntry.isObject()) {
                 auto kit = std::make_shared<PadKit>();
@@ -1304,8 +1498,9 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
                     readSound(p, pad.sound);
                     std::string name = p.str("file", "");
                     std::string file = name.empty() ? std::string() : fileIn(name);
-                    if (!file.empty() && util::fileExists(file))  // (its sample missing: an empty pad)
-                        pad.sound.sample = audioClip(file, p.str("name", util::baseName(file)));
+                    if (!file.empty())  // (its sample missing: a silent stand-in until it is found)
+                        pad.sound.sample = util::fileExists(file) ? audioClip(file, p.str("name", util::baseName(file)))
+                                                                  : missingClip(name, p.str("name", util::baseName(file)), 0.1);
                 }
                 track.padKit = kit;
             }
@@ -1315,9 +1510,10 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
                 if (!e.isObject()) continue;
                 ClipPtr take;
                 if (e.str("kind") == "audio") {
-                    std::string file = fileIn(strOf(need(e, "file")));
-                    if (!util::fileExists(file)) continue;  // (its audio file missing: the take is left out)
-                    take = audioClip(file, strOf(need(e, "name")));
+                    std::string name = strOf(need(e, "file"));
+                    std::string file = fileIn(name);
+                    take = util::fileExists(file) ? audioClip(file, strOf(need(e, "name")))
+                                                  : missingClip(name, strOf(need(e, "name")), reach(e));
                 } else {
                     take = std::make_shared<Clip>();
                     take->kind = Kind::Midi;
@@ -1379,7 +1575,6 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
         Timing timing = readTiming(field(data, "timing"));
         midi_effects::TimingScope onItsBeats(&timing);  // (its MIDI clips prepared on its own tempo and swing)
         clip_hooks::UseTempoMap onItsTempo(timing.map());  // (and its warped audio clips: audio/warp.h)
-        std::vector<std::string> missing;
         std::vector<ClipPtr> clips;
         std::map<double, ClipPtr> linked;  // linked MIDI clips: "link" number -> the first clip with it
         const Json& clipEntries = need(data, "clips");
@@ -1391,11 +1586,8 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
             if (strOf(need(entry, "kind")) == "audio") {
                 std::string name = strOf(need(entry, "file"));
                 std::string file = fileIn(name);
-                if (!util::fileExists(file)) {
-                    missing.push_back(name);
-                    continue;
-                }
-                clip = audioClip(file, strOf(need(entry, "name")));
+                clip = util::fileExists(file) ? audioClip(file, strOf(need(entry, "name")))
+                                              : missingClip(name, strOf(need(entry, "name")), reach(entry));
                 clip->stretch = entry.num("stretch", 1.0);
                 clip->pitch = entry.num("pitch", 0.0);
                 clip->sourceBpm = entry.num("source_bpm", 0.0);
@@ -1469,11 +1661,9 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
             prepareSafely(*clip, sr);
             clips.push_back(clip);
         }
-        if (!missing.empty()) {
-            error = "Audio files are missing:";
-            for (auto& m : missing) error += "\n" + m;
-            return false;
-        }
+        if (!missingFiles.empty())
+            util::debugf("project: %zu sample file(s) missing, %d clip(s) silent until found (relink.h)\n",
+                         missingFiles.size(), missingClips);
         std::vector<Marker> markers;
         for (const Json& m : field(data, "markers").items())
             if (m.isArray() && m.size() == 2 && m[size_t(0)].isNumber())

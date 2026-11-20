@@ -1,0 +1,17 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "Mallet",
+  "category": "Pluck",
+  "params": {
+    "osc1_wave": 1,
+    "noise": 0.05,
+    "cutoff": 3000,
+    "env1_attack": 0.001,
+    "env1_decay": 0.35,
+    "env1_sustain": 0,
+    "env1_release": 0.3,
+    "output": 2
+  },
+  "mods": []
+}

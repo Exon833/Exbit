@@ -1,0 +1,21 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "Alarm",
+  "category": "FX",
+  "params": {
+    "osc1_wave": 1,
+    "lfo_shape": 1,
+    "lfo_rate": 0.5,
+    "lfo_retrigger": 1,
+    "cutoff": 8000,
+    "output": -1
+  },
+  "mods": [
+    {
+      "source": "lfo",
+      "target": "osc1_semi",
+      "depth": 0.25
+    }
+  ]
+}

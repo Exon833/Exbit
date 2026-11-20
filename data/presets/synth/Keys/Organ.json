@@ -1,0 +1,32 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "Organ",
+  "category": "Keys",
+  "params": {
+    "osc1_wave": 0,
+    "osc2_wave": 0,
+    "osc2_octave": 1,
+    "osc2_level": 0.6,
+    "osc2_detune": 0,
+    "env1_attack": 0.005,
+    "env1_decay": 0.1,
+    "env1_sustain": 1,
+    "env1_release": 0.05,
+    "lfo_rate": 6,
+    "lfo_retrigger": 0,
+    "output": -1
+  },
+  "mods": [
+    {
+      "source": "lfo",
+      "target": "osc1_semi",
+      "depth": 0.001
+    },
+    {
+      "source": "lfo",
+      "target": "osc2_semi",
+      "depth": 0.001
+    }
+  ]
+}

@@ -45,6 +45,7 @@ TrackPtr copyOf(const Track& t) {
     c->midiEffects = t.midiEffects;
     c->sampler = std::atomic_load(&t.sampler);
     c->padKit = std::atomic_load(&t.padKit);
+    c->synth = std::atomic_load(&t.synth);
     c->needsInstrument = t.needsInstrument;
     c->bendRange = t.bendRange;
     c->midiIn = t.midiIn;

@@ -15,6 +15,7 @@
 #include "audio/metering.h"
 #include "audio/patch.h"
 #include "audio/plugin_audio.h"
+#include "audio/sampler.h"
 #include "config.h"
 #include "core/util.h"
 #include "model/project_io.h"
@@ -23,6 +24,7 @@
 #include "ui/audio_dialog.h"
 #include "ui/autosave.h"
 #include "ui/colors.h"
+#include "ui/commands.h"
 #include "ui/cpu_monitor.h"
 #include "ui/explorer.h"
 #include "ui/history_window.h"
@@ -52,6 +54,8 @@
 #include "ui/plugin_host.h"
 #include "ui/recording.h"
 #include "ui/templates.h"
+#include "ui/project_safety.h"
+#include "model/collect.h"
 #include "ui/theme.h"
 #include "ui/timeline.h"
 #include "ui/toolkit/dialogs.h"
@@ -229,20 +233,7 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     buildEditMenu();
     buildViewMenu();
     buildOptionsMenu();
-    menuBar->registerShortcuts(ui::ShortcutScope::Window);
-    // undo and redo from any of the program's windows (MIDI editor, FX windows too)
-    for (ui::Action* a : {undoAction, redoAction}) a->shortcut = ui::KeySequence();
-    extraShortcuts.push_back(std::make_unique<ui::Shortcut>(this, ui::KeySequence::parse("Ctrl+Z"), [this] { undo(); },
-                                                            ui::ShortcutScope::ApplicationWide));
-    for (const char* keys : {"Ctrl+Shift+Z", "Ctrl+Y"})
-        extraShortcuts.push_back(std::make_unique<ui::Shortcut>(this, ui::KeySequence::parse(keys), [this] { redo(); },
-                                                                ui::ShortcutScope::ApplicationWide));
-    undoAction->shortcut = ui::KeySequence::parse("Ctrl+Z");  // (shown in the menu)
-    redoAction->shortcut = ui::KeySequence::parse("Ctrl+Shift+Z");
-    // shown only in the menu: the toolbar button owns the shortcut (registered after the others)
-    for (auto& m : menuBar->menus())
-        for (auto& a : m->actions())
-            if (a->text.rfind("Add audio or MIDI", 0) == 0) a->shortcut = ui::KeySequence::parse("Ctrl+I");
+    setUpCommands();  // every menu entry's keys, and the other keys, as the keymap binds them (ui/commands.h)
     connectControls();
     startTimers();
     applyMeterOptions();
@@ -303,6 +294,8 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
 
 MainWindow::~MainWindow() {
     *alive_ = false;
+    if (timeline) timeline->commands_ = nullptr;  // (the registry goes first)
+    if (panel) panel->commands_ = nullptr;
     clip_hooks::tempoMap = nullptr;  // (it asked this window's project)
     automation::recorder().releaseAll();
     automation::recorder().songTime = nullptr;  // (it asked this window's engine)
@@ -447,6 +440,9 @@ void MainWindow::buildFileMenu() {
         {"&Save", "Ctrl+S", [this] { saveProject(); }},
         {"Save &as…", "Ctrl+Shift+S", [this] { saveProjectAs(); }},
         {"Save as t&emplate…", nullptr, [this] { templates::saveAsTemplate(*this); }},
+        {"Co&llect and save", nullptr, [this] { project_safety::collectAndSave(*this); }},
+        {"Save as arc&hive…", nullptr, [this] { project_safety::saveArchive(*this); }},
+        {"Fin&d missing samples…", nullptr, [this] { project_safety::showMissing(*this, true); }},
         {"Open a &backup…", nullptr, [this] { openBackup(); }},
         {"&Import Ableton Live set…", nullptr, [this] { importAbleton(); }},
         {nullptr, nullptr, nullptr},
@@ -630,6 +626,9 @@ void MainWindow::buildViewMenu() {
     menu->addSeparator();
     menu->addAction("Show all automation", [this] { showAllAutomation(true); });
     menu->addAction("Hide all automation", [this] { showAllAutomation(false); });
+    menu->addSeparator();
+    menu->addAction("Command &palette…", [this] { showPalette(); }, "Ctrl+Shift+P")->tooltip =
+        "Every command by typing a few of its letters (the terminal: Ctrl+P)";
 }
 
 void MainWindow::showTempoLane(bool on) {
@@ -660,6 +659,8 @@ void MainWindow::buildOptionsMenu() {
     menu->addAction("&VST2 plugin folders…", [this] { chooseVst2Folders(); });
     menu->addAction("&Wine prefixes…", [this] { chooseWinePrefixes(); });
     menu->addAction("&Install Windows plugin…", [this] { installWindowsPlugin(); });
+    menu->addAction("&Keyboard shortcuts…", [this] { showShortcuts(); })->tooltip =
+        "Every command and its keys: find one, give it other keys; keymaps to import and export";
     menu->addCheckable("Reload crashed Windows plugins automaticall&y", prefs.reloadCrashedPlugins, [this](bool on) {
             prefs.reloadCrashedPlugins = plugins->autoReload = on;
             prefs.save();
@@ -1316,7 +1317,15 @@ void MainWindow::setTiming(const TimingChange& c) {
             if (clip->kind == Kind::Midi && track && (!track->midiEffects.empty() || midi_effects::swings(*track)))
                 timeline->prepareLive(clip);  // (swing too: it is in beats)
         }
-    if (none || c.bpm || c.beatsPerBar) retimeWarped();  // (warped audio follows the tempo)
+    if (none || c.bpm || c.beatsPerBar) {
+        retimeWarped();  // (warped audio follows the tempo)
+        for (auto& clip : project.clips) {  // (a sampler warped, its LFO synced or sliced on a grid: so do its notes)
+            TrackPtr track = std::atomic_load(&clip->track);
+            SamplerPtr s = track ? std::atomic_load(&track->sampler) : nullptr;
+            if (clip->kind == Kind::Midi && s && track->playsSampler() && sampler::followsTempo(*s))
+                timeline->prepareLive(clip);
+        }
+    }
     transport->showTiming(t);
     timeline->update();
 }
@@ -1695,8 +1704,11 @@ bool MainWindow::startFromTemplate(const std::string& path) {
 
 void MainWindow::openProject() {
     if (!confirmDiscard()) return;
-    std::string path = ui::files::openFile(this, "Open project", "", "Tiny DAW project (*.json)");
-    if (!path.empty()) openProjectFile(path);
+    std::string path = ui::files::openFile(this, "Open project", "",
+                                           "Tiny DAW project (*.json *.tinydaw.zip);;Tiny DAW archive (*.tinydaw.zip)");
+    if (path.empty()) return;
+    if (collect::isArchive(path)) project_safety::openArchive(*this, path);  // (unpacked first)
+    else openProjectFile(path);
 }
 
 bool MainWindow::openProjectFile(const std::string& path) {
@@ -1705,7 +1717,13 @@ bool MainWindow::openProjectFile(const std::string& path) {
     plugins->closeEditor();
     project_io::MasterSettings m;
     std::string error;
-    if (!project_io::loadProject(path, project, engine.sr, m, error)) {
+    bool loaded;
+    {  // (its samples decoded on every core: a progress window if that takes a while)
+        ui::ProgressDialog busy(this, "Opening", "Reading the project's samples\xe2\x80\xa6", false);
+        loaded = project_io::loadProject(path, project, engine.sr, m, error, project_safety::progressIn(busy));
+        if (busy.isWindowShown()) busy.hideWindow();
+    }
+    if (!loaded) {
         ui::msg::warning(this, "Cannot open project", path + "\n\n" + error);
         return false;
     }
@@ -1719,6 +1737,7 @@ bool MainWindow::openProjectFile(const std::string& path) {
     markSaved();
     templates::remember(prefs, path);  // (File → Open recent; not backups, recovery files, templates)
     showStatus("Opened " + path, 5000);
+    project_safety::showMissing(*this);  // (samples not where it names them: find them, or leave them silent)
     return true;
 }
 
@@ -1765,7 +1784,7 @@ bool MainWindow::saveProjectAs() {
     return saveProjectFile(path);
 }
 
-bool MainWindow::saveProjectFile(const std::string& path) {
+bool MainWindow::saveProjectFile(const std::string& path, const std::function<void(int, int)>& progress) {
     if (!engine.isOpen())  // with a device open, the audio thread keeps the plugins processing (in sync)
         for (auto& slot : project.pluginSlots()) plugin_audio::syncState(*slot, engine.sr);
     std::string error, backup;
@@ -1776,7 +1795,7 @@ bool MainWindow::saveProjectFile(const std::string& path) {
         if (answer != ui::msg::Yes) return false;
     }
     error.clear();
-    if (!project_io::saveProject(path, project, engine.sr, master->settings(), error)) {
+    if (!project_io::saveProject(path, project, engine.sr, master->settings(), error, progress)) {
         ui::msg::warning(this, "Cannot save project", path + "\n\n" + error);
         return false;
     }

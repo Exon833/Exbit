@@ -14,14 +14,14 @@ namespace history {
 //   a looping audio clip: data, peaks, baseFrames (built again from its other fields)
 #define TRACK_FIELDS(X)                                                                                         \
     X(name) X(kind) X(muted) X(soloed) X(soloSafe) X(output) X(volumeDb) X(delayMs) X(pan) X(sends) X(instrument)          \
-    X(midiEffects) X(sampler) X(padKit) X(needsInstrument) X(effects) X(cables) X(modCables) X(color) X(tone)     \
+    X(midiEffects) X(sampler) X(padKit) X(synth) X(needsInstrument) X(effects) X(cables) X(modCables) X(color) X(tone)     \
     X(group) X(frozen) X(automation) X(takes) X(usesRack) X(rack) X(rackCables) X(bendRange) \
     X(swing) X(into) X(padOut) X(midiIn) X(midiInChannel) X(ext) X(monitor) X(inputCh) X(inputStereo)
 #define GROUP_FIELDS(X) X(name) X(muted) X(soloed) X(color) X(tone) X(foldOnly) X(parent)
 #define CLIP_FIELDS(X)                                                                                          \
     X(kind) X(name) X(track) X(start) X(offset) X(length) X(color) X(tone) X(disabled) X(gainDb) X(fadeIn)     \
     X(fadeOut) X(fadeLead) X(fadeTail) X(fadeInShape) X(fadeOutShape) X(loop) X(source) X(sourceSr)            \
-    X(sourcePath) X(stretch) X(pitch) X(sourceBpm) X(reverse) X(loopStart) X(loopLength) X(notes) X(lengthS)   \
+    X(sourcePath) X(missing) X(stretch) X(pitch) X(sourceBpm) X(reverse) X(loopStart) X(loopLength) X(notes) X(lengthS)   \
     X(mutedNotes) X(played) X(events) X(link) X(gainEnvelope) X(key) X(scale) X(effectsCommitted) X(warp)        \
     X(warpMode) X(warpPreserve) X(warpMarkers)
 #define CLIP_AUDIO_FIELDS(X) X(data) X(peaks) X(baseFrames) X(warpKey)  // (not for looping audio clips)
@@ -54,6 +54,7 @@ template <class T>
 bool same(const T& a, const T& b) { return a == b; }
 bool same(const SamplerPtr& a, const SamplerPtr& b) { return a == b || (a && b && *a == *b); }
 bool same(const PadKitPtr& a, const PadKitPtr& b) { return a == b || (a && b && *a == *b); }
+bool same(const subsynth::PatchPtr& a, const subsynth::PatchPtr& b) { return a == b || (a && b && *a == *b); }
 
 // written back: what the audio thread reads through a shared pointer is replaced atomically
 template <class T>
@@ -232,6 +233,7 @@ const char* trackChange(const TrackData& d, const Track& o) {
         !same(d.usesRack, o.usesRack) || !same(d.sampler, o.sampler) || !same(d.padKit, o.padKit) ||
         !same(d.needsInstrument, o.needsInstrument))
         return "Instrument";
+    if (!same(d.synth, o.synth)) return "Synth";
     if (!same(d.midiEffects, o.midiEffects)) return "MIDI effects";
     if (!same(d.color, o.color) || !same(d.tone, o.tone)) return "Track colour";
     if (!same(d.group, o.group)) return "Group tracks";

@@ -147,6 +147,7 @@
 
 class MasterLaneView;
 namespace pad_kit_dialog { class SliceDialog; }
+namespace commands { class Registry; }
 
 namespace timeline {
 constexpr int GROUP_PAD = 6;           // (default: Lane.group's padding) above and below the miniature clips in a group's header lane
@@ -610,7 +611,11 @@ public:
     bool mouseDoubleClick(ui::MouseEvent& e) override;
     bool contextMenu(ui::MouseEvent& e) override;
     bool wheel(ui::WheelEvent& e) override;
-    bool keyPress(ui::KeyEvent& e) override;
+    bool keyPress(ui::KeyEvent& e) override;    // (rebound keys first turned into the default ones: commands_)
+    bool handleKey(ui::KeyEvent& e);             // the default keys' (Del, S, Ctrl+D…)
+    // its keys as commands that can be rebound ("Timeline/Split"…: ui/commands.h)
+    void registerCommands(commands::Registry& r);
+    commands::Registry* commands_ = nullptr;
     void dragEnter(ui::DragEvent& e) override;
     void drop(ui::DragEvent& e) override;
 

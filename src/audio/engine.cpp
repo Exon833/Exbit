@@ -584,7 +584,7 @@ std::shared_ptr<live::LiveNotes> Engine::liveNotes(const Track* track) {
     auto map = std::atomic_load(&live_);
     live::NoteRender render;  // (its built-in notes: the track's sampler, or the synth)
     for (auto& t : project.tracks)
-        if (t.get() == track) render = sampler::noteRenderer(*t);
+        if (t.get() == track) render = subsynth::noteRenderer(*t);  // (its synth patch, sampler or Pad Kit; or the classic synth)
     for (auto& kv : *map)
         if (kv.first == track) {
             kv.second->setRenderer(render);

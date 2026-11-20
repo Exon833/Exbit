@@ -1,0 +1,22 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "Synth Brass",
+  "category": "Keys",
+  "params": {
+    "osc1_wave": 2,
+    "osc2_wave": 2,
+    "osc2_detune": 6,
+    "osc2_level": 1,
+    "cutoff": 600,
+    "filter_env": 0.45,
+    "env2_attack": 0.08,
+    "env2_decay": 0.6,
+    "env2_sustain": 0.4,
+    "env1_attack": 0.04,
+    "env1_sustain": 0.9,
+    "env1_release": 0.2,
+    "output": -4
+  },
+  "mods": []
+}

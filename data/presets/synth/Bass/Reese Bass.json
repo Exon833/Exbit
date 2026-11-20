@@ -1,0 +1,30 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "Reese Bass",
+  "category": "Bass",
+  "params": {
+    "osc1_wave": 2,
+    "osc1_octave": -1,
+    "osc1_detune": -12,
+    "osc2_wave": 2,
+    "osc2_octave": -1,
+    "osc2_detune": 12,
+    "osc2_level": 1,
+    "unison": 2,
+    "spread": 10,
+    "cutoff": 600,
+    "resonance": 0.2,
+    "lfo_rate": 0.3,
+    "drift": 0.3,
+    "mono": 1,
+    "output": 0
+  },
+  "mods": [
+    {
+      "source": "lfo",
+      "target": "cutoff",
+      "depth": 0.04
+    }
+  ]
+}

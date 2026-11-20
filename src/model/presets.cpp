@@ -291,6 +291,7 @@ bool saveTrack(const Track& track, int sr, const std::string& name, std::string&
     t->cables = track.cables;    // (from other tracks: left out, they aren't in this project)
     t->modCables = track.modCables;
     t->midiEffects = track.midiEffects;
+    t->synth = std::atomic_load(&track.synth);  // (the built-in synth's patch)
     if (track.sampler) {  // (a copy of its sample's clip: saving points that one at the preset's audio)
         auto s = std::make_shared<SamplerSettings>(*track.sampler);
         if (s->sample) s->sample = copyClip(s->sample);
@@ -379,6 +380,7 @@ Applied applyTrack(Project& project, const TrackPtr& track, TrackPreset& preset,
         track->rack = c->rack;
         track->rackCables = c->rackCables;
         std::atomic_store(&track->sampler, SamplerPtr(c->sampler));
+        std::atomic_store(&track->synth, subsynth::PatchPtr(c->synth));
         std::atomic_store(&track->instrument, SlotPtr(c->instrument));
         track->usesRack = c->usesRack;
         track->needsInstrument = c->needsInstrument && !c->instrument && !c->usesRack && !c->sampler;

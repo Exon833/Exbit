@@ -1,0 +1,31 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "Warm Pad",
+  "category": "Pad",
+  "params": {
+    "osc1_wave": 2,
+    "osc2_wave": 2,
+    "osc2_detune": 10,
+    "osc2_level": 1,
+    "unison": 4,
+    "spread": 15,
+    "cutoff": 1200,
+    "resonance": 0.1,
+    "env1_attack": 0.8,
+    "env1_decay": 1,
+    "env1_sustain": 0.8,
+    "env1_release": 1.5,
+    "drift": 0.3,
+    "lfo_rate": 0.2,
+    "lfo_retrigger": 0,
+    "output": -6
+  },
+  "mods": [
+    {
+      "source": "lfo",
+      "target": "cutoff",
+      "depth": 0.05
+    }
+  ]
+}

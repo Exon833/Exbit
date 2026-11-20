@@ -1,5 +1,7 @@
 // The right-hand panel: one row per track, group and automation lane (lane_panel.py).
 #include "ui/lane_panel.h"
+
+#include "ui/commands.h"
 #include "model/pad_tracks.h"
 #include "model/routing.h"
 #include "ui/pad_kit_dialog.h"
@@ -929,6 +931,23 @@ void LanePanel::fillTrackMenu(ui::Menu& menu, const TrackPtr& track) {
     }
     fillOutputMenu(*menu.addMenu("Output: " + routing::targetName(*track)), track);
     if (fillRenderMenu) fillRenderMenu(menu, track);
+    if (commands_) commands_->showKeys(menu);  // (the keys as rebound)
+}
+
+void LanePanel::registerCommands(commands::Registry& r) {
+    shortcuts_.clear();  // (Alt+Up / Alt+Down: the registry's from now on)
+    for (int dir : {-1, 1}) {
+        commands::KeyCommand c;
+        c.id = dir < 0 ? "Tracks/Move the track up" : "Tracks/Move the track down";
+        c.name = dir < 0 ? "Move the track up" : "Move the track down";
+        c.defaults = {ui::KeySequence::parse(dir < 0 ? "Alt+Up" : "Alt+Down")};
+        c.run = [this, dir] {
+            if (timeline.currentTrack) move(timeline.currentTrack, dir);
+        };
+        c.owner = this;
+        r.add(std::move(c));
+    }
+    commands_ = &r;
 }
 
 void LanePanel::fillOutputMenu(ui::Menu& menu, const TrackPtr& track) {

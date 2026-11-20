@@ -1,0 +1,29 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "Riser",
+  "category": "FX",
+  "params": {
+    "osc1_wave": 2,
+    "unison": 4,
+    "spread": 30,
+    "noise": 0.6,
+    "filter_type": 2,
+    "cutoff": 400,
+    "resonance": 0.4,
+    "lfo_shape": 2,
+    "lfo_sync": 1,
+    "lfo_retrigger": 1,
+    "env1_attack": 2,
+    "env1_sustain": 1,
+    "env1_release": 1,
+    "output": 8
+  },
+  "mods": [
+    {
+      "source": "lfo",
+      "target": "cutoff",
+      "depth": 0.5
+    }
+  ]
+}

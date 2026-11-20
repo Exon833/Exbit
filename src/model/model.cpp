@@ -118,7 +118,14 @@ MidiEffect MidiEffect::with(const std::string& key, double value) const {
 bool SamplerSettings::operator==(const SamplerSettings& o) const {
     return sample == o.sample && root == o.root && transpose == o.transpose && gainDb == o.gainDb &&
            velocity == o.velocity && attack == o.attack && decay == o.decay && sustain == o.sustain &&
-           release == o.release && oneShot == o.oneShot && loop == o.loop && start == o.start && end == o.end;
+           release == o.release && oneShot == o.oneShot && loop == o.loop && start == o.start && end == o.end &&
+           loopStart == o.loopStart && slice == o.slice && sliceGrid == o.sliceGrid && sensitivity == o.sensitivity &&
+           reverse == o.reverse && normalise == o.normalise && filter == o.filter && steep == o.steep &&
+           cutoff == o.cutoff && resonance == o.resonance && filterEnv == o.filterEnv && keyTrack == o.keyTrack &&
+           fAttack == o.fAttack && fDecay == o.fDecay && fSustain == o.fSustain && fRelease == o.fRelease &&
+           lfoShape == o.lfoShape && lfoSync == o.lfoSync && lfoRate == o.lfoRate && lfoBeats == o.lfoBeats &&
+           lfoDepth == o.lfoDepth && lfoTarget == o.lfoTarget && glide == o.glide && mono == o.mono &&
+           warp == o.warp && bpm == o.bpm && warpMode == o.warpMode;
 }
 
 bool Pad::empty() const { return !sound.sample || !sound.sample->source || sound.sample->source->frames() == 0; }
@@ -246,6 +253,9 @@ void Clip::prepare(int sr, int64_t reach) {
         data = silent;
     } else if (t && (t->playsSampler() || t->playsPadKit()) && clip_hooks::renderSampler) {
         data = clip_hooks::renderSampler(*t, notesPlayed, sr, len);
+    } else if (subsynth::PatchPtr patch = t ? std::atomic_load(&t->synth) : nullptr; patch && subsynth::plays(*t)) {
+        TempoMapPtr map = clip_hooks::currentTempoMap();  // (a synced LFO: the song's beat where the clip begins)
+        data = subsynth::render(*patch, notesPlayed, sr, len, map ? map->beatSAt(std::max(0.0, (double)(start - offset) / sr)) : 0.5);
     } else {
         data = synth::render(notesPlayed, sr, len);
     }

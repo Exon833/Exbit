@@ -985,6 +985,24 @@ SliceDialog::count { min-width: 90px; }
 /* The sampler's window (SamplerDialog: padding around, row-gap between its rows). */
 SamplerDialog { padding: 9px; row-gap: 6px; }
 
+/* The built-in synth's window (SynthDialog: padding, row-gap) and its page of knobs (SynthPage: its text's colour and
+   font): ::section a section's box, ::title its title, ::knob, ::pointer and ::arc a knob and its value, ::choice a
+   choice's box, ::current the control with the keyboard, ::handle a source's ⊕ (its background-color: else the
+   source's colour), ::target a knob the dragged source can modulate, ::env1 ::env2 ::lfo each source's ring. */
+SynthDialog { padding: 9px; row-gap: 6px; }
+SynthPage { color: var(--window-text); }
+SynthPage::section { background-color: var(--panel); border: 1px solid var(--frame-edge); border-radius: 4px; }
+SynthPage::title { color: var(--ruler-text); font-weight: bold; }
+SynthPage::knob { background-color: var(--button); }
+SynthPage::pointer { color: var(--button-text); stroke-width: 2px; }
+SynthPage::arc { color: var(--accent); stroke-width: 2px; }
+SynthPage::choice { background-color: var(--base); border: 1px solid var(--field-edge); border-radius: 3px; color: var(--text); }
+SynthPage::current, SynthPage::target { color: var(--selected-note); }
+SynthPage::handle { color: var(--window); }
+SynthPage::env1 { color: #f0b43c; stroke-width: 2.5px; }
+SynthPage::env2 { color: #5ac878; stroke-width: 2.5px; }
+SynthPage::lfo { color: #5aa0f0; stroke-width: 2.5px; }
+
 /* The sampler's waveform (a SampleWaveform): what is before its start and after its end, and their lines. */
 SamplerWaveform::outside { background-color: var(--roll-shade); }
 SamplerWaveform::marker { background-color: var(--selected-note); width: 1px; }

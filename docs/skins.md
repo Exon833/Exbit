@@ -778,6 +778,10 @@ from its style is `--layout-spacing` (rows and columns) and `--grid-spacing` (gr
 - **`SampleWaveform`**: a box, `color`, the font. Parts `::caption` (`color`, the font, `height`, `padding`,
   `column-gap`), `::wave`, `::midline`, `::position`. **`SamplerWaveform`** (a `SampleWaveform`): `::outside`,
   `::marker`.
+- **`SynthDialog`** (the built-in synth's window): `padding`, `row-gap`. **`SynthPage`** (its knobs): `color`, the
+  font. Parts `::section` (a box), `::title` (`color`, the font), `::knob` (`background-color`), `::pointer` and
+  `::arc` (`color`, `stroke-width`), `::choice` (a box, `color`), `::current` and `::target` (`color`), `::handle`
+  (`background-color`, `color`), `::env1`, `::env2`, `::lfo` (the modulation rings: `color`, `stroke-width`).
 - **`PadView`**: states `:selected`, `:dropping`; `--choke-1`, `--choke-2`, `--choke-3`, `--choke-4`, `--choke-5`, `--choke-6`, `--choke-7`, `--choke-8` (the choke groups' colours). Parts
   `::choke-tint`, `::empty`, `::name` (`:selected`), `::stripe`, `::frame`.
 

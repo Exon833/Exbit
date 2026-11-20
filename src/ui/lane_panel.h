@@ -68,6 +68,7 @@
 #include "ui/widgets.h"
 
 class Timeline;
+namespace commands { class Registry; }
 class MasterStrip;
 class LanePanel;
 
@@ -157,6 +158,9 @@ public:
     void showUsedOutputs();         // group meters: their tracks' outputs; the master meter: every output in use
     // right-click menus
     void fillTrackMenu(ui::Menu& menu, const TrackPtr& track);
+    // Alt+Up / Alt+Down as commands that can be rebound (ui/commands.h); its menus then show the keys bound
+    void registerCommands(commands::Registry& r);
+    commands::Registry* commands_ = nullptr;
     void fillGroupMenu(ui::Menu& menu, const GroupPtr& group);
     // Output: where the track (or a group's bus) plays (model/routing.h); a loop greyed out
     void fillOutputMenu(ui::Menu& menu, const TrackPtr& track);

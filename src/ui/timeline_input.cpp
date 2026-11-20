@@ -12,6 +12,8 @@
 #include "model/presets.h"
 #include "ui/master_lane.h"
 #include "ui/timeline.h"
+
+#include "ui/commands.h"
 #include "ui/song_scale.h"
 #include "ui/toolkit/menu.h"
 
@@ -810,6 +812,7 @@ void Timeline::fillMenu(ui::Menu& menu, std::optional<Point> pos) {
     loopRange->setEnabled(hasRange);
     menu.addSeparator();
     menu.addAction("Select all clips", [this] { selectAll(); }, "Ctrl+A");
+    if (commands_) commands_->showKeys(menu);  // (the keys as rebound)
 }
 
 void Timeline::startMove(PointF pos, const ClipPtr& grabbed) {
@@ -922,6 +925,42 @@ void Timeline::wheel(double delta, int mods, double x) {
 }
 
 bool Timeline::keyPress(ui::KeyEvent& e) {
+    ui::KeyEvent k = e;
+    if (commands_ && !commands_->translate("Timeline", k)) return true;  // (a default key taken away)
+    return handleKey(k);
+}
+
+void Timeline::registerCommands(commands::Registry& r) {
+    // the keys handleKey() knows (the Edit menu's Ctrl+C / X / V, Ctrl+Shift+I and Ctrl+Shift+Del are that menu's)
+    struct Entry {
+        const char* name;
+        std::vector<const char*> keys;
+    };
+    const Entry entries[] = {
+        {"Delete the selection", {"Del", "Backspace"}}, {"Split", {"S"}},  {"Clip colour…", {"C"}},
+        {"Select all", {"Ctrl+A"}},                     {"Group", {"Ctrl+G"}}, {"Duplicate", {"Ctrl+D"}},
+        {"Join", {"Ctrl+J"}},                           {"Rename…", {"Ctrl+R"}}, {"Switch clips off or on", {"0"}},
+        {"Clear the selection", {"Esc"}},
+    };
+    for (const Entry& en : entries) {
+        commands::KeyCommand c;
+        c.id = std::string("Timeline/") + en.name;
+        c.name = en.name;
+        for (const char* k : en.keys) c.defaults.push_back(ui::KeySequence::parse(k));
+        ui::KeySequence first = c.defaults[0];
+        c.run = [this, first] {  // (the palette's: as the key)
+            ui::KeyEvent e;
+            e.key = first.key;
+            e.mods = first.mods;
+            handleKey(e);
+        };
+        c.widget = "Timeline";
+        r.add(std::move(c));
+    }
+    commands_ = &r;
+}
+
+bool Timeline::handleKey(ui::KeyEvent& e) {
     int key = e.key >= 'a' && e.key <= 'z' ? e.key - 'a' + 'A' : e.key;
     const int mods = e.mods & (plat::ModShift | plat::ModCtrl | plat::ModAlt | plat::ModMeta);
     const int ctrlShift = plat::ModCtrl | plat::ModShift;

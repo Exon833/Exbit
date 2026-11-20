@@ -1,0 +1,23 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "PWM Lead",
+  "category": "Lead",
+  "params": {
+    "osc1_wave": 3,
+    "cutoff": 5000,
+    "lfo_shape": 1,
+    "lfo_rate": 0.8,
+    "lfo_retrigger": 0,
+    "mono": 1,
+    "glide": 0.04,
+    "output": -2
+  },
+  "mods": [
+    {
+      "source": "lfo",
+      "target": "osc1_width",
+      "depth": 0.35
+    }
+  ]
+}

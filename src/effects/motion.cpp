@@ -31,78 +31,15 @@
 #include <cstdio>
 
 #include "effects/builtin.h"
+#include "effects/svf.h"
 
 namespace effects {
 namespace {
 
 // --- what they share ----------------------------------------------------------------------------------
 
-const std::vector<std::string> LFO_SHAPES = {"Sine",   "Triangle", "Saw up",         "Saw down",
-                                             "Square", "Random (smooth)", "Sample and hold"};
-enum Shape { SINE, TRIANGLE, SAW_UP, SAW_DOWN, SQUARE, RANDOM_SMOOTH, SAMPLE_HOLD };
-
-// the synced lengths of one cycle, in beats (a bar: 4 beats)
-const std::vector<std::string> SYNC_NAMES = {"1/16", "1/8 triplet", "1/8",          "dotted 1/8",    "1/4",
-                                             "dotted 1/4", "1/2",   "1 bar (4/4)", "2 bars (4/4)", "4 bars (4/4)"};
-const double SYNC_BEATS[] = {0.25, 1.0 / 3, 0.5, 0.75, 1.0, 1.5, 2.0, 4.0, 8.0, 16.0};
-constexpr int SYNC_COUNT = (int)(sizeof SYNC_BEATS / sizeof SYNC_BEATS[0]);
-
 // how long settings take to glide to a new value, and the cutoff's moves (a square's jumps)
 constexpr double GLIDE_MS = 20.0, CUTOFF_GLIDE_MS = 1.0;
-
-// a value too small to matter (states fall to it, not on into denormals, which are slow)
-inline double flush(double x) { return std::fabs(x) < 1e-20 ? 0.0 : x; }
-
-// A random value (-1…1) for each cycle: the cycle's number scrambled (splitmix64), so the same
-// cycle always has the same value, and the right side, running a part of a cycle off the left,
-// meets the same values a little earlier.
-double cycleRandom(int64_t cycle) {
-    uint64_t z = (uint64_t)cycle + 0x9E3779B97F4A7C15ull;
-    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
-    z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
-    z ^= z >> 31;
-    return (double)(z >> 11) * (2.0 / 9007199254740992.0) - 1.0;  // (53 bits over 2^53, to -1…1)
-}
-
-// The LFO: where it is (whole cycles gone by, and how far into this one), and its wave there.
-struct Lfo {
-    int64_t cycle = 0;
-    double phase = 0;  // 0…1
-
-    void reset() {
-        cycle = 0;
-        phase = 0;
-    }
-    void advance(double cycles) {
-        phase += cycles;
-        if (phase >= 1.0) {
-            double whole = std::floor(phase);
-            cycle += (int64_t)whole;
-            phase -= whole;
-        }
-    }
-    // the wave (-1…1), `offset` cycles (0…1) ahead
-    double at(int shape, double offset) const {
-        double p = phase + offset;
-        int64_t c = cycle;
-        if (p >= 1.0) {
-            p -= 1.0;
-            c++;
-        }
-        switch (shape) {
-            case TRIANGLE: return p < 0.25 ? 4 * p : p < 0.75 ? 2 - 4 * p : 4 * p - 4;
-            case SAW_UP: return 2 * p - 1;
-            case SAW_DOWN: return 1 - 2 * p;
-            case SQUARE: return p < 0.5 ? 1.0 : -1.0;
-            case RANDOM_SMOOTH: {  // (a half cosine from this cycle's value to the next's)
-                double a = cycleRandom(c), b = cycleRandom(c + 1);
-                return a + (b - a) * (0.5 - 0.5 * std::cos(PI * p));
-            }
-            case SAMPLE_HOLD: return cycleRandom(c);
-            default: return std::sin(2 * PI * p);
-        }
-    }
-};
 
 // A setting gliding to its target: a one-pole low-pass, stepped once a frame.
 struct Glide {
@@ -154,37 +91,9 @@ std::string hzText(double hz) {
 
 // --- Filter Motion --------------------------------------------------------------------------------
 
-enum FilterType { LOWPASS, HIGHPASS, BANDPASS, NOTCH };
 constexpr double LOWEST_CUTOFF = 20.0, HIGHEST_CUTOFF = 20000.0;
-constexpr double MOST_Q = 25.0;  // resonance at 100 % (rings, but stays a filter)
-// 24 dB: two filters, the first a Butterworth's lower section, the second its upper one, made resonant
-constexpr double Q_12 = 0.7071067811865476, Q_24_FIRST = 0.5411961001461970, Q_24_SECOND = 1.3065629648763766;
 // the follower's range: from -60 dB (nothing) to 0 dB (all of the amount)
 constexpr double FOLLOW_RANGE_DB = 60.0;
-
-// One state-variable filter (topology-preserving transform: trapezoidal integrators, solved
-// without a delay in the loop): the step for an input x at g = tan(π fc / sr) and damping k = 1/Q;
-// lp, bp, hp its low-, band- and high-pass outputs.
-struct Svf {
-    double ic1[2] = {0, 0}, ic2[2] = {0, 0};  // the integrators' states, per side
-
-    void reset() { ic1[0] = ic1[1] = ic2[0] = ic2[1] = 0; }
-    double step(int c, double x, double g, double k, int type) {
-        double a1 = 1 / (1 + g * (g + k)), a2 = g * a1, a3 = g * a2;
-        double v3 = x - ic2[c];
-        double v1 = a1 * ic1[c] + a2 * v3;
-        double v2 = ic2[c] + a2 * ic1[c] + a3 * v3;
-        ic1[c] = flush(2 * v1 - ic1[c]);
-        ic2[c] = flush(2 * v2 - ic2[c]);
-        if (!(std::fabs(ic1[c]) < 1e6 && std::fabs(ic2[c]) < 1e6)) ic1[c] = ic2[c] = 0;  // (never: a guard)
-        switch (type) {
-            case HIGHPASS: return x - k * v1 - v2;
-            case BANDPASS: return k * v1;  // (its peak at 0 dB, however narrow)
-            case NOTCH: return x - k * v1;
-            default: return v2;
-        }
-    }
-};
 
 // |H| of the analog state-variable filter at w (the frequency over the cutoff), as the digital one
 // is at the frequency that the trapezoidal rule's warping maps there
@@ -244,12 +153,7 @@ public:
     }
     // the two filters' damping (1/Q) for the type, slope and resonance
     void dampings(double& first, double& second) const {
-        double res = std::min(1.0, std::max(0.0, v(resonance) / 100));
-        bool steep = v(slope) >= 0.5, poles = (int)v(type) == LOWPASS || (int)v(type) == HIGHPASS;
-        double q0 = steep && poles ? Q_24_SECOND : Q_12;
-        double q = q0 * std::pow(MOST_Q / q0, res);
-        second = 1 / q;
-        first = steep && poles ? 1 / Q_24_FIRST : 1 / q;
+        svfDampings((int)v(type), v(slope) >= 0.5, v(resonance) / 100, first, second);
     }
     void block(const float* const* x, const float* const* side, float* const* y, int n) override {
         int t = std::min(3, std::max(0, (int)v(type)));

@@ -1,0 +1,17 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "Bright Lead",
+  "category": "Lead",
+  "params": {
+    "osc1_wave": 2,
+    "unison": 5,
+    "spread": 20,
+    "cutoff": 8000,
+    "drive": 0.3,
+    "mono": 1,
+    "glide": 0.03,
+    "output": 0
+  },
+  "mods": []
+}

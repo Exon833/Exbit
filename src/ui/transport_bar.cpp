@@ -12,6 +12,7 @@
 #include "core/util.h"
 #include "gfx/svg.h"
 #include "platform/platform.h"
+#include "ui/commands.h"
 #include "ui/formatting.h"
 #include "ui/theme.h"
 #include "ui/toolkit/style.h"
@@ -625,6 +626,60 @@ void fillGridMenu(ui::Menu& menu, const Timing& timing, const std::function<void
 }
 
 }  // namespace transport_bar
+
+void TransportBar::registerCommands(commands::Registry& r) {
+    // (ids: English, never translated — keymaps keep them)
+    std::pair<TransportAction*, const char*> actions[] = {
+        {addFileAction.get(), "Add file…"},        {addAudioTrackAction.get(), "Add an audio track"},
+        {addMidiTrackAction.get(), "Add a MIDI track"}, {addReturnTrackAction.get(), "Add a return track"},
+        {playAction.get(), "Play"},                {recordAction.get(), "Record"},
+        {startAction.get(), "Back to the start"},  {loopAction.get(), "Loop"},
+        {followAction.get(), "Follow the playhead"}, {keysAction.get(), "Computer keyboard"},
+        {captureAction.get(), "Capture"},          {metronomeAction.get(), "Metronome"},
+        {beatsAction.get(), "Bars and beats"},     {thirdsAction.get(), "Triplets (thirds)"},
+    };
+    for (auto& [a, name] : actions) {
+        if (!a) continue;
+        commands::KeyCommand c;
+        c.id = std::string("Transport/") + name;
+        c.name = name;
+        if (!a->shortcut().empty()) c.defaults.push_back(a->shortcut());
+        c.run = [a] { a->trigger(); };
+        c.active = [a] { return a->isEnabled(); };
+        c.owner = this;  // (as its own shortcut: it works while the button is hidden too)
+        c.scope = a->shortcutScope();
+        c.shown = [a](const ui::KeySequence& k) { a->showShortcut(k); };
+        r.add(std::move(c));
+    }
+    std::pair<const char*, const char*> grid[] = {{"finer", "Grid/Finer"}, {"coarser", "Grid/Coarser"},
+                                                  {"snap", "Grid/Snap on or off"}, {"fixed", "Grid/Fixed or following the zoom"}};
+    for (auto& [key, id] : grid) {
+        auto it = gridActions.find(key);
+        if (it == gridActions.end()) continue;
+        KeyAction* a = it->second.get();
+        commands::KeyCommand c;
+        c.id = id;
+        c.name = std::string(id).substr(5);
+        c.defaults = {a->shortcut()};
+        c.run = [a] { a->trigger(); };
+        c.owner = this;
+        c.scope = ui::ShortcutScope::ApplicationWide;  // (from the MIDI editor too)
+        c.shown = [a](const ui::KeySequence& k) { a->showShortcut(k); };
+        r.add(std::move(c));
+    }
+    commands::KeyCommand tap;
+    tap.id = "Transport/Tap tempo";
+    tap.name = "Tap tempo";
+    tap.defaults = {ui::KeySequence::parse("T")};
+    tap.run = [this] {
+        tapButton->pressed.emit();  // (a tap counts when pressed)
+        tapButton->released.emit();
+        tapButton->clicked.emit();
+    };
+    tap.owner = this;
+    tap.shown = [this](const ui::KeySequence&) { tapShortcut_.reset(); };
+    r.add(std::move(tap));
+}
 
 void TransportBar::showTiming(const Timing& timing) {
     timing_ = &timing;

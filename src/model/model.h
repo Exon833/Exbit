@@ -29,7 +29,7 @@
 // PluginSlot of kind "controls" (never loaded, not in pluginSlots()), with param "Volume" or "Pan".
 //
 // Shared pointers the audio thread reads (PluginSlot::instance, Track::instrument, Track::frozen,
-// Track::sampler, Track::padKit, Clip::track) are replaced with std::atomic_store and read with std::atomic_load.
+// Track::sampler, Track::padKit, Track::synth, Clip::track) are replaced with std::atomic_store and read with std::atomic_load.
 #pragma once
 #include <atomic>
 #include <cstdint>
@@ -42,6 +42,7 @@
 
 #include "audio/dsp.h"
 #include "audio/synth.h"
+#include "audio/synth_patch.h"
 #include "audio/warp.h"
 #include "config.h"
 #include "model/timing.h"
@@ -260,6 +261,38 @@ struct SamplerSettings {
     bool loop = false;       // (not one-shot) repeat start…end while the note is held
     double start = 0.0;      // part of the sample played: fractions, start < end
     double end = 1.0;
+    // --- Simpler's level (audio/sampler.h): every one off as it starts, so old settings sound as they did ---
+    double loopStart = 0.0;  // (looping) where the loop goes back to: a fraction, from start (anything before it) to end
+    bool slice = false;      // Slice mode: the sample cut at its transients or a grid, slice i on key root + i (one-shot)
+    int sliceGrid = 0;       // 0: at its transients; 4, 8, 16, 32: a 1/n grid at its tempo (`bpm`)
+    double sensitivity = 0.5;  // (transients) 0…1
+    bool reverse = false;    // played backwards (start, end and the loop then mark parts of the sound as played)
+    bool normalise = false;  // its loudest sample brought to 0 dB
+    // the filter, with its own envelope (an ADSR in seconds and a sustain level 0…1)
+    enum Filter { NoFilter = 0, LowPass, HighPass, BandPass, Notch };
+    int filter = NoFilter;
+    bool steep = false;      // 24 dB an octave (low- and high-pass; else 12)
+    double cutoff = 20000;   // Hz
+    double resonance = 0;    // 0…1
+    double filterEnv = 0;    // octaves the envelope moves the cutoff at its top (-8…8)
+    double keyTrack = 0;     // how far the cutoff follows the key: 0 (not) … 1 (an octave an octave, from root)
+    double fAttack = 0.002, fDecay = 0.3, fSustain = 1.0, fRelease = 0.15;
+    // the LFO (restarting with each note): its shape (effects/svf.h LFO_SHAPES), rate, depth 0…1, what it moves
+    enum LfoTarget { ToPitch = 0, ToFilter, ToVolume, ToPan };
+    int lfoShape = 0;
+    bool lfoSync = false;    // its rate a length in beats at the song's tempo (lfoBeats: effects/svf.h SYNC_BEATS)
+    double lfoRate = 4;      // Hz
+    int lfoBeats = 4;        // (synced) index into SYNC_BEATS (4: a quarter note)
+    double lfoDepth = 0;     // 0: off. pitch: ±12 semitones at 1; filter: ±4 octaves; volume: down to 1 - depth; pan
+    int lfoTarget = ToPitch;
+    // glide: each note slides from the one before it over `glide` seconds (0: only notes marked to slide, as before);
+    // mono: a note starting while another sounds takes its voice over (the envelope goes on)
+    double glide = 0;
+    bool mono = false;
+    // warp: the sample (at its own tempo `bpm`) plays at the song's tempo, its keys changing its pitch only
+    bool warp = false;
+    double bpm = 120;
+    int warpMode = 0;        // warp::Mode
     bool operator==(const SamplerSettings& o) const;
     bool operator!=(const SamplerSettings& o) const { return !(*this == o); }
 };
@@ -362,6 +395,9 @@ struct Track {
     SamplerPtr sampler;       // MIDI tracks: the built-in sampler, played when there is no instrument plugin
                               // (nor Pad Kit); null = the built-in synth
     PadKitPtr padKit;         // MIDI tracks: a Pad Kit (PAD KIT above), played when there is no instrument plugin
+    // MIDI tracks: the built-in synth's patch (audio/synth_patch.h), played when nothing else is (no plugin, patch
+    // panel, sampler, Pad Kit or External synth); null: the built-in synth's classic voice (synth.h), as ever
+    subsynth::PatchPtr synth;
     // PADS ON THEIR OWN TRACKS (model/pad_tracks.h): a Pad Kit's track: the track each pad plays on (PadKit::MAX_PADS
     // of them; null: in the kit's own sound); null: every pad in the kit. Replaced whole (std::atomic_store)
     std::shared_ptr<const std::vector<TrackPtr>> padOut;
@@ -473,6 +509,14 @@ struct WarpKey {
     int64_t origin = 0;  // timeline frame of its data's frame 0
 };
 
+// a sample file a project names that wasn't there when it was opened: where it was expected (absolute), and
+// its size in bytes and its sound (project_io::fingerprint) when the project saved them (-1 / "": unknown)
+struct MissingFile {
+    std::string path;
+    int64_t size = -1;
+    std::string sound;
+};
+
 struct Clip {
     Kind kind = Kind::Audio;
     std::string name;
@@ -498,6 +542,9 @@ struct Clip {
     AudioPtr source;      // original stereo audio
     int sourceSr = 0;
     std::string sourcePath;  // WAV in a saved project's audio folder holding exactly `source`, if any
+    // its file wasn't found when the project was opened (model/relink.h): `source` is silence in its place, and
+    // saving names the file it expected (path) until it is found; null = not missing
+    std::shared_ptr<const MissingFile> missing;
     PeaksPtr peaks;       // waveform min/max for drawing
     double stretch = 1.0; // how many times as long as recorded it plays (2: half speed), at the same pitch
     double pitch = 0.0;   // semitones higher (or lower) than recorded, at the same speed

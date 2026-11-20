@@ -22,6 +22,7 @@
 #include "ui/recording.h"
 #include "ui/sampler_dialog.h"
 #include "ui/song_scale.h"
+#include "ui/synth_dialog.h"
 #include "ui/timeline.h"
 #include "ui/toolkit/dialogs.h"
 #include "ui/transport_bar.h"
@@ -51,6 +52,7 @@ void MainWindow::reloadEditors() {
     }
     midi_effects_dialog::reloadAll();  // (they show the track's MIDI effects or sampler as they are now)
     sampler_dialog::reloadAll();
+    synth_dialog::reloadAll();
     pad_kit_dialog::reloadAll();
 }
 
@@ -99,7 +101,7 @@ void MainWindow::addMidiOptions(ui::Menu* menu) {
     menu->addAction("&MIDI ports…", [this] { chooseMidiInput(); })->tooltip =
         "Every MIDI input and output: on or off, MIDI clock in and out (several at once)";
     // the computer keyboard as a piano (computer_keyboard.h)
-    keysAction = menu->addCheckable("Computer &keyboard\tCtrl+K", computer_keyboard::savedOn(), [this](bool on) {
+    keysAction = menu->addCheckable("Computer &keyboard", computer_keyboard::savedOn(), [this](bool on) {
         transport->keysAction->setChecked(on);  // (its toggled turns the keyboard on or off)
     });
     keysAction->tooltip = computer_keyboard::LABEL_TIP;
@@ -185,6 +187,7 @@ void MainWindow::projectReplaced() {
     midi_effects::install(&project.timing);  // (their beats follow the project's timing)
     midi_effects_dialog::closeGone(project);
     sampler_dialog::closeGone(project);
+    synth_dialog::closeGone(project);
     pad_kit_dialog::closeGone(project);
 }
 

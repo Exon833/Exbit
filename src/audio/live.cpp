@@ -184,7 +184,22 @@ bool LiveNotes::noteOn(int pitch, int velocity, int sr, bool builtin, double len
     const NoteRender& given = render ? *render : renderer_;
     NoteRender keyed;  // (a Pad Kit: the key's own pad)
     if (given.perKey) given.perKey(pitch, keyed);
-    const NoteRender& r = given.perKey ? keyed : given;
+    const NoteRender& chosen = given.perKey ? keyed : given;
+    if (builtin && chosen.mono)  // (a mono sampler: the keys held let go first)
+        for (int p = 0; p < 128; p++)
+            for (int k = std::exchange(heldKeys_[p], 0); k > 0; k--) noteOff(p);
+    NoteRender gliding;  // (from the last note started)
+    bool glides = builtin && chosen.glideFrom && lastPitch_ >= 0 && lastPitch_ != pitch;
+    if (glides) {
+        gliding = chosen;
+        double from = lastPitch_;
+        auto how = chosen.glideFrom;
+        gliding.render = [how, from](int p, int v, double d, int rate) { return how(p, v, d, rate, from); };
+    }
+    if (builtin) lastPitch_ = pitch;
+    const NoteRender& r = glides ? gliding : chosen;
+    head = inHead_.load(std::memory_order_relaxed);  // (the mono note-offs went in first)
+    if (head - inTail_.load(std::memory_order_acquire) >= inbox_.size()) return false;
     Item& it = inbox_[head % inbox_.size()];
     it.kind = Item::NoteItem;
     it.on = true;
@@ -193,6 +208,7 @@ bool LiveNotes::noteOn(int pitch, int velocity, int sr, bool builtin, double len
     it.channels = r.render ? std::max(1, r.channels) : 1;
     it.loopStart = -1;
     it.choke = builtin ? r.choke : 0;
+    it.fade = builtin && r.releaseS > 0 ? std::max(1, (int)(r.releaseS * sr)) : 0;
     if (builtin) {
         int64_t loopStart;
         auto audio = std::make_shared<const std::vector<float>>(builtInNote(r, pitch, velocity, lengthS, sr, loopStart));
@@ -205,6 +221,7 @@ bool LiveNotes::noteOn(int pitch, int velocity, int sr, bool builtin, double len
         it.length = (int64_t)it.audio->size() / it.channels;
     } else {
         it.length = lengthS < 0 ? -1 : (int64_t)(lengthS * sr);
+        if (builtin && lengthS < 0 && pitch >= 0 && pitch < 128) heldKeys_[pitch]++;
     }
     inHead_.store(head + 1, std::memory_order_release);
     return true;
@@ -221,6 +238,7 @@ bool LiveNotes::noteOff(int pitch) {
         timedKeys_[pitch]--;
         return true;
     }
+    if (pitch >= 0 && pitch < 128 && heldKeys_[pitch] > 0) heldKeys_[pitch]--;
     auto one = oneShots_.find(pitch);
     if (one != oneShots_.end()) {  // (the key let go played a one-shot note: it goes on to its end)
         if (--one->second <= 0) oneShots_.erase(one);
@@ -346,6 +364,7 @@ void LiveNotes::take(int frames, int sr, plugin_audio::Messages& out, const Cloc
                 v.channels = item.channels;
                 v.loopStart = item.loopStart;
                 v.choke = item.choke;
+                v.fade = item.fade;
                 v.data = std::move(item.audio);
                 voices_.push_back(std::move(v));
             } else {
@@ -463,8 +482,9 @@ void LiveNotes::useEffects(const Track& track, bool builtin, int sr, int pitch, 
     }
     const void* key0 = std::atomic_load(&track.sampler).get();
     const void* key1 = std::atomic_load(&track.padKit).get();
+    const void* key2 = std::atomic_load(&track.synth).get();
     auto bank = std::atomic_load(&bank_);
-    bool fresh = !bank || bank->key[0] != key0 || bank->key[1] != key1 || bank->sr != sr;
+    bool fresh = !bank || bank->key[0] != key0 || bank->key[1] != key1 || bank->key[2] != key2 || bank->sr != sr;
     bool want[128] = {};
     live_fx::reach(*program, pitch, want);
     std::vector<int> missing;
@@ -472,7 +492,7 @@ void LiveNotes::useEffects(const Track& track, bool builtin, int sr, int pitch, 
         if (want[p] && (fresh || !bank->audio[p])) missing.push_back(p);
     if (missing.empty() && !fresh) return;
     auto next = fresh ? std::make_shared<Bank>() : std::make_shared<Bank>(*bank);
-    next->key[0] = key0, next->key[1] = key1, next->sr = sr;
+    next->key[0] = key0, next->key[1] = key1, next->key[2] = key2, next->sr = sr;
     struct Work {
         const NoteRender* given;
         const std::vector<int>* missing;

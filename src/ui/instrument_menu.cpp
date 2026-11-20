@@ -8,6 +8,7 @@
 #include "ui/plugin_dialog.h"
 #include "ui/plugin_host.h"
 #include "ui/sampler_dialog.h"
+#include "ui/synth_dialog.h"
 #include "ui/toolkit/dialogs.h"
 
 namespace instrument_menu {
@@ -45,9 +46,11 @@ ui::Menu* fillInstrumentMenu(ui::Menu* menu, ui::Window* parent, PluginHost& hos
             })->setEnabled(plugin_audio::usable(current));
         menu->addSeparator();
     }
-    checkable(menu, BUILTIN,
-              !current && !track->needsInstrument && !track->usesRack && !track->sampler && !track->padKit && !track->ext.on,
-              [parent, &host, track, chosen] { setInstrument(parent, host, track, nullptr, chosen); });
+    bool builtIn = !current && !track->needsInstrument && !track->usesRack && !track->sampler && !track->padKit && !track->ext.on;
+    checkable(menu, BUILTIN, builtIn, [parent, &host, track, chosen] { setInstrument(parent, host, track, nullptr, chosen); });
+    if (builtIn)  // (its patch: ui/synth_dialog.h)
+        menu->addAction(SYNTH, [track] { synth_dialog::openSynth(track); })->tooltip =
+            "Its oscillators, filter, envelopes, LFO, modulation and presets";
     SamplerPtr sampler = std::atomic_load(&track->sampler);
     ui::Action* sampled = checkable(
         menu, sampler && sampler->sample ? "Built-in sampler: " + sampler->sample->name + "\xe2\x80\xa6" : std::string(SAMPLER),
@@ -133,6 +136,8 @@ bool setInstrument(ui::Window* parent, PluginHost& host, const TrackPtr& track, 
         if (auto* d = pad_kit_dialog::openFor(track.get())) d->close();
         if (auto* d = sampler_dialog::openFor(track.get())) d->close();
     }
+    if (info)  // (its patch kept, not heard)
+        if (auto* d = synth_dialog::openFor(track.get())) d->close();
     if (track->usesRack) {  // (its instrument patch panel stays as it is, not heard)
         track->usesRack = false;
         host.closeEditor(track->rack.copy());
@@ -165,6 +170,7 @@ bool useSampler(ui::Window* parent, PluginHost& host, const TrackPtr& track, std
         std::atomic_store(&track->sampler, sampler_dialog::newSettings(sample));
     }
     std::atomic_store(&track->padKit, PadKitPtr());  // (the sampler rather than the Pad Kit: see the header)
+    if (auto* d = synth_dialog::openFor(track.get())) d->close();  // (its patch kept, not heard)
     if (auto* d = pad_kit_dialog::openFor(track.get())) d->close();
     builtInFromNow(host, track);
     sampler_dialog::renderTrackClips(track);
@@ -176,6 +182,7 @@ bool useSampler(ui::Window* parent, PluginHost& host, const TrackPtr& track, std
 void usePadKit(ui::Window* parent, PluginHost& host, const TrackPtr& track, std::function<void()> chosen) {
     if (!track->padKit) std::atomic_store(&track->padKit, PadKitPtr(std::make_shared<PadKit>()));
     if (auto* d = sampler_dialog::openFor(track.get())) d->close();  // (its settings kept, not heard)
+    if (auto* d = synth_dialog::openFor(track.get())) d->close();
     builtInFromNow(host, track);
     sampler_dialog::renderTrackClips(track);
     if (chosen) chosen();
@@ -217,10 +224,11 @@ void editInstrument(ui::Window* parent, PluginHost& host, const TrackPtr& track,
         pad_kit_dialog::openPadKit(track);
     } else if (track->playsSampler() && !track->needsInstrument) {
         sampler_dialog::openSampler(track);
-    } else if (!slot || track->needsInstrument) {
-        ui::msg::information(parent, "Built-in synth",
-                             track->name + " plays the built-in synth, which has no settings. Choose a VST3 instrument "
-                                           "with ▾ next to 🎹 to configure one.");
+    } else if (track->needsInstrument) {
+        ui::msg::information(parent, "No instrument yet",
+                             track->name + " is silent until it has an instrument: choose one with ▾ next to 🎹.");
+    } else if (!slot) {
+        synth_dialog::openSynth(track);  // (the built-in synth's window)
     } else if (host.canReload(slot)) {
         if (ui::msg::question(parent, "Instrument stopped",
                               slot->name + " stopped (" + slot->error + ").\n\nReload it, with the settings it last had?") ==

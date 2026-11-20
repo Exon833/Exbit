@@ -1,0 +1,23 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "Soft Keys",
+  "category": "Keys",
+  "params": {
+    "osc1_wave": 1,
+    "osc2_wave": 2,
+    "osc2_level": 0.2,
+    "osc2_detune": 4,
+    "cutoff": 2000,
+    "key_track": 0.5,
+    "filter_env": 0.3,
+    "env2_decay": 0.8,
+    "env2_sustain": 0.2,
+    "env1_attack": 0.003,
+    "env1_decay": 1.5,
+    "env1_sustain": 0.2,
+    "env1_release": 0.5,
+    "output": 1
+  },
+  "mods": []
+}

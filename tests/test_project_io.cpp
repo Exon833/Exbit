@@ -211,7 +211,9 @@ static void testRoundTrip() {
     CHECK(util::readFile(path, text));
     const Json j = Json::parse(text);
     CHECK((keys(j) == std::vector<std::string>{"format", "version", "master", "tracks_made", "timing", "markers", "groups",
-                                               "tracks", "clips", "master_effects", "master_cables"}));
+                                               "tracks", "clips", "master_effects", "master_cables", "audio_files"}));
+    // (and, after the Python program's keys, each audio file's size and sound: to find it again if it goes missing)
+    CHECK(j["audio_files"].size() == 3 && j["audio_files"]["Song_audio/drums.wav"].num("size", -1) == util::fileSize(b.c1->sourcePath));
     CHECK(j.str("format") == "tinydaw-project" && j["version"].toInt() == 1);
     CHECK(text.find("\"master\": {\n    \"volume_db\": -6,\n    \"mute\": true\n  }") != std::string::npos);
     CHECK(text.find("\"bpm\": 133.5") != std::string::npos);
@@ -360,12 +362,21 @@ static void testRoundTrip() {
     louder.volumeDb = -5;
     CHECK(snap != describe(b.p, SR, louder, nullptr, false));
 
-    // missing audio: an error, and the project loaded into is left as it was
+    // missing audio: it opens, the clips that used it silent and marked missing (model/relink.h), named again on saving
     CHECK(saveProject(kDir + "/Miss.json", b.p, SR, master, err));
     CHECK(util::removeFile(kDir + "/Miss_audio/drums.wav"));
-    CHECK(!loadProject(kDir + "/Miss.json", q, SR, m2, err));
-    CHECK(err == "Audio files are missing:\nMiss_audio/drums.wav\nMiss_audio/drums.wav");
-    CHECK(q.tracks.size() == 5 && q.clips.size() == 5);
+    CHECK(loadProject(kDir + "/Miss.json", q, SR, m2, err));
+    int silent = 0;
+    for (auto& c : q.clips)
+        if (c->missing) {
+            silent++;
+            CHECK(c->missing->path == util::absolutePath(kDir + "/Miss_audio/drums.wav") && c->missing->size > 0);
+        }
+    CHECK(silent == 2 && q.clips.size() == 5);
+    CHECK(saveProject(kDir + "/Miss.json", q, SR, m2, err));
+    std::string saved;
+    CHECK(util::readFile(kDir + "/Miss.json", saved) && saved.find(util::absolutePath(kDir + "/Miss_audio/drums.wav")) != std::string::npos);
+    CHECK(!util::fileExists(kDir + "/Miss_audio/drums.wav"));  // (no silent stand-in written in its place)
 }
 
 static void testOldAndBroken() {

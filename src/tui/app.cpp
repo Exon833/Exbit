@@ -23,6 +23,7 @@
 #include "platform/platform.h"
 #include "ui/autosave.h"
 #include "ui/clipboard.h"
+#include "ui/commands.h"
 #include "ui/computer_keyboard.h"
 #include "ui/recording.h"
 #include "ui/record_arm.h"
@@ -33,6 +34,7 @@
 #include "ui/main_window.h"
 #include "ui/master_strip.h"
 #include "ui/midi_editor.h"
+#include "ui/synth_dialog.h"
 #include "ui/plugin_host.h"
 #include "ui/timeline.h"
 #include "ui/toolkit/controls.h"
@@ -381,8 +383,9 @@ void Front::key(const Key& k) {
         w_.requestClose();
         return;
     }
-    if (k.key == plat::Key_Space && !k.mods && pane != Pane::Explorer) {
-        w_.togglePlay();
+    if (k.key == 'P' && k.mods == plat::ModCtrl) {  // every command by name (the window's Ctrl+Shift+P: consoles can't send it)
+        util::debugf("tui: the command palette\n");
+        w_.showPalette();
         return;
     }
     bool used = false;
@@ -1265,6 +1268,8 @@ void Front::draw(Screen& s) {
     if (topWindow() && !ui::Menu::ofWindow(topWindow())) {  // (how to get out of it)
         std::string help = topWindow()->isModal() ? " Tab: next  Enter: OK  Esc: cancel " : " Ctrl+W: close it  F12: the main window ";
         if (dynamic_cast<MidiEditor*>(topWindow())) help = " F2: tools  K: knife  Ctrl+J: join  P: row" + help;
+        if (dynamic_cast<synth_dialog::SynthDialog*>(topWindow()))
+            help = " Up/Down: control  Left/Right: change  M: Modulate…" + help;
         s.text(std::max(0, W - columns(help) - 1), H - 1, help, style(Black, Yellow));
     } else if (windowsHidden && n) {
         std::string help = " F12: " + std::to_string(n) + (n == 1 ? " window" : " windows") + " open ";
@@ -1471,7 +1476,8 @@ void Front::drawTimeline(Screen& s, int x, int y, int w, int h) {
         Style st = cl->disabled || faint ? style(bg, Default) : style(textOn(bg), bg, on ? Bold | Reverse : Plain);
         int a0 = std::max(0, a), b0 = std::min(w, b);
         s.fill(x + a0, ly, b0 - a0, 1, cl->disabled || faint ? U'░' : U' ', st);
-        std::string label = (on ? "[" : "") + cl->name + (cl->gainEnvelope ? " env" : "");  // (a gain envelope)
+        std::string label = std::string(on ? "[" : "") + (cl->missing ? "[missing] " : "") + cl->name +  // (its file not found: relink.h)
+                            (cl->gainEnvelope ? " env" : "");  // (a gain envelope)
         if (b0 - a0 > 1) s.text(x + a0, ly, label, st, b0 - a0 - (on ? 1 : 0));
         if (on && b0 == b) s.set(x + b0 - 1, ly, U']', st);
     };
@@ -1639,7 +1645,7 @@ void Front::drawStatus(Screen& s) {
                   : control == C_SWING ? "The song's swing: Up/Down: 5 % more or less  Enter/F2: amount, 8ths/16ths, Commit"
                   : control == C_SYNC  ? "What the transport follows: Up/Down: Internal, MIDI clock, JACK  Enter/F2: its menu"
                                        : "Left/Right: a control  Enter: use it  Up/Down: change it  F2: its settings (Rec, Click, "
-                                         "Grid, Key, Swing, Sync)  R: record";
+                                         "Grid, Key, Swing, Sync)  " + keysOf("Transport/Record") + ": record  Ctrl+P: commands";
             break;
         case Pane::Explorer: msg = "Enter: open / add at the cursor  Space or P: hear it  Backspace: up  Tab: next part"; break;
         case Pane::Timeline:
@@ -1651,8 +1657,9 @@ void Front::drawStatus(Screen& s) {
                       "I/O: range  Ctrl+C/X/V: its curve  F2: its menu";
             else if (currentLane() && currentLane()->take) msg = "A take: Enter: use it (or the range selected of it)  Del: delete it  F2: menu";
             else
-                msg = "Left/Right: grid  PgUp/PgDn: bar  Up/Down: lane  Enter: select clip  I/O: range  ,/.: move  "
-                      "S: split  Del  +/-: zoom  F2: menu";
+                msg = "Left/Right: grid  PgUp/PgDn: bar  Up/Down: lane  Enter: select clip  I/O: range  ,/.: move  " +
+                      keysOf("Timeline/Split") + ": split  " + keysOf("Timeline/Delete the selection") +
+                      ": delete  +/-: zoom  F2: menu  Ctrl+P: commands";
             break;
         case Pane::Panel:
             if (currentLane() && currentLane()->group)
@@ -1753,14 +1760,32 @@ void Front::drawMenus(Screen& s) {
     }
 }
 
+std::string Front::keysOf(const std::string& id) const {
+    // the command's keys a text console can send (Options → Keyboard shortcuts… changes them)
+    commands::Keys ks;
+    if (w_.commands)
+        for (auto& k : w_.commands->keys(id))
+            if (commands::terminalSends(k)) ks.push_back(k);
+    return commands::keysText(ks, "(none)");
+}
+
 void Front::drawHelp(Screen& s) {
+    auto pad = [](std::string t, int n) {
+        int c = columns(t);
+        return c + 1 >= n ? t + " " : t + std::string((size_t)(n - c), ' ');
+    };
     std::vector<std::string> lines = {
         "Everywhere",
         "  F10, Alt+letter   the menus (Left/Right: the next one, Enter: choose, Esc: close)",
         "  Tab, F6           the next part: transport, Explorer, timeline, track panel",
-        "  Space             play / stop (from the cursor)",
+        "  " + pad(keysOf("Transport/Play"), 18) + "play / stop (from the cursor)",
         "  F2                the menu of what is selected (a clip's, a track's)",
-        "  Ctrl+Z, Ctrl+Y    undo, redo      Ctrl+S save   Ctrl+O open   Ctrl+N new",
+        "  Ctrl+P            every command by name: type a few letters, Enter runs it",
+        "  " + pad(keysOf("Edit/Undo") + ", " + keysOf("Edit/Redo"), 18) + "undo, redo",
+        "  " + pad(keysOf("File/Save"), 18) + "save   " + keysOf("File/Open project…") + " open   " +
+            keysOf("File/New project") + " new",
+        "  " + pad(keysOf("Transport/Record"), 18) + "record   " + keysOf("Transport/Loop") + " loop   " +
+            keysOf("Transport/Follow the playhead") + " follow   " + keysOf("Transport/Tap tempo") + " tap",
         "  Ctrl+Q            quit",
         "  Ctrl+W, F12       close the window on top (an editor…); hide the open windows (again: back)",
         "Transport (Tab to it)",
@@ -1772,7 +1797,12 @@ void Front::drawHelp(Screen& s) {
         "  Enter, Insert     select the clip at the cursor (Insert: add it to the selection)",
         "  I then O          a range from I to the cursor (across the tracks between)",
         "  , .  [ ]          move the selected clips by the grid / to the track above, below",
-        "  S  Del  C  0      split, delete, colour, switch off   Ctrl+C/X/V/D/J/R  as in the window",
+        "  " + pad(keysOf("Timeline/Split") + "  " + keysOf("Timeline/Delete the selection") + "  " +
+                       keysOf("Timeline/Clip colour…") + "  " + keysOf("Timeline/Switch clips off or on"), 18) +
+            "split, delete, colour, switch off",
+        "  " + pad(keysOf("Edit/Copy clips") + " " + keysOf("Edit/Cut clips") + " " + keysOf("Edit/Paste clips at the cursor"), 18) +
+            "copy, cut, paste   " + keysOf("Timeline/Duplicate") + " " + keysOf("Timeline/Join") + " " +
+            keysOf("Timeline/Rename…") + ": duplicate, join, rename",
         "  L                 loop the range (or switch looping on and off)",
         "  E  N              the MIDI editor of the clip (N: a new MIDI clip at the cursor, edited)",
         "  F2: Slip contents… the selected clips' audio or notes moved inside them (Left/Right: by the grid);",
@@ -1813,7 +1843,15 @@ void Front::drawHelp(Screen& s) {
         "  F2                its menu: Fold only (no bus), Output, Put in group (nesting), Ungroup",
         "Explorer",
         "  Enter             open a folder or project; add a sample at the cursor    Space: hear it",
+        "The built-in synth (I on a MIDI track: Synth…; Shift+I while it plays it)",
+        "  Up/Down           a control (its section, name, value, and what modulates it: ~LFO +25 %)",
+        "  Left/Right        change it a step (Shift: finer; PgUp/PgDn: ten)  Home/End: its ends",
+        "  Backspace         its default      Enter: a choice's next (wave, filter type…)",
+        "  M, Modulate…      a source (Env 1, Env 2, LFO) onto a control, and how far (0 %: removed)",
+        "  Presets, Save     Tab to them: presets by category (Init (classic): the old voice); your own",
+        "  Modulation        Tab to it: every routing; Add…, Edit…, Remove",
         "Dialogs: Tab moves between controls, Enter is the default button, Esc cancels.",
+        "Keys: Options > Keyboard shortcuts… changes them (those marked \"not in the terminal\" only work in the window).",
         "",
         "Any other key closes this.",
     };

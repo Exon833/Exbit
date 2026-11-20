@@ -1,0 +1,26 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "Saw Bass",
+  "category": "Bass",
+  "params": {
+    "osc1_wave": 2,
+    "osc1_octave": -1,
+    "osc2_wave": 3,
+    "osc2_octave": -1,
+    "osc2_level": 0.5,
+    "osc2_detune": -7,
+    "cutoff": 300,
+    "resonance": 0.3,
+    "filter_env": 0.5,
+    "env2_attack": 0.001,
+    "env2_decay": 0.25,
+    "env2_sustain": 0,
+    "env2_release": 0.1,
+    "drive": 0.3,
+    "key_track": 0.3,
+    "mono": 1,
+    "env1_release": 0.08
+  },
+  "mods": []
+}

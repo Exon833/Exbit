@@ -42,6 +42,10 @@
 #include "ui/toolkit/menu.h"
 #include "ui/toolkit/style.h"
 
+namespace commands {
+class Registry;
+}
+
 // The part of a QAction the bar needs: a button in the bar plus its keyboard shortcut.
 // triggered: clicked or its shortcut pressed (a checkable one is toggled first: toggled(on)).
 class TransportAction {
@@ -59,6 +63,12 @@ public:
     void setIconText(const std::string& t);
     ui::Widget* shortcutOwner = nullptr;      // its shortcut works while this is shown (the bar: hidden buttons too)
     const ui::KeySequence& shortcut() const { return seq_; }
+    ui::ShortcutScope shortcutScope() const { return scope_; }
+    // the keymap's (ui/commands.h) keys take over: its own shortcut dropped, `k` only shown
+    void showShortcut(const ui::KeySequence& k) {
+        shortcut_.reset();
+        seq_ = k;
+    }
     void setCheckable(bool on) { button->setCheckable(on); }
     bool isCheckable() const { return button->isCheckable(); }
     void setChecked(bool on) { button->setChecked(on); }   // emits toggled when it changes
@@ -107,6 +117,10 @@ public:
     ui::Signal<> triggered;
     void trigger() { triggered.emit(); }
     const ui::KeySequence& shortcut() const { return seq_; }
+    void showShortcut(const ui::KeySequence& k) {  // (as TransportAction's)
+        shortcut_.reset();
+        seq_ = k;
+    }
 private:
     ui::KeySequence seq_;
     std::unique_ptr<ui::Shortcut> shortcut_;
@@ -188,6 +202,8 @@ public:
     std::unique_ptr<TransportAction> beatsAction, thirdsAction;
 
     void showTiming(const Timing& timing);   // the project's tempo and grid settings, without change signals
+    // its keys as commands that can be rebound ("Transport/Play"…: ui/commands.h); they then work through it
+    void registerCommands(commands::Registry& r);
     void setRecording(bool on);              // ● Rec lit (red) while recording
     void setPlaying(bool playing);
     void setTime(double seconds, const Timing& timing);

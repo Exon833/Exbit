@@ -376,4 +376,10 @@ void flush() {
     std::lock_guard<std::mutex> hold(lock);
     if (loaded) save();
 }
+
+std::string filePath() {
+    std::lock_guard<std::mutex> hold(lock);
+    load();
+    return path;
+}
 }  // namespace settings

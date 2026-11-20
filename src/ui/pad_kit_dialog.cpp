@@ -222,7 +222,7 @@ void PadView::drop(ui::DragEvent& e) {
 // =================================================================================================
 
 PadKitDialog::PadKitDialog(ui::Window* window, TrackPtr track_)
-    : ui::Dialog(window, "Pad Kit \xe2\x80\x94 " + track_->name, 900, 600), track(std::move(track_)) {
+    : ui::Dialog(window, "Pad Kit \xe2\x80\x94 " + track_->name, 900, 680), track(std::move(track_)) {
     deleteOnClose = true;
     setStyleType("PadKitDialog");
     // (each layout is placed in its parent before it is filled: a form's labels need their owner)

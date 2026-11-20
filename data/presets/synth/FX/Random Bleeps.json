@@ -1,0 +1,21 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "Random Bleeps",
+  "category": "FX",
+  "params": {
+    "osc1_wave": 3,
+    "lfo_shape": 4,
+    "lfo_rate": 8,
+    "cutoff": 6000,
+    "env1_release": 0.1,
+    "output": -3
+  },
+  "mods": [
+    {
+      "source": "lfo",
+      "target": "osc1_semi",
+      "depth": 0.25
+    }
+  ]
+}

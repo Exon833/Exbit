@@ -53,6 +53,9 @@ class Timeline;
 class TrackRenderer;
 class TransportBar;
 class UpdateChecker;
+namespace commands {
+class Registry;
+}
 namespace autosave {
 class Autosave;
 }
@@ -155,7 +158,11 @@ public:
     ui::Action* undoAction = nullptr;
     ui::Action* redoAction = nullptr;
     std::map<int, ui::Action*> sizeActions;  // Options → Interface size (%)
-    std::vector<std::unique_ptr<ui::Shortcut>> extraShortcuts;  // (Ctrl+Y: redo's second shortcut)
+    // --- commands and their keys (main_window_commands.cpp; ui/commands.h, ui/shortcuts_dialog.h) ---
+    std::unique_ptr<commands::Registry> commands;
+    void setUpCommands();                // (after the menus: their entries, the transport's and timeline's keys)
+    void showShortcuts();                // Options → Keyboard shortcuts…
+    void showPalette();                  // View → Command palette… (Ctrl+Shift+P; the terminal's Ctrl+P)
     std::unique_ptr<HistoryWindow> historyWindow;  // Edit → History… (made when first opened; hidden when closed)
 
     void showStatus(const std::string& text, int ms = 0);
@@ -319,7 +326,7 @@ public:
     bool openProjectFile(const std::string& path);
     bool saveProject();
     bool saveProjectAs();
-    bool saveProjectFile(const std::string& path);
+    bool saveProjectFile(const std::string& path, const std::function<void(int done, int total)>& progress = nullptr);
 
     // --- presets and MIDI learn (main_window_presets.cpp; presets_ui.h, midi_learn.h) ---
     std::unique_ptr<midi_learn::Learner> learner;  // MIDI controller links (the project's), learnt from MIDI input

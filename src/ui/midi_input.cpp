@@ -24,7 +24,7 @@ std::vector<int> playLive(audio::Engine& engine, const TrackPtr& track, int pitc
     if (!track) return pitches;
     auto live = engine.liveNotes(track.get());
     bool builtin = !track->playsPlugins();
-    live::NoteRender render = sampler::noteRenderer(*track);  // (its sampler's; empty: the built-in synth)
+    live::NoteRender render = subsynth::noteRenderer(*track);  // (its synth patch or sampler; empty: the classic synth)
     const live::NoteRender* how = builtin && render.render ? &render : nullptr;
     if (live_fx::timed(*track)) {  // (an arpeggiator, a groove…: the audio thread runs the whole chain, in time)
         live->useEffects(*track, builtin, engine.sr, pitch, how);

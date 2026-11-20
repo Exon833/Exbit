@@ -119,7 +119,7 @@ struct Huff {
 
 }  // namespace
 
-bool inflateRaw(const uint8_t* data, size_t size, std::vector<uint8_t>& out, size_t* used) {
+bool inflateRaw(const uint8_t* data, size_t size, std::vector<uint8_t>& out, size_t* used, size_t limit) {
     Bits br{data, data + size};
     static Huff* fixedLit = nullptr;
     static Huff* fixedDist = nullptr;
@@ -140,7 +140,9 @@ bool inflateRaw(const uint8_t* data, size_t size, std::vector<uint8_t>& out, siz
     auto dist = std::make_unique<Huff>();
     size_t n = out.size();
     auto room = [&](size_t more) {
-        if (n + more > out.size()) out.resize(std::max(out.size() * 2, n + more + 65536));
+        if (n + more > limit) return false;  // (more than it may hold: a zip bomb)
+        if (n + more > out.size()) out.resize(std::max(std::min(out.size() * 2, limit), n + more + 65536));
+        return true;
     };
     for (;;) {
         int final = (int)br.get(1);
@@ -152,7 +154,7 @@ bool inflateRaw(const uint8_t* data, size_t size, std::vector<uint8_t>& out, siz
             if (br.overrun() || (len ^ 0xFFFF) != nlen) return false;
             const uint8_t* at = br.bytePos();
             if ((size_t)(data + size - at) < len) return false;
-            room(len);
+            if (!room(len)) return false;
             memcpy(out.data() + n, at, len);
             n += len;
             br.reset(at + len);
@@ -197,7 +199,7 @@ bool inflateRaw(const uint8_t* data, size_t size, std::vector<uint8_t>& out, siz
                 int sym = L->decode(br);
                 if (sym < 0) return false;
                 if (sym < 256) {
-                    room(1);
+                    if (!room(1)) return false;
                     out[n++] = (uint8_t)sym;
                     continue;
                 }
@@ -210,7 +212,7 @@ bool inflateRaw(const uint8_t* data, size_t size, std::vector<uint8_t>& out, siz
                 size_t d = kDistBase[ds] + br.get(kDistExtra[ds]);
                 if (br.overrun()) return false;
                 if (d > n) return false;
-                room(len);
+                if (!room(len)) return false;
                 uint8_t* o = out.data() + n;
                 const uint8_t* s = o - d;
                 if (d >= len) {

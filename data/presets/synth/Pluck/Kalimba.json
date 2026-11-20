@@ -1,0 +1,29 @@
+{
+  "format": "tinydaw-synth",
+  "version": 1,
+  "name": "Kalimba",
+  "category": "Pluck",
+  "params": {
+    "osc1_wave": 0,
+    "osc2_wave": 0,
+    "osc2_octave": 2,
+    "osc2_level": 0.1,
+    "osc2_detune": 0,
+    "env2_attack": 0.001,
+    "env2_decay": 0.08,
+    "env2_sustain": 0,
+    "cutoff": 8000,
+    "env1_attack": 0.001,
+    "env1_decay": 0.6,
+    "env1_sustain": 0,
+    "env1_release": 0.4,
+    "output": 2
+  },
+  "mods": [
+    {
+      "source": "env2",
+      "target": "osc2_level",
+      "depth": 0.5
+    }
+  ]
+}

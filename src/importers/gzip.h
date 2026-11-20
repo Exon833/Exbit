@@ -11,7 +11,9 @@ namespace gzip {
 
 // Inflate a raw deflate stream. `used`: the bytes of `data` it took (to find what follows it).
 // False if it is malformed or cut short.
-bool inflateRaw(const uint8_t* data, size_t size, std::vector<uint8_t>& out, size_t* used = nullptr);
+// `limit`: false if it would make more than that many bytes (in all, with what `out` held)
+bool inflateRaw(const uint8_t* data, size_t size, std::vector<uint8_t>& out, size_t* used = nullptr,
+                size_t limit = SIZE_MAX);
 
 // The contents of a gzip stream (several members one after the other are joined, as gzip does);
 // checks each member's CRC-32 and length. False and `error` if it isn't gzip or is damaged.

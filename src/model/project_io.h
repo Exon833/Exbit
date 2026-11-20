@@ -105,6 +105,8 @@ bool keepBackup(const std::string& path, std::string& backupPath, std::string& e
 // samplers' samples, recorded audio takes. (Save as template: saveProject points them at the files it
 // wrote; keep their sourcePath first and put it back afterwards to leave the project as it was.)
 std::vector<ClipPtr> audioHolders(const Project& project);
+// the same with the missing samples' clips too (Clip::missing: silent stand-ins, relink.h)
+std::vector<ClipPtr> allAudioHolders(const Project& project);
 
 // What autosave writes: audio still to write as a file, then the JSON
 struct PendingAudio {
@@ -126,14 +128,38 @@ bool writeJson(const std::string& path, const Json& data, std::string& error);
 
 // Write the JSON (via a temporary file, so a crash mid-save never leaves a half-written project)
 // and any audio not yet in the project's audio folder; sets the clips' sourcePath.
+// `progress` (if given): called on this thread as the audio files are written (done, of total).
 bool saveProject(const std::string& path, Project& project, int sr, const MasterSettings& master,
-                 std::string& error);
+                 std::string& error, const std::function<void(int done, int total)>& progress = nullptr);
 
 // Fill `project` from the file at `path`, preparing clips for sample rate sr, and give its master
 // settings. Everything is read before `project` is touched, so a broken or incomplete project
 // returns false (with `error`) and leaves the current one as it was. Plugin instances of the
 // replaced project are retired (Project::retire). Afterwards the GUI loads project.pluginSlots().
-bool loadProject(const std::string& path, Project& project, int sr, MasterSettings& master, std::string& error);
+//
+// MISSING SAMPLES. A sample file that isn't there doesn't stop it opening: its clips (and takes, samplers' and pads'
+// samples) open silent, holding a Clip::missing (where it was expected, and the size and sound the project saved
+// for it in "audio_files": {file: {"size": bytes, "sound": fingerprint}}), and saving names that file again until
+// it is found (relink.h). A file that is there but can't be read is still an error.
+//
+// FASTER OPENING. Every sample file it names is decoded first, once per file (however many clips use it), on
+// workers::chosenCores() threads at once (decodeFiles); the rest is read as before, so the project is the same
+// whatever the number of threads. `progress` (if given) is called on this thread while that runs (done, of
+// total files), every few hundredths of a second: the GUI's progress window keeps the window drawn.
+bool loadProject(const std::string& path, Project& project, int sr, MasterSettings& master, std::string& error,
+                 const std::function<void(int done, int total)>& progress = nullptr);
+
+// One sound file decoded (file_io::loadAudio): its audio and rate, or why not
+struct Decoded {
+    AudioPtr audio;
+    int rate = 0;
+    std::string error;  // "" = read
+};
+// `paths` decoded at once on `threads` worker threads (-1: workers::chosenCores()'s; 0: this thread alone, in
+// order) plus this one, which calls `progress` (done, total) every few hundredths of a second meanwhile.
+// out[i] is paths[i]'s; the same whatever the threads.
+std::vector<Decoded> decodeFiles(const std::vector<std::string>& paths, int threads = -1,
+                                 const std::function<void(int done, int total)>& progress = nullptr);
 
 // --- the parts (used by the above; public for tests and other modules) ---
 Json describeSlot(const PluginSlot& slot, bool states = true);
