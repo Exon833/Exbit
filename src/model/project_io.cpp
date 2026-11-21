@@ -202,13 +202,13 @@ void prepareSafely(Clip& clip, int sr) {
         clip.played = clip.notes;
         auto silent = std::make_shared<AudioBuffer>();
         silent->samples.assign((size_t)std::max<int64_t>(1, (int64_t)std::nearbyint(clip.lengthS * sr)) * 2, 0.0f);
-        clip.data = silent;
+        std::atomic_store(&clip.data, AudioPtr(silent));  // (atomic as everywhere the clip's audio is replaced)
         auto ev = std::make_shared<std::vector<Clip::Event>>();
         if (clip.notes)
             for (auto& n : *clip.notes)
                 ev->push_back({(int64_t)std::nearbyint(n.start * sr), (int64_t)std::nearbyint(n.end * sr), (int)n.pitch,
                                (int)n.velocity});
-        clip.events = ev;
+        std::atomic_store(&clip.events, std::shared_ptr<const std::vector<Clip::Event>>(ev));
     }
     clip.fitWindow();
 }

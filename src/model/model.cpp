@@ -238,8 +238,10 @@ void Clip::prepare(int sr, int64_t reach) {
             loopFor = n;
             d = looped(d, a, n, reach, (int64_t)std::nearbyint(config::LOOP_SEAM_S * sr));
         }
-        data = d;
-        peaks = data ? dsp::waveformPeaks(*data, config::PEAK_BLOCK) : nullptr;
+        // (swapped in atomically: the audio thread may be reading the clip as it plays, an undo or an edit preparing
+        // it again; a plain assignment racing its atomic_load breaks the count and frees the audio twice)
+        std::atomic_store(&data, d);
+        peaks = d ? dsp::waveformPeaks(*d, config::PEAK_BLOCK) : nullptr;
         return;
     }
     std::vector<Note> notesPlayed = performed(sr);  // (its notes' chances and repeats, then the MIDI effects)
@@ -247,18 +249,20 @@ void Clip::prepare(int sr, int64_t reach) {
     if (t && clip_hooks::midiEffects && !effectsCommitted)  // (the song's swing, then its track's MIDI effects: arpeggiator, chord…)
         notesPlayed = clip_hooks::midiEffects(*t, notesPlayed, (double)(start - offset) / sr);
     double len = loop && length >= 0 ? std::max(lengthS, (double)(offset + length) / sr) : lengthS;
+    AudioPtr rendered;
     if (t && (t->playsPlugins() || t->ext.on)) {  // (its instrument plugins or External synth play its events: silent)
         auto silent = std::make_shared<AudioBuffer>();
         silent->samples.assign((size_t)((int64_t)((len + synth::RELEASE_S) * sr) + 1) * 2, 0.0f);
-        data = silent;
+        rendered = silent;
     } else if (t && (t->playsSampler() || t->playsPadKit()) && clip_hooks::renderSampler) {
-        data = clip_hooks::renderSampler(*t, notesPlayed, sr, len);
+        rendered = clip_hooks::renderSampler(*t, notesPlayed, sr, len);
     } else if (subsynth::PatchPtr patch = t ? std::atomic_load(&t->synth) : nullptr; patch && subsynth::plays(*t)) {
         TempoMapPtr map = clip_hooks::currentTempoMap();  // (a synced LFO: the song's beat where the clip begins)
-        data = subsynth::render(*patch, notesPlayed, sr, len, map ? map->beatSAt(std::max(0.0, (double)(start - offset) / sr)) : 0.5);
+        rendered = subsynth::render(*patch, notesPlayed, sr, len, map ? map->beatSAt(std::max(0.0, (double)(start - offset) / sr)) : 0.5);
     } else {
-        data = synth::render(notesPlayed, sr, len);
+        rendered = synth::render(notesPlayed, sr, len);
     }
+    std::atomic_store(&data, rendered);  // (atomically, as the audio thread reads it: see the audio clips' above)
     auto ev = std::make_shared<std::vector<Event>>();
     ev->reserve(notesPlayed.size());
     for (auto& n : notesPlayed) {
@@ -277,7 +281,7 @@ void Clip::prepare(int sr, int64_t reach) {
         const Event& after = (*ev)[i];
         if (before.pitch != after.pitch && before.off <= after.on) before.off = after.on + 1;  // (offs go first
     }                                                                                          // at one moment)
-    events = ev;
+    std::atomic_store(&events, std::shared_ptr<const std::vector<Event>>(ev));
     played = std::make_shared<const std::vector<Note>>(std::move(notesPlayed));
 }
 
@@ -747,7 +751,7 @@ void Project::changeSampleRate(int oldSr, int newSr) {
         c->fadeLead = at(c->fadeLead);
         c->fadeTail = at(c->fadeTail);
         if (auto envelope = c->gainEnvelope)  // (on frames of its audio)
-            c->gainEnvelope = clip_envelope::make(clip_envelope::scaled(*envelope, (double)newSr / oldSr));
+            std::atomic_store(&c->gainEnvelope, clip_envelope::make(clip_envelope::scaled(*envelope, (double)newSr / oldSr)));
         if (c->length >= 0) c->length = end - start;
         c->prepare(newSr);
         c->fitWindow();

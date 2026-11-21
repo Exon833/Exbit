@@ -229,6 +229,57 @@ static void testOverloadedEngine() {
     CHECK(e.pos == LENGTH);
 }
 
+// clips prepared again while they play, as undo, slip, trims, warping and tempo changes do: the audio thread reads
+// each clip's audio and events (atomic_load) while the GUI thread swaps them. Every swap must be atomic too: a
+// plain assignment racing the reader broke the shared count and freed the audio twice ("double free or corruption"
+// in the full test suite, now and then).
+static void testPrepareWhilePlaying() {
+    Project p;
+    audio::Engine e(p);
+    e.offline = true;
+    const int CLIPS = 48, BLOCK = 64;
+    std::vector<ClipPtr> clips;
+    for (int i = 0; i < CLIPS; i++) {
+        if (i % 2 == 0) {
+            auto t = p.addTrack(Kind::Audio);
+            clips.push_back(audioClip(t, 0, SR / 4, 0.3f));
+        } else {
+            auto t = p.addTrack(Kind::Midi);
+            t->needsInstrument = false;
+            clips.push_back(midiClip(t, 40, 0.25));
+        }
+        p.addClip(clips.back());
+    }
+    std::atomic<bool> done{false};
+    bool finite = true;
+    long blocks = 0;
+    e.setLoop(0, SR / 4);  // (round the same quarter second: every clip is always being played)
+    e.play();
+    std::thread audio([&] {
+        std::vector<float> out((size_t)BLOCK * 2);
+        while (!done) {
+            e.callback(nullptr, out.data(), BLOCK);
+            for (float v : out) finite = finite && std::isfinite(v);
+            blocks++;
+        }
+    });
+    auto t0 = std::chrono::steady_clock::now();
+    int prepared = 0;
+    while (std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() < 3.0) {
+        for (auto& c : clips) {
+            c->prepare(SR);  // (in place, as History::restore and the edits do, the audio thread playing it)
+            prepared++;
+        }
+    }
+    done = true;
+    audio.join();
+    printf("prepare while playing: %d clips prepared %d times while %ld blocks played\n", CLIPS, prepared, blocks);
+    CHECK(finite && blocks > 100 && prepared > CLIPS * 10);
+    bool rendered = true;
+    for (auto& c : clips) rendered = rendered && c->data && (c->kind != Kind::Midi || c->events);
+    CHECK(rendered);
+}
+
 static void testResizeStorm() {
     ui::App& app = ui::App::get();
     MainWindow* w = filledWindow(48);
@@ -377,6 +428,7 @@ int main() {
     plat::initWithoutDisplay();
     ui::App::get().initHeadless();
     testOverloadedEngine();
+    testPrepareWhilePlaying();
     testResizeStorm();
     testEverythingAtOnce();
     testTerminalStorm();
