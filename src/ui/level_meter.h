@@ -60,6 +60,10 @@ public:
     void takeOver(const LevelMeter& old);
     void resetPeaks();                                  // Play was pressed (or the meter clicked): start again
     int barsW() const;                                  // px of the meter the bars take (the rest: the number)
+    // where a bar's level is drawn (inside ::track's border and padding), in its own coordinates: -60 dB at the left
+    // edge, 0 dB at the right (MeterFader puts its handle on the same scale)
+    Rect barsArea() const;
+    void setNumberShown(bool on);                       // the loudest peak's number at the right end (default: on)
     const std::vector<double>& held() const { return held_; }
     double loudest() const { return loudest_; }        // the loudest peak since Play (gain)
     bool clipped() const { return clipped_; }           // it went over its clip level since Play (or the last click)
@@ -81,6 +85,7 @@ private:
     double clipGain_ = 1.0;
     double loudest_ = 0.0;
     bool clipped_ = false;
+    bool numberShown_ = true;
     void showTooltip();
     // what it is drawn with, from the stylesheets (kept: meters repaint at frame rate)
     struct Look {

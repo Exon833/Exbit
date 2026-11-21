@@ -721,7 +721,7 @@ from its style is `--layout-spacing` (rows and columns) and `--grid-spacing` (gr
   `margin-bottom`), `::load-bar` (`:ok`, `:warn`, `:hot`). Class `.master` (`background-color`, `padding`,
   `row-gap`, `column-gap`; `::title` font, `::notice` `margin-top`): the master's row, drawn as a full box the
   same way. `::load` is a box with its bar inside its border and padding; `::load-bar` may be a box.
-- **`NameLabel`** (`.group`: the font), **`PanKnob`** (`background-color`, `padding`; `::arc`, `::pointer`:
+- **`NameLabel`** (`.group` and `.return`: the font), **`MeterFader`** (a return track's fader on its meter: `::marker`, the ▼ (its own part: skins' `Slider::handle` rules don't reach it), `background-color` (none: the row's text colour), `width`, `height`; `:hover`, `:pressed`; the meter inside is a `LevelMeter`), `Label.boxed` (a return's dB reading: a box), **`PanKnob`** (`background-color`, `padding`; `::arc`, `::pointer`:
   `color`, `stroke-width`), **`SendsPanel`** (a box, `padding`, `row-gap`, `column-gap`, `min-width`, `min-height`; `::title` font). Class
   `.pin-cover` (a box).
 

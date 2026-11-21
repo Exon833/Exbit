@@ -1040,6 +1040,11 @@ LaneFrame.master { background-color: var(--master-lane); padding: 3px 8px; row-g
 LaneFrame.master::title { font-weight: bold; }
 LaneFrame.master::notice { margin-top: 2px; }
 NameLabel.group { font-weight: bold; }  /* a group's name on its row */
+NameLabel.return { font-size: 13pt; }    /* a return track's name on its row (lane_panel_return.cpp) */
+Label.boxed { border: 1px solid var(--line); border-radius: 2px; padding: 0 4px; }  /* a return's dB reading */
+MeterFader::marker { width: 12px; height: 8px; }  /* the fader's ▼ (no background-color: the row's text colour) */
+MeterFader:hover::marker { background-color: var(--accent); }
+MeterFader:pressed::marker { background-color: var(--accent); }
 .pin-cover { background-color: var(--window); }  /* under the pinned master row */
 
 /* A track's pan knob, and the sends' small window. */

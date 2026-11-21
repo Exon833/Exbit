@@ -236,6 +236,9 @@ private:
     int styled_ = -1;                // the stylesheets' generation the rows were made with
     // a track's row; with asGroup, that group's header row with its bus's controls (track: the bus)
     LaneFrame* trackHeader(ui::Widget* parent, const TrackPtr& track, bool alternate, const GroupPtr& asGroup = nullptr);
+    // a return track's row under its name (lane_panel_return.cpp): output and mute and pan, then Auto, FX, the fader on
+    // its meter, its dB and its loudness
+    void returnControls(LaneFrame* frame, ui::BoxLayout* col, const TrackPtr& track);
     LaneFrame* automationHeader(ui::Widget* parent, const Lane& lane);
     LaneFrame* takeHeader(ui::Widget* parent, const Lane& lane);
     LaneFrame* groupHeader(ui::Widget* parent, const GroupPtr& group);

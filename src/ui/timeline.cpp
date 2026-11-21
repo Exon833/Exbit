@@ -377,7 +377,8 @@ void Timeline::toggleFold(const GroupPtr& group) {
 }
 
 void Timeline::setTrackHeight(Track& track, double height) {
-    track.height = std::min(config::MAX_TRACK_H, std::max(config::MIN_TRACK_H, (int)height));
+    int least = track.kind == Kind::Return ? config::RETURN_MIN_H : config::MIN_TRACK_H;  // (a return's row: its 3 lines)
+    track.height = std::min(config::MAX_TRACK_H, std::max(least, (int)height));
     relayout();
     heightsChanged.emit();
 }

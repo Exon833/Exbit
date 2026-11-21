@@ -386,6 +386,7 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
         row->addWidget(name, 1);
     } else {
         auto* name = frame->add<NameLabel>((track->frozen ? "❄ " + track->name : track->name) + delay);
+        if (track->kind == Kind::Return) name->addStyleClass("return");  // (larger: NameLabel.return)
         name->doubleClicked.connect([this, track] { rename(track); });
         std::string input = pad_tracks::inputName(project, *track);  // (a Pad Kit's pad on its own track)
         name->setToolTip(track->frozen ? "Frozen: it plays its rendering; its clips and plugins are locked until you unfreeze "
@@ -400,6 +401,12 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
                                                        "Ungroup (the tracks stay)")
                                  : widgets::iconButton(frame, "✕", [tl, track] { tl->removeTrack(track); },
                                                        "Remove " + track->name);
+    if (track->kind == Kind::Return && !asGroup) {  // a return's own layout (lane_panel_return.cpp)
+        row->addWidget(remove, 0, AlignTop);
+        returnControls(frame, col, track);
+        addGrip(frame, timeline, track, nullptr);
+        return frame;
+    }
     if (track->kind == Kind::Midi && track->needsInstrument) {  // nothing else until it has an instrument
         row->addWidget(remove);
         auto* choose = frame->add<ui::Button>("Choose instrument");

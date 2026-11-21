@@ -185,7 +185,18 @@ Rect LevelMeter::inner() const {
 
 int LevelMeter::barsW() const {
     int w = inner().w;
-    return w >= level_meter::NUMBER_MIN_W ? w - level_meter::NUMBER_W : w;
+    return numberShown_ && w >= level_meter::NUMBER_MIN_W ? w - level_meter::NUMBER_W : w;
+}
+
+Rect LevelMeter::barsArea() const {
+    Rect all = inner();
+    const Look& l = look();
+    return Rect(all.x + l.trackInset.left, all.y, std::max(0, barsW() - l.trackInset.w()), all.h);
+}
+
+void LevelMeter::setNumberShown(bool on) {
+    numberShown_ = on;
+    update();
 }
 
 std::vector<std::pair<int, int>> LevelMeter::barRects() const {

@@ -1403,6 +1403,8 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
             track->pan = t.num("pan", 0.0);
             track->delayMs = t.num("delay_ms", 0.0);
             track->height = t.integer("height", config::TRACK_H);
+            if (track->kind == Kind::Return)  // (a return's row needs this much: older files kept 72)
+                track->height = std::max(track->height, config::RETURN_MIN_H);
             track->color = t.str("color");
             track->tone = t.str("tone");
             track->needsInstrument = t.flag("needs_instrument", false);

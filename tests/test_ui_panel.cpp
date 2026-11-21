@@ -642,15 +642,24 @@ static void testPanel2() {
     ui::App::get().doLayouts();
     ui::App::get().collectGarbage();
     CHECK(panel->frames.size() == 3 && panel->takeFrames.size() == 1 && panel->frames.count(reverb));
-    // a return's row: no solo, no sends button; the others: pan left of M, → when there are returns
-    CHECK(!buttonText(panel->frames[reverb], "S") && buttonText(panel->frames[reverb], "M"));
+    // a return's row (lane_panel_return.cpp): no solo, no sends button, mute as a ✕ toggle; the others: pan left of
+    // M, → when there are returns
+    ui::Button* returnMute = nullptr;
+    for (auto* b : findAll<ui::Button>(panel->frames[reverb]))
+        if (b->text() == "✕" && b->isCheckable()) returnMute = b;
+    CHECK(!buttonText(panel->frames[reverb], "S") && !buttonText(panel->frames[reverb], "M") && returnMute);
     CHECK(buttonText(panel->frames[drums], "S") && findAll<PanKnob>(panel->frames[drums]).size() == 1);
     CHECK(findAll<SendsButton>(panel->frames[reverb]).empty());
     auto sends = findAll<SendsButton>(panel->frames[drums]);
     CHECK(sends.size() == 1);
     CHECK(sends[0]->property("lit") == "true");
     CHECK(sends[0]->toolTip() == "Sends to the return tracks: Reverb -6 dB (click to set them)");
-    CHECK(buttonText(panel->frames[drums], "Auto")->width() == 36 && buttonText(panel->frames[reverb], "Auto")->width() == 58);
+    // (the return's Auto: an icon, beside its FX)
+    ui::Button* returnAuto = nullptr;
+    for (auto* b : findAll<ui::Button>(panel->frames[reverb]))
+        if (b->text().empty() && b->isCheckable()) returnAuto = b;
+    CHECK(buttonText(panel->frames[drums], "Auto") && buttonText(panel->frames[drums], "Auto")->width() == 36 && returnAuto &&
+          !buttonText(panel->frames[reverb], "Auto"));
     // the delay after the name; the take's row
     bool named = false;
     for (auto* l : findAll<ui::Label>(panel->frames[drums]))

@@ -515,6 +515,7 @@ TrackPtr Project::addTrack(Kind kind, GroupPtr group, TrackPtr after) {
     auto track = std::make_shared<Track>(name, kind);
     track->group = kind == Kind::Return ? nullptr : group;
     track->needsInstrument = kind == Kind::Midi;
+    if (kind == Kind::Return) track->height = config::RETURN_H;  // (its row's three lines: lane_panel_return.cpp)
     std::vector<TrackPtr> v = tracks.copy();
     int firstReturn = (int)v.size();
     for (size_t i = 0; i < v.size(); i++)

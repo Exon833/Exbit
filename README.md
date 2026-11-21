@@ -17,7 +17,7 @@ extends; that program is in the repository's history.
 
 - **Timeline**: audio and MIDI tracks, groups that are buses (their own fader, pan, sends and effects;
   groups in groups; or Fold only), any track's output into a group or another track, return tracks with sends (before or after the
-  fader), pan, track delay; tracks duplicated (with or without their clips), moved (drag a name, or
+  fader; a return's row has its fader on its meter: drag the ▼), pan, track delay; tracks duplicated (with or without their clips), moved (drag a name, or
   Alt+↑/↓) and selected several at once (Shift/Ctrl-click: a fader, mute, solo or new effect changes them
   all); clips you
   move, trim, split, duplicate, copy and paste, colour, loop, reverse, join, crossfade, stretch and
