@@ -33,7 +33,7 @@ public:
     void paint(Painter& p) override;
     // (also after a skin change, App::repaintAll: the panel's width and the ruler's height may be others)
     void resized() override { fit(); }
-    void fit();  // as wide as the panel, as tall as the ruler and the tempo lane (--panel-width, lanes::lanesTop)
+    void fit();  // as wide as the panel, as tall as the ruler (--panel-width, --ruler-height)
 
 private:
     std::optional<std::pair<double, double>> load_;

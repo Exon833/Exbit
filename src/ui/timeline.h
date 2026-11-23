@@ -84,7 +84,8 @@
 // Tempo and time-signature changes (timing.h): right-click the ruler → Tempo and time signature from bar N… (a
 // step at that bar) or Tempo changes ▸ (the change there, the Timebase); each is shown after its bar's number
 // ("140 BPM 3/4"), or, with View → Tempo lane, as a point on the tempo lane under the ruler (timeline_tempo.cpp:
-// steps and ramps, at any beat, dragged and typed; see "the tempo lane" below).
+// steps and ramps, at any beat, dragged and typed; see "the tempo lane" below), and, with View → Time signature
+// lane, as a labelled block on the lane under it (timeline_signature.cpp; see "the time-signature lane" below).
 //
 // Take lanes (a track's recorded takes, shown with right-click its row → Show takes) lie under it:
 // drag across a part of a take to put that part on the track (comping), replacing what is there;
@@ -263,9 +264,18 @@ struct TempoDrag {              // dragging a point of the tempo lane: its place
     std::shared_ptr<timebase::Before> before;  // the song as the drag began (it follows from there: timebase.h)
     bool moved = false;
 };
+struct SignatureDrag {          // a press on the time-signature lane (timeline_signature.cpp)
+    int from = 1;               // the bar (1-based) of the block grabbed by its start; or, with `add`, the bar clicked
+    int to = 1;                 // where it is now
+    bool add = false;           // an empty bar: let go without moving, a signature is typed for it
+    std::vector<TempoChange> changes;  // the changes as the drag began (each move starts from them: nothing drifts)
+    TempoMapPtr map;            // …and their map (the bar under the mouse is counted on it)
+    std::shared_ptr<timebase::Before> before;
+    bool moved = false;
+};
 using TimelineDrag = std::variant<std::monostate, MoveDrag, EdgeDrag, HeightDrag, PointDrag, LoopDrag, RangeDrag,
                                   CopyDrag, FadeDrag, TakeDrag, MarkerDrag, BendDrag, EnvelopeDrag, EnvelopeBendDrag,
-                                  SlipDrag, WarpDrag, TempoDrag>;
+                                  SlipDrag, WarpDrag, TempoDrag, SignatureDrag>;
 
 // an audio clip's fade handle (Timeline::fadeHandleAt)
 struct FadeHit {
@@ -309,6 +319,7 @@ public:
     ui::Signal<std::string> timeEdited;            // what inserting or deleting time did, for the status bar ("": nothing)
     ui::Signal<std::string> clipboardChosen;       // "copy", "cut" or "paste" chosen in the right-click menu (→ clipboard::use)
     ui::Signal<> timingChanged;                    // the tempo or time signature changed (a tempo change on the ruler)
+    ui::Signal<> tempoRangeChanged;                // the tempo lane's range (Min, Max, Auto) was set
 
     // --- state (public as in Python) ---
     Project& project;
@@ -513,9 +524,15 @@ public:
     // the grid, its tempo by the height); drag a point; double-click one to type its tempo, ramp and time
     // signature; right-click one to remove it or switch its ramp; right-click the lane for the Timebase.
     // Every edit is one undo step, with what the timebase moved (timebase.h).
+    // Its BPM range is the song's Timing::tempoLaneLo / Hi (the row beside it: Min, Max, Auto): a view, not an undo
+    // step; Auto fits the points. Points outside a fixed range are drawn at its edge with a mark (▲ / ▼).
     bool inTempoLane(double y) const;
     void tempoRange(double& lo, double& hi) const;     // the BPM from the lane's bottom to its top
+    // a fixed range (lo < hi within MIN_BPM…MAX_BPM), or Auto (0, 0; anything else falls back to Auto too)
+    void setTempoLaneRange(double lo, double hi);
+    void editTempoLaneRange();                        // typed in a dialog (the lane's menu; the terminal's Shift+R)
     double tempoY(double bpm) const;
+    double tempoPointY(double bpm) const;             // tempoY kept inside the range (a point outside: at its edge)
     double tempoBpmAt(double y) const;                // (within MIN_BPM…MAX_BPM)
     // the tempo point near pos on the lane (within AUTOMATION_GRAB_PX), or near `seconds` (within `px` at the
     // zoom: the ruler, the terminal's cursor)
@@ -536,6 +553,27 @@ public:
     void setTimebase(bool beats);
     // an edit of the tempo map: the song follows it as its timebase says (timebase.h), then timingChanged
     void tempoEdit(const std::function<void()>& edit);
+
+    // --- the time-signature lane (timeline_signature.cpp): under the tempo lane while View → Time signature lane
+    // is on. A block per time signature from its bar to the next one's, labelled ("4/4", "7/8"). Click an empty bar:
+    // a signature there (the one in force, typed in a dialog); drag a block's start along the bars (bar 1's stays);
+    // double-click a block to type it; right-click one: Edit…, Remove (not bar 1's); right-click the lane: Add a
+    // signature here…. Every edit is one undo step and follows the timebase, as the tempo lane's do.
+    bool inSignatureLane(double y) const;
+    // the time signatures shown: bar 1's, then each change at a bar's start that changes it (0-based bars)
+    std::vector<Meter> signatures() const;
+    int signatureBarAt(double x) const;               // the bar (1-based) at x
+    std::optional<int> signatureAt(PointF pos) const; // the block whose start is at pos (its bar, 1-based)
+    void paintSignatureLane(Painter& p, const Rect& r, bool contents);  // (false: its box, under the grid)
+    bool signaturePress(ui::MouseEvent& e);
+    void dragSignature(PointF pos);
+    void endSignatureDrag();
+    // the menu at bar `bar` (1-based): the block there (Edit…, Remove), and Add a time signature here… when the
+    // bar has none of its own
+    void fillSignatureMenu(ui::Menu& menu, int bar);
+    void editSignature(int bar);                     // the dialog: bar `bar`'s signature (a new one: the one in force)
+    bool setSignature(int bar, TimeSig sig);         // (one undo step; false: nothing changed)
+    bool removeSignature(int bar);                   // (bar 1's: false)
     // the right-click menu of the ruler (markers, tempo changes, inserting and deleting time)
     void fillRulerMenu(ui::Menu& menu, PointF pos);
     void rulerMenu(Point globalPos, PointF pos);

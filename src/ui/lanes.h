@@ -40,7 +40,15 @@ int rulerHeight();   // --ruler-height (RULER_H): the timeline's ruler
 bool tempoLaneShown();
 void setTempoLaneShown(bool on);
 int tempoLaneHeight();
-int lanesTop();      // where the lanes start: under the ruler and the tempo lane (the CPU monitor is as tall)
+// the time-signature lane under it (View → Time signature lane; timeline_signature.cpp): shown or not, its height
+// (--signature-lane-height, SIGNATURE_LANE_H; 0 while hidden) and its top (under the ruler and the tempo lane)
+bool signatureLaneShown();
+void setSignatureLaneShown(bool on);
+int signatureLaneHeight();
+int signatureLaneTop();
+// where the lanes start: under the ruler, the tempo lane and the time-signature lane (the CPU monitor and the
+// two lanes' rows beside them are as tall)
+int lanesTop();
 void setMasterScopeHeight(int px);  // (0: the scope hidden)
 
 }  // namespace lanes

@@ -407,6 +407,7 @@ made from `default.css` by `tools/skins_reference.py`.
 |---|---|---|
 | `--ruler-height` | `24px` | the timeline's ruler (and the CPU monitor beside it) |
 | `--tempo-lane-height` | `56px` | the tempo lane under the ruler (View → Tempo lane; drawn as an automation lane) |
+| `--signature-lane-height` | `28px` | the time-signature lane under it (View → Time signature lane; an automation lane's box) |
 | `--master-height` | `86px` | the master lane and its row |
 | `--group-height` | `52px` | a group's header lane and row |
 | `--take-height` | `46px` | a take lane and its row |
@@ -619,7 +620,8 @@ from its style is `--layout-spacing` (rows and columns) and `--grid-spacing` (gr
   opens, and its least); parts `::path-row`, `::nav-button` (Up and Home: `width`, `height`), `::middle`,
   `::places` (the list of places: `width`), `::form`. Its list is a **`FileList`**.
 - **`AudioPropertiesDialog`**, **`RecordOffsetDialog`**, **`RenderDialog`** (render the mix),
-  **`RecordSettingsDialog`**, **`TempoDialog`**, **`MidiPortsDialog`** (Options → MIDI ports…), **`ExternalSynthDialog`**.
+  **`RecordSettingsDialog`**, **`TempoDialog`**, **`SignatureDialog`** (a bar's time signature, from the
+  time-signature lane), **`TempoRangeDialog`** (the tempo lane's range typed), **`MidiPortsDialog`** (Options → MIDI ports…), **`ExternalSynthDialog`**.
 - `Dialog.group-tracks` (grouping tracks), `Dialog.recovery` (after a crash: parts `::text`, `::buttons` with
   `margin-top`).
 
@@ -705,6 +707,9 @@ from its style is `--layout-spacing` (rows and columns) and `--grid-spacing` (gr
   `:selected`, `:disabled`, `:frozen`, `:muted`, `:linked`, `:looping`. Parts `::body` and `::header` (boxes in the
   clip's own colours), `::overlay` (a box), `::name` (`padding`, the font), `::fade` (`background-color`,
   `stroke-width`), `::loop-start` (`stroke-width`, `height`), `::link` (`stroke-width`).
+- **`TimeSignature`** (a time signature's block on the time-signature lane, under the tempo lane): a box (its
+  `border-left` is the line at its bar), `color` and the font of its label ("7/8"), `padding-left` (the label's
+  room), `margin-top` / `margin-bottom` (the room above and below it in the lane); state `:dragged`.
 - **`OverviewCaption`** (a `Label`: "Project overview"). **`MasterLane`**: a box. **`Overview`**: a box, `padding-top` / `padding-bottom`; parts `::view` (a box and
   `outline-*`), `::cursor`, `::playhead`; its rows are `Lane`s (`Overview Lane.group { … }`).
 
@@ -718,6 +723,10 @@ from its style is `--layout-spacing` (rows and columns) and `--grid-spacing` (gr
   colour (a track's or group's colour wins over `background-color`): its border and border styles, radii,
   gradients over the colour, inset and outer shadows all apply, so `TrackRow { border: 2px outset #c0c0c0 }`
   gives raised rows; its controls go inside the border, and `border-left-color` is still the stripe.
+- **`TimingLaneRow`** (the tempo lane's and the time-signature lane's rows, under the CPU monitor): a box,
+  `padding`, `row-gap` (between its lines), `column-gap` (between its controls). Classes `.tempo`, `.signature`.
+  Its name is a `Label.name` (`TimingLaneRow Label.name { … }`), its ✕ a `Button.close`; the tempo row's Min and
+  Max are `SpinBox`es and its Auto a `CheckBox`.
 - **`LaneFrame`** (`#lane`, a row's frame): parts `::stripe` (`width`), `::edge` (`background-color`, `width`),
   `::current` (the current row's outline: `border-color`, `border-width`), `::load` (a box, `height`,
   `margin-bottom`), `::load-bar` (`:ok`, `:warn`, `:hot`). Class `.master` (`background-color`, `padding`,

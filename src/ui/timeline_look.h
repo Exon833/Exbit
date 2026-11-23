@@ -15,6 +15,9 @@
 //                         height) ::range (box) ::range-edge ::guide (color, stroke-width) ::label (color, font,
 //                         padding, width, height) ::value (box, color, font, padding, margin-left) ::hint (color,
 //                         font, padding-left, baseline)
+//   TimeSignature         a time signature's block on the time-signature lane (timeline_signature.cpp): a box
+//                         (its border-left: the line at its bar), color, font, padding-left (the label's room),
+//                         margin-top / margin-bottom (the room above and below it in the lane); :dragged while dragged
 //   Clip                  clips: clip_painter.h
 // Lengths for lines are `stroke-width`; `baseline` is the y of a text's baseline in its box (% of the box).
 #pragma once
@@ -102,6 +105,11 @@ struct TimelineLook {
     Color tempoColor;             // ::tempo: a tempo change after its bar's number
     Font tempoFont;
     int tempoMargin = 6, tempoBaseline = 15;
+    // a time signature's block (TimeSignature; [1]: :dragged)
+    css::Style signature[2];
+    Color signatureText[2];
+    Font signatureFont;
+    int signaturePadLeft = 5, signatureMarginTop = 3, signatureMarginBottom = 3;
     LaneLooks* lanes = nullptr;   // (the timeline's)
 };
 

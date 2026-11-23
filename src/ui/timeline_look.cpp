@@ -127,6 +127,18 @@ void readTimelineLook(TimelineLook& look, const ui::Widget* owner) {
     l.tempoFont = ui::style::font(ruler[10], theme::uiFont());
     l.tempoMargin = px(ruler[10], "margin-left", 6);
     l.tempoBaseline = baselineOf(ruler[10], 15, rulerH);
+    for (int dragged = 0; dragged < 2; dragged++) {  // a time signature's block
+        css::Style sig = paint::nodeStyle(owner, "TimeSignature", {}, dragged ? std::vector<std::string>{"dragged"}
+                                                                              : std::vector<std::string>{});
+        l.signature[dragged] = boxOf(sig);
+        l.signatureText[dragged] = color(sig, "color", theme::c("window_text"));
+        if (!dragged) {
+            l.signatureFont = ui::style::font(sig, theme::uiFont());
+            l.signaturePadLeft = px(sig, "padding-left", 5);
+            l.signatureMarginTop = px(sig, "margin-top", 3);
+            l.signatureMarginBottom = px(sig, "margin-bottom", 3);
+        }
+    }
     if (l.lanes) l.lanes->clear();
     look = std::move(l);
 }

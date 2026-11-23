@@ -49,7 +49,8 @@ CpuMonitor::CpuMonitor() {
 }
 
 void CpuMonitor::fit() {
-    Point size(theme::metric("panel-width", config::PANEL_W), lanes::lanesTop());  // (the ruler and the tempo lane)
+    // (as tall as the ruler: the tempo and time-signature lanes' rows are under it, timing_rows.h)
+    Point size(theme::metric("panel-width", config::PANEL_W), lanes::rulerHeight());
     if (minimumSize() != size || maximumSize() != size) setFixedSize(size.x, size.y);
 }
 

@@ -38,3 +38,41 @@ public:
 private:
     void take();  // the boxes' values
 };
+
+// The time-signature lane's dialog (timeline_signature.cpp; the terminal's S on the ruler): bar N's time signature,
+// numerator and denominator as the tempo dialog has them; Remove when the bar has its own (not bar 1's).
+class SignatureDialog : public ui::Dialog {
+public:
+    SignatureDialog(ui::Window* parent, int bar, TimeSig sig, bool removable, bool beatsTimebase = false);
+    int bar;
+    TimeSig sig;           // after run(): the one typed
+    bool removed = false;
+    ui::SpinBox* numerator;
+    ui::ComboBox* unit;    // 1, 2, 4, 8, 16, 32 (its item data)
+    ui::Button* removeButton = nullptr;
+    void done(int result) override;
+    void remove();         // (its Remove button: the bar's own time signature goes)
+    bool run();            // exec(); true when accepted (or removed)
+    static std::function<bool(SignatureDialog&)> testRun;  // (tests: instead of showing it)
+
+private:
+    void take();
+};
+
+// The tempo lane's range typed (the terminal's R on the ruler; the window has the row's Min, Max and Auto): `lo` and
+// `hi` BPM, or Auto (fitted to the tempo changes)
+class TempoRangeDialog : public ui::Dialog {
+public:
+    TempoRangeDialog(ui::Window* parent, double lo, double hi, bool automatic);
+    double lo, hi;
+    bool automatic;
+    ui::SpinBox* minBox;
+    ui::SpinBox* maxBox;
+    ui::CheckBox* autoBox;
+    void done(int result) override;
+    bool run();
+    static std::function<bool(TempoRangeDialog&)> testRun;
+
+private:
+    void take();
+};

@@ -72,8 +72,10 @@ void Timeline::paintArea(Painter& p, const Rect& r) {
         if (lane.track) tops[lane.track.get()] = lane.top;
     paintLanes(p, r, ls);
     paintTempoLane(p, r, false);  // (its box: under the grid)
+    paintSignatureLane(p, r, false);
     paintRuler(p, r);  // (the grid: over the lanes, under what is in them)
     paintTempoLane(p, r, true);
+    paintSignatureLane(p, r, true);
     for (auto& lane : ls) {
         if (lane.bottom() < r.top() || lane.top > r.bottom() - 1) continue;
         if (lane.group) paintGroupContents(p, r, lane);

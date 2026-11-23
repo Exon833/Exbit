@@ -65,6 +65,7 @@ struct Preferences {
     std::string recordOffsets;              // Options → Recording offset: JSON {"driver|device": ms}
     bool trackCpu = false;                  // Options → CPU per track
     bool tempoLane = false;                 // View → Tempo lane: the tempo lane shown under the ruler
+    bool signatureLane = false;             // View → Time signature lane: the time-signature lane under it
     std::string scope;                      // the master scope's options: JSON (ScopeSettings::toJson); "" the defaults
     int interfaceScale = 100;               // % the whole interface is drawn at (from the next start: main.cpp)
     bool nativeWayland = true;              // (the Python program's Qt-on-Wayland choice; kept for its settings)

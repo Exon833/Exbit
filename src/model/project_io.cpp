@@ -718,6 +718,8 @@ Json describeTiming(const Timing& t) {
     if (t.beatUnit != 4) out.set("beat_unit", Json(t.beatUnit));  // (only not N/4: older files unchanged)
     // (written only when Beats: files without it, from before the setting, load as Time and behave as they did)
     if (t.timebaseBeats) out.set("timebase", Json("beats"));
+    // (the tempo lane's range, only when fixed: Auto is the default, and older files have none)
+    if (t.tempoLaneFixed()) out.set("tempo_lane_range", Json::array({Json(t.tempoLaneLo), Json(t.tempoLaneHi)}));
     return out;
 }
 
@@ -781,6 +783,14 @@ Timing readTiming(const Json& entry) {
         t.swing = entry.num("swing", 0.0);  // (older files: straight)
         if (!(t.swing >= 0 && t.swing <= 100)) t.swing = 0;
         t.swingGrid = entry.integer("swing_grid", 1) == 0 ? 0 : 1;
+        const Json& range = entry["tempo_lane_range"];  // (none, or not a range: Auto)
+        if (range.isArray() && range.size() == 2 && range[size_t(0)].isNumber() && range[size_t(1)].isNumber()) {
+            t.tempoLaneLo = range[size_t(0)].toDouble(), t.tempoLaneHi = range[size_t(1)].toDouble();
+            if (!t.tempoLaneFixed()) {
+                util::debugf("the tempo lane's range %g…%g BPM isn't one: Auto\n", t.tempoLaneLo, t.tempoLaneHi);
+                t.tempoLaneLo = t.tempoLaneHi = 0;
+            }
+        }
     }
     if (!(config::MIN_BPM <= t.bpm && t.bpm <= config::MAX_BPM)) t.bpm = config::DEFAULT_BPM;
     if (t.beatsPerBar != timing::clampedBeats(t.beatsPerBar)) {

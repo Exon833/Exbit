@@ -27,7 +27,9 @@ extends; that program is in the repository's history.
   at once, Crop to the selection, Fades at every boundary…; automation that follows moved, copied and
   duplicated clips (Edit → Automation follows clips) and a lane's range copied and pasted;
   takes with comping; markers, tempo and time-signature changes (a tempo lane: steps or ramps, the song kept on its bars by
-  the Timebase; any time signature N/D, 6/8, 7/8, 5/16, 3/2, 12/8…, with the ruler, grid and metronome counting its
+  the Timebase, its BPM range fixed (Min, Max) or Auto on its row beside it; a time-signature lane under it: a block
+  per signature, added by clicking a bar, dragged along the bars, typed or removed; both shown or hidden from the
+  View menu or their rows' ✕; any time signature N/D, 6/8, 7/8, 5/16, 3/2, 12/8…, with the ruler, grid and metronome counting its
   unit, MIDI files and plugins told the real signature), warping (audio follows the tempo: markers, Beats / Tones / Complex, its tempo found from the
   file's tags, name or sound),
   insert/delete time, a fixed or zoom-following grid; undo and redo of every kind of edit (the last
@@ -423,7 +425,8 @@ Ctrl+Q quits. In the timeline the arrows move the cursor by the grid's step and 
 Enter selects the clip at the cursor, I … O selects a range, `,` `.` `[` `]` move the selected
 clips, M adds a marker, E / N open the MIDI editor (N: a new clip), and the window's own keys work as
 there (S split, Del, R record, L loop, Ctrl+C/X/V/D, Ctrl+Z…). Up from the first lane is the ruler
-(Enter: a tempo change; F2: its menu); an automation lane takes Enter (a point at the cursor), `[`
+(Enter: a tempo change; F2: its menu; Shift+T / Shift+S show the tempo and time-signature lanes as rows under
+it, Shift+R types the tempo lane's range, `/` the time signature at the cursor's bar, Shift+Del removes it); an automation lane takes Enter (a point at the cursor), `[`
 `]` (lower, raise) and Del; a take lane Enter (use it, or the range selected of it). In the track
 panel E opens a track's effects, I its instrument (Shift+I edits it), U its automation, K its takes,
 D its sends. The program's other windows appear as text over it, worked by the keys: dialogs (the

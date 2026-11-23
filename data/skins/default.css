@@ -501,6 +501,7 @@ FileDialog::form { row-gap: 6px; }
 :root {
     --ruler-height: 24px;          /* the timeline's ruler (and the CPU monitor beside it) */
     --tempo-lane-height: 56px;     /* the tempo lane under the ruler (View → Tempo lane) */
+    --signature-lane-height: 28px; /* the time-signature lane under it (View → Time signature lane) */
     --master-height: 86px;         /* the master lane and its row */
     --group-height: 52px;          /* a group's header lane and row */
     --take-height: 46px;           /* a take lane and its row */
@@ -581,6 +582,20 @@ Lane.automation::value {  /* a stepped parameter's values, on their lines */
     margin-left: 4px;
 }
 Lane.automation::hint { color: var(--ruler-text); padding-left: 8px; baseline: calc(50% + 4px); }
+/* A time signature on the time-signature lane (drawn on an automation lane's box): a block from its bar to the next
+   one's, its border-left the line at its bar, its label (color, font) padding-left into it; margin-top /
+   margin-bottom the room above and below it in the lane. :dragged while its start is dragged along the bars. */
+TimeSignature {
+    background-color: color-mix(in srgb, var(--automation-line) 10%, transparent);
+    /* (the curve's colour toward the text's: 3:1 on the block in light skins too) */
+    border-left: 2px solid color-mix(in srgb, var(--automation-line) 60%, var(--window-text) 40%);
+    color: var(--window-text);
+    font-weight: bold;
+    padding-left: 5px;
+    margin-top: 3px;
+    margin-bottom: 3px;
+}
+TimeSignature:dragged { background-color: color-mix(in srgb, var(--automation-line) 18%, transparent); }
 
 /* Clips. Their colours are the clips' own (or --clip-audio / --clip-midi), with automatic contrast: ::body (all
    of it) and ::header (the name strip) are boxes in them. stroke-width: the outline (padding: a switched-off
@@ -653,6 +668,17 @@ TrackRow::group-bar { background-color: var(--group-accent); width: 5px; }
 TrackRow::controls { column-gap: 6px; row-gap: 2px; }
 TrackRow::volume { column-gap: 4px; }
 TrackRow::auto { column-gap: 2px; }
+/* The tempo lane's and the time-signature lane's rows (under the CPU monitor, beside their lanes; .tempo,
+   .signature): a box as an automation lane's row; row-gap between its lines, column-gap between its controls. Its
+   name is a Label.name, its ✕ a Button.close. */
+TimingLaneRow {
+    background-color: var(--automation-lane);
+    border-top: 1px solid var(--grid-bar);
+    padding: 3px 6px 3px 14px;
+    row-gap: 2px;
+    column-gap: 4px;
+}
+TimingLaneRow Label.name { font-weight: bold; }
 
 /* (end of Timeline) */
 
@@ -1122,7 +1148,8 @@ HistoryWindow::undone { color: var(--disabled-text); }
    a row's: column-gap), min-width the least a window is made. ::row is a row of controls inside one (::header,
    ::buttons where a dialog has both). Dialog.group-tracks is Group tracks…, Dialog.recovery "Recover your work?"
    (::text its text's least width, ::buttons the room above its buttons: margin-top). */
-AudioPropertiesDialog, RecordOffsetDialog, RenderDialog, RecordSettingsDialog, TempoDialog, WarpDialog {
+AudioPropertiesDialog, RecordOffsetDialog, RenderDialog, RecordSettingsDialog, TempoDialog, SignatureDialog,
+TempoRangeDialog, WarpDialog {
     padding: 11px;
     row-gap: 6px;
 }

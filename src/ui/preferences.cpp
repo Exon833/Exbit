@@ -111,6 +111,7 @@ Preferences Preferences::load() {
     p.levelMeters = getBool("level_meters", p.levelMeters);
     p.trackCpu = getBool("track_cpu", p.trackCpu);
     p.tempoLane = getBool("tempo_lane", p.tempoLane);
+    p.signatureLane = getBool("signature_lane", p.signatureLane);
     p.loudnessMeters = getBool("loudness_meters", p.loudnessMeters);
     p.refreshFps = getInt("refresh_fps", p.refreshFps);
     p.metronome = getBool("metronome", p.metronome);
@@ -161,6 +162,7 @@ Preferences Preferences::load() {
     p.known_["processing_cores"] = Json(p.processingCores);
     p.known_["track_cpu"] = Json(p.trackCpu);
     p.known_["tempo_lane"] = Json(p.tempoLane);
+    p.known_["signature_lane"] = Json(p.signatureLane);
     p.known_["level_meters"] = Json(p.levelMeters);
     p.known_["loudness_meters"] = Json(p.loudnessMeters);
     p.known_["refresh_fps"] = Json(p.refreshFps);
@@ -221,6 +223,7 @@ void Preferences::save() const {
     put("level_meters", levelMeters);
     put("track_cpu", trackCpu);
     put("tempo_lane", tempoLane);
+    put("signature_lane", signatureLane);
     put("loudness_meters", loudnessMeters);
     put("refresh_fps", refreshFps);
     put("metronome", metronome);
