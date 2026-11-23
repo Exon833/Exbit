@@ -214,7 +214,7 @@ ui::ComboBox* outputSelector(ui::Widget* parent, int channels, int current, std:
 std::string effectsSummary(const std::vector<SlotPtr>& effects);
 // 'FX' button opening the effects window; lit while there are effects.
 ui::Button* fxButton(ui::Widget* parent, const std::vector<SlotPtr>& effects, std::function<void()> slot);
-// A MIDI track's instrument button (🎹): clicking it calls edit() (the instrument's window, or the
+// A MIDI track's instrument button (a piano keyboard, data/icons/keyboard.svg): clicking it calls edit() (the instrument's window, or the
 // instrument patch panel when it plays one: rack = how many instruments it holds, -1 = none), or,
 // with the built-in synth (no settings), shows the menu; its ▾ shows the menu, which fillMenu(menu)
 // fills each time it opens (the instruments to choose from). The menu is owned by the button.

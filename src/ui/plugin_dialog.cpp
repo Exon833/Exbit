@@ -497,7 +497,7 @@ bool PluginsDialog::place(const SlotPtr& slot, std::optional<Point> at) {
 
 std::string PluginsDialog::wrongKind(const PluginSlot& slot) const {
     if (INSTRUMENTS) return slot.name + " is an effect. Add it with the track's FX button instead.";
-    return slot.name + " is an instrument. Choose it with a MIDI track's instrument button (🎹) instead.";
+    return slot.name + " is an instrument. Choose it with a MIDI track's instrument button instead.";
 }
 
 void PluginsDialog::volumeChanged(int row, double value) {

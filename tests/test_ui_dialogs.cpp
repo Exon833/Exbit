@@ -127,13 +127,13 @@ static void testSkinFiles() {
         CHECK(same(sh.pressed, mixColor(q("button"), q("button_text"), 0.18f)));
         CHECK(same(sh.disabled, mixColor(q("button"), q("window"), 0.5f)));
         CHECK(same(sh.line, mixColor(q("window"), q("window_text"), 0.10f)));
-        CHECK(same(sh.fieldEdge, mixColor(q("base"), q("text"), 0.14f)));
-        CHECK(same(sh.fieldHover, mixColor(q("base"), q("text"), 0.26f)));
+        CHECK(same(sh.fieldEdge, mixColor(q("base"), q("text"), 0.22f)));
+        CHECK(same(sh.fieldHover, mixColor(q("base"), q("text"), 0.36f)));
         CHECK(same(sh.itemHover, mixColor(q("base"), q("text"), 0.07f)));
         CHECK(same(sh.panel, mixColor(q("window"), q("base"), 0.45f)));
-        CHECK(same(sh.handle, mixColor(q("window"), q("window_text"), 0.22f)));
-        CHECK(same(sh.handleHover, mixColor(q("window"), q("window_text"), 0.38f)));
-        CHECK(same(sh.accentHover, mixColor(q("accent"), q("accent_text"), 0.15f)));
+        CHECK(same(sh.handle, mixColor(q("window"), q("window_text"), 0.50f)));
+        CHECK(same(sh.handleHover, mixColor(q("window"), q("window_text"), 0.65f)));
+        CHECK(same(sh.accentHover, mixColor(q("accent"), Color(0, 0, 0), 0.15f)));
     }
     skin::apply(skin::find("Light"));
     CHECK(theme::c("window").hex() == "#eceef1");

@@ -36,7 +36,7 @@
     --tooltip-text: #000000;
     --disabled-text: #a1a192;
     --hint-text: #5b5a51;
-    --dimmed-text: #85837a;
+    --dimmed-text: #696760;
     --accent: #316ac5;
     --accent-text: #ffffff;
     --frame-edge: #0831d9;
@@ -57,10 +57,10 @@
     --playhead: #e0301e;
     --cursor: #316ac5;
     --selection-fill: #316ac52a;
-    --selection-edge: #316ac5c8;
+    --selection-edge: #316ac5;
     --automation-lane: #f3f5fa;
-    --automation-line: #df7a12;
-    --loop: #e68b2cb4;
+    --automation-line: #d47411;
+    --loop: #a8641ce0;
     --loop-off: #e68b2c46;
     --frozen-tint: #8fb6f04a;
     --overview-bg: #f6f5ef;
@@ -76,14 +76,14 @@
     --accent-audio: #316ac5;
     --accent-midi: #3c9a3c;
     --accent-return: #e68b2c;
-    --mute: #d9412c;
+    --mute: #d23f2b;
     --solo: #f2c230;
-    --record: #d9412c;
+    --record: #d23f2b;
 
     /* Meters */
     --meter-bg: #f4f6fa;
-    --meter-ok: #36b336;
-    --meter-warn: #f0c419;
+    --meter-ok: #31a131;
+    --meter-warn: #a88912;
     --meter-hot: #e0301e;
 
     /* MIDI editor */
@@ -164,15 +164,15 @@ Button:checked:hover { box-shadow: var(--xp-ring-hover); }
 /* lit (switched on, accent buttons; the original had none): the green of the era's start button, glossy */
 Button:lit {
     background-color: var(--xp-green);
-    background-image: linear-gradient(to bottom, #8fd88a 0%, #52b54d 45%, #379b33 50%, #2f8f2c 85%, #43a83f 100%);
+    background-image: linear-gradient(to bottom, #2a8227 0%, #237a21 45%, #1b6e1b 50%, #186418 85%, #1f7520 100%);
     border-color: var(--xp-green-edge);
     color: #ffffff;
     text-shadow: 1px 1px 1px #00000066;
     box-shadow: none;
 }
-Button:lit:hover {
+Button:lit:where(:not(:toggled)):hover {
     background-color: #4cb048;
-    background-image: linear-gradient(to bottom, #a6e6a1 0%, #62c45c 45%, #44ab3f 50%, #3a9f36 85%, #52b84d 100%);
+    background-image: linear-gradient(to bottom, #2b8428 0%, #267d25 45%, #1e711e 50%, #1b691b 85%, #237a22 100%);
     box-shadow: none;
 }
 
@@ -186,6 +186,9 @@ PushButton:focus, Button:default, Button:default:lit {
     box-shadow: var(--xp-ring-focus);
 }
 PushButton:focus:hover, Button:default:hover, Button:default:lit:hover { box-shadow: var(--xp-ring-hover); }
+/* the keyboard focus: the blue ring and, inside it, a dark line (the original's dotted rectangle) */
+PushButton:focus, ToolButton:focus, Button:default:lit:focus { box-shadow: var(--xp-ring-focus), inset 0 0 0 3px #3c3b33; }
+PushButton:focus:hover, ToolButton:focus:hover, Button:default:lit:focus:hover { box-shadow: var(--xp-ring-hover), inset 0 0 0 3px #3c3b33; }
 Button:default:pressed, Button:default:lit:pressed, PushButton:focus:pressed {
     background-color: #e5e5de;
     background-image: var(--xp-face-pressed);
@@ -196,7 +199,7 @@ Button:default:pressed, Button:default:lit:pressed, PushButton:focus:pressed {
 Button:toggled {
     background-color: var(--toggle-color, var(--accent));
     background-image: linear-gradient(to bottom,
-        color-mix(in srgb, var(--toggle-color, var(--accent)) 45%, #ffffff 55%) 0%,
+        var(--toggle-color, var(--accent)) 0%,
         var(--toggle-color, var(--accent)) 48%,
         color-mix(in srgb, var(--toggle-color, var(--accent)) 85%, #000000 15%) 52%,
         var(--toggle-color, var(--accent)) 100%);
@@ -242,7 +245,7 @@ ToolButton.autoRaise:pressed, ToolButton.autoRaise:checked {
 }
 ToolButton.autoRaise:lit {
     background-color: var(--xp-green);
-    background-image: linear-gradient(to bottom, #8fd88a 0%, #52b54d 45%, #379b33 50%, #2f8f2c 85%, #43a83f 100%);
+    background-image: linear-gradient(to bottom, #2a8227 0%, #237a21 45%, #1b6e1b 50%, #186418 85%, #1f7520 100%);
     border-color: var(--xp-green-edge);
     color: #ffffff;
 }
@@ -432,6 +435,7 @@ LineEdit { padding: 3px 3px; }
 LineEdit:frameless { background-color: transparent; border-width: 0; }
 LineEdit:hover, SpinBox:hover, ComboBox:hover { border-color: var(--xp-field-edge); }
 LineEdit:focus, SpinBox:focus, ComboBox:focus, ComboBox:open { border-color: var(--xp-field-edge); }
+LineEdit:focus, SpinBox:focus, ComboBox:focus { box-shadow: inset 0 0 0 1px #316ac5; }  /* the keyboard focus: a blue line inside */
 LineEdit:disabled, SpinBox:disabled, ComboBox:disabled {
     background-color: #ebebe4;
     border-color: var(--xp-disabled-edge);
@@ -549,14 +553,14 @@ ScrollBar::thumb {
     background-position: center;
     border: 1px solid #ffffff;
     border-radius: 3px;
-    box-shadow: inset -2px 0 0 #bad1fc, inset 1px 1px 0 #b7caf5, 0 1px 0 #7c9fd3;
+    box-shadow: inset -2px 0 0 #bad1fc, inset 1px 1px 0 #b7caf5, 0 1px 0 #6a8cc8;  /* (the outer edge: 3:1 on the track) */
     margin: 0 1px 1px 1px;
     min-height: 8px;
     min-width: 8px;
 }
 ScrollBar:horizontal::thumb {
     background-image: url(xp/grip-h.svg), linear-gradient(to bottom, #c9d7fc 0%, #c3d3fb 50%, #b9cdf9 100%);
-    box-shadow: inset 0 -2px 0 #bad1fc, inset 1px 1px 0 #b7caf5, 1px 0 0 #7c9fd3;
+    box-shadow: inset 0 -2px 0 #bad1fc, inset 1px 1px 0 #b7caf5, 1px 0 0 #6a8cc8;
     margin: 1px 1px 1px 0;
 }
 ScrollBar::thumb:hover {
@@ -666,9 +670,9 @@ FileView::header {
    ============================================================================================= */
 
 ExplorerDock::title-bar {
-    background-color: #2a6fe3;
+    background-color: #2669e0;
     background-image: linear-gradient(to bottom,
-        #7ab3ff 0%, #4a8ff5 8%, #2f78ec 30%, #2368e2 60%, #1f5ed6 90%, #1a4fbf 100%);
+        #5c9ef8 0%, #2c74ea 8%, #2669e0 30%, #2263da 60%, #1f5ed6 90%, #1a4fbf 100%);
     border-bottom: 1px solid #0a3aa8;
     color: #ffffff;
     font-weight: bold;
@@ -693,7 +697,7 @@ ExplorerDock > :not(Explorer) > ToolButton.autoRaise:pressed {
 Transport {
     background-color: #1a63e6;
     background-image: linear-gradient(to bottom,
-        #6aaaff 0%, #3c88f8 5%, #2470ee 12%, #1660e5 30%, #0e58e0 55%, #0b52d8 80%, #0a49c9 92%, #06379f 100%);
+        #5a9cf8 0%, #2a74ec 5%, #1f6aea 12%, #1660e5 30%, #0e58e0 55%, #0b52d8 80%, #0a49c9 92%, #06379f 100%);
     border-width: 0 0 1px 0;
     border-style: solid;
     border-color: #022a7a;
@@ -705,8 +709,8 @@ Transport Label {
 }
 /* the time: in a lighter blue panel at the right, as the clock of that era's task bar */
 Transport Label#time {
-    background-color: #0f8ef0;
-    background-image: linear-gradient(to bottom, #2ea6ff 0%, #1592f1 10%, #0e86ea 50%, #0b7bdf 90%, #0a63c4 100%);
+    background-color: #0a6dcc;
+    background-image: linear-gradient(to bottom, #1f8ae8 0%, #0b75d6 10%, #0a6dcc 50%, #0965c2 90%, #08529f 100%);
     border: 1px solid #0a47b0;
     border-radius: 3px;
     box-shadow: inset 1px 1px 0 #6cc4ff;
@@ -720,8 +724,8 @@ Transport ToolButton.autoRaise {
     text-shadow: 1px 1px 1px #001a5c;
 }
 Transport ToolButton.autoRaise:hover {
-    background-color: #3d86f2;
-    background-image: linear-gradient(to bottom, #7db6ff 0%, #4a90f5 45%, #3279ec 55%, #3d86f2 100%);
+    background-color: #2a70da;
+    background-image: linear-gradient(to bottom, #4f94f0 0%, #2f78e0 45%, #2468d4 55%, #2a70da 100%);
     border-color: #0a3aa8;
     box-shadow: inset 0 1px 0 #a9d0ff;
 }
@@ -733,19 +737,19 @@ Transport ToolButton.autoRaise:pressed, Transport ToolButton.autoRaise:checked {
 }
 Transport ToolButton.autoRaise:lit, Transport ToolButton.autoRaise:checked:lit {
     background-color: var(--xp-green);
-    background-image: linear-gradient(to bottom, #8fd88a 0%, #52b54d 45%, #379b33 50%, #2f8f2c 85%, #43a83f 100%);
+    background-image: linear-gradient(to bottom, #2a8227 0%, #237a21 45%, #1b6e1b 50%, #186418 85%, #1f7520 100%);
     border-color: #1b501b;
     color: #ffffff;
     box-shadow: inset 0 1px 0 #c1f0bd;
 }
-Transport ToolButton.autoRaise:lit:hover {
-    background-image: linear-gradient(to bottom, #a6e6a1 0%, #62c45c 45%, #44ab3f 50%, #3a9f36 85%, #52b84d 100%);
+Transport ToolButton.autoRaise:lit:where(:not(:toggled)):hover {
+    background-image: linear-gradient(to bottom, #2b8428 0%, #267d25 45%, #1e711e 50%, #1b691b 85%, #237a22 100%);
 }
 /* (a switched-on toggle with a role, the record button: its own colour, as anywhere) */
 Transport ToolButton.autoRaise:toggled, ToolButton.autoRaise:toggled {
     background-color: var(--toggle-color, var(--accent));
     background-image: linear-gradient(to bottom,
-        color-mix(in srgb, var(--toggle-color, var(--accent)) 45%, #ffffff 55%) 0%,
+        var(--toggle-color, var(--accent)) 0%,
         var(--toggle-color, var(--accent)) 48%,
         color-mix(in srgb, var(--toggle-color, var(--accent)) 85%, #000000 15%) 52%,
         var(--toggle-color, var(--accent)) 100%);
@@ -838,11 +842,11 @@ LevelMeter::track { background-color: #ffffff; border: 1px solid #b7bdc8; border
 /* glossy bars: a light top, the colour, a deeper band below the middle */
 LevelMeter::bar:ok, LevelMeter::peak:ok, MeterView::bar {
     background-color: var(--meter-ok);
-    background-image: linear-gradient(to bottom, #c4f3c4 0%, #5fd15f 40%, #2ea52e 55%, #43bd43 100%);
+    background-image: linear-gradient(to bottom, #9ad89a 0%, #3fae3f 40%, #1f8a1f 55%, #2a9a2a 100%);
 }
 LevelMeter::bar:warn, LevelMeter::peak:warn {
     background-color: var(--meter-warn);
-    background-image: linear-gradient(to bottom, #fff6c2 0%, #f8d743 40%, #e2b10a 55%, #f1c62a 100%);
+    background-image: linear-gradient(to bottom, #f0da86 0%, #c99a00 40%, #a07600 55%, #b08300 100%);
 }
 LevelMeter::bar:hot, LevelMeter::peak:hot {
     background-color: var(--meter-hot);
@@ -1099,3 +1103,6 @@ TitleBar:inactive::close {
     background-color: #b07f98;
     background-image: linear-gradient(135deg, #b8899f 0%, #b07e98 40%, #ad728c 75%, #ad6a80 100%);
 }
+
+/* the RMS bar over the peak bar: darker still */
+LevelMeter::rms { background-color: #000000a6; }

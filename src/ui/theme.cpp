@@ -19,14 +19,14 @@ const std::vector<ColorInfo>& colors() {
         {"text", "#dcdde0", "Text in fields and lists", "Window"},
         {"button", "#36383d", "Buttons", "Window"},
         {"button_text", "#dcdde0", "Button text", "Window"},
-        {"highlight", "#3d7ab8", "Selected items", "Window"},
+        {"highlight", "#3c79b6", "Selected items", "Window"},
         {"highlighted_text", "#ffffff", "Selected items' text", "Window"},
         {"tooltip_base", "#1e1f22", "Tooltips", "Window"},
         {"tooltip_text", "#dcdde0", "Tooltip text", "Window"},
         {"disabled_text", "#6b6e75", "Disabled text", "Window"},
         {"hint_text", "#9a9da5", "Hints", "Window"},
-        {"dimmed_text", "#70737c", "Dimmed notes (updates)", "Window"},
-        {"accent", "#3d7ab8", "Lit buttons (FX with plugins, Preview, Metronome…)", "Window"},
+        {"dimmed_text", "#92959b", "Dimmed notes (updates)", "Window"},
+        {"accent", "#3c79b6", "Lit buttons (FX with plugins, Preview, Metronome…)", "Window"},
         {"accent_text", "#ffffff", "Text on lit buttons", "Window"},
         {"frame_edge", "#111111", "Thin edges", "Window"},
 
@@ -65,12 +65,13 @@ const std::vector<ColorInfo>& colors() {
         {"accent_return", "#d0913c", "Return track stripe", "Tracks and clips"},
         {"mute", "#c0392b", "Mute (M) when on", "Tracks and clips"},
         {"solo", "#d4a017", "Solo (S) when on", "Tracks and clips"},
+        {"solo_text", "#1e1f22", "Text on Solo (S) when on", "Tracks and clips"},
         {"record", "#d0433a", "Recording: ● Rec when on, the take as it grows", "Tracks and clips"},
 
         {"meter_bg", "#121316", "Meter background", "Meters"},
         {"meter_ok", "#46c86e", "Meter: up to -12 dB (and CPU load)", "Meters"},
         {"meter_warn", "#dcbe3c", "Meter: up to 0 dB", "Meters"},
-        {"meter_hot", "#dc3c32", "Meter: at 0 dB", "Meters"},
+        {"meter_hot", "#d63a30", "Meter: at 0 dB", "Meters"},
 
         {"keys_white", "#e8e8ea", "White keys", "MIDI editor"},
         {"keys_black", "#1b1c1f", "Black keys", "MIDI editor"},
@@ -132,16 +133,17 @@ void refresh() {
         {&Shades::pressed, "--pressed", "button", "button_text", 0.18f},
         {&Shades::disabled, "--disabled", "button", "window", 0.5f},
         {&Shades::line, "--line", "window", "window_text", 0.10f},
-        {&Shades::fieldEdge, "--field-edge", "base", "text", 0.14f},
-        {&Shades::fieldHover, "--field-hover", "base", "text", 0.26f},
+        {&Shades::fieldEdge, "--field-edge", "base", "text", 0.22f},
+        {&Shades::fieldHover, "--field-hover", "base", "text", 0.36f},
         {&Shades::itemHover, "--item-hover", "base", "text", 0.07f},
         {&Shades::panel, "--panel", "window", "base", 0.45f},
-        {&Shades::handle, "--handle", "window", "window_text", 0.22f},
-        {&Shades::handleHover, "--handle-hover", "window", "window_text", 0.38f},
-        {&Shades::accentHover, "--accent-hover", "accent", "accent_text", 0.15f},
+        {&Shades::handle, "--handle", "window", "window_text", 0.50f},
+        {&Shades::handleHover, "--handle-hover", "window", "window_text", 0.65f},
+        {&Shades::accentHover, "--accent-hover", "accent", "", 0.15f},  // ("": black)
     };
     for (auto& m : mixes)
-        if (!rootColor(m.var, currentShades.*m.field)) currentShades.*m.field = mixColor(q[m.a], q[m.b], m.t);
+        if (!rootColor(m.var, currentShades.*m.field))
+            currentShades.*m.field = mixColor(q[m.a], *m.b ? q[m.b] : Color(0, 0, 0), m.t);
 
     // fonts: font-family's first name ("system-ui" and the generic families: the system's own), font-size,
     // --mono-font
@@ -276,7 +278,7 @@ const Shades& shades() {
 }
 
 Color toggleColor(const std::string& role) { return c(role); }
-Color toggleHover(const std::string& role) { return mixColor(c(role), c("accent_text"), 0.15f); }
+Color toggleHover(const std::string& role) { return mixColor(c(role), Color(0, 0, 0), 0.15f); }  // (darker: as default.css)
 
 Font uiFont() { return Font::ui(); }
 

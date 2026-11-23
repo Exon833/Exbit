@@ -5,9 +5,11 @@
 #include <cmath>
 #include <functional>
 
+#include "core/util.h"
 #include "ui/cpu_monitor.h"
 #include "ui/formatting.h"
 #include "ui/theme.h"
+#include "ui/transport_bar.h"
 
 // ============================================================================================
 // LaneFrame (lane_frame / lane_style)
@@ -614,8 +616,12 @@ ui::Menu* ownedMenu(ui::Widget* owner) {
 ui::Button* instrumentButton(ui::Widget* parent, const SlotPtr& instrument, std::function<void()> edit,
                              std::function<void(ui::Menu&)> fillMenu, int rack, SamplerPtr sampler,
                              PadKitPtr padKit, bool drawn) {
-    ui::Button* b = toolButton(parent, "🎹", theme::metric("instrument-button-width", 40),
-                               theme::metric("row-button-height", 22), "");
+    int rowH = theme::metric("row-button-height", 22);
+    ui::Button* b = toolButton(parent, "", theme::metric("instrument-button-width", 40), rowH, "");
+    // a piano keyboard (data/icons/keyboard.svg): 🎹 is in no font many computers have (a hollow box)
+    std::string svg;
+    if (util::readFile(transport_bar::iconDir() + "/keyboard.svg", svg)) b->setIconSvg(svg, std::max(8, rowH - 8));
+    else b->setText("Inst");  // (the icon file missing: a word)
     ui::Menu* menu = ownedMenu(b);
     menu->aboutToShow = [fillMenu](ui::Menu* m) {
         m->clear();

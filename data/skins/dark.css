@@ -9,14 +9,14 @@
     --text: #dcdde0;
     --button: #36383d;
     --button-text: #dcdde0;
-    --highlight: #3d7ab8;
+    --highlight: #3c79b6;
     --highlighted-text: #ffffff;
     --tooltip-base: #1e1f22;
     --tooltip-text: #dcdde0;
     --disabled-text: #6b6e75;
     --hint-text: #9a9da5;
-    --dimmed-text: #70737c;
-    --accent: #3d7ab8;
+    --dimmed-text: #92959b;
+    --accent: #3c79b6;
     --accent-text: #ffffff;
     --frame-edge: #111111;
     --lane: #232529;
@@ -56,7 +56,7 @@
     --meter-bg: #121316;
     --meter-ok: #46c86e;
     --meter-warn: #dcbe3c;
-    --meter-hot: #dc3c32;
+    --meter-hot: #d63a30;
     --keys-white: #e8e8ea;
     --keys-black: #1b1c1f;
     --keys-line: #b8b9be;

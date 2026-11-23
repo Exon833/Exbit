@@ -231,6 +231,8 @@ const LevelMeter::Look& LevelMeter::look() const {
         l.peakStyle[i] = &parts_.get("peak", ranges[i]);
         l.bar[i] = panel_style::bg(*l.barStyle[i]);
         l.peak[i] = panel_style::bg(*l.peakStyle[i]);
+        l.rmsStyle[i] = &parts_.get("rms", ranges[i]);
+        l.rms[i] = panel_style::bg(*l.rmsStyle[i]);
     }
     l.peakW = std::max(1, panel_style::px(parts_.get("peak", "ok"), "width", 2));
     l.gap = std::max(0, theme::metric("meter-gap", level_meter::GAP));
@@ -271,14 +273,16 @@ void LevelMeter::paint(Painter& p) {
                 panel_style::fillPart(p, RectF(Rect(in.x + part.left, in.y, part.right - part.left, in.h)),
                                       look.barStyle[part.range], look.bar[part.range]);
         double rms = k < rms_.size() ? rms_[k] : 0.0;
-        if (rms > 0) {  // the RMS: a thin bar along the middle of the peak bar
+        if (rms > 0) {  // the RMS: a thin bar along the middle of the peak bar, in ::rms (over the bar: a shade of it)
             double rmsDb = dsp::gainToDb(rms);
             int rw = (int)(bw * level_meter::dbFraction(rmsDb));
             int rh = std::max(1, in.h / 3);
             int range = rmsDb >= level_meter::HOT_DB ? 2 : rmsDb >= level_meter::WARN_DB ? 1 : 0;
+            // (a skin without ::rms: the peak's colour, as before there was one)
+            bool own = look.rms[range].a > 0 || ui::style::boxLook(*look.rmsStyle[range]).more;
             if (rw > 0)
-                panel_style::fillPart(p, RectF(Rect(in.x, in.y + (in.h - rh) / 2, rw, rh)), look.peakStyle[range],
-                                      look.peak[range]);
+                panel_style::fillPart(p, RectF(Rect(in.x, in.y + (in.h - rh) / 2, rw, rh)),
+                                      own ? look.rmsStyle[range] : look.peakStyle[range], own ? look.rms[range] : look.peak[range]);
         }
         double held = k < held_.size() ? held_[k] : 0.0;
         if (held > 0) {  // the held peak: a thin line in its level's colour (red at full scale, wherever drawn)

@@ -81,13 +81,13 @@ struct Shades {
     Color pressed;      // pressed, or switched on            mix(button, button_text, .18)
     Color disabled;     // a disabled button's fill           mix(button, window, .5)
     Color line;         // dividing lines, edges of menus     mix(window, window_text, .10)
-    Color fieldEdge;    // edge of fields                     mix(base, text, .14)
-    Color fieldHover;   // … under the mouse                  mix(base, text, .26)
+    Color fieldEdge;    // edge of fields                     mix(base, text, .22)
+    Color fieldHover;   // … under the mouse                  mix(base, text, .36)
     Color itemHover;    // list rows under the mouse          mix(base, text, .07)
     Color panel;        // boxes grouping controls            mix(window, base, .45)
-    Color handle;       // scroll bar handles                 mix(window, window_text, .22)
-    Color handleHover;  //                                    mix(window, window_text, .38)
-    Color accentHover;  //                                    mix(accent, accent_text, .15)
+    Color handle;       // scroll bar handles                 mix(window, window_text, .50): 3:1 on the window
+    Color handleHover;  //                                    mix(window, window_text, .65)
+    Color accentHover;  //                                    mix(accent, black, .15): its text keeps its contrast
 };
 const Shades& shades();
 // a lit toggle's colours (mute / solo / record roles): its fill, and under the mouse

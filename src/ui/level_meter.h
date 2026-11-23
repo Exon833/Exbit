@@ -94,9 +94,10 @@ private:
         ui::style::Insets inset;       // its own border and padding (the bars and number inside them)
         ui::style::Insets trackInset;  // ::track's (each bar inside them)
         bool selfShows = false;   // (its own box draws anything)
-        Color bar[3], peak[3], numberText, clippedText;  // [ok, warn, hot]
+        Color bar[3], peak[3], rms[3], numberText, clippedText;  // [ok, warn, hot]
         const css::Style* barStyle[3] = {nullptr, nullptr, nullptr};   // (more than a colour: drawn as boxes)
         const css::Style* peakStyle[3] = {nullptr, nullptr, nullptr};
+        const css::Style* rmsStyle[3] = {nullptr, nullptr, nullptr};  // (over the bar)
         int peakW = 2, gap = level_meter::GAP;
         Font font, clippedFont;
     };
