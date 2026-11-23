@@ -261,7 +261,7 @@ void FileView::fill(Item* item) {
     std::vector<util::DirEntry> entries = util::listDir(item->path);  // (sorted naturally)
     std::stable_partition(entries.begin(), entries.end(), [](const util::DirEntry& e) { return e.isDir; });  // folders first
     for (auto& e : entries) {
-        if (!e.name.empty() && e.name[0] == '.') continue;  // (hidden)
+        if ((!e.name.empty() && e.name[0] == '.') || e.hidden) continue;  // (hidden)
         // only audio and MIDI files (and track presets, in the presets' place: presets.h)
         bool presetPlace = util::startsWith(item->path, presets::tracksFolder());
         if (!e.isDir && !file_io::isSample(e.name) && !(presetPlace && util::extension(e.name) == ".json")) continue;

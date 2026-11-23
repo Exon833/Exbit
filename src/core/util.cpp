@@ -187,7 +187,11 @@ std::vector<DirEntry> listDir(const std::string& path) {
         if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
         bool dir = false;
 #ifdef TINYDAW_WINDOWS
-        dir = isDir(joinPath(path, e->d_name));  // (MinGW's dirent has no d_type)
+        DWORD attr = GetFileAttributesW(os::widen(joinPath(path, e->d_name)).c_str());  // (MinGW's dirent has no d_type)
+        dir = attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY);
+        bool hidden = attr != INVALID_FILE_ATTRIBUTES && (attr & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM));
+        out.push_back({e->d_name, dir, hidden});
+        continue;
 #else
         if (e->d_type == DT_DIR) dir = true;
         else if (e->d_type == DT_UNKNOWN || e->d_type == DT_LNK) dir = isDir(joinPath(path, e->d_name));

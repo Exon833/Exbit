@@ -619,7 +619,7 @@ public:
         std::vector<FileList::Entry> dirs, fileEntries;
         const Filter& f = filter();
         for (auto& e : util::listDir(folder)) {
-            if (e.name.empty() || e.name[0] == '.') continue;
+            if (e.name.empty() || e.name[0] == '.' || e.hidden) continue;
             std::string full = util::joinPath(folder, e.name);
             bool isDir = e.isDir || util::isDir(full);
             if (isDir) {

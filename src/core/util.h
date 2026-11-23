@@ -33,7 +33,11 @@ bool removeFile(const std::string& path);
 bool renameFile(const std::string& from, const std::string& to);
 int64_t fileSize(const std::string& path);   // -1 if missing
 double fileMtime(const std::string& path);   // seconds since the epoch, 0 if missing
-struct DirEntry { std::string name; bool isDir; };
+struct DirEntry {
+    std::string name;
+    bool isDir;
+    bool hidden = false;  // Windows: marked hidden or a system file (on Linux, hidden is a name starting with '.')
+};
 std::vector<DirEntry> listDir(const std::string& path);  // sorted by name, case-insensitively; no "." / ".."
 // every file under `root` (recursively, following no symlinked folders twice); fn returns false to stop
 void walkFiles(const std::string& root, const std::function<bool(const std::string& path)>& fn);
