@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <mutex>
 
+#include "core/os.h"
 #include "core/util.h"
 
 namespace paths {
@@ -26,7 +27,7 @@ std::string dataDir(const std::string& sub) {
     if (base.empty()) {
 #ifdef _WIN32
         const char* appdata = getenv("APPDATA");
-        base = util::joinPath(appdata && *appdata ? appdata : util::expandUser("~"), "TinyDAW");
+        base = util::joinPath(appdata && *appdata ? os::portablePath(appdata) : util::expandUser("~"), "TinyDAW");
 #else
         const char* xdg = getenv("XDG_DATA_HOME");
         base = util::joinPath(xdg && *xdg ? std::string(xdg) : util::expandUser("~/.local/share"), "TinyDAW");

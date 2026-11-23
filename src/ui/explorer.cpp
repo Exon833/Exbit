@@ -58,6 +58,10 @@ bool walk(const std::string& dir, std::vector<Indexed>& found, size_t limit, con
         if (!strcmp(name, ".") || !strcmp(name, "..")) continue;
         std::string path = util::joinPath(dir, name);
         bool isDir = false, isLink = false;
+#ifdef _WIN32
+        isDir = util::isDir(path);  // (MinGW's dirent has no d_type; links read as what they point at)
+        if (false) {
+#else
         if (e->d_type == DT_DIR) {
             isDir = true;
         } else if (e->d_type == DT_LNK || e->d_type == DT_UNKNOWN) {
@@ -68,6 +72,7 @@ bool walk(const std::string& dir, std::vector<Indexed>& found, size_t limit, con
             } else {
                 isDir = S_ISDIR(st.st_mode);
             }
+#endif
         }
         if (isDir) {
             if (name[0] != '.' && !isLink) subdirs.push_back(path);  // (os.walk doesn't follow links)

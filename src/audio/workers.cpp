@@ -1,10 +1,14 @@
 #include "audio/workers.h"
 
+#ifdef _WIN32
+#include <windows.h>  // (WaitOnAddress: Windows' futex)
+#else
 #include <linux/futex.h>
 #include <pthread.h>
 #include <sched.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <chrono>
@@ -25,12 +29,20 @@ uint64_t genOf(uint64_t s) { return s >> GEN_SHIFT; }
 int countOf(uint64_t s) { return (int)((s >> COUNT_SHIFT) & FIELD); }
 int nextOf(uint64_t s) { return (int)(s & FIELD); }
 
+#ifdef _WIN32
+void futexWait(std::atomic<uint32_t>* word, uint32_t value) { WaitOnAddress(word, &value, sizeof value, INFINITE); }
+void futexWake(std::atomic<uint32_t>* word, int count) {
+    if (count == 1) WakeByAddressSingle(word);
+    else WakeByAddressAll(word);
+}
+#else
 void futexWait(std::atomic<uint32_t>* word, uint32_t value) {
     syscall(SYS_futex, reinterpret_cast<uint32_t*>(word), FUTEX_WAIT_PRIVATE, value, nullptr, nullptr, 0);
 }
 void futexWake(std::atomic<uint32_t>* word, int count) {
     syscall(SYS_futex, reinterpret_cast<uint32_t*>(word), FUTEX_WAKE_PRIVATE, count, nullptr, nullptr, 0);
 }
+#endif
 inline void pause() {
 #if defined(__x86_64__) || defined(__i386__)
     __builtin_ia32_pause();
@@ -132,12 +144,20 @@ void setChosenCores(int wanted) { chosen.store(std::max(0, wanted)); }
 int chosenCores() { return chosen.load(); }
 
 int availableCores() {
+#ifdef _WIN32
+    DWORD_PTR mine = 0, sys = 0;  // (the processors this process may run on; up to 64, one processor group)
+    if (GetProcessAffinityMask(GetCurrentProcess(), &mine, &sys) && mine) {
+        int n = __builtin_popcountll((unsigned long long)mine);
+        return std::max(n, (int)std::thread::hardware_concurrency());
+    }
+#else
     cpu_set_t set;
     CPU_ZERO(&set);
     if (sched_getaffinity(0, sizeof set, &set) == 0) {
         int n = CPU_COUNT(&set);
         if (n > 0) return n;
     }
+#endif
     return std::max(1, (int)std::thread::hardware_concurrency());
 }
 

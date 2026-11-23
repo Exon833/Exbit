@@ -15,7 +15,12 @@ namespace util {
 bool debug();
 void setDebug(bool on);  // (tests, headless: off)
 // printf to stderr when debug() is on (never from the audio thread: it may block)
-void debugf(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
+#ifdef _WIN32
+#define TINYDAW_PRINTF gnu_printf  // (the C runtime's own printf takes %zu too; MinGW checks against Microsoft's)
+#else
+#define TINYDAW_PRINTF printf
+#endif
+void debugf(const char* fmt, ...) __attribute__((format(TINYDAW_PRINTF, 1, 2)));
 
 // --- files ---
 bool readFile(const std::string& path, std::string& out);
@@ -24,6 +29,8 @@ bool fileExists(const std::string& path);
 bool isDir(const std::string& path);
 bool makeDirs(const std::string& path);
 bool removeFile(const std::string& path);
+// rename(), replacing `to` if it is there (Windows' own rename doesn't)
+bool renameFile(const std::string& from, const std::string& to);
 int64_t fileSize(const std::string& path);   // -1 if missing
 double fileMtime(const std::string& path);   // seconds since the epoch, 0 if missing
 struct DirEntry { std::string name; bool isDir; };
@@ -49,7 +56,7 @@ bool startsWith(const std::string& s, const std::string& prefix);
 bool endsWith(const std::string& s, const std::string& suffix);
 bool containsNoCase(const std::string& hay, const std::string& needle);
 std::string replaceAll(std::string s, const std::string& from, const std::string& to);
-std::string format(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
+std::string format(const char* fmt, ...) __attribute__((format(TINYDAW_PRINTF, 1, 2)));
 // Python-like "{:.2f}" style: fixed decimals
 std::string fixed(double v, int decimals);
 int compareNatural(const std::string& a, const std::string& b);  // case-insensitive

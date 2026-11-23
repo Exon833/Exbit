@@ -1,7 +1,9 @@
 // MIDI out from the audio thread: clock, Start/Stop/Song Position, External synth notes (midi_out.h).
 #include "audio/midi_out.h"
 
+#ifndef _WIN32
 #include <sys/eventfd.h>
+#endif
 #include <unistd.h>
 
 #include <algorithm>
@@ -12,7 +14,9 @@
 namespace midi_out {
 
 Out::Out() : ring_(16384) {
+#ifndef _WIN32  // (Windows: no wake-up for the output thread yet: midi_ports.cpp isn't ported)
     wake_ = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+#endif
     clips_.reserve(256);
     messages_.reserve(4096);
     events_.reserve(4096);

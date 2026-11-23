@@ -18,6 +18,7 @@
 #include <map>
 #include <unordered_map>
 
+#include "core/os.h"
 #include "core/util.h"
 #include "gfx/ttf_raster.h"
 
@@ -274,11 +275,19 @@ std::vector<FaceInfo>& allFaces() {
     static bool scanned = false;
     if (!scanned) {
         scanned = true;
+#ifdef _WIN32
+        // Windows' fonts, and those installed for this user only
+        const char* windir = getenv("WINDIR");
+        std::vector<std::string> dirs = {util::joinPath(windir ? os::portablePath(windir) : "C:/Windows", "Fonts")};
+        if (const char* local = getenv("LOCALAPPDATA"))
+            dirs.push_back(os::portablePath(local) + "/Microsoft/Windows/Fonts");
+#else
         std::vector<std::string> dirs = {"/usr/share/fonts", "/usr/local/share/fonts"};
         if (const char* home = getenv("HOME")) {
             dirs.push_back(std::string(home) + "/.local/share/fonts");
             dirs.push_back(std::string(home) + "/.fonts");
         }
+#endif
         for (const std::string& d : dirs) scanDir(d, faces, 0);
     }
     return faces;
@@ -849,13 +858,17 @@ const FaceInfo* pickStyle(const std::vector<const FaceInfo*>& faces, bool bold) 
     return best;
 }
 
+// (the last ones: Windows' own)
 const char* const kUiFamilies[] = {"DejaVu Sans", "Noto Sans", "Liberation Sans", "Cantarell", "Droid Sans",
-                                   "FreeSans", "Ubuntu", "Open Sans"};
+                                   "FreeSans", "Ubuntu", "Open Sans", "Segoe UI", "Tahoma", "Arial"};
 const char* const kMonoFamilies[] = {"DejaVu Sans Mono", "Liberation Mono", "Noto Sans Mono", "Hack",
-                                     "Droid Sans Mono", "FreeMono", "Ubuntu Mono", "Noto Mono"};
+                                     "Droid Sans Mono", "FreeMono", "Ubuntu Mono", "Noto Mono", "Consolas",
+                                     "Cascadia Mono", "Courier New"};
 const char* const kFallbackFamilies[] = {"DejaVu Sans", "DejaVu Sans Mono", "Noto Sans Symbols", "Noto Sans Symbols2",
                                          "Noto Sans Math", "Symbola", "FreeSerif", "Noto Sans", "DejaVu Serif",
-                                         "Liberation Sans", "Noto Music", "Droid Sans Fallback"};
+                                         "Liberation Sans", "Noto Music", "Droid Sans Fallback", "Segoe UI Symbol",
+                                         "Segoe UI", "Cambria Math", "Segoe UI Historic", "Arial", "Microsoft YaHei",
+                                         "Yu Gothic", "Malgun Gothic", "Nirmala UI"};
 
 bool isMonoName(const std::string& l) {
     static const char* names[] = {"consolas", "courier new", "courier", "monospace", "mono", "menlo", "monaco",
