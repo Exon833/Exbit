@@ -320,7 +320,10 @@ void testFront() {
     std::string saved = std::filesystem::absolute(TMP + "/song.json").string();  // (the chooser starts elsewhere)
     util::removeFile(saved);
     d.keys(std::vector<Key>{key('S', plat::ModCtrl), key('A', plat::ModCtrl)} + typed(saved) + std::vector<Key>{key(plat::Key_Return)});
-    CHECK(util::fileExists(saved) && w->projectPath == saved);
+    // (the same file however it is spelled: Windows' absolute() writes backslashes, the program keeps "C:/…")
+    CHECK(util::fileExists(saved) && std::filesystem::exists(w->projectPath) &&
+          std::filesystem::equivalent(w->projectPath, saved));
+    if (w->projectPath != saved) printf("saved as %s (asked: %s)\n", w->projectPath.c_str(), saved.c_str());
     CHECK(d.screen.line(0).find("song") != std::string::npos);
     // a dialog drawn: Ctrl+O's chooser, as text; Esc cancels it
     d.queue = {key('O', plat::ModCtrl)};
