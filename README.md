@@ -15,7 +15,8 @@ extends; that program is in the repository's history.
 
 ## What it does
 
-- **Timeline**: audio and MIDI tracks, groups that are buses (their own fader, pan, sends and effects;
+- **Timeline**: audio and MIDI tracks (right-click the track panel, empty space or a row: Add track ▸ audio, MIDI,
+  return; or Ctrl+T, Ctrl+Shift+T, Ctrl+Alt+T), groups that are buses (their own fader, pan, sends and effects;
   groups in groups; or Fold only), any track's output into a group or another track, return tracks with sends (before or after the
   fader; a return's row has its fader on its meter: drag the ▼), pan, track delay; tracks duplicated (with or without their clips), moved (drag a name, or
   Alt+↑/↓) and selected several at once (Shift/Ctrl-click: a fader, mute, solo or new effect changes them
@@ -48,7 +49,8 @@ extends; that program is in the repository's history.
   played live, and committed into the notes (this clip, every clip, or onto a new track); MIDI keyboards (several ports at once: Options → MIDI ports…; a
   track can listen to one port and channel), hardware synths (External synth: notes out, audio back, its delay
   measured), MIDI clock in and out, JACK transport (Sync in the transport); a MIDI keyboard (with sustain pedal) or the computer
-  keyboard; MIDI recording, Capture of what you just played, MIDI file import and export.
+  keyboard playing the selected track, or several instruments at once (light the keyboard focus toggle, a MIDI socket,
+  on each MIDI track's row; right-click it to Lock keyboard focus so selecting other tracks leaves it); MIDI recording, Capture of what you just played, MIDI file import and export.
 - **Modulators**: an LFO, Random, a Level Follower, a Macro knob and MIDI Control (the mod wheel or any
   controller of a MIDI keyboard), placed in the effects window like
   effects, that move any knob of the track's effects or instrument (see below).
@@ -266,7 +268,7 @@ the knob over its whole range), **The other way**, **Remove** (the knob goes bac
   Wire it to a filter's cutoff and the mod wheel opens it, on any plugin.
 
 **Pitch bend and the mod wheel**: a MIDI keyboard's pitch bend bends the notes played live into the
-selected track: the built-in synth's and sampler's voices (the range, ±2 semitones unless the track's
+selected track (or every track whose keyboard focus toggle is lit): the built-in synth's and sampler's voices (the range, ±2 semitones unless the track's
 right-click → Pitch bend range… says otherwise, 1–24, saved with the project), and plugin instruments
 (VST2 as MIDI pitch bend; VST3 through the parameter the plugin maps it to; Windows plugins through
 their Wine host). The mod wheel (CC 1) goes on to plugin instruments too. Pitch bend isn't recorded
@@ -425,7 +427,8 @@ there (S split, Del, R record, L loop, Ctrl+C/X/V/D, Ctrl+Z…). Up from the fir
 (Enter: a tempo change; F2: its menu); an automation lane takes Enter (a point at the cursor), `[`
 `]` (lower, raise) and Del; a take lane Enter (use it, or the range selected of it). In the track
 panel E opens a track's effects, I its instrument (Shift+I edits it), U its automation, K its takes,
-D its sends. The program's other windows appear as text over it, worked by the keys: dialogs (the
+D its sends, A / N a new audio / MIDI track below (F2: Add track, with return tracks too), Shift+K the keyboards
+play the MIDI track too (♪ before its name; F2: Lock keyboard focus). The program's other windows appear as text over it, worked by the keys: dialogs (the
 file chooser, Render, Audio properties…; Tab between their controls, Enter the default button, Esc
 cancels), the effects' patch panel (arrows a unit, Enter its window, B bypass, C / X plug or unplug
 a cable, F2 its menu: modulation), a built-in effect's knobs, a VST plugin's parameters as a list,

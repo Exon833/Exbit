@@ -70,9 +70,28 @@ std::string MidiInput::portName(int slot) const {
     return p ? p->key : std::string();
 }
 
-static bool playable(const TrackPtr& track, const Project& project) {
+bool playable(const TrackPtr& track, const Project& project) {
     return track && track->kind == Kind::Midi && !track->needsInstrument && !std::atomic_load(&track->frozen) &&
            project.tracks.contains(track);  // (removed meanwhile)
+}
+
+std::vector<TrackPtr> keyboardTracks(const Project& project, const TrackPtr& selected) {
+    std::vector<TrackPtr> out;
+    for (auto& t : project.tracks)
+        if (t->keyFocus && playable(t, project)) out.push_back(t);
+    if (out.empty() && playable(selected, project)) out.push_back(selected);  // (none left: the selected one)
+    return out;
+}
+
+void followSelection(Project& project, const TrackPtr& current) {
+    if (project.keyFocusLocked || !current) return;
+    for (auto& t : project.tracks) t->keyFocus = t == current && t->kind == Kind::Midi;
+}
+
+void setFocus(const TrackPtr& track, bool on) {
+    if (!track || track->kind != Kind::Midi) return;
+    track->keyFocus = on;
+    util::debugf("midi: keyboard focus %s %s", track->name.c_str(), on ? "on" : "off");
 }
 
 TrackPtr MidiInput::target() const {
@@ -81,21 +100,17 @@ TrackPtr MidiInput::target() const {
 }
 
 std::vector<TrackPtr> MidiInput::targets(int slot, int channel) const {
-    std::vector<TrackPtr> out;
-    TrackPtr selected = target();
-    if (slot < 0) {  // (the computer keyboard: the selected track)
-        if (selected) out.push_back(selected);
-        return out;
-    }
-    if (selected && selected->midiIn.empty()) out.push_back(selected);
+    std::vector<TrackPtr> keys = keyboardTracks(project, target());
+    if (slot < 0) return keys;  // (the computer keyboard: the keyboard's tracks)
     std::string port = portName(slot);
+    auto listens = [&](const TrackPtr& t) {
+        return !t->midiIn.empty() && t->midiIn == port && (t->midiInChannel == 0 || t->midiInChannel == channel + 1);
+    };
+    std::vector<TrackPtr> out;
+    for (auto& t : keys)
+        if (t->midiIn.empty() || listens(t)) out.push_back(t);
     for (auto& t : project.tracks)
-        if (t != selected && !t->midiIn.empty() && t->midiIn == port &&
-            (t->midiInChannel == 0 || t->midiInChannel == channel + 1) && playable(t, project))
-            out.push_back(t);
-    if (selected && !selected->midiIn.empty() && selected->midiIn == port &&
-        (selected->midiInChannel == 0 || selected->midiInChannel == channel + 1))
-        out.insert(out.begin(), selected);
+        if (listens(t) && playable(t, project) && std::find(out.begin(), out.end(), t) == out.end()) out.push_back(t);
     return out;
 }
 
@@ -177,28 +192,36 @@ void MidiInput::play(const midi_in::Event& e) {
 // --- the bend wheel and the mod wheel (live) ---
 
 void MidiInput::controllers(const midi_in::Event& e) {
-    TrackPtr track = target();
-    for (const TrackPtr& t : targets(e.port, e.channel))  // (External synths: every control and bend, as played)
-        if (t->ext.on) {
-            if (e.type == midi_in::Event::PitchBend) sendExternal(t, 0xE0, (e.bend + 8192) & 127, (e.bend + 8192) >> 7);
-            else sendExternal(t, 0xB0, e.data1, e.data2);
+    std::vector<TrackPtr> tracks;  // (the keyboard's, and those listening to the port: each its own bend)
+    for (const TrackPtr& t : targets(e.port, e.channel)) {
+        if (!t->ext.on) {
+            tracks.push_back(t);
+            continue;
         }
-    if (track && track->ext.on) return;
+        // (External synths: every control and bend, as played)
+        if (e.type == midi_in::Event::PitchBend) sendExternal(t, 0xE0, (e.bend + 8192) & 127, (e.bend + 8192) >> 7);
+        else sendExternal(t, 0xB0, e.data1, e.data2);
+    }
     if (e.type == midi_in::Event::PitchBend) {
-        if (bent_ && bent_ != track) unbend();  // (another track selected: the one bent before goes straight)
-        if (!track) return;
-        int range = std::max(1, std::min(24, track->bendRange));
-        engine.liveNotes(track.get())->pitchBend(e.bend, live::bendSemitones(e.bend, range));
-        bent_ = e.bend ? track : nullptr;
-    } else if (e.data1 == midi_cc::MOD_WHEEL && track && track->playsPlugins()) {
-        engine.liveNotes(track.get())->control(e.data1, e.data2);  // (its instrument plugins use it themselves)
+        unbend(tracks);  // (those bent before that it no longer plays go straight)
+        for (const TrackPtr& t : tracks) {
+            int range = std::max(1, std::min(24, t->bendRange));
+            engine.liveNotes(t.get())->pitchBend(e.bend, live::bendSemitones(e.bend, range));
+        }
+        if (e.bend) bent_ = tracks;
+        else bent_.clear();
+    } else if (e.data1 == midi_cc::MOD_WHEEL) {
+        for (const TrackPtr& t : tracks)
+            if (t->playsPlugins()) engine.liveNotes(t.get())->control(e.data1, e.data2);  // (its plugins use it themselves)
     }
 }
 
-void MidiInput::unbend() {
-    TrackPtr track = bent_;
-    bent_ = nullptr;
-    if (track && project.tracks.contains(track)) engine.liveNotes(track.get())->pitchBend(0, 0.0);
+void MidiInput::unbend(const std::vector<TrackPtr>& keep) {
+    std::vector<TrackPtr> bent;
+    bent.swap(bent_);
+    for (const TrackPtr& t : bent)
+        if (std::find(keep.begin(), keep.end(), t) == keep.end() && project.tracks.contains(t))
+            engine.liveNotes(t.get())->pitchBend(0, 0.0);
 }
 
 void MidiInput::noteDown(const midi_in::Event& e) {

@@ -44,6 +44,18 @@
 // audio track's row has its input before its meter (None, a device input or pair) and its monitoring (the speaker:
 // Auto, In, Off) after Auto (record_arm.h). A change goes to every selected track.
 //
+// ADDING TRACKS: right-click the panel's empty space, or any row: "Add track ▸" (a section of its own on empty space
+// and automation or take rows) with Audio track, MIDI track and Return track, the same as Ctrl+T, Ctrl+Shift+T and
+// Ctrl+Alt+T (and their commands): placed right below the row's track, in its group (a group's row: below its last
+// track, in it), or at the end on empty space; a return always goes at the very bottom. With no tracks yet the panel
+// says "Right-click to add a track". (The transport has no track buttons any more.)
+//
+// KEYBOARD FOCUS (ui/midi_input.h): a MIDI track's row has its focus toggle (KeyFocusButton) before its meter, where
+// an audio track has its input: lit while the keyboards play it; click to add the track to them or take it out
+// (several lit: one keyboard plays them all); right-click it for Lock keyboard focus (the row's menu has both:
+// "Keyboards play this track", for a row too low to show its meter line). The focus follows the selected track unless
+// locked (followSelection, as another track becomes the current one).
+//
 // STYLES: the panel is the stylesheets' `TrackPanel`, its width the :root variable --panel-width. Each row is a
 // node `TrackRow` under it: .track (:alternate every other), .automation (:armed while armed for writing),
 // .take or .group, and the kind of its track (.audio, .midi, .return). A row reads its background-color (a
@@ -158,6 +170,20 @@ public:
     void showUsedOutputs();         // group meters: their tracks' outputs; the master meter: every output in use
     // right-click menus
     void fillTrackMenu(ui::Menu& menu, const TrackPtr& track);
+    // ADDING TRACKS (the top): Audio, MIDI and Return track, placed below `after` (in `group`: its own when none), else
+    // at the end; asSubmenu: under "Add track ▸", else a section of the menu
+    void fillAddMenu(ui::Menu& menu, const TrackPtr& after = nullptr, const GroupPtr& group = nullptr,
+                     bool asSubmenu = false);
+    TrackPtr addTrack(Kind kind, TrackPtr after = nullptr, GroupPtr group = nullptr);  // (what its entries do)
+    // KEYBOARD FOCUS (the top): Lock keyboard focus (checkable), for a focus toggle's and a MIDI track's menus; with
+    // `track`, first its toggle as an entry ("Keyboards play this track")
+    void fillFocusMenu(ui::Menu& menu, const TrackPtr& track = nullptr);
+    void setFocusLocked(bool on);  // locking keeps the tracks the keyboards play now (the selected one too)
+    void toggleFocus(const TrackPtr& track, bool on);  // its toggle clicked (the terminal's Shift+K)
+    void showKeyFocus();           // every focus toggle lit as the keyboards' tracks are now
+    std::map<TrackPtr, KeyFocusButton*> focusButtons;  // each MIDI track row's toggle
+    bool contextMenu(ui::MouseEvent& e) override;  // empty space: the Add entries
+    void paint(Painter& p) override;               // with no tracks: "Right-click to add a track"
     // Alt+Up / Alt+Down as commands that can be rebound (ui/commands.h); its menus then show the keys bound
     void registerCommands(commands::Registry& r);
     commands::Registry* commands_ = nullptr;

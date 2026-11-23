@@ -409,6 +409,9 @@ struct Track {
     // else that port's stable name (midi_ports.h), selected or not, on `midiInChannel` (1-16; 0 any)
     std::string midiIn;
     int midiInChannel = 0;
+    // MIDI tracks: its keyboard focus toggle is on (ui/midi_input.h KEYBOARD FOCUS: what the keyboards play goes to every
+    // track with it on). Saved with the project; not undone (a view setting, as `armed`)
+    bool keyFocus = false;
     ExternalSynth ext;        // MIDI tracks: an External synth plays it (above)
     List<SlotPtr> effects;    // in its patch space
     Cables cables{straight()};
@@ -672,6 +675,7 @@ public:
     Timing timing;
     List<Marker> markers;           // by time
     std::vector<MidiLink> midiLinks;  // MIDI controller links (ui/midi_learn.h; GUI thread only)
+    bool keyFocusLocked = false;    // Lock keyboard focus (ui/midi_input.h KEYBOARD FOCUS): selecting tracks leaves it; saved
 
     void forgetGoneTracks();        // unplug sidechain cables from tracks that are gone (and sends to returns)
     std::vector<SlotPtr> pluginSlots() const;  // instruments, rack instruments, track effects, master effects

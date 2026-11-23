@@ -23,6 +23,7 @@
 #include "ui/colors.h"
 #include "ui/master_strip.h"
 #include "ui/midi_effects_dialog.h"
+#include "ui/midi_input.h"
 #include "ui/midi_ports_dialog.h"
 #include "ui/paint_helpers.h"
 #include "ui/record_arm.h"
@@ -232,7 +233,9 @@ LanePanel::LanePanel(Project& project_, Timeline& timeline_, MasterStrip& master
         if (!alive.expired()) rebuild();
     });
     timeline.currentTrackChanged.connect([this, alive] {
-        if (!alive.expired()) showCurrentTrack();
+        if (alive.expired()) return;
+        midi_input::followSelection(project, timeline.currentTrack);  // (KEYBOARD FOCUS: unless locked)
+        showCurrentTrack();
     });
     timeline.heightsChanged.connect([this, alive] {
         if (!alive.expired()) updateHeights();
@@ -317,6 +320,7 @@ void LanePanel::rebuild() {
     automationFrames.clear();
     mixers.clear();
     takeFrames.clear();
+    focusButtons.clear();
     bool pruned = false;
     for (auto& t : project.allTracks()) pruned = automation::prune(*t) || pruned;  // (lanes of plugins that are gone)
     // (another skin: its sizes, the panel's width and the lanes' heights, may be others; the main window rebuilds
@@ -362,6 +366,7 @@ void LanePanel::rebuild() {
     setMetersVisible(showLevels, showLoudness);
     showCurrentTrack();
     fitHeight();
+    update();  // (the hint with no tracks: shown or gone)
 }
 
 LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, bool alternate, const GroupPtr& asGroup) {
@@ -577,9 +582,8 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
     bottom->addWidget(outputs, 0, 0, 1, 1, AlignTop);
     selectors.push_back(outputs);
     bool recordsAudio = track->kind == Kind::Audio && !asGroup;  // (its input and monitoring: ui/recording.h)
+    ui::Widget* beforeMeter = nullptr;  // (an audio track's input; a MIDI track's keyboard focus)
     if (recordsAudio) {  // its input, then the meter
-        ui::Widget* meterCell;
-        ui::HBox* meterRow = cellRow(frame, meterCell, std::max(0, ui::style::px(style.volume, "column-gap", 4)));
         auto* input = record_arm::inputSelector(frame, *track, inputs, [this, alive, track](const std::string& setting) {
             if (alive.expired()) return;
             auto ts = targets(track);
@@ -591,9 +595,22 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
         });
         input->setFixedHeight(theme::metric("output-selector-height", 18));
         selectors.push_back(input);
-        meterCell->adopt(frame->release(input));
+        beforeMeter = input;
+    } else if (track->kind == Kind::Midi && !asGroup) {  // its keyboard focus (KEYBOARD FOCUS: lit as showKeyFocus says)
+        auto* focus = frame->add<KeyFocusButton>(
+            track, false, project.keyFocusLocked,
+            [this, alive, track](bool on) { if (!alive.expired()) toggleFocus(track, on); },
+            [this, alive](ui::Menu& m) { if (!alive.expired()) fillFocusMenu(m); });
+        focus->setFixedHeight(theme::metric("output-selector-height", 18));  // (as an audio track's input there)
+        focusButtons[track] = focus;
+        beforeMeter = focus;
+    }
+    if (beforeMeter) {
+        ui::Widget* meterCell;
+        ui::HBox* meterRow = cellRow(frame, meterCell, std::max(0, ui::style::px(style.volume, "column-gap", 4)));
+        meterCell->adopt(frame->release(beforeMeter));
         meterCell->adopt(frame->release(meter));
-        meterRow->addWidget(input, 0, AlignTop);
+        meterRow->addWidget(beforeMeter, 0, AlignTop);
         meterRow->addWidget(meter, 1);
         bottom->addWidget(meterCell, 0, 1);
     } else {
@@ -666,6 +683,7 @@ LaneFrame* LanePanel::automationHeader(ui::Widget* parent, const Lane& lane) {
     // (a line above it, as in the timeline: stacked lanes stay apart)
     if (style.row.has("border-top-color")) frame->setTopLine(ui::style::color(style.row, "border-top-color"));
     frame->onPress = [this, track] { timeline.setCurrentTrack(track); };
+    frame->fillMenu = [this, track](ui::Menu& menu) { fillAddMenu(menu, track); };
     ui::VBox* col = ui::vbox(frame, 0, style.rowGap(2));
     style.margins(col, 14, 4, 8, 4);
     auto* row = nest<ui::HBox>(col);
@@ -726,6 +744,7 @@ LaneFrame* LanePanel::takeHeader(ui::Widget* parent, const Lane& lane) {
                                          style.stripe().value_or(kindAccent(track->kind)), lane.height);
     frame->setRowStyle(style.row);
     frame->onPress = [this, track] { timeline.setCurrentTrack(track); };
+    frame->fillMenu = [this, track](ui::Menu& menu) { fillAddMenu(menu, track); };
     ui::HBox* row = ui::hbox(frame, 0, style.columnGap(4));
     style.margins(row, 14, 4, 8, 4);
     char seconds[32];
@@ -867,6 +886,116 @@ void LanePanel::showCurrentTrack() {
     selected = kept;
     for (auto& [track, frame] : frames)
         frame->setCurrent(std::find(selected.begin(), selected.end(), track) != selected.end());
+    showKeyFocus();
+}
+
+// --- ADDING TRACKS and KEYBOARD FOCUS (lane_panel.h) ----------------------------------------------------------------
+
+TrackPtr LanePanel::addTrack(Kind kind, TrackPtr after, GroupPtr group) {
+    if (after && after->busOf) {  // (a group bus's lane: below the group's last track, in it)
+        for (auto& g : project.groups())
+            if (g.get() == after->busOf) group = g;
+        std::vector<TrackPtr> members = group ? project.members(group) : std::vector<TrackPtr>{};
+        after = members.empty() ? nullptr : members.back();
+    }
+    if (kind == Kind::Return || (after && after->kind == Kind::Return) || (after && !project.tracks.contains(after))) {
+        after = nullptr;  // (a return goes at the very bottom; a track below a return: above the returns)
+        if (kind == Kind::Return) group = nullptr;
+    }
+    if (!group && after) group = after->group;  // (in the group of the track it goes below)
+    TrackPtr made = timeline.addTrack(kind, kind == Kind::Return ? nullptr : group, after);
+    util::debugf("panel: added %s%s%s", made ? made->name.c_str() : "(none)", after ? " below " : "",
+                 after ? after->name.c_str() : "");
+    return made;
+}
+
+void LanePanel::fillAddMenu(ui::Menu& menu, const TrackPtr& after, const GroupPtr& group, bool asSubmenu) {
+    std::weak_ptr<bool> alive = alive_;
+    ui::Menu* into = &menu;
+    if (asSubmenu) into = menu.addMenu("Add track");
+    else menu.addSection("Add a track");
+    // (the transport's actions' keys: Registry::showKeys shows them as rebound)
+    struct Entry {
+        Kind kind;
+        const char* text;
+        const char* keys;
+        const char* tip;
+    };
+    static const Entry entries[] = {
+        {Kind::Audio, "Audio track", "Ctrl+T", "A track for recordings and audio files"},
+        {Kind::Midi, "MIDI track", "Ctrl+Shift+T", "A track for notes, played by an instrument (choose it on its row)"},
+        {Kind::Return, "Return track", "Ctrl+Alt+T",
+         "Effects (a reverb, a delay) the other tracks share, each sending it as much as you like (\xe2\x86\x92 on their "
+         "rows); returns stay at the bottom"},
+    };
+    for (const Entry& e : entries) {
+        Kind kind = e.kind;
+        into->addAction(e.text, [this, alive, kind, after, group] {
+            if (!alive.expired()) addTrack(kind, after, group);
+        }, e.keys)->tooltip = e.tip;
+    }
+    if (commands_) commands_->showKeys(*into);
+}
+
+void LanePanel::fillFocusMenu(ui::Menu& menu, const TrackPtr& track) {
+    std::weak_ptr<bool> alive = alive_;
+    if (track && track->kind == Kind::Midi) {  // (its toggle as an entry: also where the row is too low to show it)
+        auto ts = midi_input::keyboardTracks(project, timeline.currentTrack);
+        bool on = std::find(ts.begin(), ts.end(), track) != ts.end();
+        menu.addCheckable("Keyboards play this track", on, [this, alive, track](bool now) {
+            if (!alive.expired()) toggleFocus(track, now);
+        })->tooltip = "Its keyboard focus toggle: MIDI keyboards and the computer keyboard play every track it is lit on";
+    }
+    menu.addCheckable("Lock keyboard focus", project.keyFocusLocked, [this, alive](bool on) {
+        if (!alive.expired()) setFocusLocked(on);
+    })->tooltip = "Keep the tracks the keyboards play (the lit focus toggles) while you select other tracks";
+}
+
+void LanePanel::setFocusLocked(bool on) {
+    if (on)  // (what plays now stays: the selected track too, when it plays for want of a lit toggle)
+        for (auto& t : midi_input::keyboardTracks(project, timeline.currentTrack)) t->keyFocus = true;
+    project.keyFocusLocked = on;
+    util::debugf("panel: keyboard focus %s", on ? "locked" : "unlocked");
+    if (status)
+        status(on ? "Keyboard focus locked: selecting tracks leaves it; its toggles still change it"
+                  : "Keyboard focus unlocked: it follows the selected track again",
+               3000);
+    showKeyFocus();
+}
+
+void LanePanel::toggleFocus(const TrackPtr& track, bool on) {
+    midi_input::setFocus(track, on);
+    std::vector<TrackPtr> plays = midi_input::keyboardTracks(project, timeline.currentTrack);
+    if (status) {
+        std::string names;
+        for (auto& t : plays) names += (names.empty() ? "" : ", ") + t->name;
+        status(plays.empty() ? std::string("The keyboards play no track (select a MIDI track with an instrument)")
+                             : "The keyboards play " + names, 3000);
+    }
+    showKeyFocus();
+}
+
+void LanePanel::showKeyFocus() {
+    std::vector<TrackPtr> plays = midi_input::keyboardTracks(project, timeline.currentTrack);
+    for (auto& [track, button] : focusButtons)
+        if (button && ui::Widget::alive(button))
+            button->show(std::find(plays.begin(), plays.end(), track) != plays.end(), project.keyFocusLocked);
+}
+
+bool LanePanel::contextMenu(ui::MouseEvent& e) {
+    ui::Menu menu;  // (empty space below the rows: at the end)
+    fillAddMenu(menu);
+    menu.exec(e.globalPos, this);
+    return true;
+}
+
+void LanePanel::paint(Painter& p) {
+    ui::Widget::paint(p);
+    if (!project.tracks.empty()) return;
+    // (no tracks yet: how to add one; ADDING TRACKS)
+    Color c = ui::style::color(computedStyle(), "color", theme::c("disabled_text"));
+    p.drawTextBlock(RectF(8, 12, (float)std::max(0, width() - 16), 60), AlignHCenter | AlignTop,
+                    "Right-click to add a track", ui::style::font(computedStyle(), theme::uiFont()), c);
 }
 
 void LanePanel::showUsedOutputs() {
@@ -903,6 +1032,7 @@ void LanePanel::fillTrackMenu(ui::Menu& menu, const TrackPtr& track) {
         menu.addAction("Move up" + many, guard([this, track] { move(track, -1); }), "Alt+Up");
         menu.addAction("Move down" + many, guard([this, track] { move(track, 1); }), "Alt+Down");
     }
+    fillAddMenu(menu, track, nullptr, true);  // (ADDING TRACKS: below this one)
     auto edit = instruments.edit;
     if (track->kind == Kind::Midi && track->usesRack && !track->needsInstrument) {
         menu.addAction("Open its instrument patch panel", [edit, track] { if (edit) edit(track); });
@@ -934,6 +1064,7 @@ void LanePanel::fillTrackMenu(ui::Menu& menu, const TrackPtr& track) {
                                                  ? " (±" + std::to_string(track->bendRange) + ")"
                                                  : std::string()),
                        guard([this, track] { setBendRange(track); }));
+    if (track->kind == Kind::Midi) fillFocusMenu(menu, track);  // (KEYBOARD FOCUS: its toggle, Lock keyboard focus)
     if (track->kind == Kind::Midi && !track->frozen) {  // Swing: the song's / its own (ui/song_scale.h)
         Timeline* tl = &timeline;
         song_scale::addTrackSwingMenu(menu, project, timeline.engine.sr, track, [tl] { tl->update(); });
@@ -1053,6 +1184,8 @@ void LanePanel::fillGroupMenu(ui::Menu& menu, const GroupPtr& group) {
     menu.addAction("Rename group…", [this, alive, group] { if (!alive.expired()) rename(group); });
     menu.addAction("Group colour…", [this, alive, group] { if (!alive.expired()) chooseColor(group); });
     menu.addAction(group->folded ? "Show its tracks" : "Fold its tracks away", [tl, group] { tl->toggleFold(group); });
+    std::vector<TrackPtr> members = project.members(group);  // (ADDING TRACKS: in it, below its last track)
+    fillAddMenu(menu, members.empty() ? nullptr : members.back(), group, true);
     // GROUP BUSES (model.h): its bus off ("Fold only") or on, where the bus plays, its effects and automation
     ui::Action* only = menu.addCheckable("Fold only (no bus)", group->foldOnly, [this, alive, group](bool on) {
         if (alive.expired()) return;

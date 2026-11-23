@@ -3,19 +3,33 @@
 // (`hub`: remembered by their stable names in the preferences, Preferences::midiPorts).
 //
 // ROUTING. A MIDI track's MIDI input (Track::midiIn; its menu's "MIDI input ▸") is "All" (the default) or one port,
-// optionally one channel. What is played goes to the selected track (the lane or row clicked last) when its input
-// is All, and to every MIDI track whose input is that very port (and channel), selected or not; each when it has an
-// instrument and isn't frozen, heard through it as the MIDI editor's keys are (audio/live.h): its MIDI effects
-// (those that work live), its VST instrument, the built-in synth or sampler, then its effects. An External synth
-// track gets it as MIDI on its port and channel at once (bends and controls too). The computer keyboard plays the
-// selected track. A note is let go on the tracks it started on, even if another track was selected meanwhile; a
-// port unplugged lets its notes go.
+// optionally one channel. What is played goes to the keyboard's tracks (KEYBOARD FOCUS below: the selected track, or
+// every track whose focus toggle is lit) whose input is All, and to every MIDI track whose input is that very port
+// (and channel), focused or not; each when it has an instrument and isn't frozen, heard through it as the MIDI
+// editor's keys are (audio/live.h): its MIDI effects (those that work live), its VST instrument, the built-in synth
+// or sampler, then its effects. An External synth track gets it as MIDI on its port and channel at once (bends and
+// controls too). The computer keyboard plays the keyboard's tracks, whatever their input. A note is let go on the
+// tracks it started on, even if the focus moved meanwhile; a port unplugged lets its notes go.
 //
-// The bend wheel bends what the selected track plays live (a VST instrument by its own range; the
+// KEYBOARD FOCUS (to play several instruments with one keyboard). Every MIDI track's row has a focus toggle (a MIDI
+// socket: KeyFocusButton, ui/widgets.h; in the terminal ♪ before its name, Shift+K), lit while the keyboards play it
+// (Track::keyFocus). By default the focus follows the selection: selecting a MIDI track lights its toggle alone
+// (followSelection). A click on a toggle turns that track's focus on or off on its own, so several lit toggles are
+// one keyboard playing all of them at once (layering: notes, the sustain pedal, the bend and mod wheels to each).
+// Right-click a toggle (or the track's menu) → Lock keyboard focus (Project::keyFocusLocked): while locked, selecting
+// tracks leaves the lit set as it is, until it is unlocked or changed by the toggles. Failsafes: a focused track that
+// was removed, is frozen or has no instrument is left out (keyboardTracks); when none is left (all toggles off, or the
+// focused ones gone), the selected track plays, locked or not, as before; selecting no track (a track removed, the
+// project replaced) leaves the focus as it is. Both are saved with the project ("key_focus" on a track,
+// "key_focus_lock"; older projects: none, the selection plays). Undo and redo leave the focus alone (it is a view
+// setting, as arming: history.cpp keeps it out of its snapshots); a removed track brought back by undo comes back
+// with its toggle as it was.
+//
+// The bend wheel bends what the keyboard's tracks play live (a VST instrument by its own range; the
 // built-in synth and sampler by the track's bend range, Track::bendRange: live.h), and the mod wheel
-// (control 1) goes on to the track's instrument plugins. Every control change and bend is also noted in
-// midi_cc's table (audio/midi_cc.h), which the MIDI Control modulator follows. When another track is
-// selected, the one bent before is set straight again.
+// (control 1) goes on to their instrument plugins. Every control change and bend is also noted in
+// midi_cc's table (audio/midi_cc.h), which the MIDI Control modulator follows. A track bent before that the
+// keyboard no longer plays (another selected, its toggle off) is set straight again.
 //
 // The sustain pedal (control 64) holds notes (midi_in::Sustain): while it is down, a key let go keeps
 // sounding until the pedal is let go (or the key is struck again). It is applied before anything else
@@ -72,6 +86,16 @@ struct LogEntry {
     int pitch = 0, velocity = 0;
 };
 
+// --- KEYBOARD FOCUS (above) ---
+// can the keyboards play `track`: a MIDI track of the project with an instrument, not frozen
+bool playable(const TrackPtr& track, const Project& project);
+// the tracks the keyboards play: those focused that can play, in the project's order; none: `selected` if it can
+std::vector<TrackPtr> keyboardTracks(const Project& project, const TrackPtr& selected);
+// `current` was selected: unless locked (or none), the focus is that track alone (none: not a MIDI track)
+void followSelection(Project& project, const TrackPtr& current);
+// a toggle clicked: `track`'s focus on or off, the others' as they are
+void setFocus(const TrackPtr& track, bool on);
+
 // the port the program before MIDI ports remembered ("options/midi_input"; "" none): on from then on
 std::string savedName();
 
@@ -89,8 +113,8 @@ public:
 
     // the track notes go to: the selected one, if it is a MIDI track that can play them (else null)
     TrackPtr target() const;
-    // the tracks an event from port `slot` (channel 0-15) plays: the selected one if its input is All, and every
-    // MIDI track listening to that port (and channel); for the computer keyboard (slot < 0) the selected one
+    // the tracks an event from port `slot` (channel 0-15) plays: the keyboard's (keyboardTracks) whose input is All,
+    // and every MIDI track listening to that port (and channel); for the computer keyboard (slot < 0) the keyboard's
     std::vector<TrackPtr> targets(int slot, int channel) const;
     // an event from the MIDI keyboard or the computer keyboard: the sustain pedal first, then played
     void handle(const midi_in::Event& e);
@@ -127,9 +151,9 @@ private:
     midi_in::Sustain& sustainOf(int slot);
     void sendExternal(const TrackPtr& track, uint8_t status, int d1, int d2);  // to its External synth now
     // --- the bend wheel and the mod wheel (live) ---
-    void controllers(const midi_in::Event& e);  // (as played) a bend or the mod wheel to the selected track
-    void unbend();                               // the track bent last set straight again
-    TrackPtr bent_;                              // the track the wheel bent last (null: none bent)
+    void controllers(const midi_in::Event& e);  // (as played) a bend or the mod wheel to the keyboard's tracks
+    void unbend(const std::vector<TrackPtr>& keep = {});  // the tracks bent set straight again (but `keep`)
+    std::vector<TrackPtr> bent_;                 // the tracks the wheel bent last (none: none bent)
     std::string name_;
     // heldKey -> (each track it went to, the pitches it sounds there)
     std::map<int, std::vector<std::pair<TrackPtr, std::vector<int>>>> held_;

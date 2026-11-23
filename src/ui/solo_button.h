@@ -12,6 +12,10 @@
 #include "ui/toolkit/controls.h"
 #include "ui/toolkit/menu.h"
 
+namespace solo_button {
+extern const char* const LOCK_SVG;  // the lock it shows (white: tinted when drawn; KeyFocusButton's too)
+}
+
 class SoloButton : public ui::Button {
 public:
     // what a click or the menu changed: the track's solo, its solo safe, or EXCLUSIVE (Alt-click or the menu's

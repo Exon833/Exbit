@@ -468,6 +468,7 @@ void Project::clear() {
     timing = Timing();
     markers = std::vector<Marker>{};
     midiLinks.clear();
+    keyFocusLocked = false;
 }
 
 void Project::forgetGoneTracks() {

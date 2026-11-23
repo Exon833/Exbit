@@ -908,7 +908,7 @@ bool Front::panelKey(const Key& k) {
                 return nullptr;
             };
             if (SendsButton* b = find(w_.panel)) b->showSends();
-            else w_.showStatus("No return tracks to send to: + Return (Ctrl+Alt+T) makes one", 3000);
+            else w_.showStatus("No return tracks to send to: Ctrl+Alt+T (or F2: Add track) makes one", 3000);
             return true;
         }
         default: return false;
@@ -921,6 +921,20 @@ bool Front::panelKey(const Key& k) {
     if (k.key == 'D' && k.mods == plat::ModCtrl) {  // Ctrl+D: duplicate it (them)
         if (t) w_.panel->duplicate(t, true);
         if (w_.timeline->currentTrack) setCurrent(w_.timeline->currentTrack);  // (the keyboard on the first copy)
+        return true;
+    }
+    // KEYBOARD FOCUS (ui/midi_input.h): Shift+K the keyboards play it too, or no more (♪ before its name)
+    if (t && k.key == 'K' && k.mods == plat::ModShift) {
+        if (t->kind != Kind::Midi) {
+            w_.showStatus("Only MIDI tracks are played by the keyboards", 3000);
+            return true;
+        }
+        auto plays = midi_input::keyboardTracks(w_.project, w_.timeline->currentTrack);
+        bool on = std::find(plays.begin(), plays.end(), t) == plays.end();
+        w_.panel->toggleFocus(t, on);
+        if (!w_.project.keyFocusLocked)
+            w_.showStatus(w_.status->message() + "  (F2: Lock keyboard focus keeps them while you move to other tracks)",
+                          5000);
         return true;
     }
     // RECORDING SEVERAL TRACKS (ui/recording.h): Shift+R arms (R stays Record), H its monitoring, Shift+H its input
@@ -1054,7 +1068,7 @@ bool Front::panelKey(const Key& k) {
             return nullptr;
         };
         if (SendsButton* b = find(w_.panel)) b->showSends();
-        else w_.showStatus("No return tracks to send to: + Return (Ctrl+Alt+T) makes one", 3000);
+        else w_.showStatus("No return tracks to send to: Ctrl+Alt+T (or F2: Add track) makes one", 3000);
         return true;
     }
     case 'O':
@@ -1132,8 +1146,9 @@ void Front::contextMenu() {
         tlm.fillTakeMenu(*menu, *lane);
     } else if (lane && lane->automation && pane == Pane::Timeline) {
         tlm.fillAutomationMenu(*menu, *lane, PointF((float)tlm.xOf(tlm.cursor), (float)(lane->top + lane->height / 2)));
-    } else if (pane == Pane::Panel) {
+    } else if (pane == Pane::Panel) {  // (a track's menu; an automation row's, the master's or no track: Add a track)
         if (lane && lane->track) w_.panel->fillTrackMenu(*menu, lane->track);
+        else w_.panel->fillAddMenu(*menu, lane ? lane->owner : nullptr);
     } else {
         Timeline& tl = *w_.timeline;
         std::optional<Point> pos;
@@ -1607,7 +1622,10 @@ void Front::drawPanel(Screen& s, int x, int y, int w, int h) {
     cap += w_.engine.isOpen() ? std::to_string(w_.engine.sr / 1000) + " kHz " + w_.engine.driverType : "no device";
     s.text(x + 1, y, fit(cap, w - 1), style(Cyan), w - 1);
     s.fill(x, y + 1, w, 1, U' ', focused ? kFocusTitle : kTitle);
-    s.text(x, y + 1, " Tracks", focused ? kFocusTitle : kTitle, w);
+    // (KEYBOARD FOCUS locked: said in the title; the tracks the keyboards play have ♪ before their names)
+    s.text(x, y + 1, w_.project.keyFocusLocked ? (utf8 ? " Tracks  ♪ locked" : " Tracks  keys locked") : " Tracks",
+           focused ? kFocusTitle : kTitle, w);
+    std::vector<TrackPtr> plays = midi_input::keyboardTracks(w_.project, w_.timeline->currentTrack);
     int rows = h - 3;
     int nameW = std::max(4, w - 15 - METER_COLS);
     auto row = [&](int ry, const std::string& name, bool muted, bool soloed, double db, double pan, const LevelMeter* m,
@@ -1633,6 +1651,7 @@ void Front::drawPanel(Screen& s, int x, int y, int w, int h) {
     std::vector<Lane> ls = lanes();
     laneRow = std::clamp(laneRow, -1, (int)ls.size());
     double cursorS = (double)w_.timeline->cursor / w_.engine.sr;
+    if (ls.empty() && rows > 0) s.text(x + 1, y + 2, "F2 (or A / N): add a track", style(Cyan), w - 1);
     for (int r = 0; r < rows; r++) {
         int k = firstRow + r;
         if (k >= (int)ls.size()) break;
@@ -1649,6 +1668,7 @@ void Front::drawPanel(Screen& s, int x, int y, int w, int h) {
             std::string marks = t->armed ? std::string(utf8 ? "●" : "R") : "";
             if (t->kind == Kind::Audio && t->monitor != Track::Monitor::Auto)
                 marks += t->monitor == Track::Monitor::In ? (utf8 ? "»" : ">") : (utf8 ? "×" : "x");
+            if (std::find(plays.begin(), plays.end(), t) != plays.end()) marks += utf8 ? "♪" : "k";  // (the keyboards play it)
             row(ry, (marks.empty() ? "" : marks + " ") + (many && in ? "* " : "") + t->name, t->muted, t->soloed,
                 t->volumeDb, t->pan, it != w_.panel->meters.end() ? it->second : nullptr, sel,
                 nearestColor(t->color, t->kind == Kind::Midi ? Green : Blue), false, t->soloSafe);
@@ -1716,7 +1736,7 @@ void Front::drawStatus(Screen& s) {
                             "Enter: rename  F2: menu (Fold only, Output, Put in group)"
                           : "A group (fold only): M S: mute solo  Enter: rename  F2: menu (its bus back: Fold only off)";
             else msg = "M S: mute solo  Shift+R: arm  H: monitor  Shift+H: input  Shift+S: solo safe  Left/Right: volume  [/]: pan  "
-                  "E: effects  I: instrument  U: automation  K: takes  Enter: rename  A/N: new  Shift+Up/Down: select  "
+                  "E: effects  I: instrument  U: automation  K: takes  Shift+K: keyboard plays it  Enter: rename  A/N: new (F2: return)  Shift+Up/Down: select  "
                   "Alt+Up/Down: move  Ctrl+D: duplicate  F2: menu";
             break;
         }
@@ -1883,12 +1903,16 @@ void Front::drawHelp(Screen& s) {
         "  H  Shift+H        an audio track's monitoring (Auto; In: »; Off: ×), its input (● marks armed)",
         "  Shift+Up/Down     select several tracks (changes then go to all of them)",
         "  Alt+Up/Down       move the track(s)   Ctrl+D: duplicate (F2: without clips)",
-        "  F2                its menu: Output (master, a group's bus or another track), groups, freezing",
+        "  F2                its menu: Add track (audio, MIDI, return: below it), Output (master, a group's bus or",
+        "                    another track), groups, freezing; Lock keyboard focus (a MIDI track)",
+        "  Shift+K           the keyboards play this MIDI track too, or no more (♪ before its name); several",
+        "                    play together; F2: Lock keyboard focus keeps them while you move to other tracks",
+        "  F2 (master, none) Add a track: audio, MIDI or return, at the end",
         "A group's row (its bus)",
         "  M S               mute, solo everything in it    Enter: rename",
         "  Left/Right  [ ]   its bus's fader (dB) and pan",
         "  E  U  D           its bus's effects, automation lanes, sends to return tracks",
-        "  F2                its menu: Fold only (no bus), Output, Put in group (nesting), Ungroup",
+        "  F2                its menu: Add track (in it), Fold only (no bus), Output, Put in group, Ungroup",
         "Explorer",
         "  Enter             open a folder or project; add a sample at the cursor    Space: hear it",
         "The built-in synth (I on a MIDI track: Synth…; Shift+I while it plays it)",

@@ -170,6 +170,8 @@ TransportBar::TransportBar() {
     addFileAction = button(left_, "Add file…", "Add file");
     addFileAction->setToolTip("Add audio or MIDI files (Ctrl+I)");
     addFileAction->setShortcut("Ctrl+I");
+    // (the track actions keep their shortcuts and commands, but their buttons are never shown: tracks are added from
+    // the track panel's right-click menu, LanePanel::fillAddMenu)
     addAudioTrackAction = button(left_, "Audio track", "+ Audio");
     addAudioTrackAction->setShortcut("Ctrl+T");
     addAudioTrackAction->setToolTip("Add an audio track (Ctrl+T)");
@@ -180,14 +182,7 @@ TransportBar::TransportBar() {
     addReturnTrackAction->setShortcut("Ctrl+Alt+T");
     addReturnTrackAction->setToolTip("Add a return track (Ctrl+Alt+T): effects (a reverb, a delay) the other tracks "
                                      "share, each sending it as much as you like (→ on their rows)");
-    for (auto* a : {addFileAction.get(), addAudioTrackAction.get(), addMidiTrackAction.get(), addReturnTrackAction.get()})
-        addButtons.push_back(a->button);
-    addButton = menuButton(left_, "+ Add ▾", &addMenu, "Add files (Ctrl+I) or an audio, MIDI or return track");
-    addMenu->aboutToShow = [this](ui::Menu* m) {
-        m->clear();
-        for (auto* a : {addFileAction.get(), addAudioTrackAction.get(), addMidiTrackAction.get(), addReturnTrackAction.get()})
-            m->addAction(a->text, [a] { a->trigger(); }, a->shortcut().text());
-    };
+    for (auto* a : {addAudioTrackAction.get(), addMidiTrackAction.get(), addReturnTrackAction.get()}) a->button->hide();
     keyButton = menuButton(left_, "Key \xe2\x96\xbe", &keyMenu,
                            "The song's key and scale (a MIDI clip can have its own): the MIDI editor shades the notes "
                            "outside it and can snap to it. Detect suggests keys from the notes");
@@ -242,8 +237,8 @@ TransportBar::TransportBar() {
     keysAction = iconButton("Computer keyboard", "keyboard", "⌨");
     keysAction->setCheckable(true);
     keysAction->setShortcut("Ctrl+K", ui::ShortcutScope::ApplicationWide);  // (from the MIDI editor too)
-    keysAction->setToolTip("Play the selected MIDI track on the computer keyboard (Ctrl+K): A S D F G H J K L are white "
-                           "keys from C, W E T Y U O P black keys; Z / X octave down / up, C / V velocity down / up. "
+    keysAction->setToolTip("Play the selected MIDI track (or every track whose keyboard focus toggle is lit) on the "
+                           "computer keyboard (Ctrl+K): A S D F G H J K L are white keys from C, W E T Y U O P black keys; Z / X octave down / up, C / V velocity down / up. "
                            "While on, those letters play notes instead of their shortcuts");
     captureAction = iconButton("Capture", "capture", "⤓");
     captureAction->setShortcut("Ctrl+Alt+R", ui::ShortcutScope::ApplicationWide);
@@ -399,16 +394,6 @@ void TransportBar::buildFitting() {
         compactTime = on;
         sizeTimeLabel();
     };
-    // (the one Add button is there while the others are collapsed into it, until it goes into » too)
-    auto collapseAdd = [this](bool on) {
-        addCollapsed = on;
-        for (auto* b : addButtons) b->setVisible(!on);
-        addButton->setVisible(on && !addHidden);
-    };
-    auto hideAdd = [this](bool on) {
-        addHidden = on;
-        addButton->setVisible(addCollapsed && !on);
-    };
     auto shortLabel = [this](bool on) {
         beatsAction->setIconText(on ? "♩" : "♩ Beats");
         thirdsAction->setIconText(on ? "⅓" : "⅓ Thirds");
@@ -418,12 +403,12 @@ void TransportBar::buildFitting() {
     };
     // middle buttons: play, record, start, loop, follow, keys, capture
     auto icon = [this](int i) { return static_cast<ui::Widget*>(middleButtons[i]); };
-    steps_ = {compact, collapseAdd, shortLabel,
+    steps_ = {compact, shortLabel,
               hide({icon(6)}), hide({syncButton}), hide({swingButton}), hide({keyButton}), hide({icon(5)}), hide({icon(4)}),
               hide({thirdsButton}), hide({gridButton}), hide({beatsButton}),
               hide({signatureBox}), hide({tapButton}), hide({metronomeButton}),
               hide({timeLabel, timeSeparator}), hide({icon(3)}),
-              hide({icon(2)}), hideAdd, hide({bpmBox}),
+              hide({icon(2)}), hide({addFileAction->button}), hide({bpmBox}),
               hide({icon(1)}), hide({icon(0)})};
 }
 
@@ -528,11 +513,8 @@ void TransportBar::fillMoreMenu(ui::Menu& menu) {
             b->rightClicked.emit(e);  // (its right-click: the main window opens the settings)
         };
     };
-    bool allAddHidden = !addButton->isVisible();
-    for (auto* b : addButtons) allAddHidden = allAddHidden && !b->isVisible();
-    if (allAddHidden) {
-        for (auto* a : {addFileAction.get(), addAudioTrackAction.get(), addMidiTrackAction.get(), addReturnTrackAction.get()})
-            addAction(a);
+    if (!addFileAction->button->isVisible()) {
+        addAction(addFileAction.get());
         menu.addSeparator();
     }
     TransportAction* middle[] = {playAction.get(), recordAction.get(), startAction.get(), loopAction.get(),

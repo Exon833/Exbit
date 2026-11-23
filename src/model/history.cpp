@@ -6,7 +6,7 @@ namespace history {
 
 // The data fields of each kind of object a snapshot keeps (history.py's _fields: everything but
 // VIEW_FIELDS, TIMING_VIEW_FIELDS and RUNTIME_FIELDS). Left out on purpose:
-//   Track: height, showAutomation, showTakes, armed (view); patchState, rackState, controls (runtime)
+//   Track: height, showAutomation, showTakes, armed, keyFocus (view); patchState, rackState, controls (runtime)
 //   Group: folded (view)
 //   PluginSlot: state, instance, failed, error, recent (runtime)
 //   Automation: height (view); targetPlugin, targetParam, targetSteps, hasTarget, last (runtime)

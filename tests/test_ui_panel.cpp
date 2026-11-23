@@ -518,14 +518,14 @@ static void testTransportFitting() {
     // wide: everything as it is; the narrowest with every control: short labels, one Add button
     bar->setGeometry(0, 0, 1800, hint.y);
     ui::App::get().doLayouts();
-    CHECK(bar->level == 0 && !bar->addButton->isVisible() && bar->addButtons[0]->isVisible());
+    CHECK(bar->level == 0 && bar->addFileAction->button->isVisible() && !bar->addAudioTrackAction->button->isVisible());
     CHECK(bar->beatsButton->text() == "♩ Beats" && bar->gridButton->text() == "Grid 1/16 ▾");
     int narrowest = bar->narrowestWidth();
     CHECK(bar->minimumSizeHint().x == narrowest + 4);
     bar->setGeometry(0, 0, narrowest + 4, hint.y);
     ui::App::get().doLayouts();
     CHECK(bar->level == TransportBar::LOSSLESS);
-    CHECK(bar->addButton->isVisible() && !bar->addButtons[0]->isVisible() && !bar->moreButton->isVisible());
+    CHECK(bar->addFileAction->button->isVisible() && !bar->addMidiTrackAction->button->isVisible() && !bar->moreButton->isVisible());
     CHECK(bar->beatsButton->text() == "♩" && bar->thirdsButton->text() == "⅓" && bar->metronomeButton->text() == "Metro");
     CHECK(bar->gridButton->text() == "1/16 ▾");
     savePng(outDir2() + "/transport-narrowest.png", paintWidget(bar));
@@ -552,7 +552,7 @@ static void testTransportFitting() {
     ui::Menu all;
     bar->fillMoreMenu(all);
     auto texts = menuTexts(all);
-    CHECK(hasText(texts, "Add file…") && hasText(texts, "Return track") && hasText(texts, "Play") &&
+    CHECK(hasText(texts, "Add file…") && !hasText(texts, "Return track") && hasText(texts, "Play") &&
           hasText(texts, "Recording settings…") && hasText(texts, "Tap tempo") && hasText(texts, "Metronome sounds…") &&
           hasText(texts, "♩ Beats") && hasText(texts, "Grid: 1/16"));
     CHECK(actionStarting(all, "Tempo: 120.00 BPM") && actionStarting(all, "Time signature: 4 / 4"));
@@ -878,7 +878,7 @@ static void testPanel() {
     CHECK(hasText(texts, "Remove from Rhythm") && !hasText(texts, "Add to group") && !hasText(texts, "Show automation"));
     ui::Menu menu3;
     panel->fillGroupMenu(menu3, group);
-    CHECK(menuTexts(menu3) == std::vector<std::string>({"Rename group…", "Group colour…", "Fold its tracks away",
+    CHECK(menuTexts(menu3) == std::vector<std::string>({"Rename group…", "Group colour…", "Fold its tracks away", "Add track",
                                                         "Fold only (no bus)", "Effects…", "Automate a parameter…",
                                                         "Bus delay…", "Output: Master", "Put in group", "---",
                                                         "Ungroup (the tracks stay)"}));

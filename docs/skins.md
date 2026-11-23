@@ -724,7 +724,10 @@ from its style is `--layout-spacing` (rows and columns) and `--grid-spacing` (gr
   `row-gap`, `column-gap`; `::title` font, `::notice` `margin-top`): the master's row, drawn as a full box the
   same way. `::load` is a box with its bar inside its border and padding; `::load-bar` may be a box.
 - **`NameLabel`** (`.group` and `.return`: the font), **`MeterFader`** (a return track's fader on its meter: `::marker`, the ▼ (its own part: skins' `Slider::handle` rules don't reach it), `background-color` (none: the row's text colour), `width`, `height`; `:hover`, `:pressed`; the meter inside is a `LevelMeter`), `Label.boxed` (a return's dB reading: a box), **`PanKnob`** (`.group` on a group's row; `background-color`, `padding`; `::arc`, `::pointer`:
-  `color`, `stroke-width`), **`SendsPanel`** (a box, `padding`, `row-gap`, `column-gap`, `min-width`, `min-height`; `::title` font). Class
+  `color`, `stroke-width`), **`KeyFocusButton`** (a MIDI track's keyboard focus toggle: a `ToolButton` with the
+  toggle role `accent`, so `.toggle-accent` and `:toggled` light it while the keyboards play the track; parts
+  `::icon`, its MIDI socket, and `::lock`, the lock in its corner while the focus is locked: `width`, `color` (none:
+  the button's text colour)), **`SendsPanel`** (a box, `padding`, `row-gap`, `column-gap`, `min-width`, `min-height`; `::title` font). Class
   `.pin-cover` (a box).
 
 ### Meters, the transport and the top bar

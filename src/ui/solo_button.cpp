@@ -6,12 +6,12 @@
 #include "gfx/svg.h"
 #include "ui/theme.h"
 
-namespace {
-const char* LOCK_SVG =
+namespace solo_button {
+const char* const LOCK_SVG =
     "<svg width=\"512\" height=\"512\" viewBox=\"0 0 512 512\" xmlns=\"http://www.w3.org/2000/svg\">"
     "<path fill=\"none\" stroke=\"#ffffff\" stroke-width=\"64\" d=\"M 160,250 V 170 A 96,96 0 0 1 352,170 V 250\"/>"
     "<rect fill=\"#ffffff\" x=\"96\" y=\"230\" width=\"320\" height=\"250\" rx=\"32\"/></svg>";
-}  // namespace
+}  // namespace solo_button
 
 SoloButton::SoloButton(TrackPtr t, std::function<void(Change)> changed)
     : ui::Button("S"), track(std::move(t)), changed_(std::move(changed)) {
@@ -80,7 +80,7 @@ void SoloButton::paint(Painter& p) {
     int px = std::max(6, height() * 2 / 5);  // a small lock in the top right corner
     Color c = textColor();
     if (lock_.width() != px || lockFor_ != c) {
-        lock_ = renderSvgTinted(LOCK_SVG, px, px, c);
+        lock_ = renderSvgTinted(solo_button::LOCK_SVG, px, px, c);
         lockFor_ = c;
     }
     p.drawImage(Point(width() - px - 2, 2), lock_);

@@ -1059,6 +1059,11 @@ MeterFader::marker { width: 12px; height: 8px; }  /* the fader's ▼ (no backgro
 MeterFader:hover::marker { background-color: var(--accent); }
 MeterFader:pressed::marker { background-color: var(--accent); }
 .pin-cover { background-color: var(--window); }  /* under the pinned master row */
+/* A MIDI track's keyboard focus toggle (a ToolButton with the toggle role accent: lit as the row's other toggles, in
+   every skin): ::icon its MIDI socket, ::lock the lock in its corner while the focus is locked (width; color: none,
+   the button's own text colour, readable on it lit or not) */
+KeyFocusButton::icon { width: 14px; }
+KeyFocusButton::lock { width: 8px; }
 
 /* A track's pan knob, and the sends' small window. */
 PanKnob { background-color: var(--button); padding: 3px; }

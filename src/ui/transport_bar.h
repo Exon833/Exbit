@@ -9,8 +9,7 @@
 //
 // When the window is too narrow for all of it (a tiling desktop can make it narrower than its
 // minimum, e.g. half a screen), the bar fits itself instead of letting controls overlap (fit): first
-// the time display takes less room, the file and track buttons become one "+ Add ▾" button and some
-// labels get short (♩, ⅓, Metro); the window can't be made narrower than that by hand
+// the time display takes less room and some labels get short (♩, ⅓, Metro); the window can't be made narrower than that by hand
 // (minimumSizeHint). Narrower still (only a tiling desktop does that), the least needed controls go,
 // one by one, into a "»" menu at the right end, which has them all. Their keyboard shortcuts keep
 // working whether they're shown or not.
@@ -139,7 +138,9 @@ namespace transport_bar {
 void fillGridMenu(ui::Menu& menu, const Timing& timing, const std::function<void(const GridChange&)>& choose);
 }  // namespace transport_bar
 
-// Three parts: the file and track buttons on the left, the playback buttons in the middle of the
+// Three parts: Add file and the song's Key, Swing and Sync on the left (tracks are added from the track panel's
+// right-click menu, LanePanel::fillAddMenu: the add-track actions below keep their shortcuts Ctrl+T, Ctrl+Shift+T,
+// Ctrl+Alt+T and their commands, but have no button on the bar), the playback buttons in the middle of the
 // window (kept there whatever the window's width, as long as everything fits), and the time,
 // tempo, metronome and grid on the right.
 class TransportBar : public ui::Widget {
@@ -150,9 +151,6 @@ public:
     std::unique_ptr<TransportAction> playAction, recordAction, startAction, loopAction, followAction;
     std::unique_ptr<TransportAction> keysAction, captureAction;  // ⌨ the computer keyboard (Ctrl+K), Capture (Ctrl+Alt+R)
     std::unique_ptr<TransportAction> metronomeAction;            // the metronome button's (Ctrl+M)
-    std::vector<ui::Button*> addButtons;  // Add file, + Audio, + MIDI, + Return
-    ui::Menu* addMenu = nullptr;          // the same, as one button when the bar is short of room
-    ui::Button* addButton = nullptr;      // "+ Add ▾"
     ui::Widget* timeSeparator = nullptr;
     ui::Button* beatsButton = nullptr;
     ui::Button* thirdsButton = nullptr;
@@ -176,9 +174,9 @@ public:
     ui::Menu* moreMenu = nullptr;
     // fitting the bar to its width
     int level = 0;                        // how many of the fitting steps are taken
-    bool compactTime = false, shortLabels = false, addCollapsed = false, addHidden = false, beatsShown = true;
+    bool compactTime = false, shortLabels = false, beatsShown = true;
     std::string gridName = "auto";        // as the grid button shows it ("" = no snap)
-    static constexpr int LOSSLESS = 3;    // the first steps keep every control on the bar
+    static constexpr int LOSSLESS = 2;    // the first steps keep every control on the bar
     int stepCount() const { return (int)steps_.size(); }
     void apply(int level);                // the first `level` steps taken
     int needed() const;                   // how wide the parts' controls are at their narrowest, as they are now

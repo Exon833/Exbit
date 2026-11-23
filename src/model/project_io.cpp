@@ -489,6 +489,7 @@ Json describeTrack(const Track& track, const std::vector<GroupPtr>& groups, int 
     if (track.soloSafe) entry.set("solo_safe", Json(true));  // (likewise)
     if (!track.midiIn.empty()) entry.set("midi_in", Json(track.midiIn));  // (its MIDI input: likewise)
     if (track.midiInChannel) entry.set("midi_in_channel", Json(track.midiInChannel));
+    if (track.keyFocus) entry.set("key_focus", Json(true));  // (its keyboard focus toggle: likewise)
     if (track.ext != ExternalSynth()) {  // (an External synth, kept even while it plays something else: likewise)
         const ExternalSynth& x = track.ext;
         entry.set("external_synth", Json::object({{"on", Json(x.on)}, {"port", Json(x.port)}, {"channel", Json(x.channel)},
@@ -916,6 +917,7 @@ Json describe(const Project& project, int sr, const MasterSettings& master, Audi
         {"master_effects", masterEffects},
         {"master_cables", describeCables(*project.masterCables, *project.masterEffects, all)},
     });
+    if (project.keyFocusLocked) out.set("key_focus_lock", Json(true));  // (only then: other projects save as before)
     if (!project.midiLinks.empty()) {  // (MIDI controller links: only then, so other projects save as before)
         Json links = describeMidiLinks(project);
         if (links.size()) out.set("midi_links", links);
@@ -1414,6 +1416,7 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
             track->swing = std::min(100.0, t.num("swing", -1.0));
             track->midiIn = t.str("midi_in");
             track->midiInChannel = std::clamp(t.integer("midi_in_channel", 0), 0, 16);
+            track->keyFocus = track->kind == Kind::Midi && t.flag("key_focus", false);
             if (const Json& x = t["external_synth"]; x.isObject()) {
                 track->ext.on = x.flag("on", false);
                 track->ext.port = x.str("port");
@@ -1698,6 +1701,7 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
         project.timing = timing;
         project.setMarkers(markers);
         project.midiLinks = midiLinks;
+        project.keyFocusLocked = data.flag("key_focus_lock", false);  // (Lock keyboard focus: midi_input.h)
         master = MasterSettings::fromJson(field(data, "master"));
         return true;
     } catch (const Damaged& d) {

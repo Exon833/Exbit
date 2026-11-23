@@ -211,6 +211,28 @@ private:
     void closePopup();
 };
 
+// A MIDI track's keyboard focus toggle (ui/midi_input.h KEYBOARD FOCUS): a MIDI socket, lit while the keyboards play
+// the track; a click turns that on or off (`toggled(on)`); right-click: its menu (`fillMenu`: Lock keyboard focus),
+// a press of either button never selects the row. A small lock in its corner while the focus is locked. Styled as
+// KeyFocusButton (a ToolButton with the toggle role "accent", lit as the row's other toggles): ::icon and ::lock
+// (`color`; none: the button's text colour).
+class KeyFocusButton : public ui::Button {
+public:
+    KeyFocusButton(TrackPtr track, bool lit, bool locked, std::function<void(bool)> toggled,
+                   std::function<void(ui::Menu&)> fillMenu);
+    void show(bool lit, bool locked);  // as the focus is now (no signal)
+    bool mousePress(ui::MouseEvent& e) override;
+    bool contextMenu(ui::MouseEvent& e) override;
+    void paint(Painter& p) override;
+    TrackPtr track;
+    bool locked = false;
+    std::function<void(ui::Menu&)> fillMenu;
+
+private:
+    Image icon_, lock_;  // (drawn in iconFor_, lockFor_)
+    Color iconFor_, lockFor_;
+};
+
 namespace widgets {
 // Small checkable button (M / S) that lights up in the skin's "mute" or "solo" colour (`role`) when on.
 ui::Button* toggleButton(ui::Widget* parent, const std::string& text, const std::string& role, bool checked,

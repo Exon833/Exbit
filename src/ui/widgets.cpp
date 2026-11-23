@@ -10,6 +10,8 @@
 #include "ui/formatting.h"
 #include "ui/theme.h"
 #include "ui/transport_bar.h"
+#include "gfx/svg.h"
+#include "ui/solo_button.h"
 
 // ============================================================================================
 // LaneFrame (lane_frame / lane_style)
@@ -688,3 +690,76 @@ ui::Button* iconButton(ui::Widget* parent, const std::string& text, std::functio
 }
 
 }  // namespace widgets
+
+// ============================================================================================
+// KeyFocusButton
+// ============================================================================================
+
+namespace {
+// a MIDI socket (five pins over its key): the keyboards play this track (white: tinted when drawn)
+const char* const SOCKET_SVG =
+    "<svg width=\"512\" height=\"512\" viewBox=\"0 0 512 512\" xmlns=\"http://www.w3.org/2000/svg\">"
+    "<circle cx=\"256\" cy=\"256\" r=\"222\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"56\"/>"
+    "<g fill=\"#ffffff\"><circle cx=\"130\" cy=\"262\" r=\"46\"/><circle cx=\"167\" cy=\"167\" r=\"46\"/>"
+    "<circle cx=\"256\" cy=\"128\" r=\"46\"/><circle cx=\"345\" cy=\"167\" r=\"46\"/><circle cx=\"382\" cy=\"262\" r=\"46\"/>"
+    "<rect x=\"220\" y=\"360\" width=\"72\" height=\"64\" rx=\"10\"/></g></svg>";
+}  // namespace
+
+KeyFocusButton::KeyFocusButton(TrackPtr t, bool lit, bool locked_, std::function<void(bool)> toggled_,
+                               std::function<void(ui::Menu&)> fillMenu_)
+    : ui::Button(""), track(std::move(t)), fillMenu(std::move(fillMenu_)) {
+    setStyle(ui::Button::Style::Tool);  // (as widgets::toggleButton)
+    setStyleType("KeyFocusButton");
+    setFixedSize(theme::metric("toggle-button-width", 26), theme::metric("row-button-height", 22));
+    setFocusPolicy(ui::FocusPolicy::None);
+    setCheckable(true);
+    setProperty("toggle", "accent");  // (lit as the row's other toggles, in every skin)
+    show(lit, locked_);
+    if (toggled_) toggled.connect(toggled_);
+}
+
+void KeyFocusButton::show(bool lit, bool locked_) {
+    setCheckedSilently(lit);
+    locked = locked_;
+    setToolTip(std::string(lit ? "The keyboards play this track" : "Play this track on the keyboards too") +
+               " (MIDI keyboards and the computer keyboard): click to turn it on or off; several lit play together" +
+               (locked ? "\nLocked: selecting tracks leaves the focus as it is (right-click to unlock)"
+                       : "\nThe focus follows the selected track (right-click: Lock keyboard focus)"));
+    update();
+}
+
+bool KeyFocusButton::mousePress(ui::MouseEvent& e) {
+    if (e.button != plat::LeftButton) return true;  // (a right-click: its menu; the row's selection left as it is)
+    return ui::Button::mousePress(e);
+}
+
+bool KeyFocusButton::contextMenu(ui::MouseEvent& e) {
+    if (!fillMenu) return true;
+    ui::Menu menu;
+    fillMenu(menu);
+    menu.exec(e.globalPos, this);
+    return true;
+}
+
+void KeyFocusButton::paint(Painter& p) {
+    ui::Button::paint(p);  // (the skin's toggle: its text is empty, the socket is drawn here)
+    int fits = std::max(6, std::min(width(), height()) - 4);  // (never wider than the button)
+    int px = std::clamp(ui::style::px(computedStyle("icon"), "width", height() - 8), 6, fits);
+    // (each picture drawn again only when its size or colour changes)
+    auto picture = [](Image& img, Color& was, const char* svg, int size, Color c) -> const Image& {
+        if (img.width() != size || was != c) {
+            img = renderSvgTinted(svg, size, size, c);
+            was = c;
+        }
+        return img;
+    };
+    // (locked: a small lock in the top right corner, as solo safe's, the socket moved left of it where there's room)
+    int lk = std::clamp(ui::style::px(computedStyle("lock"), "width", height() * 2 / 5), 5, fits);
+    int x = (width() - px) / 2;
+    if (locked) x = std::max(1, std::min(x, width() - lk - 2 - px));
+    Color c = ui::style::color(computedStyle("icon"), "color", textColor());
+    p.drawImage(Point(x, (height() - px) / 2), picture(icon_, iconFor_, SOCKET_SVG, px, c));
+    if (!locked) return;
+    Color lc = ui::style::color(computedStyle("lock"), "color", textColor());
+    p.drawImage(Point(width() - lk - 1, 1), picture(lock_, lockFor_, solo_button::LOCK_SVG, lk, lc));
+}

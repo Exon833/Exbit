@@ -1,6 +1,7 @@
 // The computer keyboard as a piano (the ⌨ button next to Follow, or Ctrl+K; remembered) (computer_keyboard.py).
 //
-// While it is on, letter keys play the selected MIDI track as a MIDI keyboard would (midi_input.h: heard
+// While it is on, letter keys play the keyboard's tracks as a MIDI keyboard would (midi_input.h KEYBOARD FOCUS: the
+// selected MIDI track, or every track whose focus toggle is lit; heard
 // through its instrument and effects, recorded by ● Rec, kept for Capture):
 //
 //      W E   T Y U   O P          black keys
