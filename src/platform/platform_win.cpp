@@ -1575,6 +1575,7 @@ bool isMainThread() { return std::this_thread::get_id() == S().mainThread; }
 
 double now() { return monoNow(); }
 double doubleClickTime() { return GetDoubleClickTime() / 1000.0; }
+int systemScale() { return (int)std::lround(GetDpiForSystem() * 100.0 / 96.0); }
 int doubleClickDistance() { return std::max(5, GetSystemMetrics(SM_CXDOUBLECLK) / 2); }
 
 Rect screenGeometry(Point at) {  // ("near" is a macro of windows.h's)
