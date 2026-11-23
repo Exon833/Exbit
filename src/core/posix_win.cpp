@@ -1,6 +1,7 @@
 // core/posix_win.h's functions (Windows)
 #include "core/posix_win.h"
 
+#include <sys/utime.h>
 #include <windows.h>
 
 #include <cerrno>
@@ -34,6 +35,16 @@ ssize_t positioned(int fd, void* rbuf, const void* wbuf, size_t n, off_t offset)
 
 ssize_t pread(int fd, void* buf, size_t n, off_t offset) { return positioned(fd, buf, nullptr, n, offset); }
 ssize_t pwrite(int fd, const void* buf, size_t n, off_t offset) { return positioned(fd, nullptr, buf, n, offset); }
+
+int utimensat(int dirfd, const char* path, const struct timespec times[2], int flags) {
+    if (dirfd != AT_FDCWD || flags != 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (!times) return _utime64(path, nullptr);
+    __utimbuf64 t{times[0].tv_sec, times[1].tv_sec};
+    return _utime64(path, &t);
+}
 
 int flock(int fd, int op) {
     HANDLE h = osHandle(fd);

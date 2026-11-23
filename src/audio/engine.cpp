@@ -262,7 +262,7 @@ bool Engine::open(const std::string& type, const std::string& device, int bs, bo
     metering->levelsOn = levels, metering->loudnessOn = loud;
     driverType = type;
     deviceId = device;
-    exclusive = excl;
+    exclusive = stream->exclusive;  // (as it turned out: the driver may not have it)
     int block = std::max(stream->blocksize(), blocksize);
     patch::setBlockHint(std::max(block, 1024));
     mix_.pool = nullptr;  // (no stream runs here: close() stopped it)

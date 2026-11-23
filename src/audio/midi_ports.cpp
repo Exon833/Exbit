@@ -1,11 +1,13 @@
 // Every MIDI port at once: the list, its settings, and the output thread (midi_ports.h).
 #include "audio/midi_ports.h"
 
-#include <poll.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <pthread.h>
 #include <sys/prctl.h>
+#endif
 #include <time.h>
-#include <unistd.h>
 
 #include <algorithm>
 #include <cmath>
@@ -87,7 +89,11 @@ void Hub::addBackend(std::unique_ptr<Backend> b) {
 void Hub::start(bool system) {
     if (running_) return;
     running_ = true;
+#ifdef _WIN32
+    if (system) addBackend(winmmBackend());
+#else
     if (system) addBackend(alsaBackend());
+#endif
     bool jackWanted = false;
     for (auto& p : ports_) jackWanted = jackWanted || (p.on && isJack(p.key));
     if (jackWanted && system) useJack();
@@ -112,9 +118,7 @@ void Hub::stop() {
         if (p.open) closePort(p, p.present);
     if (thread_.joinable()) {
         quit_ = true;
-        uint64_t one = 1;
-        ssize_t w = ::write(out->wakeFd(), &one, sizeof one);
-        (void)w;
+        out->wake();
         thread_.join();
     }
     std::lock_guard<std::mutex> g(nowLock_);
@@ -343,17 +347,19 @@ void Hub::sendNow(int slot, const uint8_t* bytes, int n) {
         std::lock_guard<std::mutex> g(nowLock_);
         now_.emplace_back(slot, std::vector<uint8_t>(bytes, bytes + n));
     }
-    uint64_t one = 1;
-    ssize_t w = ::write(out->wakeFd(), &one, sizeof one);
-    (void)w;
+    out->wake();
 }
 
 void Hub::outputLoop() {
     // as close to each message's moment as the system allows: no timer slack, real-time priority where permitted
+#ifdef _WIN32
+    bool rt = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL) != 0;
+#else
     prctl(PR_SET_TIMERSLACK, 1UL, 0, 0, 0);
     sched_param sp{};
     sp.sched_priority = 60;
     bool rt = pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp) == 0;
+#endif
     util::debugf("midi: the output thread runs %s\n", rt ? "at real-time priority" : "at normal priority");
     std::vector<midi_out::Event> pending;
     std::vector<std::pair<int, std::vector<uint8_t>>> now;
@@ -395,15 +401,7 @@ void Hub::outputLoop() {
         pending.erase(pending.begin(), pending.begin() + (std::ptrdiff_t)done);
         // sleep until the next message is due, or something new arrives
         double wait = pending.empty() ? 0.05 : std::min(0.05, pending[0].when - monoNow());
-        if (wait > 0) {
-            pollfd fd{out->wakeFd(), POLLIN, 0};
-            timespec ts{(time_t)wait, (long)((wait - std::floor(wait)) * 1e9)};
-            if (ppoll(&fd, 1, &ts, nullptr) > 0) {
-                uint64_t v;
-                ssize_t r = ::read(out->wakeFd(), &v, sizeof v);
-                (void)r;
-            }
-        }
+        if (wait > 0) out->wait(wait);
     }
 }
 

@@ -1,7 +1,7 @@
 #include "audio/workers.h"
 
 #ifdef _WIN32
-#include <windows.h>  // (WaitOnAddress: Windows' futex)
+#include <windows.h>  // (WaitOnAddress / WakeByAddress*: Windows 8 and later, synchronization.lib)
 #else
 #include <linux/futex.h>
 #include <pthread.h>
@@ -30,10 +30,15 @@ int countOf(uint64_t s) { return (int)((s >> COUNT_SHIFT) & FIELD); }
 int nextOf(uint64_t s) { return (int)(s & FIELD); }
 
 #ifdef _WIN32
-void futexWait(std::atomic<uint32_t>* word, uint32_t value) { WaitOnAddress(word, &value, sizeof value, INFINITE); }
+void futexWait(std::atomic<uint32_t>* word, uint32_t value) {
+    WaitOnAddress(reinterpret_cast<volatile void*>(word), &value, sizeof value, INFINITE);
+}
 void futexWake(std::atomic<uint32_t>* word, int count) {
-    if (count == 1) WakeByAddressSingle(word);
-    else WakeByAddressAll(word);
+    if (count >= 8) {
+        WakeByAddressAll(reinterpret_cast<void*>(word));
+        return;
+    }
+    for (int i = 0; i < count; i++) WakeByAddressSingle(reinterpret_cast<void*>(word));
 }
 #else
 void futexWait(std::atomic<uint32_t>* word, uint32_t value) {
@@ -116,7 +121,7 @@ void Pool::run(int jobs, Job fn, void* ctx) {
         if (spins < 4096)
             pause();
         else
-            sched_yield();
+            std::this_thread::yield();
     }
 }
 
@@ -145,11 +150,10 @@ int chosenCores() { return chosen.load(); }
 
 int availableCores() {
 #ifdef _WIN32
-    DWORD_PTR mine = 0, sys = 0;  // (the processors this process may run on; up to 64, one processor group)
-    if (GetProcessAffinityMask(GetCurrentProcess(), &mine, &sys) && mine) {
-        int n = __builtin_popcountll((unsigned long long)mine);
-        return std::max(n, (int)std::thread::hardware_concurrency());
-    }
+    // shortcut: threads stay in the process's processor group on Windows 10 (11 spreads them), so beyond 64 logical
+    // processors a part of them waits; SetThreadGroupAffinity per worker when such machines matter
+    DWORD n = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+    if (n > 0) return (int)n;
 #else
     cpu_set_t set;
     CPU_ZERO(&set);

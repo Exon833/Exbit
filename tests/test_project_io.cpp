@@ -478,7 +478,7 @@ static void testParts() {
     CHECK(uniqueFileName(dir, ".wav") == "_wav.wav");
     CHECK(uniqueFileName(dir, "Bass—line.wav") == "Bass_line.wav");      // (punctuation: a dash)
     CHECK(uniqueFileName(dir, "Grüße – Ωmega.wav") == "Grüße _ Ωmega.wav");  // (letters of any script kept)
-    CHECK(audioFolder("/x/y/My Song.json") == "/x/y/My Song_audio");
+    CHECK(audioFolder("/x/y/My Song.json") == util::absolutePath("/x/y") + "/My Song_audio");  // (Windows: C:/x/y)
     // master settings
     MasterSettings ms = MasterSettings::fromJson(Json::parse(R"({"volume_db": -12, "mute": true})"));
     CHECK(ms.volumeDb == -12 && ms.mute && ms.toJson().dump() == "{\"volume_db\": -12, \"mute\": true}");

@@ -55,19 +55,17 @@ LDLIBS   := -ldl -pthread -lm
 
 SRCS  := $(shell find src -name '*.cpp' -not -path 'src/winehost/*' | sort)
 # the sources of one system only
-LINUX_ONLY := src/platform/x11.cpp src/platform/x11_api.cpp src/audio/alsa_api.cpp src/audio/devices_alsa.cpp \
+LINUX_ONLY := src/platform/x11.cpp src/platform/x11_api.cpp src/audio/alsa_api.cpp src/audio/devices.cpp src/audio/devices_alsa.cpp \
               src/audio/devices_jack.cpp src/audio/devices_pulse.cpp src/audio/midi_jack.cpp $(filter %_posix.cpp,$(SRCS))
-# not ported to Windows yet: left out of its build, src/pending_win.cpp stands in for them (no MIDI ports, no Wine,
-# no terminal UI). Whoever ports one takes it off this list and its stand-ins out of pending_win.cpp.
-WIN_PENDING := src/audio/midi_in.cpp src/audio/midi_ports.cpp src/plugins/bridged.cpp \
-               src/plugins/wine.cpp src/tui/screen.cpp src/tui/term.cpp src/tui/app.cpp src/tui/window_view.cpp
+# not ported to Windows yet: left out of its build, src/pending_win.cpp stands in for them (no Wine, no terminal UI). Whoever ports one takes it off this list and its stand-ins out of pending_win.cpp.
+WIN_PENDING := src/plugins/bridged.cpp src/plugins/wine.cpp src/tui/screen.cpp src/tui/term.cpp src/tui/app.cpp src/tui/window_view.cpp
 ifeq ($(WINDOWS),1)
   SRCS := $(filter-out $(LINUX_ONLY) $(WIN_PENDING),$(SRCS))
   # (M_PI…; UTF-8 paths and POSIX's small calls: core/posix_win.h; off_t 64-bit: files over 2 GB)
   CXXFLAGS += -DTINYDAW_WINDOWS -D_USE_MATH_DEFINES -D_FILE_OFFSET_BITS=64 -include core/posix_win.h
   # static: none of MSYS2's DLLs needed; binmode.o: files the C library opens are binary
   LDLIBS := -static -pthread $(shell $(CXX) -print-file-name=binmode.o) -luser32 -lgdi32 -lshell32 -lole32 \
-            -loleaut32 -luuid -limm32 -lwinmm -ldwmapi -lshcore -lsynchronization -lm
+            -loleaut32 -luuid -limm32 -lwinmm -lavrt -ldwmapi -lshcore -lsynchronization -lm
   # the manifest (UTF-8 code page, per-monitor DPI awareness), as a resource
   WIN_RES := $(BUILD)/src/platform/tinydaw_win.res.o
 else
@@ -77,6 +75,9 @@ OBJS  := $(SRCS:%.cpp=$(BUILD)/%.o)
 LIB_OBJS := $(filter-out $(BUILD)/src/main.o,$(OBJS))
 
 TEST_SRCS := $(wildcard tests/*.cpp)
+ifneq ($(WINDOWS),1)
+  TEST_SRCS := $(filter-out %_win.cpp,$(TEST_SRCS))
+endif
 TEST_BINS := $(TEST_SRCS:tests/%.cpp=$(BUILD)/tests/%$(EXE))
 
 # test plugins (built from tests/plugins/: a VST2 synth and a VST3 effect, on Tiny DAW's own headers)
@@ -217,7 +218,7 @@ $(BUILD)/tests/%$(EXE): tests/%.cpp $(LIB_OBJS) $(WIN_RES)
 	$(CXX) $(CXXFLAGS) $(LDOPT) -o $@ $< $(LIB_OBJS) $(WIN_RES) $(LDLIBS)
 
 # the tests that run on Windows (tools/wintests.sh builds and runs them there)
-WIN_TESTS := test_gfx test_model test_project_io test_ui_main
+WIN_TESTS := test_os test_gfx test_model test_project_io test_ui_main test_workers test_midi_win test_wasapi_win
 tests-win: $(WIN_TESTS:%=$(BUILD)/tests/%$(EXE))
 	@failed=""; for t in $^; do echo "== $$t"; $$t || failed="$$failed $${t##*/}"; done; \
 	if [ -n "$$failed" ]; then echo "== FAILED:$$failed"; exit 1; fi; echo "== all tests passed"

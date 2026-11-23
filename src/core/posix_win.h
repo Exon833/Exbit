@@ -48,6 +48,10 @@ inline int lstat(const char* path, struct stat* st) { return stat(path, st); }
 #define S_ISLNK(m) 0
 #endif
 
+// utimensat(AT_FDCWD, path, times, 0): a file's access and modification times (whole seconds)
+#define AT_FDCWD (-100)
+int utimensat(int dirfd, const char* path, const struct timespec times[2], int flags);
+
 // flock(): a whole-file lock (LockFileEx), held until LOCK_UN or the file is closed
 #define LOCK_SH 1
 #define LOCK_EX 2
