@@ -526,19 +526,39 @@ void Timeline::paintTempoChanges(Painter& p, const Rect& r) {
     // each tempo change after its bar's number on the ruler
     // (Ruler::tempo: after the bar's number, Ruler::label, by its margin-left)
     const TimelineLook& lk = look();
+    rulerTempoShown.clear();
     if (lanes::tempoLaneShown()) return;  // (the tempo lane under it shows them)
     const Timing& t = project.timing;
     TempoMapPtr m = t.map();  // (once: a song may have thousands of changes)
+    // thinned out, never overlapping: a label too close to the one before it is left out (counted from the song's
+    // start, whatever part is painted: the same labels in every repaint); one running into a bar's or beat's number
+    // isn't drawn either. (The numbers near r: a label starting further left than `reach` ends before r)
+    const float gap = 8, reach = 400;
+    std::vector<std::pair<float, float>> numbers;
+    for (auto& gl : t.lines(std::max(0.0, (r.left() - reach) / pps), (r.right() + reach) / pps, pps))
+        if (!gl.label.empty()) {
+            float nx = (float)(int)(gl.seconds * pps) + lk.labelPadLeft;
+            numbers.push_back({nx, nx + lk.labelFont.width(gl.label)});
+        }
+    float taken = -1e9f;  // (where the last label shown ends)
     for (auto& change : m->changes) {
         if (!change.valid()) continue;
         int x = (int)(m->secondsAt(m->beatOf(change)) * pps);
-        if (x < r.left() - 200 || x > r.right() - 1) continue;
+        if (x > r.right() - 1) break;  // (sorted: the rest are right of r)
         // (a change inside a bar: no bar number there, nor a time signature; a ramp: an arrow)
         float after = change.atBar() ? lk.labelFont.width(std::to_string(change.bar)) : 0.0f;
+        float x0 = (float)x + (lk.labelPadLeft + lk.tempoMargin) + after;
+        if (x0 < taken + gap) continue;
         std::string text = g(change.bpm) + " BPM" + (change.atBar() ? " " + change.sig().text() : "") +
                            (change.ramp ? " ↗" : "");
-        p.drawText(PointF((float)x + (lk.labelPadLeft + lk.tempoMargin) + after, (float)lk.tempoBaseline), text,
-                   lk.tempoFont, lk.tempoColor);
+        float x1 = x0 + lk.tempoFont.width(text);
+        taken = x1;
+        if (x1 < r.left()) continue;
+        bool hits = false;
+        for (auto& n : numbers) hits = hits || (n.first < x1 + 2 && x0 < n.second + 2);  // (its own bar's: before x0)
+        if (hits) continue;
+        p.drawText(PointF(x0, (float)lk.tempoBaseline), text, lk.tempoFont, lk.tempoColor);
+        rulerTempoShown.push_back(RectF(x0, 0, x1 - x0, (float)lk.rulerHeight));
     }
 }
 

@@ -69,3 +69,7 @@
 
 /* the RMS bar over the (dark) peak bar: lighter */
 LevelMeter::rms { background-color: #ffffffb3; }
+
+/* an automation lane's (and the tempo lane's) values: the curve's orange darker toward the text than default.css's
+   70 %, to read 4.5:1 on the range band of the pale lane too */
+Lane.automation::label, Lane.automation::value { color: color-mix(in srgb, var(--automation-line) 60%, var(--window-text)); }

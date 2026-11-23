@@ -130,8 +130,11 @@ int roleOrder(int sb) {
 // the gap between a ButtonBox's buttons (default.css: ButtonBox's column-gap, 6 px)
 int buttonGap(const Widget* box) { return std::max(0, style::px(box->computedStyle(), "column-gap", 6)); }
 
-// a dialog's button: at least min-width wide (default.css: ButtonBox > Button, 80 px)
-void setButtonWidth(Button* b) { b->setMinimumWidth(std::max(0, style::px(b->computedStyle(), "min-width", 80))); }
+// a dialog's button: at least min-width wide (default.css: ButtonBox > Button, 80 px), and never narrower than its
+// text (a long one, "Remove this change": the dialog's smallest size keeps it whole, not "Remove…")
+void setButtonWidth(Button* b) {
+    b->setMinimumWidth(std::max({0, style::px(b->computedStyle(), "min-width", 80), b->minimumSizeHint().x}));
+}
 }  // namespace
 
 void dialogButton(Button* b) {

@@ -450,8 +450,8 @@ MenuBar::item:disabled { color: var(--disabled-text); }
 Menu { background-color: var(--base); border: 1px solid var(--line); padding: 4px 0; min-width: 60px; }
 Menu::item { padding: 5px 24px; color: var(--text); }
 Menu::item:hover { background-color: var(--highlight); color: var(--highlighted-text); }
-Menu::item:disabled, Menu::item:section { color: var(--disabled-text); }
-Menu::item:section { font-weight: bold; }
+Menu::item:disabled { color: var(--disabled-text); }
+Menu::item:section { color: var(--hint-text); font-weight: bold; }  /* a heading: text (4.5:1), not a disabled item */
 Menu::separator { height: 1px; margin: 4px 7px; background-color: var(--line); }
 Menu::check { width: 10px; margin-left: 7px; color: var(--text); }
 Menu::check:disabled { color: var(--disabled-text); }
@@ -567,7 +567,7 @@ Lane.automation::point { width: 4px; height: 4px; }
 Lane.automation::range { background-color: color-mix(in srgb, var(--automation-line) 5.49%, transparent); }
 Lane.automation::range-edge { color: color-mix(in srgb, var(--automation-line) 27.45%, transparent); stroke-width: 1px; }
 Lane.automation::guide { color: color-mix(in srgb, var(--automation-line) 15.69%, transparent); }  /* dotted */
-Lane.automation::label {  /* the values at the top and the bottom of the range */
+Lane.automation::label {  /* the values at the top and the bottom of the range (the tempo lane: on ::value's box) */
     color: color-mix(in srgb, var(--automation-line) 70%, var(--window-text));
     font-size: calc(1em - 2px);
     padding: 2px 6px 1px;

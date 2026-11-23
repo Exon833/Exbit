@@ -540,6 +540,7 @@ void judgeSurfaces(const Widget* owner) {
         {"tooltips", "ToolTip", {}, {}, "", "", 4.5},
         {"status bar", "StatusBar", {}, {}, "", "", 4.5},
         {"menu items", "Menu", {}, {}, "item", "item", 4.5},
+        {"menu section heading (Add a track)", "Menu", {}, {"section"}, "item", "item", 4.5},
         {"menu item under the pointer", "Menu", {}, {"hover"}, "item", "item", 4.5},
         {"menu bar item under the pointer", "MenuBar", {}, {"hover"}, "item", "item", 4.5},
         {"menu bar item open", "MenuBar", {}, {"open"}, "item", "item", 4.5},

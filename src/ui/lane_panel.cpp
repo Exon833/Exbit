@@ -603,6 +603,7 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
             [this, alive](ui::Menu& m) { if (!alive.expired()) fillFocusMenu(m); });
         focus->setFixedHeight(theme::metric("output-selector-height", 18));  // (as an audio track's input there)
         focusButtons[track] = focus;
+        selectors.push_back(focus);  // (a row too low for it: hidden as an audio track's input; its menu still has it)
         beforeMeter = focus;
     }
     if (beforeMeter) {
@@ -992,8 +993,8 @@ bool LanePanel::contextMenu(ui::MouseEvent& e) {
 void LanePanel::paint(Painter& p) {
     ui::Widget::paint(p);
     if (!project.tracks.empty()) return;
-    // (no tracks yet: how to add one; ADDING TRACKS)
-    Color c = ui::style::color(computedStyle(), "color", theme::c("disabled_text"));
+    // (no tracks yet: how to add one, in the hints' colour: 4.5:1 on the window in every skin; ADDING TRACKS)
+    Color c = ui::style::color(computedStyle(), "color", theme::c("hint_text"));
     p.drawTextBlock(RectF(8, 12, (float)std::max(0, width() - 16), 60), AlignHCenter | AlignTop,
                     "Right-click to add a track", ui::style::font(computedStyle(), theme::uiFont()), c);
 }

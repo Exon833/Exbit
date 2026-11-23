@@ -432,7 +432,7 @@ LineEdit, SpinBox, ComboBox {
     border-radius: 0;
 }
 LineEdit { padding: 3px 3px; }
-LineEdit:frameless { background-color: transparent; border-width: 0; }
+LineEdit:frameless { background-color: transparent; border-width: 0; padding: 3px 3px; }  /* (a SpinBox's: its own padding) */
 LineEdit:hover, SpinBox:hover, ComboBox:hover { border-color: var(--xp-field-edge); }
 LineEdit:focus, SpinBox:focus, ComboBox:focus, ComboBox:open { border-color: var(--xp-field-edge); }
 LineEdit:focus, SpinBox:focus, ComboBox:focus { box-shadow: inset 0 0 0 1px #316ac5; }  /* the keyboard focus: a blue line inside */
@@ -790,7 +790,7 @@ CpuMonitor::bar:hot { background-image: linear-gradient(to bottom, #ffc0b2 0%, #
 
 Lane.group { border-top-color: #b4c2da; }
 /* an automation lane's range values, written in a darker orange than the curve to read on the pale lane */
-Lane.automation::label, Lane.automation::value { color: #a8590a; }
+Lane.automation::label, Lane.automation::value { color: #9a5209; }  /* (5:1 on the range band too) */
 MasterLane { background-image: linear-gradient(to bottom, #eef3fc 0%, #e2eaf8 100%); }
 
 /* clips: their own colours; a thin dark outline and a softly rounded corner. A selected one gets a white

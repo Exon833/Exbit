@@ -4,6 +4,7 @@
 // terminal: Enter on a point at the ruler edits it, F2 offers its menu (add, remove, Timebase). The lane's range
 // (Min, Max, Auto; fallbacks; saved; points outside it at its edge; dragged, the range changed mid-drag) and its row
 // in the main window (✕, View → Tempo lane).
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -26,6 +27,7 @@
 #include "ui/tempo_dialog.h"
 #include "ui/theme.h"
 #include "ui/timeline.h"
+#include "ui/timeline_look.h"
 #include "ui/timing_rows.h"
 #include "ui/toolkit/menu.h"
 #include "ui/toolkit/widget.h"
@@ -518,6 +520,71 @@ void testTerminal() {
 
 }  // namespace
 
+// the labels never over one another: the tempo lane's (a point's tempo high at the view's right under "160 BPM", low
+// points at bars where the time signature changes, over "7/8"), and the ruler's with hundreds of changes (the lane
+// hidden: thinned out, never over one another nor over a bar's number) at every zoom
+void testLabelsApart() {
+    auto apart = [](const std::vector<RectF>& rs) {
+        for (size_t i = 0; i < rs.size(); i++)
+            for (size_t j = i + 1; j < rs.size(); j++)
+                if (rs[i].x < rs[j].right() && rs[j].x < rs[i].right() && rs[i].y < rs[j].bottom() && rs[j].y < rs[i].bottom())
+                    return false;
+        return true;
+    };
+    Rig r(749, 300);
+    Timeline& tl = *r.tl;
+    Timing& t = r.project.timing;
+    lanes::setTempoLaneShown(true);
+    t.tempoLaneLo = 80, t.tempoLaneHi = 160;
+    t.setChange(TempoChange{2, 82, 7, 0, false, 8});
+    t.setChange(TempoChange{3, 158, 7, 0, false, 8});
+    t.setChange(TempoChange{4, 84, 4, 0, false, 4});
+    t.setChange(TempoChange{6, 157, 4, 0, false, 4});
+    t.setChange(TempoChange{7, 150, 4, 0, false, 4});
+    tl.pps = 60;
+    tl.relayout();
+    Image img = paintScroll(r.scroll);
+    savePng(outDir() + "/labels-apart.png", img);
+    const std::vector<RectF>& ls = tl.tempoLabelsShown;
+    CHECK(apart(ls));
+    CHECK(ls.size() >= 8);  // (every point's tempo in view, and each time signature: moved, not left out)
+    int top = lanes::rulerHeight(), h = lanes::tempoLaneHeight();
+    for (const RectF& b : ls) CHECK(b.y >= top && b.bottom() <= top + h);
+    // the ruler, the lane hidden: 400 changes, from far out to close in
+    lanes::setTempoLaneShown(false);
+    t.changes.clear();
+    t.tempoLaneLo = t.tempoLaneHi = 0;
+    for (int b = 2; b < 400; b++) t.setChange(TempoChange{b, 100.0 + (b % 7) * 7, b % 2 ? 7 : 4, 0, false, b % 2 ? 8 : 4});
+    int shownAt60 = 0;
+    for (double pps : {2.0, 15.0, 40.0, 60.0, 200.0}) {
+        tl.pps = pps;
+        tl.relayout();
+        r.scroll.scrollTo(0, 0);
+        paintScroll(r.scroll);
+        std::vector<RectF> all = tl.rulerTempoShown;
+        // (the bar and beat numbers there, as the ruler draws them)
+        const TimelineLook& lk = tl.look();
+        for (auto& gl : t.lines(0, 749 / pps, pps))
+            if (!gl.label.empty()) {
+                float x = (float)(int)(gl.seconds * pps) + lk.labelPadLeft;
+                all.push_back(RectF(x, 0, lk.labelFont.width(gl.label), 1));
+            }
+        CHECK(apart(all));
+        if (pps == 60) shownAt60 = (int)tl.rulerTempoShown.size();
+        // and the same labels when only a part of the ruler is painted (a scroll's strip)
+        if (pps == 15) {
+            std::vector<RectF> whole = tl.rulerTempoShown;
+            Image part(749, 300);
+            Painter pp(part);
+            tl.paintTree(pp, Rect(300, 0, 200, lanes::rulerHeight()));
+            for (const RectF& b : tl.rulerTempoShown)
+                CHECK(std::find_if(whole.begin(), whole.end(), [&](const RectF& w) { return w.x == b.x; }) != whole.end());
+        }
+    }
+    CHECK(shownAt60 >= 4);  // (room for them there: shown)
+    lanes::setTempoLaneShown(false);
+}
+
 int main() {
     plat::initWithoutDisplay();
     ui::App::get().initHeadless();
@@ -529,5 +596,6 @@ int main() {
     testRange();
     testRow();
     testTerminal();
+    testLabelsApart();
     TEST_MAIN_END();
 }

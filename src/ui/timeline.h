@@ -528,6 +528,8 @@ public:
     // step; Auto fits the points. Points outside a fixed range are drawn at its edge with a mark (▲ / ▼).
     bool inTempoLane(double y) const;
     void tempoRange(double& lo, double& hi) const;     // the BPM from the lane's bottom to its top
+    // (tests) where the last paint put the tempo lane's labels, and the ruler's tempo changes (the lane hidden)
+    std::vector<RectF> tempoLabelsShown, rulerTempoShown;
     // a fixed range (lo < hi within MIN_BPM…MAX_BPM), or Auto (0, 0; anything else falls back to Auto too)
     void setTempoLaneRange(double lo, double hi);
     void editTempoLaneRange();                        // typed in a dialog (the lane's menu; the terminal's Shift+R)

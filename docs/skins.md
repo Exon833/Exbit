@@ -701,8 +701,8 @@ from its style is `--layout-spacing` (rows and columns) and `--grid-spacing` (gr
   `.group`, `.automation`, `.take`, `.below`; states `:alternate`, `:armed`, `:locked`. Parts `::overlay` (a
   box over it); for automation lanes `color` (the curve), `::curve` and `::level` (`stroke-width`), `::point`
   (`width`, `height`), `::range` (a box), `::range-edge` (`color`, `stroke-width`), `::guide` (`color`),
-  `::label` (`color`, the font, `padding`, `width`, `height`), `::value` (a box, `color`, the font, `padding`,
-  `margin-left`), `::hint` (`color`, the font, `padding-left`, `baseline`).
+  `::label` (`color`, the font, `padding`, `width`, `height`; also the tempo lane's labels, each on
+  `::value`'s box so a line passes under it), `::value` (a box, `color`, the font, `padding`, `margin-left`), `::hint` (`color`, the font, `padding-left`, `baseline`).
 - **`Clip`** (in the timeline): `stroke-width` (its outline), `padding`. Classes `.audio`, `.midi`; states
   `:selected`, `:disabled`, `:frozen`, `:muted`, `:linked`, `:looping`. Parts `::body` and `::header` (boxes in the
   clip's own colours), `::overlay` (a box), `::name` (`padding`, the font), `::fade` (`background-color`,

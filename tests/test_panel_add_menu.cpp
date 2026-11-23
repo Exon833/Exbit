@@ -4,6 +4,7 @@
 // commands still add them, the empty panel's hint, the terminal's keys (A, N, F2 on a row and on the master) and a
 // worst case (hundreds added at random rows). Pictures in build/ui-samples/keyboard-focus/.
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <functional>
 #include <random>
@@ -20,6 +21,7 @@
 #include "ui/commands.h"
 #include "ui/lane_panel.h"
 #include "ui/main_window.h"
+#include "ui/skin.h"
 #include "ui/theme.h"
 #include "ui/timeline.h"
 #include "ui/toolkit/menu.h"
@@ -146,6 +148,29 @@ void testMenus(MainWindow& w, Driver& d) {
     for (int y = 10; y < 34; y++)
         for (int x = 0; x < panel->width(); x++) inked += empty.colorAt(x, y) != bg;
     CHECK(inked > 50);
+    // …readable in every skin: its letters' darkest or lightest pixels 4.5:1 against the panel (a hint, not the
+    // disabled text's colour)
+    auto lum = [](::Color c) {
+        auto ch = [](int v) { double s = v / 255.0; return s <= 0.03928 ? s / 12.92 : std::pow((s + 0.055) / 1.055, 2.4); };
+        return 0.2126 * ch(c.r) + 0.7152 * ch(c.g) + 0.0722 * ch(c.b);
+    };
+    skin::setBuiltinDir("data/skins");
+    for (const skin::Skin& sk : skin::library()) {
+        w.chooseSkin(sk);
+        d.settle();
+        Image img = paintWidget(panel);
+        ::Color ground = img.colorAt(panel->width() - 3, 60);
+        double best = 1;
+        for (int y = 8; y < 40; y++)
+            for (int x = 0; x < panel->width(); x++) {
+                double a = lum(ground), b = lum(img.colorAt(x, y));
+                best = std::max(best, (std::max(a, b) + 0.05) / (std::min(a, b) + 0.05));
+            }
+        if (best < 4.5) printf("  %s: the empty panel's hint at %.2f:1\n", sk.name.c_str(), best);
+        CHECK(best >= 4.5);
+    }
+    w.chooseSkin(skin::find("Dark"));
+    d.settle();
 
     // empty space: the Add entries as a section, with the transport's keys; at the end
     ui::Menu space;

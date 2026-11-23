@@ -311,6 +311,11 @@ void sweepControls() {
         inst->move(ix + 6, 46);
         items.push_back({inst, "", ""});
     }
+    {  // a MIDI track's keyboard focus toggle: its socket (::icon, the button's text colour unless set) on it
+        auto* kf = win.add<KeyFocusButton>(nullptr, false, false, nullptr, nullptr);
+        kf->move(520, 46);
+        items.push_back({kf, "", "keyboard focus"});
+    }
     auto* check = win.add<CheckBox>("Snap");
     at(check, 10, 80, 120, 22);
     items.push_back({check, "Snap", ""});
@@ -558,6 +563,23 @@ void sweepTimingLanes(Rig& r) {
                   needed("7/8", ui::style::font(sig, theme::uiFont())), hx(text) + " on " + hx(block));
         Color edge = ui::style::color(sig, "border-left-color", text);
         judgePair("TimeSignature line at its bar" + st, contrast(over(edge, block), block), 3.0, hx(edge) + " on " + hx(block));
+    }
+    // the tempo lane's labels (a point's BPM, the range's ends, a signature) on the range band, and on the plate the
+    // range's ends sit on; the ruler's tempo changes ("120 BPM 7/8", the tempo lane hidden) on the ruler
+    {
+        auto ls = paint::nodeStyles(tl, "Lane", {"automation"}, {}, {"range", "label", "value"});
+        Color band = backgroundOver(ls[0], lane), plate = backgroundOver(ls[2], band);
+        Color text = ui::style::color(ls[1], "color", theme::c("automation_line"));
+        Font f = ui::style::font(ls[1], theme::uiFont());
+        judgePair("tempo lane label \"120 BPM\" on its range band", contrast(over(text, band), band), needed("120 BPM", f),
+                  hx(text) + " on " + hx(band));
+        judgePair("tempo lane label \"120 BPM\" on its plate", contrast(over(text, plate), plate), needed("120 BPM", f),
+                  hx(text) + " on " + hx(plate));
+        auto rs = paint::nodeStyles(tl, "Ruler", {}, {}, {"", "tempo"});
+        Color ruler = backgroundOver(rs[0], theme::c("window"));
+        Color tempo = ui::style::color(rs[1], "color", theme::c("ruler_text"));
+        judgePair("Ruler tempo \"120 BPM 7/8\" on the ruler", contrast(over(tempo, ruler), ruler),
+                  needed("120 BPM 7/8", ui::style::font(rs[1], theme::uiFont())), hx(tempo) + " on " + hx(ruler));
     }
     for (TimingLaneRow* row : {r.w->tempoRow, r.w->signatureRow}) {
         Color bg = backgroundOver(row->computedStyle(), theme::c("window"));

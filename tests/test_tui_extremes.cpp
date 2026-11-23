@@ -583,6 +583,40 @@ void frameTimes() {
     closeRig(r);
 }
 
+// the keyboard focus's marks (♪ before the names it plays, "Tracks  ♪ locked"), a 7/8 time signature on the
+// transport, and an empty panel's hint, at every size: checked as every picture, and there where there is room
+void focusAndSignature() {
+    Rig r = makeRig(4, 1);
+    MainWindow& w = *r.w;
+    for (auto& t : r.tracks) t->needsInstrument = false;
+    w.timeline->setCurrentTrack(r.tracks[0]);
+    w.panel->toggleFocus(r.tracks[2], true);
+    ui::Menu m;
+    w.panel->fillFocusMenu(m);
+    for (auto& a : m.actions())
+        if (a->text == "Lock keyboard focus" && a->toggled) a->toggled(true);
+    w.project.timing.beatsPerBar = 7, w.project.timing.beatUnit = 8;
+    w.timeline->timingChanged.emit();
+    settle(3);
+    everySize(r, "focus-locked-7-8");
+    for (auto [W, H] : std::vector<std::pair<int, int>>{{80, 24}, {300, 100}}) {
+        Screen s(W, H);
+        r.f->draw(s);
+        std::string all = s.lines();
+        CHECK(w.project.keyFocusLocked && all.find("Tracks  ♪ locked") != std::string::npos);
+        CHECK(all.find("♪ ") != std::string::npos);
+        CHECK(all.find("7/8") != std::string::npos);
+    }
+    closeRig(r);
+    Rig e = makeRig(0, 0);
+    settle(2);
+    everySize(e, "empty-panel");
+    Screen s(80, 24);
+    e.f->draw(s);
+    CHECK(s.lines().find("add a track") != std::string::npos);
+    closeRig(e);
+}
+
 }  // namespace
 
 int main() {
@@ -603,6 +637,7 @@ int main() {
     part("screen", screenBasics);
     part("highlights", highlights);
     part("windows", windows);
+    part("keyboard focus and signature", focusAndSignature);
     part("frame times", frameTimes);
     TEST_MAIN_END();
 }

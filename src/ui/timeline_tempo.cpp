@@ -200,11 +200,38 @@ void Timeline::paintTempoLane(Painter& p, const Rect& r, bool contents) {
         }
     }
     if (line.size() >= 2 && lk.curveWidth > 0) p.drawPolyline(line, lk.curve.color, lk.curveWidth);
-    // the points, each with its tempo when there is room; the time signature at each bar where it changes
+    // the labels, never over one another: each on a plate (Lane.automation::value's box: the line passes under it),
+    // placed in turn, each where it fits or left out: the time signature at each bar where it changes (at the lane's
+    // bottom, when the signature lane is hidden), a point's tempo (above it, else below, else past what is there),
+    // the range at the view's right (its Min and Max are in the row beside the lane too)
     const Font& font = lk.labelFont;
+    const float fh = (float)font.height();
+    std::vector<RectF> placed;
+    auto apart = [](const RectF& a, const RectF& b) { return a.x >= b.right() + 3 || b.x >= a.right() + 3; };
+    auto fits = [&](const RectF& b) {
+        if (b.y < top || b.bottom() > top + h) return false;
+        for (const RectF& q : placed)
+            if (!apart(b, q) && b.y < q.bottom() && q.y < b.bottom()) return false;
+        return true;
+    };
+    auto label = [&](const RectF& b, const std::string& text) {
+        placed.push_back(b);
+        box(p, b, lk.valueBox);
+        p.drawText(b, AlignLeft | AlignTop, text, font, lk.labelColor);
+    };
+    for (size_t i = 0; i < segs.size() && !lanes::signatureLaneShown(); i++) {  // (the lane under it shows them)
+        const Segment& s = segs[i];
+        if (s.beat != s.barBeat || (i > 0 && segs[i - 1].sig() == s.sig())) continue;
+        float x = (float)(s.seconds * pps);
+        if (x < area.left() - 60 || x > area.right()) continue;
+        std::string sig = s.sig().text();  // ("7/8")
+        RectF b(x + 4, (float)(top + h) - fh - 2, (float)font.width(sig) + 2, fh);
+        if (fits(b)) label(b, sig);
+    }
     const std::vector<TempoPoint>& points = m->points();
     std::optional<TempoRef> dragged;
     if (auto* d = std::get_if<TempoDrag>(&drag)) dragged = d->at;
+    std::vector<std::pair<size_t, float>> shown;  // (the points in view, and their y)
     for (size_t i = 0; i < points.size(); i++) {
         float x = (float)(points[i].seconds * pps), y = (float)tempoPointY(points[i].bpm);
         if (x < area.left() - 80 || x > area.right() + 4) continue;
@@ -215,31 +242,37 @@ void Timeline::paintTempoLane(Painter& p, const Rect& r, bool contents) {
             float cx = x - lk.pointW / 2.0f - grow - 6, tip = points[i].bpm > hi ? y - 4 : y + 4, base = 2 * y - tip;
             p.fillPolygon({PointF(cx - 4, base), PointF(cx, tip), PointF(cx + 4, base)}, lk.pointColor);
         }
+        shown.push_back({i, y});
+    }
+    for (auto [i, y] : shown) {
         double room = i + 1 < points.size() ? (points[i + 1].seconds - points[i].seconds) * pps : 1e9;
         std::string text = g(std::nearbyint(points[i].bpm * 100) / 100) + (points[i].ramp ? " ↗" : "");
-        if (room >= font.width(text) + 12) {
-            float ty = y - lk.pointH / 2.0f - 2 - (float)font.height() < top ? y + 2 : y - lk.pointH / 2.0f - 2 - (float)font.height();
-            p.drawText(RectF(x + 4, ty, (float)font.width(text) + 2, (float)font.height()), AlignLeft | AlignTop, text, font,
-                       lk.labelColor);
+        float x = (float)(points[i].seconds * pps), w = (float)font.width(text) + 2;
+        const float ys[2] = {y - lk.pointH / 2.0f - 2 - fh, y + lk.pointH / 2.0f + 2};
+        for (float lx = x + 4; lx + w + 8 <= x + room;) {  // (blocked at both heights: tried again past what blocks it)
+            float past = lx;
+            bool done = false;
+            for (float ly : ys) {
+                RectF b(lx, ly, w, fh);
+                if (fits(b)) {
+                    label(b, text);
+                    done = true;
+                    break;
+                }
+                for (const RectF& q : placed)
+                    if (!apart(b, q)) past = std::max(past, q.right() + 4);
+            }
+            if (done || past <= lx) break;
+            lx = past;
         }
     }
-    for (size_t i = 0; i < segs.size() && !lanes::signatureLaneShown(); i++) {  // (the lane under it shows them)
-        const Segment& s = segs[i];
-        if (s.beat != s.barBeat || (i > 0 && segs[i - 1].sig() == s.sig())) continue;
-        float x = (float)(s.seconds * pps);
-        if (x < area.left() - 60 || x > area.right()) continue;
-        std::string sig = s.sig().text();  // ("7/8")
-        p.drawText(RectF(x + 4, (float)(top + h) - (float)font.height() - 2, (float)font.width(sig) + 2, (float)font.height()),
-                   AlignLeft | AlignTop, sig, font, lk.labelColor);
-    }
-    // the range at the view's right (its left has bar 1's point and time signature)
     float right = (float)(scroll->horizontalScrollBar()->value() + scroll->viewport()->width() - lk.labelPadLeft);
     std::string high = g(hi) + " BPM", low = g(lo) + " BPM";
-    p.drawText(RectF(right - font.width(high) - 2, (float)yTop + 1, font.width(high) + 2, (float)font.height()),
-               AlignLeft | AlignTop, high, font, lk.labelColor);
-    p.drawText(RectF(right - font.width(low) - 2, (float)yBottom - 1 - (float)font.height(), font.width(low) + 2,
-                     (float)font.height()),
-               AlignLeft | AlignTop, low, font, lk.labelColor);
+    RectF hb(right - font.width(high) - 2, (float)yTop + 1, font.width(high) + 2, fh);
+    RectF lb(right - font.width(low) - 2, (float)yBottom - 1 - fh, font.width(low) + 2, fh);
+    if (fits(hb)) label(hb, high);
+    if (fits(lb)) label(lb, low);
+    tempoLabelsShown = std::move(placed);
     p.restore();
 }
 

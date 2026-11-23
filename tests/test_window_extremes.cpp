@@ -37,6 +37,7 @@
 #include "ui/sampler_dialog.h"
 #include "ui/skin.h"
 #include "ui/synth_dialog.h"
+#include "ui/tempo_dialog.h"
 #include "ui/theme.h"
 #include "ui/timeline.h"
 #include "ui/toolkit/dialogs.h"
@@ -538,6 +539,10 @@ std::vector<Opener> allOpeners(Rig& r) {
         {"Master effects", [](Rig& r) { r.w->openMasterPlugins(); }},
         {"Instrument patch panel", [](Rig& r) { r.w->openInstrumentPanel(r.tracks[2]); }},
         {"Keyboard shortcuts", [](Rig& r) { r.w->showShortcuts(); }},
+        {"Tempo and time signature", [](Rig& r) { TempoDialog(r.w, 5, 132.5, TimeSig{7, 8}, true, 0, true, true, true).run(); }},
+        {"Tempo inside a bar", [](Rig& r) { TempoDialog(r.w, 5, 90, TimeSig{4, 4}, true, 1.5, false, false).run(); }},
+        {"Time signature", [](Rig& r) { SignatureDialog(r.w, 9, TimeSig{12, 16}, true, true).run(); }},
+        {"Tempo lane range", [](Rig& r) { TempoRangeDialog(r.w, 80, 160, false).run(); }},
         {"Command palette", [](Rig& r) { r.w->showPalette(); }},
         {"History", [](Rig& r) { r.w->showHistory(); }},
         {"MIDI ports", [](Rig& r) { r.w->showMidiPorts(); }},

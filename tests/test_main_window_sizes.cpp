@@ -30,6 +30,7 @@
 #include "ui/skin.h"
 #include "ui/theme.h"
 #include "ui/timeline.h"
+#include "ui/transport_bar.h"
 #include "ui/toolkit/menu.h"
 #include "ui/toolkit/widget.h"
 
@@ -86,6 +87,7 @@ Rig makeMain(int W, int H, int extraTracks = 0) {
         TrackPtr t = i < 8 ? tl->addTrack(i % 2 ? Kind::Midi : Kind::Audio) : p.addTrack(i % 2 ? Kind::Midi : Kind::Audio);
         t->name = i == 2 ? "Rhythm guitar (doubled, left and right)" : "Track " + std::to_string(i + 1);
         r.tracks.push_back(t);
+        if (i == 3 || i == 5) t->needsInstrument = false;  // (MIDI rows with all their controls: the keyboard focus toggle)
         if (i < 8 && i % 2 == 0) {
             auto c = makeAudioClip("Clip " + std::to_string(i), sine(4), SR, SR);
             c->track = t;
@@ -289,6 +291,14 @@ void testSkins() {
     for (const skin::Skin& sk : skin::library()) {
         r.w->chooseSkin(sk);
         settle();
+        // the transport's number fields: their text whole inside the field (its editor's padding, not under the ▴▾)
+        for (SpinBox* b : {r.w->transport->bpmBox, r.w->transport->signatureBox}) {
+            LineEdit* e = b->editor();
+            int need = ui::style::textWidth(e->font(), e->text());
+            int room = e->width() - ui::style::insets(e->computedStyle(), "padding").w();
+            if (need > room) printf("%s: \"%s\" needs %d px in its field, has %d\n", sk.name.c_str(), e->text().c_str(), need, room);
+            CHECK(need <= room);
+        }
         setAllHeights(r, -1);
         checkAt(r, 1280, 800, "rows smallest in " + sk.name, true);
         setAllHeights(r, 0);
