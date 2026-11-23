@@ -1,11 +1,13 @@
 // MIDI ports on the ALSA sequencer (libasound): listed, listened to and played into (midi_ports.h), and the
-// sustain pedal (midi_input.py).
+// sustain pedal (midi_input.py). On Windows only the events and the pedal are here (the ports: midi_win.cpp).
 #include "audio/midi_in.h"
 
+#ifndef _WIN32
 #include <fcntl.h>
 #include <poll.h>
 #include <time.h>
 #include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -14,11 +16,14 @@
 #include <regex>
 #include <thread>
 
+#ifndef _WIN32
 #include "audio/alsa_api.h"
+#endif
 #include "audio/midi_ports.h"
 #include "core/util.h"
 
 namespace midi_in {
+#ifndef _WIN32
 TINYDAW_ALSA(TINYDAW_ALSA_USE)  // (loaded by openSeq, which everything here starts from)
 
 namespace {
@@ -85,6 +90,7 @@ std::vector<PortInfo> listPorts(snd_seq_t* seq, bool outputs = false) {
 }
 
 }  // namespace
+#endif
 
 Event Event::noteOn(int note, int velocity, int channel, double time) {
     Event e;
@@ -115,6 +121,7 @@ Event Event::control(int number, int value, int channel, double time) {
     return e;
 }
 
+#ifndef _WIN32  // (Windows: midi_win.cpp)
 std::vector<PortInfo> ports() {
     snd_seq_t* seq = openSeq(SND_SEQ_OPEN_INPUT);
     if (!seq) return {};
@@ -130,12 +137,14 @@ std::vector<PortInfo> outputs() {
     snd_seq_close(seq);
     return out;
 }
+#endif
 
 std::string stableName(const std::string& port) {
     static const std::regex numbers(R"(\s+\d+:\d+$)");
     return std::regex_replace(port, numbers, "");
 }
 
+#ifndef _WIN32
 // --- the ALSA sequencer's ports for midi_ports::Hub ---
 
 namespace {
@@ -336,6 +345,9 @@ std::unique_ptr<midi_ports::Backend> midi_ports::alsaBackend() {
     }
     return b;
 }
+#else
+}  // namespace midi_in (Windows: its ports are midi_win.cpp's)
+#endif
 
 namespace midi_in {
 

@@ -7,6 +7,7 @@
 // A Stream calls its callback on its own high-priority thread with interleaved float32 buffers:
 // `out` has outChannels per frame (to be filled; it arrives zeroed), `in` inChannels per frame
 // (nullptr when the stream has no inputs).
+// Windows: driver type "WASAPI" (devices_win.cpp, which stands in for devices.cpp and the Linux drivers there).
 #pragma once
 #include <atomic>
 #include <functional>
@@ -82,6 +83,8 @@ public:
     std::atomic<int> underflows{0};
     // (addition) the device went away (unplugged, the sound server quit): the callback no longer runs
     std::atomic<bool> lost{false};
+    // (addition) it took the device for this program alone (StreamConfig::exclusive, where the driver could)
+    bool exclusive = false;
 };
 
 }  // namespace audio

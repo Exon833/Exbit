@@ -9,7 +9,7 @@
 // Measure): a note at timeline frame T goes out as the buffer for T − delay is made, so its sound comes back on the
 // device's inputs in the very buffer that plays T, and is heard through the track's effects in time (the mixer:
 // mixer.h EXTERNAL SYNTHS). Messages go into a lock-free ring (no allocation, no locks, no system calls but one
-// eventfd write per buffer to wake the sender); the Hub's output thread sends each at its moment.
+// wake() per buffer for the sender); the Hub's output thread sends each at its moment.
 //
 // CLOCK. 24 pulses a quarter note on the tempo map's beats (TempoMap::secondsAt: through every tempo change and
 // ramp, exactly, not stepped per buffer). Playback starting at the song's start sends Start; elsewhere a Song
@@ -108,8 +108,11 @@ public:
 
     // --- the output thread ---
     bool take(Event& e) { return ring_.pop(e); }
-    int wakeFd() const { return wake_; }  // readable when something was pushed (an eventfd)
     int dropped() const { return ring_.dropped(); }
+    // (any thread) the output thread looks at once; (the output thread) waits until then or `seconds` pass
+    // (Linux: an eventfd and ppoll; Windows, midi_win.cpp: an event and a high-resolution waitable timer)
+    void wake();
+    void wait(double seconds);
 
 private:
     struct TrackState {
@@ -120,8 +123,10 @@ private:
         bool used = false;
     };
     Spsc<Event> ring_;
-    int wake_ = -1;
+    intptr_t wake_ = -1, timer_ = -1;  // (Linux: the eventfd; Windows: the event's and the timer's handles)
     bool pushed_ = false;
+    void openWake();
+    void closeWake();
     std::shared_ptr<const Config> config_;  // (atomic_load / atomic_store)
     std::vector<std::shared_ptr<const Config>> kept_;  // (GUI: old ones never freed by the audio thread)
     std::vector<ClockPort> clocks_;          // (GUI: as last set)

@@ -4,6 +4,8 @@
 // subscribed to every input chosen, and events sent straight to each output chosen) and JACK MIDI while a JACK
 // server runs (jackBackend(), audio/midi_jack.cpp: a client "Tiny DAW MIDI" with a port per port chosen). Both are
 // loaded at run time (dlopen): without them there are simply no ports. Tests use a fake one (tests/test_midi_ports).
+// On Windows the one backend is WinMM's (winmmBackend(), audio/midi_win.cpp: midiIn*/midiOut*, every device by its
+// name; no announcements there, so ports that come or go are seen at the next RESCAN_S).
 //
 // The Hub keeps the list: each port by its stable name (ALSA's without its numbers; JACK's "JACK: " + its full
 // name) with its settings: On, and Clock in (inputs) or Clock out, Always send Start and a clock offset (outputs).
@@ -81,7 +83,8 @@ private:
 };
 
 std::unique_ptr<Backend> alsaBackend();  // the ALSA sequencer's (null without one)
-std::unique_ptr<Backend> jackBackend();  // JACK MIDI's (null without a JACK server)
+std::unique_ptr<Backend> jackBackend();  // JACK MIDI's (null without a JACK server; always on Windows)
+std::unique_ptr<Backend> winmmBackend(); // Windows' MIDI ports (WinMM, audio/midi_win.cpp: what start() adds there)
 // JACK's ports' keys and the like: is this a JACK port's key?
 inline bool isJack(const std::string& key) { return key.compare(0, 6, JACK_PREFIX) == 0; }
 

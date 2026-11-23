@@ -1,8 +1,11 @@
 // MIDI out from the audio thread: clock, Start/Stop/Song Position, External synth notes (midi_out.h).
 #include "audio/midi_out.h"
 
+#ifndef _WIN32
+#include <poll.h>
 #include <sys/eventfd.h>
 #include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -11,17 +14,40 @@
 
 namespace midi_out {
 
+#ifndef _WIN32  // (Windows: midi_win.cpp)
+void Out::openWake() { wake_ = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC); }
+
+void Out::closeWake() {
+    if (wake_ >= 0) ::close((int)wake_);
+}
+
+void Out::wake() {
+    if (wake_ < 0) return;
+    uint64_t one = 1;
+    ssize_t w = ::write((int)wake_, &one, sizeof one);
+    (void)w;
+}
+
+void Out::wait(double seconds) {
+    pollfd fd{(int)wake_, POLLIN, 0};
+    timespec ts{(time_t)seconds, (long)((seconds - std::floor(seconds)) * 1e9)};
+    if (ppoll(&fd, 1, &ts, nullptr) > 0) {
+        uint64_t v;
+        ssize_t r = ::read((int)wake_, &v, sizeof v);
+        (void)r;
+    }
+}
+#endif
+
 Out::Out() : ring_(16384) {
-    wake_ = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    openWake();
     clips_.reserve(256);
     messages_.reserve(4096);
     events_.reserve(4096);
     std::atomic_store(&config_, std::shared_ptr<const Config>(std::make_shared<Config>()));
 }
 
-Out::~Out() {
-    if (wake_ >= 0) ::close(wake_);
-}
+Out::~Out() { closeWake(); }
 
 void Out::publish() {
     auto c = std::make_shared<Config>();
@@ -69,11 +95,7 @@ void Out::process(const Buffer& b, const Part* parts, int count) {
     measureBuffer(b);
     for (int i = 0; i < count; i++) part(b, parts[i], *c);
     stream_ += b.frames;
-    if (pushed_ && wake_ >= 0) {  // (one system call a buffer, never blocking)
-        uint64_t one = 1;
-        ssize_t w = ::write(wake_, &one, sizeof one);
-        (void)w;
-    }
+    if (pushed_) wake();  // (one system call a buffer, never blocking)
     pushed_ = false;
 }
 
