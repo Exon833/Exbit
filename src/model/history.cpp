@@ -10,7 +10,7 @@ namespace history {
 //   Group: folded (view)
 //   PluginSlot: state, instance, failed, error, recent (runtime)
 //   Automation: height (view); targetPlugin, targetParam, targetSteps, hasTarget, last (runtime)
-//   Timing: beats, thirds, grid, snapOn, looping (view)
+//   Timing: beats, thirds, grid, snapOn, looping, tempoLaneLo, tempoLaneHi (view: the tempo lane's BPM range)
 //   a looping audio clip: data, peaks, baseFrames (built again from its other fields)
 #define TRACK_FIELDS(X)                                                                                         \
     X(name) X(kind) X(muted) X(soloed) X(soloSafe) X(output) X(volumeDb) X(delayMs) X(pan) X(sends) X(instrument)          \

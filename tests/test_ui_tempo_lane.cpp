@@ -1,7 +1,9 @@
 // The tempo lane (ui/timeline_tempo.cpp) and the terminal's ruler: points added, dragged (time and BPM), typed
 // (the dialog: tempo, ramp, time signature), ramped, removed; the timebase moving clips with every edit as one
 // undo step; the ruler's menu; and the worst: thousands of points painted and dragged back and forth. The
-// terminal: Enter on a point at the ruler edits it, F2 offers its menu (add, remove, Timebase).
+// terminal: Enter on a point at the ruler edits it, F2 offers its menu (add, remove, Timebase). The lane's range
+// (Min, Max, Auto; fallbacks; saved; points outside it at its edge; dragged, the range changed mid-drag) and its row
+// in the main window (✕, View → Tempo lane).
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -15,6 +17,7 @@
 #include "core/util.h"
 #include "gfx/image.h"
 #include "model/history.h"
+#include "model/project_io.h"
 #include "platform/platform.h"
 #include "tui/app.h"
 #include "tui/screen.h"
@@ -23,6 +26,7 @@
 #include "ui/tempo_dialog.h"
 #include "ui/theme.h"
 #include "ui/timeline.h"
+#include "ui/timing_rows.h"
 #include "ui/toolkit/menu.h"
 #include "ui/toolkit/widget.h"
 
@@ -271,6 +275,142 @@ void testWorstCase() {
     lanes::setTempoLaneShown(false);
 }
 
+// the lane's BPM range: Auto (fitted), a fixed Min…Max (the row's), fallbacks to Auto, saved with the song and not
+// an undo step; points outside it drawn at its edge (with a mark) and still dragged; the range changed mid-drag
+void testRange() {
+    Rig r;
+    Timeline& tl = *r.tl;
+    Project& p = r.project;
+    Timing& t = p.timing;
+    lanes::setTempoLaneShown(true);
+    tl.relayout();
+    t.setChange(TempoChange{3, 180, 4});
+    history::History hist(p, SR);
+    double lo, hi;
+    tl.tempoRange(lo, hi);
+    CHECK(!t.tempoLaneFixed() && lo <= 120 && hi >= 180);  // (Auto: both points inside)
+    int changes = 0;
+    tl.tempoRangeChanged.connect([&] { ++changes; });
+    tl.setTempoLaneRange(100, 150);
+    tl.tempoRange(lo, hi);
+    CHECK(t.tempoLaneFixed() && lo == 100 && hi == 150 && changes == 1);
+    CHECK(!hist.check(SR));  // (a view: not an undo step)
+    int top = lanes::rulerHeight(), h = lanes::tempoLaneHeight(), pad = timeline::automationPad();
+    CHECK_NEAR(tl.tempoY(150), top + pad, 1e-9);
+    CHECK_NEAR(tl.tempoY(100), top + h - pad, 1e-9);
+    // 180 is above it: at its top edge, found there by the mouse
+    double x3 = t.barSeconds(2) * tl.pps;
+    CHECK_NEAR(tl.tempoPointY(180), tl.tempoY(150), 1e-9);
+    std::optional<TempoRef> at = tl.tempoPointAt(PointF((float)x3, (float)tl.tempoY(150)));
+    CHECK(at && at->bar == 3);
+    tl.update();
+    Image img = paintScroll(r.scroll);
+    savePng(outDir() + "/range-clipped.png", img);
+    {  // (its ▲ left of the point, in the point's colour)
+        const LaneLook& lk = const_cast<Timeline&>(tl).look().lanes->get(LaneKind::Automation);
+        int mx = (int)std::lround(x3 - lk.pointW / 2.0 - 6), my = (int)std::lround(tl.tempoY(150)) + 2;
+        Color c = img.colorAt(mx, my), want = lk.pointColor;
+        CHECK(std::abs(c.r - want.r) + std::abs(c.g - want.g) + std::abs(c.b - want.b) < 60);
+    }
+    // the fallbacks: Max not above Min, outside MIN_BPM…MAX_BPM, 0 / 0: Auto
+    for (auto [a, b] : std::vector<std::pair<double, double>>{{150, 120}, {130, 130}, {5, 120}, {100, 5000}, {0, 0}}) {
+        tl.setTempoLaneRange(100, 150);
+        tl.setTempoLaneRange(a, b);
+        CHECK(!t.tempoLaneFixed() && t.tempoLaneLo == 0 && t.tempoLaneHi == 0);
+    }
+    // saved and loaded; a bad range in a file: Auto; old files (none): Auto
+    tl.setTempoLaneRange(90, 210);
+    Timing back = project_io::readTiming(Json::parse(project_io::describeTiming(t).dump()));
+    CHECK(back.tempoLaneFixed() && back.tempoLaneLo == 90 && back.tempoLaneHi == 210);
+    Json bad = project_io::describeTiming(t);
+    bad.set("tempo_lane_range", Json::array({Json(300.0), Json(200.0)}));
+    CHECK(!project_io::readTiming(bad).tempoLaneFixed());
+    bad.set("tempo_lane_range", Json("fast"));
+    CHECK(!project_io::readTiming(bad).tempoLaneFixed());
+    Timing copy = t;  // (a copy keeps it: projects opened, templates)
+    CHECK(copy.tempoLaneLo == 90 && copy.tempoLaneHi == 210);
+    tl.setTempoLaneRange(0, 0);
+    CHECK(!project_io::describeTiming(t).has("tempo_lane_range"));
+    // a clipped point dragged down into the range: its tempo from the height there
+    tl.setTempoLaneRange(100, 150);
+    dragFromTo(tl, x3, tl.tempoY(150), x3, tl.tempoY(125));
+    CHECK(t.changeAtBar(3) && std::fabs(t.changeAtBar(3)->bpm - 125) < 1.5);
+    CHECK(hist.check(SR) && hist.labels().back() == "Tempo");
+    // the range changed while dragging: the next move reads the height on the new range
+    ui::MouseEvent e = mouse(x3, tl.tempoY(125));
+    tl.mousePress(e);
+    ui::MouseEvent m1 = mouse(x3, tl.tempoY(140));
+    tl.mouseMove(m1);
+    CHECK(std::fabs(t.changeAtBar(3)->bpm - 140) < 1.5);
+    tl.setTempoLaneRange(60, 260);
+    ui::MouseEvent m2 = mouse(x3, tl.tempoY(240));
+    tl.mouseMove(m2);
+    CHECK(std::fabs(t.changeAtBar(3)->bpm - 240) < 3);
+    tl.setTempoLaneRange(0, 0);  // (Auto mid-drag: kept as it was while the drag lasts)
+    double y = tl.tempoY(200);
+    ui::MouseEvent m3 = mouse(x3, y);
+    tl.mouseMove(m3);
+    CHECK(std::fabs(t.changeAtBar(3)->bpm - 200) < 3);
+    tl.mouseRelease(m3);
+    CHECK(hist.check(SR) && !hist.check(SR));  // (the whole drag: one step)
+    // the lane's menu offers the range; its dialog sets it
+    ui::Menu menu;
+    tl.fillTempoMenu(menu, 0, std::nullopt);
+    ui::Action* range = actionStarting(menu, "The lane's range");
+    CHECK(range != nullptr);
+    TempoRangeDialog::testRun = [](TempoRangeDialog& d) {
+        CHECK(d.autoBox->isChecked());
+        d.minBox->setValue(70);
+        d.maxBox->setValue(170);
+        return true;
+    };
+    if (range) ui::Menu::activate(range);
+    CHECK(t.tempoLaneFixed() && t.tempoLaneLo == 70 && t.tempoLaneHi == 170);
+    TempoRangeDialog::testRun = [](TempoRangeDialog& d) {
+        d.autoBox->setChecked(true);
+        return true;
+    };
+    tl.editTempoLaneRange();
+    CHECK(!t.tempoLaneFixed());
+    TempoRangeDialog::testRun = nullptr;
+    lanes::setTempoLaneShown(false);
+}
+
+// the main window: the tempo lane's row beside it (Min, Max, Auto, ✕) and View → Tempo lane
+void testRow() {
+    auto* w = new MainWindow();
+    w->askBeforeClosing = false;
+    w->resizeWindow(1280, 720);
+    w->showWindow();
+    Timing& t = w->project.timing;
+    w->showTempoLane(true);
+    ui::App::get().doLayouts();
+    TimingLaneRow* row = w->tempoRow;
+    CHECK(row->isVisible() && row->height() == lanes::tempoLaneHeight() && row->autoBox->isChecked());
+    double lo, hi;
+    w->timeline->tempoRange(lo, hi);
+    CHECK(row->minBox->value() == lo && row->maxBox->value() == hi);
+    row->minBox->setValue(90);
+    CHECK(t.tempoLaneFixed() && t.tempoLaneLo == 90 && !row->autoBox->isChecked());
+    // set elsewhere (the lane's menu, the terminal): the row follows
+    w->timeline->setTempoLaneRange(110, 130);
+    CHECK(row->minBox->value() == 110 && row->maxBox->value() == 130 && !row->autoBox->isChecked());
+    // a project with a range opened: the row shows it (resetView)
+    Timing loaded = t;
+    loaded.tempoLaneLo = 50, loaded.tempoLaneHi = 250;
+    t = loaded;
+    w->resetView();
+    CHECK(row->minBox->value() == 50 && row->maxBox->value() == 250);
+    // ✕: hidden, View → Tempo lane unticked, remembered
+    row->close->click();
+    CHECK(!lanes::tempoLaneShown() && !row->isVisible() && !w->tempoLaneAction->checked && !w->prefs.tempoLane);
+    if (w->tempoLaneAction->toggled) w->tempoLaneAction->toggled(true);
+    CHECK(lanes::tempoLaneShown() && row->isVisible() && Preferences::load().tempoLane);
+    w->showTempoLane(false);
+    w->closeFxWindows();
+    delete w;
+}
+
 // --- the terminal ---
 
 using namespace tui;
@@ -386,6 +526,8 @@ int main() {
     settings::setPath("build/test-ui-tempo-lane/settings.json");
     testLane();
     testWorstCase();
+    testRange();
+    testRow();
     testTerminal();
     TEST_MAIN_END();
 }

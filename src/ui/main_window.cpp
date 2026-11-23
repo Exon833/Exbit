@@ -26,6 +26,7 @@
 #include "ui/colors.h"
 #include "ui/commands.h"
 #include "ui/cpu_monitor.h"
+#include "ui/timing_rows.h"
 #include "ui/explorer.h"
 #include "ui/history_window.h"
 #include "ui/instrument_menu.h"
@@ -150,6 +151,7 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     ScopeSettings scopeSettings = ScopeSettings::fromJson(Json::parse(prefs.scope));
     lanes::setMasterScopeHeight(scopeSettings.shown ? theme::metric("scope-height", config::SCOPE_H) : 0);
     lanes::setTempoLaneShown(prefs.tempoLane);  // (View → Tempo lane, as it was left)
+    lanes::setSignatureLaneShown(prefs.signatureLane);  // (View → Time signature lane)
     master = std::make_unique<MasterStrip>(engine, [this] { openMasterPlugins(); });
     master->scope->settings = scopeSettings;
     master->setScopeShown(scopeSettings.shown);
@@ -386,6 +388,9 @@ void MainWindow::buildLayout() {
     for (ui::Widget* w : std::initializer_list<ui::Widget*>{overview, scroll, caption, cpuMonitor, panelScroll})
         central->adopt(release(w));
     frameGap = central->add<ui::Widget>();
+    tempoRow = central->add<TimingLaneRow>(TimingLaneRow::Kind::Tempo, *timeline, [this] { showTempoLane(false); });
+    signatureRow =
+        central->add<TimingLaneRow>(TimingLaneRow::Kind::Signature, *timeline, [this] { showSignatureLane(false); });
     left->addWidget(overview);
     left->addWidget(scroll, 1);
     auto right = std::make_unique<ui::VBox>();
@@ -393,6 +398,8 @@ void MainWindow::buildLayout() {
     right->addWidget(caption);
     right->addWidget(frameGap);    // (the timeline frame's top: none in the default look)
     right->addWidget(cpuMonitor);  // same height as the ruler, so the rows still line up
+    right->addWidget(tempoRow);    // (as tall as the tempo lane, while shown)
+    right->addWidget(signatureRow);  // (as tall as the time-signature lane)
     right->addWidget(panelScroll, 1);
     line->addLayout(std::move(left), 1);
     line->addLayout(std::move(right));
@@ -629,6 +636,7 @@ void MainWindow::historyMoved(bool forward) {
     timeline->tracksChanged.emit();  // the panel's rows, the FX windows
     master->refreshFx(*project.masterEffects);
     transport->showTiming(project.timing);
+    refreshTimingRows();
     checkMidiEditors();
     reloadEditors();
     auto windows = renderWindows;  // (they show the track's MIDI effects or sampler as they are now)
@@ -646,6 +654,10 @@ void MainWindow::buildViewMenu() {
     tempoLaneAction = menu->addCheckable("&Tempo lane", lanes::tempoLaneShown(), [this](bool on) { showTempoLane(on); });
     tempoLaneAction->tooltip = "A lane under the ruler with the tempo changes: click to add one, drag it, double-click "
                                "to type its tempo, right-click for ramps and the timebase";
+    signatureLaneAction = menu->addCheckable("Time &signature lane", lanes::signatureLaneShown(),
+                                             [this](bool on) { showSignatureLane(on); });
+    signatureLaneAction->tooltip = "A lane under the tempo lane with the time signatures: click a bar to add one, drag a "
+                                   "block's start along the bars, double-click to type it, right-click to remove it";
     menu->addSeparator();
     menu->addAction("Show all automation", [this] { showAllAutomation(true); });
     menu->addAction("Hide all automation", [this] { showAllAutomation(false); });
@@ -659,10 +671,29 @@ void MainWindow::showTempoLane(bool on) {
     prefs.tempoLane = on;
     prefs.save();
     if (tempoLaneAction) tempoLaneAction->setChecked(on);
-    cpuMonitor->fit();         // (as tall as the ruler and the tempo lane: the panel's rows still line up)
+    refreshTimingRows();       // (its row beside it, as tall: the panel's rows still line up)
     timeline->lanesChanged();  // (the lanes start lower; the panel rebuilds)
     if (overview) overview->update();
     util::debugf("main window: tempo lane %s\n", on ? "shown" : "hidden");
+}
+
+void MainWindow::showSignatureLane(bool on) {
+    lanes::setSignatureLaneShown(on);
+    prefs.signatureLane = on;
+    prefs.save();
+    if (signatureLaneAction) signatureLaneAction->setChecked(on);
+    refreshTimingRows();
+    timeline->lanesChanged();
+    if (overview) overview->update();
+    util::debugf("main window: time-signature lane %s\n", on ? "shown" : "hidden");
+}
+
+void MainWindow::refreshTimingRows() {
+    for (TimingLaneRow* row : {tempoRow, signatureRow})
+        if (row) {
+            row->fit();
+            row->refresh();
+        }
 }
 
 void MainWindow::showAllAutomation(bool on) {
@@ -938,6 +969,7 @@ void MainWindow::restyle() {
     overview->refresh();
     transport->fit();  // (another font: the top bar's controls may be wider or narrower)
     transport->setFixedHeight(transport->sizeHint().y);  // (and taller or lower: the skin's buttons)
+    refreshTimingRows();  // (the skin's lane heights and panel width)
     App::get().repaintAll();
 }
 
@@ -1241,6 +1273,7 @@ void MainWindow::connectControls() {
     timeline->clipboardChosen.connect([this](std::string what) { useClipboard(what); });
     timeline->timeEdited.connect([this](std::string message) { showTimeEdit(message); });
     timeline->timingChanged.connect([this] { setTiming({}); });  // (a tempo change on the ruler)
+    timeline->tempoRangeChanged.connect([this] { refreshTimingRows(); });  // (its row's Min, Max and Auto)
     t->bpmBox->valueChanged.connect([this](double v) { setTiming({v, {}, {}, {}}); });
     t->signatureBox->valueChanged.connect([this](double v) { setTiming({{}, (int)std::lround(v), {}, {}}); });
     t->unitBox->currentIndexChanged.connect([this, t](int) { setTiming({{}, {}, {}, {}, t->unitBox->currentDataInt(4)}); });
@@ -1355,6 +1388,7 @@ void MainWindow::setTiming(const TimingChange& c) {
         }
     }
     transport->showTiming(t);
+    refreshTimingRows();  // (Auto: the range fits the changes now)
     timeline->update();
 }
 
@@ -1692,6 +1726,7 @@ void MainWindow::resetView() {
     timeline->relayout();
     timeline->tracksChanged.emit();
     transport->showTiming(project.timing);
+    refreshTimingRows();
 }
 
 void MainWindow::newProject() {

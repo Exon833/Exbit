@@ -11,7 +11,7 @@
 // Whatever changes the project is undoable without each edit having to say so.
 //
 // Left out, as they are how the project is looked at rather than what it is (VIEW_FIELDS): lane
-// heights, shown or folded lanes, the grid view (beats, thirds, the grid step, snapping) and whether
+// heights, shown or folded lanes, the grid view (beats, thirds, the grid step, snapping), the tempo lane's BPM range and whether
 // it loops. The loop range is kept: inserting or deleting time moves it with the music, and undoing
 // that puts it back. Runtime fields (patch states, automation targets, plugin instances, errors,
 // recently tweaked parameters, plugin states) aren't kept either. A looping audio clip's audio (its

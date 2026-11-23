@@ -38,6 +38,7 @@
 #include "ui/toolkit/widget.h"
 
 class CpuMonitor;
+class TimingLaneRow;
 class Explorer;
 class HistoryWindow;
 class LanePanel;
@@ -142,6 +143,8 @@ public:
     Overview* overview = nullptr;
     ui::Label* overviewCaption = nullptr;
     ui::Widget* frameGap = nullptr;      // above the CPU monitor: as tall as the timeline frame's top
+    TimingLaneRow* tempoRow = nullptr;   // under the CPU monitor: the tempo lane's row (Min, Max, Auto, ✕)…
+    TimingLaneRow* signatureRow = nullptr;  // …and the time-signature lane's (timing_rows.h)
     Explorer* explorer = nullptr;
     ui::Widget* explorerDock = nullptr;  // the Explorer with its title bar
     ui::SplitterHandle* explorerHandle = nullptr;
@@ -178,6 +181,9 @@ public:
     void setExplorerVisible(bool on);    // View → Explorer, the dock's ✕
     void showTempoLane(bool on);         // View → Tempo lane: the tempo lane under the ruler (timeline_tempo.cpp)
     ui::Action* tempoLaneAction = nullptr;
+    void showSignatureLane(bool on);     // View → Time signature lane: under the tempo lane (timeline_signature.cpp)
+    ui::Action* signatureLaneAction = nullptr;
+    void refreshTimingRows();            // the lanes' rows: shown with their lanes, as tall, the range as it is
     void setExplorerWidth(int w);        // chosen (clamped to the window's room)
     void fitExplorerWidth();             // the chosen width, in the room the window has now
     Point leastSize() const override;   // (the window's least: with the Explorer at its narrowest)

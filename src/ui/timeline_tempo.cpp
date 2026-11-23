@@ -63,7 +63,12 @@ bool Timeline::inTempoLane(double y) const {
 }
 
 void Timeline::tempoRange(double& lo, double& hi) const {
-    if (auto* d = std::get_if<TempoDrag>(&drag)) {  // (kept while dragging: the point stays under the mouse)
+    const Timing& t = project.timing;
+    if (t.tempoLaneFixed()) {  // (the row's Min and Max: as they are now, even while dragging)
+        lo = t.tempoLaneLo, hi = t.tempoLaneHi;
+        return;
+    }
+    if (auto* d = std::get_if<TempoDrag>(&drag)) {  // (Auto: kept while dragging, the point stays under the mouse)
         lo = d->lo, hi = d->hi;
         return;
     }
@@ -74,6 +79,39 @@ void Timeline::tempoRange(double& lo, double& hi) const {
     lo = std::max(config::MIN_BPM, std::floor((mid - span / 2) / 10) * 10);
     hi = std::min(config::MAX_BPM, std::ceil((mid + span / 2) / 10) * 10);
     if (hi <= lo) hi = lo + 10;
+}
+
+void Timeline::setTempoLaneRange(double lo, double hi) {
+    Timing& t = project.timing;
+    if (auto* d = std::get_if<TempoDrag>(&drag); d && !t.tempoLaneFixed())  // (Auto now, while dragging: from here on)
+        tempoRange(d->lo, d->hi);
+    t.tempoLaneLo = lo, t.tempoLaneHi = hi;
+    bool fixed = t.tempoLaneFixed();
+    if (!fixed && (lo != 0 || hi != 0)) {  // (Max not above Min, or outside MIN_BPM…MAX_BPM: Auto)
+        util::debugf("timeline: the tempo lane's range %g…%g BPM isn't one: Auto\n", lo, hi);
+        if (status) status("The tempo lane's Max must be above its Min (" + g(config::MIN_BPM) + "…" + g(config::MAX_BPM) +
+                           " BPM): the range fits the tempo changes (Auto)", 5000);
+    }
+    if (!fixed) t.tempoLaneLo = t.tempoLaneHi = 0;
+    if (auto* d = std::get_if<TempoDrag>(&drag); d && fixed) d->lo = lo, d->hi = hi;
+    util::debugf("timeline: the tempo lane's range: %s\n", fixed ? (g(lo) + "…" + g(hi) + " BPM").c_str() : "Auto");
+    tempoRangeChanged.emit();
+    update();
+}
+
+void Timeline::editTempoLaneRange() {
+    double lo, hi;
+    tempoRange(lo, hi);
+    TempoRangeDialog dialog(dialogParent(), lo, hi, !project.timing.tempoLaneFixed());
+    if (!dialog.run()) return;
+    if (dialog.automatic) setTempoLaneRange(0, 0);
+    else setTempoLaneRange(dialog.lo, dialog.hi);
+}
+
+double Timeline::tempoPointY(double bpm) const {
+    double lo, hi;
+    tempoRange(lo, hi);
+    return tempoY(std::min(hi, std::max(lo, bpm)));
 }
 
 double Timeline::tempoY(double bpm) const {
@@ -97,7 +135,7 @@ std::optional<TempoRef> Timeline::tempoPointAt(PointF pos) const {
     std::optional<TempoRef> found;
     double best = 1e18;
     for (auto& p : m->points()) {
-        double dx = p.seconds * pps - pos.x, dy = tempoY(p.bpm) - pos.y;
+        double dx = p.seconds * pps - pos.x, dy = tempoPointY(p.bpm) - pos.y;  // (outside the range: at its edge)
         if (std::fabs(dx) > config::AUTOMATION_GRAB_PX || std::fabs(dy) > config::AUTOMATION_GRAB_PX) continue;
         if (dx * dx + dy * dy < best) best = dx * dx + dy * dy, found = refOf(*m, p);
     }
@@ -157,7 +195,8 @@ void Timeline::paintTempoLane(Painter& p, const Rect& r, bool contents) {
         for (int k = 0; k <= pieces; k++) {
             double at = a + (b - a) * k / pieces;
             // (on this segment's own tempo, up to its very end: a step then jumps straight up or down)
-            line.push_back(PointF((float)(at * pps), (float)tempoY(s.bpmAfter(std::max(0.0, s.beatsFor(at - s.seconds))))));
+            line.push_back(
+                PointF((float)(at * pps), (float)tempoPointY(s.bpmAfter(std::max(0.0, s.beatsFor(at - s.seconds))))));
         }
     }
     if (line.size() >= 2 && lk.curveWidth > 0) p.drawPolyline(line, lk.curve.color, lk.curveWidth);
@@ -167,11 +206,15 @@ void Timeline::paintTempoLane(Painter& p, const Rect& r, bool contents) {
     std::optional<TempoRef> dragged;
     if (auto* d = std::get_if<TempoDrag>(&drag)) dragged = d->at;
     for (size_t i = 0; i < points.size(); i++) {
-        float x = (float)(points[i].seconds * pps), y = (float)tempoY(points[i].bpm);
+        float x = (float)(points[i].seconds * pps), y = (float)tempoPointY(points[i].bpm);
         if (x < area.left() - 80 || x > area.right() + 4) continue;
         float grow = dragged && *dragged == refOf(*m, points[i]) ? 2.0f : 0.0f;
         p.fillRect(RectF(x - lk.pointW / 2.0f - grow, y - lk.pointH / 2.0f - grow, lk.pointW + 2 * grow, lk.pointH + 2 * grow),
                    lk.pointColor);
+        if (points[i].bpm > hi || points[i].bpm < lo) {  // outside the range: drawn at its edge, a ▲ / ▼ beside it
+            float cx = x - lk.pointW / 2.0f - grow - 6, tip = points[i].bpm > hi ? y - 4 : y + 4, base = 2 * y - tip;
+            p.fillPolygon({PointF(cx - 4, base), PointF(cx, tip), PointF(cx + 4, base)}, lk.pointColor);
+        }
         double room = i + 1 < points.size() ? (points[i + 1].seconds - points[i].seconds) * pps : 1e9;
         std::string text = g(std::nearbyint(points[i].bpm * 100) / 100) + (points[i].ramp ? " ↗" : "");
         if (room >= font.width(text) + 12) {
@@ -180,7 +223,7 @@ void Timeline::paintTempoLane(Painter& p, const Rect& r, bool contents) {
                        lk.labelColor);
         }
     }
-    for (size_t i = 0; i < segs.size(); i++) {
+    for (size_t i = 0; i < segs.size() && !lanes::signatureLaneShown(); i++) {  // (the lane under it shows them)
         const Segment& s = segs[i];
         if (s.beat != s.barBeat || (i > 0 && segs[i - 1].sig() == s.sig())) continue;
         float x = (float)(s.seconds * pps);
@@ -295,6 +338,11 @@ void Timeline::fillTempoMenu(ui::Menu& menu, double seconds, std::optional<Tempo
     } else {
         menu.addAction("Add a tempo change here…", [this, seconds] { addTempoPoint(seconds); });
     }
+    double lo, hi;
+    tempoRange(lo, hi);
+    menu.addAction("The lane's range (" + g(lo) + "…" + g(hi) + " BPM" + (t.tempoLaneFixed() ? "" : ", Auto") + ")…",
+                   [this] { editTempoLaneRange(); })
+        ->tooltip = "The tempo at the lane's bottom and top, or Auto (fitted to the tempo changes)";
     ui::Menu* base = menu.addMenu("Timebase");
     ui::Action* beats = base->addCheckable("Beats: the song keeps its bars when the tempo changes", t.timebaseBeats,
                                            [this](bool on) {

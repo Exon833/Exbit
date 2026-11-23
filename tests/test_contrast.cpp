@@ -16,6 +16,7 @@
 // a sheet of every control in every state, zoomed, and the focus rings).
 #define SKIN_HUNT_NO_MAIN
 #include "test_skin_hunt.cpp"
+#include "ui/timing_rows.h"
 
 namespace ca {
 using namespace hunt;
@@ -543,6 +544,31 @@ void sweepSurfaces(const Widget* owner) {
     }
 }
 
+// --- the tempo and time-signature lanes: a signature's label on its block (over the lane), the line at its bar;
+// the lanes' rows: their names and the hint of the row's controls on the row ---
+void sweepTimingLanes(Rig& r) {
+    const Widget* tl = r.w->timeline;
+    Color lane = backgroundOver(paint::nodeStyle(tl, "Lane", {"automation"}, {}), theme::c("window"));
+    for (bool dragged : {false, true}) {
+        css::Style sig = paint::nodeStyle(tl, "TimeSignature", {}, dragged ? std::vector<std::string>{"dragged"}
+                                                                            : std::vector<std::string>{});
+        Color block = backgroundOver(sig, lane), text = ui::style::color(sig, "color", theme::c("window_text"));
+        std::string st = dragged ? " :dragged" : "";
+        judgePair("TimeSignature label on its block" + st, contrast(over(text, block), block),
+                  needed("7/8", ui::style::font(sig, theme::uiFont())), hx(text) + " on " + hx(block));
+        Color edge = ui::style::color(sig, "border-left-color", text);
+        judgePair("TimeSignature line at its bar" + st, contrast(over(edge, block), block), 3.0, hx(edge) + " on " + hx(block));
+    }
+    for (TimingLaneRow* row : {r.w->tempoRow, r.w->signatureRow}) {
+        Color bg = backgroundOver(row->computedStyle(), theme::c("window"));
+        Color name = row->name->color();
+        judgePair("TimingLaneRow name \"" + row->name->text() + "\" on its row", contrast(over(name, bg), bg),
+                  needed(row->name->text(), row->name->font()), hx(name) + " on " + hx(bg));
+        Color x = ui::style::foreground(row->close->computedStyle());
+        judgePair("TimingLaneRow ✕ on its row", contrast(over(x, bg), bg), 3.0, hx(x) + " on " + hx(bg));
+    }
+}
+
 // --- meters: bars against the meter, the RMS bar against the peak bar it is drawn in ---
 // the pan knob on a group's row (PanKnob.group): its disc against the row (--group-lane, which the usual --button
 // matched), its pointer against the disc
@@ -690,6 +716,7 @@ int main() {
         sweepControls();
         sweepMeter();
         sweepGroupKnob();
+        sweepTimingLanes(r);
         ca::sweepGlyphs();
         size_t before = hunt::hits.size();
         (void)before;

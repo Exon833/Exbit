@@ -240,6 +240,10 @@ struct Timing {
     double swing = 0;      // the song's swing, 0 % (straight) … 100 %: off-beats later (midi_effects.h SWING)
     int swingGrid = 1;     // what swings: 0 the 8ths, 1 the 16ths
     bool automationFollows = true;  // moved, copied and duplicated clips take their tracks' automation along (auto_follow.h)
+    // the tempo lane's BPM range, bottom to top (a view: saved with the song, not an undo step; history.h). Auto (it
+    // fits the points) unless MIN_BPM <= tempoLaneLo < tempoLaneHi <= MAX_BPM: 0 / 0, Max <= Min or out of range
+    double tempoLaneLo = 0, tempoLaneHi = 0;
+    bool tempoLaneFixed() const;  // a fixed range (not Auto)?
 
     Timing();
     Timing(const Timing& o);

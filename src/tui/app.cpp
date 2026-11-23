@@ -51,6 +51,8 @@ constexpr int EXPLORER_MIN = 18, EXPLORER_MAX = 30;  // its width (columns)
 constexpr int PANEL_MIN = 32, PANEL_MAX = 40;
 constexpr int METER_COLS = 6;
 constexpr double FRAME_S = 1.0 / 30;  // the terminal is drawn (and the main window's frames run) this often
+// the rows under the ruler for the tempo and time-signature lanes while shown (the panel has as many beside them)
+int timingRows() { return (lanes::tempoLaneShown() ? 1 : 0) + (lanes::signatureLaneShown() ? 1 : 0); }
 
 const Style kBar = style(Black, White);                 // the menu bar, the transport, the status bar
 const Style kPane = style(Default, Default);
@@ -677,8 +679,41 @@ bool Front::timelineKey(const Key& k) {
     TrackPtr cur = current();
     int row = cur ? (int)(std::find(ts.begin(), ts.end(), cur) - ts.begin()) : 0;
     std::optional<Lane> lane = currentLane();
-    // the ruler's (Up from the first lane): Enter edits the tempo change at the cursor (its tempo, ramp, time
-    // signature), else makes one at the cursor's bar
+    // the ruler's (Up from the first lane): Shift+T / Shift+S the tempo and time-signature lanes shown or hidden,
+    // Shift+R the tempo lane's range; / the time signature at the cursor's bar (typed: a new one, or its own, with
+    // Remove), Shift+Del removes it
+    if (laneRow < 0) {
+        int bar = t.barAt(cursorS + 1e-9) + 1;
+        bool shift = k.mods == plat::ModShift;
+        if (shift && k.key == 'T') {
+            w_.showTempoLane(!lanes::tempoLaneShown());
+            w_.showStatus(lanes::tempoLaneShown() ? "The tempo lane: shown (Shift+R: its range)" : "The tempo lane: hidden", 3000);
+            return true;
+        }
+        if (shift && k.key == 'S') {
+            w_.showSignatureLane(!lanes::signatureLaneShown());
+            w_.showStatus(lanes::signatureLaneShown() ? "The time-signature lane: shown (/: the one at the cursor's bar)"
+                                                      : "The time-signature lane: hidden", 3000);
+            return true;
+        }
+        if (shift && k.key == 'R') {
+            tl.editTempoLaneRange();
+            return true;
+        }
+        if (!k.mods && k.key == '/') {
+            tl.editSignature(bar);
+            return true;
+        }
+        if (shift && k.key == plat::Key_Delete) {
+            if (!tl.removeSignature(bar))
+                w_.showStatus(bar == 1 ? "Bar 1's time signature is the song's own: / types another"
+                                       : "Bar " + std::to_string(bar) + " has no time signature of its own",
+                              3000);
+            return true;
+        }
+    }
+    // the ruler's: Enter edits the tempo change at the cursor (its tempo, ramp, time signature), else makes one at
+    // the cursor's bar
     if (laneRow < 0 && !k.mods && (k.key == plat::Key_Return || k.key == plat::Key_Enter)) {
         if (auto point = tl.tempoPointNear(cursorS, std::max(0.5, secondsPerColumn / 2 * tl.pps)))
             tl.editTempoPoint(*point);
@@ -1526,9 +1561,49 @@ void Front::drawTimeline(Screen& s, int x, int y, int w, int h) {
         char32_t mark = utf8 ? (p.ramp ? U'↗' : U'♩') : (p.ramp ? U'/' : U'T');
         s.set(x + c, ry, mark, focused && laneRow < 0 ? style(Black, Yellow, Bold) : style(Magenta, Default, Bold));
     }
+    static const char32_t BLOCKS[] = {U'▁', U'▂', U'▃', U'▄', U'▅', U'▆', U'▇', U'█'};
+    // the tempo lane (Shift+T on the ruler): the tempo in each column as a block in the lane's range (▲ / ▼ above or
+    // below it), each change marked (♩ a step, ↗ a ramp) with its BPM while there is room
+    int extra = timingRows(), ty = ry;
+    if (lanes::tempoLaneShown()) {
+        ty++;
+        double lo, hi;
+        tl.tempoRange(lo, hi);
+        s.fill(x, ty, w, 1, U' ', kPane);
+        for (int c = 0; c < w; c++) {
+            double v = (tm.bpmAt(viewStart + (c + 0.5) * spc) - lo) / std::max(1e-9, hi - lo);
+            char32_t ch = v > 1 ? (utf8 ? U'▲' : U'^') : v < 0 ? (utf8 ? U'▼' : U'v')
+                          : utf8 ? BLOCKS[std::clamp((int)std::lround(v * 8) - 1, 0, 7)] : (v < 0.5 ? U'_' : U'-');
+            s.set(x + c, ty, ch, style(Magenta));
+        }
+        const std::vector<TempoPoint>& pts = tm.points();
+        for (size_t i = 0; i < pts.size(); i++) {
+            int c = colOf(pts[i].seconds), next = i + 1 < pts.size() ? colOf(pts[i + 1].seconds) : w;
+            if (c < 0 || c >= w) continue;
+            s.set(x + c, ty, utf8 ? (pts[i].ramp ? U'↗' : U'♩') : (pts[i].ramp ? U'/' : U'T'), style(Yellow, Default, Bold));
+            char bpm[24];
+            snprintf(bpm, sizeof bpm, "%g", std::nearbyint(pts[i].bpm * 100) / 100);
+            if (next - c > columns(bpm) + 1) s.text(x + c + 1, ty, bpm, style(Yellow), std::min(w, next) - c - 1);
+        }
+    }
+    // the time-signature lane (Shift+S on the ruler): a block per time signature from its bar, labelled ("7/8")
+    if (lanes::signatureLaneShown()) {
+        ty++;
+        s.fill(x, ty, w, 1, U' ', kPane);
+        std::vector<Meter> sigs = tl.signatures();
+        for (size_t i = 0; i < sigs.size(); i++) {
+            int c = colOf(tm.barSeconds(sigs[i].bar));
+            int next = i + 1 < sigs.size() ? colOf(tm.barSeconds(sigs[i + 1].bar)) : w;
+            if (next <= 0 || c >= w) continue;
+            int a = std::max(0, c), b = std::min(w, std::max(next, c + 1));
+            Style st = i % 2 ? style(White, Blue) : style(Black, Cyan);
+            s.fill(x + a, ty, b - a, 1, U' ', st);
+            s.text(x + a, ty, (c >= 0 ? "|" : "") + sigs[i].sig().text(), st, b - a);
+        }
+    }
     // the lanes: a row each (a track's, its automation lanes and takes, a group's header), the master's at the bottom
     std::vector<Lane> ls = lanes();
-    int lanesTop = y + 2, rows = h - 3;
+    int lanesTop = y + 2 + extra, rows = h - 3 - extra;
     bodyRows_ = rows;
     laneRow = std::clamp(laneRow, -1, (int)ls.size());  // (-1: the ruler)
     int curRow = std::clamp(laneRow, 0, std::max(0, (int)ls.size() - 1));
@@ -1536,7 +1611,6 @@ void Front::drawTimeline(Screen& s, int x, int y, int w, int h) {
     if (curRow >= firstRow + rows) firstRow = curRow - rows + 1;
     firstRow = std::clamp(firstRow, 0, std::max(0, (int)ls.size() - rows));
     const Selection& sel = tl.selection;
-    static const char32_t BLOCKS[] = {U'▁', U'▂', U'▃', U'▄', U'▅', U'▆', U'▇', U'█'};
     auto grid = [&](int ly) {  // the beats as dots, bars as lines
         for (int c = 0; c < w; c++) {
             double a = viewStart + c * spc;
@@ -1612,6 +1686,8 @@ void Front::drawTimeline(Screen& s, int x, int y, int w, int h) {
     s.text(x, my, " Master ", kTitle, w);
     // the cursor (where Play starts) and the playhead
     int cc = colOf((double)tl.cursor / sr);
+    for (int yy = ry + 1; yy < lanesTop && cc >= 0 && cc < w; yy++)  // (the tempo and time-signature rows too)
+        if (Cell* cell = s.at(x + cc, yy)) cell->st.attr ^= Reverse;
     if (cc >= 0 && cc < w)
         for (int r = 0; r < rows && firstRow + r < (int)ls.size(); r++)
             if (Cell* cell = s.at(x + cc, lanesTop + r)) {
@@ -1625,7 +1701,7 @@ void Front::drawTimeline(Screen& s, int x, int y, int w, int h) {
     if (e.playing) {
         int pc = colOf(heard);
         if (pc >= 0 && pc < w)
-            for (int r = -1; r < rows + 1; r++) s.set(x + pc, lanesTop + r, U'┃', style(Yellow, Default, Bold));
+            for (int yy = ry; yy < lanesTop + rows + 1; yy++) s.set(x + pc, yy, U'┃', style(Yellow, Default, Bold));
     }
 }
 
@@ -1643,8 +1719,23 @@ void Front::drawPanel(Screen& s, int x, int y, int w, int h) {
     s.text(x, y + 1, w_.project.keyFocusLocked ? (utf8 ? " Tracks  ♪ locked" : " Tracks  keys locked") : " Tracks",
            focused ? kFocusTitle : kTitle, w);
     std::vector<TrackPtr> plays = midi_input::keyboardTracks(w_.project, w_.timeline->currentTrack);
-    int rows = h - 3;
+    int extra = timingRows(), rows = h - 3 - extra;
     int nameW = std::max(4, w - 15 - METER_COLS);
+    {  // the tempo and time-signature lanes' rows (beside their lanes): the range, the signature at the cursor
+        int ty = y + 1;
+        if (lanes::tempoLaneShown()) {
+            double lo, hi;
+            w_.timeline->tempoRange(lo, hi);
+            char text[96];
+            snprintf(text, sizeof text, " Tempo  %g-%g BPM%s", lo, hi, w_.project.timing.tempoLaneFixed() ? "" : " (Auto)");
+            s.text(x, ++ty, text, style(Magenta, Default, Bold), w);
+        }
+        if (lanes::signatureLaneShown()) {
+            const Timing& t = w_.project.timing;
+            int bar = t.barAt((double)w_.timeline->cursor / w_.engine.sr + 1e-9) + 1;
+            s.text(x, ++ty, " Signature  " + t.sigAtBar(bar).text() + " at bar " + std::to_string(bar), style(Cyan, Default, Bold), w);
+        }
+    }
     auto row = [&](int ry, const std::string& name, bool muted, bool soloed, double db, double pan, const LevelMeter* m,
                    bool sel, uint8_t color, bool isMaster, bool safe = false) {
         Style st = sel ? (focused ? kSelFocus : kSelIdle) : kPane;
@@ -1668,12 +1759,12 @@ void Front::drawPanel(Screen& s, int x, int y, int w, int h) {
     std::vector<Lane> ls = lanes();
     laneRow = std::clamp(laneRow, -1, (int)ls.size());
     double cursorS = (double)w_.timeline->cursor / w_.engine.sr;
-    if (ls.empty() && rows > 0) s.text(x + 1, y + 2, "F2 (or A / N): add a track", style(Cyan), w - 1);
+    if (ls.empty() && rows > 0) s.text(x + 1, y + 2 + extra, "F2 (or A / N): add a track", style(Cyan), w - 1);
     for (int r = 0; r < rows; r++) {
         int k = firstRow + r;
         if (k >= (int)ls.size()) break;
         const Lane& lane = ls[(size_t)k];
-        int ry = y + 2 + r;
+        int ry = y + 2 + extra + r;
         bool sel = k == laneRow && (focused || pane == Pane::Timeline);
         Style st = sel ? (focused ? kSelFocus : kSelIdle) : kPane;
         if (lane.track) {
@@ -1736,7 +1827,8 @@ void Front::drawStatus(Screen& s) {
         case Pane::Timeline:
             if (laneRow < 0)
                 msg = "The ruler: Enter: the tempo change at the cursor (tempo, ramp, time signature), or a new one at this "
-                      "bar  F2: its menu (tempo changes, Timebase, markers, loop)  Down: the lanes";
+                      "bar  /: the time signature  Shift+T / Shift+S: the tempo / signature lane  Shift+R: its range  "
+                      "F2: its menu  Down: the lanes";
             else if (currentLane() && currentLane()->automation)
                 msg = "Automation: Enter: a point at the cursor  [ ]: lower / raise it  Del: remove it (or the range)  "
                       "I/O: range  Ctrl+C/X/V: its curve  F2: its menu";
@@ -1901,6 +1993,10 @@ void Front::drawHelp(Screen& s) {
         "   the first lane)  next: yes/no, time signature), else a new one at the cursor's bar",
         "  F2 on the ruler   Tempo changes ▸ add, edit, ramp, remove; Timebase: Beats (the song keeps its",
         "                    bars when the tempo changes) or Time (it keeps its seconds); markers, the loop",
+        "  Shift+T, Shift+S  (on the ruler) the tempo lane, the time-signature lane: shown or hidden (View menu too)",
+        "  Shift+R           (on the ruler) the tempo lane's range: Min and Max BPM, or Auto (fits the changes)",
+        "  /  Shift+Del      (on the ruler) the time signature at the cursor's bar: add or type it (its dialog has",
+        "                    Remove); remove it (bar 1's stays: it is the song's own)",
         "MIDI editor (Tab to its notes)",
         "  arrows            no note selected: the cursor (a grid step, a pitch); else move the notes",
         "  Enter             select the note at the cursor, or put one there   Esc: let them go",

@@ -239,6 +239,7 @@ bool Timeline::mousePress(ui::MouseEvent& e) {
     pressPos_ = pos;  // (moves, trims, markers… start past DRAG_THRESHOLD_PX)
     pastThreshold_ = false;
     if (inTempoLane(pos.y)) return tempoPress(e);  // (a tempo point: timeline_tempo.cpp)
+    if (inSignatureLane(pos.y)) return signaturePress(e);  // (a time signature: timeline_signature.cpp)
     TrackPtr under = trackAt(pos.y);
     setCurrentTrack(under ? under : currentTrack);
     auto edge = laneEdgeAt(pos.y);
@@ -404,11 +405,15 @@ bool Timeline::mouseMove(ui::MouseEvent& e) {
          std::holds_alternative<CopyDrag>(drag) || std::holds_alternative<BendDrag>(drag) ||
          std::holds_alternative<EnvelopeDrag>(drag) || std::holds_alternative<EnvelopeBendDrag>(drag) ||
          std::holds_alternative<SlipDrag>(drag) || std::holds_alternative<WarpDrag>(drag) ||
-         std::holds_alternative<TempoDrag>(drag)) &&
+         std::holds_alternative<TempoDrag>(drag) || std::holds_alternative<SignatureDrag>(drag)) &&
         stillAClick(pos))
         return true;
     if (std::holds_alternative<TempoDrag>(drag)) {
         dragTempo(pos, e.mods);
+        return true;
+    }
+    if (std::holds_alternative<SignatureDrag>(drag)) {
+        dragSignature(pos);
         return true;
     }
     if (std::holds_alternative<CopyDrag>(drag)) startCopyDrag();
@@ -500,6 +505,7 @@ bool Timeline::mouseRelease(ui::MouseEvent& e) {
     if (std::holds_alternative<EdgeDrag>(drag)) endEdgeDrag();
     if (std::holds_alternative<WarpDrag>(drag)) releaseWarpMarker();
     if (std::holds_alternative<TempoDrag>(drag)) endTempoDrag();
+    if (std::holds_alternative<SignatureDrag>(drag)) endSignatureDrag();  // (a click on an empty bar: its dialog)
     if (auto* t = std::get_if<TakeDrag>(&drag)) {
         if (t->to != t->frame) {
             TakeDrag d = *t;
@@ -519,6 +525,13 @@ bool Timeline::mouseDoubleClick(ui::MouseEvent& e) {
         if (auto* d = std::get_if<TempoDrag>(&drag); d && d->moved) endTempoDrag();
         drag = std::monostate();
         if (point) editTempoPoint(*point);
+        return true;
+    }
+    if (inSignatureLane(pos.y)) {  // a time signature's block: type it
+        std::optional<int> bar = signatureAt(pos);
+        if (auto* d = std::get_if<SignatureDrag>(&drag); d && d->moved && !d->add) endSignatureDrag();
+        drag = std::monostate();
+        if (bar) editSignature(*bar);
         return true;
     }
     auto edge = laneEdgeAt(pos.y);
@@ -603,6 +616,10 @@ void Timeline::updateCursor(PointF pos) {
     } else if (std::holds_alternative<TempoDrag>(drag) || inTempoLane(pos.y)) {
         bool dragging = std::holds_alternative<TempoDrag>(drag);
         setCursor(dragging ? ui::Cursor::ClosedHand : tempoPointAt(pos) ? ui::Cursor::OpenHand : ui::Cursor::Cross);
+    } else if (std::holds_alternative<SignatureDrag>(drag) || inSignatureLane(pos.y)) {
+        auto* d = std::get_if<SignatureDrag>(&drag);
+        std::optional<int> at = d ? std::nullopt : signatureAt(pos);
+        setCursor(d && !d->add ? ui::Cursor::ClosedHand : at && *at > 1 ? ui::Cursor::OpenHand : at ? ui::Cursor::Arrow : ui::Cursor::Cross);
     } else if ((lane = laneAt(pos.y)) && lane->automation) {
         bool dragging = std::holds_alternative<PointDrag>(drag);
         bool grabbed = dragging || pointAt(*lane, pos) >= 0;
@@ -629,6 +646,12 @@ bool Timeline::contextMenu(ui::MouseEvent& e) {
     if (inTempoLane(e.pos.y)) {  // a tempo point's menu (Remove, Ramp to the next change), or the lane's
         ui::Menu menu;
         fillTempoMenu(menu, std::max(0.0, e.pos.x / pps), tempoPointAt(PointF(e.pos)));
+        menu.exec(e.globalPos, this);
+        return true;
+    }
+    if (inSignatureLane(e.pos.y)) {  // the time signature there: Edit…, Remove, Add a time signature here…
+        ui::Menu menu;
+        fillSignatureMenu(menu, signatureBarAt(e.pos.x));
         menu.exec(e.globalPos, this);
         return true;
     }

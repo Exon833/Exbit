@@ -297,7 +297,7 @@ Timing::Timing(const Timing& o)
     : bpm(o.bpm), beatsPerBar(o.beatsPerBar), beatUnit(o.beatUnit), beats(o.beats), thirds(o.thirds), loopStart(o.loopStart),
       loopEnd(o.loopEnd), looping(o.looping), changes(o.changes), ramp(o.ramp), timebaseBeats(o.timebaseBeats),
       grid(o.grid), snapOn(o.snapOn), key(o.key), scale(o.scale), swing(o.swing), swingGrid(o.swingGrid),
-      automationFollows(o.automationFollows), map_(std::atomic_load(&o.map_)) {}
+      automationFollows(o.automationFollows), tempoLaneLo(o.tempoLaneLo), tempoLaneHi(o.tempoLaneHi), map_(std::atomic_load(&o.map_)) {}
 
 Timing& Timing::operator=(const Timing& o) {
     if (this == &o) return *this;
@@ -319,8 +319,14 @@ Timing& Timing::operator=(const Timing& o) {
     swing = o.swing;
     swingGrid = o.swingGrid;
     automationFollows = o.automationFollows;
+    tempoLaneLo = o.tempoLaneLo;
+    tempoLaneHi = o.tempoLaneHi;
     publish();  // (the audio thread hears the new tempo map at once)
     return *this;
+}
+
+bool Timing::tempoLaneFixed() const {
+    return config::MIN_BPM <= tempoLaneLo && tempoLaneLo < tempoLaneHi && tempoLaneHi <= config::MAX_BPM;
 }
 
 bool Timing::loopRange(double& start, double& end) const {
