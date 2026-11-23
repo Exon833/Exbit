@@ -17,7 +17,7 @@ public:
     LoudnessDisplay();
     void showValues(double momentary, double shortTerm, double integrated);
     // a row too low for both lines squeezes it, as Qt's layouts do (the font's blank margins go first)
-    Point minimumSizeHint() const override { return Point(62, 0); }
+    Point minimumSizeHint() const override { return Point(minimumSize().x, 0); }  // (as wide as it is set: lufs-width, true-peak-width)
     // (painted so that when squeezed, only the lines' blank margins go: each line keeps its digits)
     void paint(Painter& p) override;
 };

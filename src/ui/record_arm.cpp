@@ -84,7 +84,8 @@ bool ArmButton::mousePress(ui::MouseEvent& e) {
 MonitorButton::MonitorButton(TrackPtr t, std::function<void(Track::Monitor)> changed)
     : ui::Button(""), track(std::move(t)), changed_(std::move(changed)) {
     setStyle(ui::Button::Style::Tool);
-    setFixedSize(theme::metric("toggle-button-width", 26), theme::metric("row-button-height", 22));
+    // (beside Auto, as tall: the row's controls fit in its default height)
+    setFixedSize(theme::metric("toggle-button-width", 26), theme::metric("auto-button-height", 16));
     setFocusPolicy(ui::FocusPolicy::None);
     setCheckable(true);  // (lit while In)
     setProperty("toggle", "accent");

@@ -972,10 +972,8 @@ void Window::showWindow() {
     relayout();
     app.doLayouts();
     if (layout()) {
-        Point m = layout()->minimumSize();
-        Point mn = minimumSize();
-        int mw = std::max(m.x, mn.x), mh = std::max(m.y, mn.y);
-        if (native_ && (mw > 0 || mh > 0) && !opts_.popup) setNativeMinimum(mw, mh);
+        Point m = leastSize();
+        if (native_ && (m.x > 0 || m.y > 0) && !opts_.popup) setNativeMinimum(m.x, m.y);
     }
     bool was = shown_;
     shown_ = true;
@@ -1056,6 +1054,15 @@ Rect Window::screenGeometry() const {
         }
     }
     return Rect(hgeom_.x, hgeom_.y, width(), height());
+}
+
+Point Window::leastSize() const {
+    Point m = minimumSize();
+    if (layout()) {
+        Point lm = layout()->minimumSize();
+        m = Point(std::max(m.x, lm.x), std::max(m.y, lm.y));
+    }
+    return m;
 }
 
 void Window::setMinimumWindowSize(int w, int h) {
@@ -1451,11 +1458,7 @@ void Window::applyFrameInsets(bool keepOuter) {
         // (a popup's shadow came or went: the inside stays where it was put)
         if (shadowOnly && opts_.popup) moveWindow(hgeom_.x, hgeom_.y);
     }
-    Point m = minimumSize();
-    if (layout()) {
-        Point lm = layout()->minimumSize();
-        m = Point(std::max(m.x, lm.x), std::max(m.y, lm.y));
-    }
+    Point m = leastSize();
     if (native_ && !opts_.popup) setNativeMinimum(m.x, m.y);
     invalidate(outerRect());
     frameChanged();

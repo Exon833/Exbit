@@ -99,7 +99,8 @@ void SampleWaveform::paint(Painter& p) {
     int w = width(), h = height();
     ui::style::box(p, rect(), *look.self);
     if (!audio_ || audio_->frames() == 0 || w < 2) {
-        p.drawText(RectF(rect()), AlignCenter, "Click a sample to see its waveform", look.font, look.text);
+        // (a narrow Explorer: cut with "…", never mid-letter at both sides)
+        p.drawText(RectF(rect().adjusted(4, 0, -4, 0)), AlignCenter, "Click a sample to see its waveform", look.font, look.text, true);
         return;
     }
     const std::vector<Lane>& ls = lanes(w);

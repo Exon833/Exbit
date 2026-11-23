@@ -411,6 +411,8 @@ void MainWindow::fitTimelineFrame() {
         frameGap->setVisible(top > 0);
     }
     if (masterPins.size() > 1) masterPins[1]->setMargin(theme::scrollbarWidth() + std::max(0, bottom));
+    // (the window no lower than the master row pinned at the bottom and a whole track row above it)
+    panelScroll->setMinimumHeight(lanes::masterHeight() + config::TRACK_H + theme::scrollbarWidth() + std::max(0, bottom));
 }
 
 void MainWindow::setExplorerVisible(bool on) {
@@ -420,9 +422,30 @@ void MainWindow::setExplorerVisible(bool on) {
 }
 
 void MainWindow::setExplorerWidth(int w) {
-    int most = std::max(160, width() - lane_panel::panelWidth() - 200);
-    explorerWidth = std::max(120, std::min(most, w));
+    explorerChosen = w;
+    fitExplorerWidth();
+    explorerChosen = explorerWidth;  // (dragged past the room: what was shown is what was chosen)
+}
+
+void MainWindow::fitExplorerWidth() {
+    // (no narrower than its own controls need: its buttons and texts whole; not yet laid out: no room known)
+    int least = std::max(120, explorerDock->minimumSizeHint().x);
+    int most = width() > 0 ? width() - lane_panel::panelWidth() - 200 : explorerChosen;
+    explorerWidth = std::max(least, std::min(std::max(160, most), explorerChosen));
     explorerDock->setFixedWidth(explorerWidth);
+}
+
+Point MainWindow::leastSize() const {
+    // the Explorer counted at its narrowest: a window maximized with it wide may still be restored narrower (it
+    // narrows with the window: fitExplorerWidth)
+    Point m = ui::Window::leastSize();
+    int excess = explorerDock && explorerDock->isVisible()
+                     ? std::max(0, explorerWidth - std::max(120, explorerDock->minimumSizeHint().x)) : 0;
+    if (excess) {  // (the body that much narrower; the menu bar, transport and status bar as they need)
+        auto least = [](const ui::Widget* w) { return std::max(w->minimumSize().x, w->minimumSizeHint().x); };
+        m.x = std::max({least(menuBar), least(transport), least(status), m.x - excess});
+    }
+    return m;
 }
 
 void MainWindow::buildFileMenu() {
@@ -907,13 +930,14 @@ void MainWindow::restyle() {
     panelScroll->setFixedWidth(lane_panel::panelWidth());
     for (auto& pin : masterPins) pin->setHeight(lanes::masterHeight());
     fitTimelineFrame();  // (the panel's master row's margin too)
-    setExplorerWidth(explorerWidth);
+    fitExplorerWidth();
     panel->rebuild();
     master->restyle();
     overviewCaption->update();
     overview->forgetImage();  // (its cached image used the old colours)
     overview->refresh();
     transport->fit();  // (another font: the top bar's controls may be wider or narrower)
+    transport->setFixedHeight(transport->sizeHint().y);  // (and taller or lower: the skin's buttons)
     App::get().repaintAll();
 }
 
@@ -1031,6 +1055,7 @@ void MainWindow::showScope(bool on) {
     lanes::setMasterScopeHeight(on ? theme::metric("scope-height", config::SCOPE_H) : 0);
     master->setScopeShown(on);
     for (auto& pin : masterPins) pin->setHeight(lanes::masterHeight());
+    fitTimelineFrame();  // (the window's least height)
     if (scopeAction) scopeAction->setChecked(on);
     timeline->relayout();
     prefs.scope = master->scope->settings.toJson().dump();
@@ -1942,7 +1967,7 @@ void MainWindow::onCpuTimer() {
 void MainWindow::resized() {
     ui::Window::resized();
     updateMedia();
-    if (explorerDock) setExplorerWidth(explorerWidth);
+    if (explorerDock) fitExplorerWidth();  // (its chosen width kept for when the window is wide again)
     if (timeline) timeline->relayout();
 }
 

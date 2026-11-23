@@ -163,6 +163,8 @@ Label.heading {
 Label.hint { color: var(--hint-text); }
 Label#time { color: var(--nd-yellow); }
 Label#lufs { color: var(--nd-cyan); }
+/* (its larger face: a track's controls fit its default height in a little less padding) */
+TrackRow { padding: 3px 8px 2px; }
 
 /* check boxes: square boxes, a yellow box with a dark straight check when on */
 CheckBox::indicator {
