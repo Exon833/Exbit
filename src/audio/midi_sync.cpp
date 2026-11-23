@@ -134,17 +134,20 @@ void fillBBT(const TempoMap& map, uint32_t frame, uint32_t rate, jack::Position&
     double seconds = rate ? (double)frame / rate : 0.0;
     double beat = map.beatAt(seconds);
     int bar = map.barAtBeat(beat);
-    double barBeat = map.barBeat(bar), into = std::max(0.0, beat - barBeat);
+    // (JACK's beats are the signature's unit, `beat_type`: 8ths in 6/8, so its tempo is in them too)
+    TimeSig sig = map.sigAt(seconds);
+    double unit = 4.0 / sig.den;
+    double barBeat = map.barBeat(bar), into = std::max(0.0, beat - barBeat) / unit;
     double whole = std::floor(into);
     pos.valid |= jack::PositionBBT;
     pos.bar = bar + 1;
     pos.beat = (int32_t)whole + 1;
     pos.tick = (int32_t)std::min(TICKS_PER_BEAT - 1, std::floor((into - whole) * TICKS_PER_BEAT));
-    pos.bar_start_tick = barBeat * TICKS_PER_BEAT;
-    pos.beats_per_bar = (float)map.beatsPerBarAt(seconds);
-    pos.beat_type = 4.0f;
+    pos.bar_start_tick = barBeat / unit * TICKS_PER_BEAT;
+    pos.beats_per_bar = (float)sig.num;
+    pos.beat_type = (float)sig.den;
     pos.ticks_per_beat = TICKS_PER_BEAT;
-    pos.beats_per_minute = map.bpmAt(seconds);
+    pos.beats_per_minute = map.bpmAt(seconds) / unit;
 }
 
 }  // namespace midi_sync

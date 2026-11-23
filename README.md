@@ -28,7 +28,8 @@ extends; that program is in the repository's history.
   at once, Crop to the selection, Fades at every boundary…; automation that follows moved, copied and
   duplicated clips (Edit → Automation follows clips) and a lane's range copied and pasted;
   takes with comping; markers, tempo and time-signature changes (a tempo lane: steps or ramps, the song kept on its bars by
-  the Timebase), warping (audio follows the tempo: markers, Beats / Tones / Complex, its tempo found from the
+  the Timebase; any time signature N/D, 6/8, 7/8, 5/16, 3/2, 12/8…, with the ruler, grid and metronome counting its
+  unit, MIDI files and plugins told the real signature), warping (audio follows the tempo: markers, Beats / Tones / Complex, its tempo found from the
   file's tags, name or sound),
   insert/delete time, a fixed or zoom-following grid; undo and redo of every kind of edit (the last
   100 steps), with a list of the steps to jump back to (Edit → History…); what the control under the mouse does, in the

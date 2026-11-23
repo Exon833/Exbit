@@ -1243,6 +1243,7 @@ void MainWindow::connectControls() {
     timeline->timingChanged.connect([this] { setTiming({}); });  // (a tempo change on the ruler)
     t->bpmBox->valueChanged.connect([this](double v) { setTiming({v, {}, {}, {}}); });
     t->signatureBox->valueChanged.connect([this](double v) { setTiming({{}, (int)std::lround(v), {}, {}}); });
+    t->unitBox->currentIndexChanged.connect([this, t](int) { setTiming({{}, {}, {}, {}, t->unitBox->currentDataInt(4)}); });
     t->beatsAction->toggled.connect([this](bool on) { setTiming({{}, {}, on, {}}); });
     t->tapButton->pressed.connect([this] { tap(); });  // on press, not release: the moment of the tap counts
     t->metronomeButton->setCheckedSilently(prefs.metronome);
@@ -1328,21 +1329,23 @@ void MainWindow::setTiming(const TimingChange& c) {
     // change the tempo, time signature or grid view; what is placed in the song follows as its timebase says
     // (model/timebase.h: Beats keeps its beats, Time its seconds)
     Timing& t = project.timing;
-    timebase::Before before = c.bpm || c.beatsPerBar ? timebase::remember(project) : timebase::Before();
+    bool meter = c.beatsPerBar || c.beatUnit;
+    timebase::Before before = c.bpm || meter ? timebase::remember(project) : timebase::Before();
     if (c.bpm) t.bpm = *c.bpm;
     if (c.beatsPerBar) t.beatsPerBar = *c.beatsPerBar;
+    if (c.beatUnit) t.beatUnit = timing::checkedUnit(*c.beatUnit, "the transport's time signature");
     if (!timebase::follow(project, before, engine.sr).empty()) timeline->relayout();
     if (c.beats) t.beats = *c.beats;
     if (c.thirds) t.thirds = *c.thirds;
     // (MIDI effects work in beats: an arpeggio follows the tempo; no changes: one on the ruler)
-    bool none = !c.bpm && !c.beatsPerBar && !c.beats && !c.thirds;
-    if (none || c.bpm || c.beatsPerBar)
+    bool none = !c.bpm && !meter && !c.beats && !c.thirds;
+    if (none || c.bpm || meter)
         for (auto& clip : project.clips) {
             TrackPtr track = std::atomic_load(&clip->track);
             if (clip->kind == Kind::Midi && track && (!track->midiEffects.empty() || midi_effects::swings(*track)))
                 timeline->prepareLive(clip);  // (swing too: it is in beats)
         }
-    if (none || c.bpm || c.beatsPerBar) {
+    if (none || c.bpm || meter) {
         retimeWarped();  // (warped audio follows the tempo)
         for (auto& clip : project.clips) {  // (a sampler warped, its LFO synced or sliced on a grid: so do its notes)
             TrackPtr track = std::atomic_load(&clip->track);

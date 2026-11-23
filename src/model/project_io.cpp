@@ -691,10 +691,11 @@ Json describeTiming(const Timing& t) {
     Json changes = Json::array();
     for (auto& c : t.changes) {
         Json change = Json::array({Json(c.bar), Json(c.bpm), Json(c.beatsPerBar)});
-        if (c.beat != 0 || c.ramp) {  // (only then: [bar, bpm, beats per bar, beat into the bar, ramp])
+        if (c.beat != 0 || c.ramp || c.beatUnit != 4) {  // (only then: [bar, bpm, beats per bar, beat into the bar, ramp])
             change.push(Json(c.beat));
             change.push(Json(c.ramp));
         }
+        if (c.beatUnit != 4) change.push(Json(c.beatUnit));  // (only not N/4: [..., ramp, the denominator])
         changes.push(change);
     }
     Json out = Json::object({{"bpm", Json(t.bpm)},
@@ -715,6 +716,7 @@ Json describeTiming(const Timing& t) {
     }
     if (!t.automationFollows) out.set("automation_follows_clips", Json(false));  // (only when off: the default is on)
     if (t.ramp) out.set("ramp", Json(true));  // (bar 1's tempo ramps to the first change's)
+    if (t.beatUnit != 4) out.set("beat_unit", Json(t.beatUnit));  // (only not N/4: older files unchanged)
     // (written only when Beats: files without it, from before the setting, load as Time and behave as they did)
     if (t.timebaseBeats) out.set("timebase", Json("beats"));
     return out;
@@ -726,6 +728,7 @@ Timing readTiming(const Json& entry) {
     if (entry.isObject()) {
         t.bpm = entry.num("bpm", t.bpm);
         t.beatsPerBar = entry.integer("beats_per_bar", t.beatsPerBar);
+        if (!entry["beat_unit"].isNull()) t.beatUnit = timing::checkedUnit(entry.integer("beat_unit", 0), "the project's tempo");
         t.beats = entry.flag("beats", t.beats);
         t.thirds = entry.flag("thirds", t.thirds);
         t.loopStart = entry.num("loop_start", t.loopStart);
@@ -741,18 +744,25 @@ Timing readTiming(const Json& entry) {
         if (grid.isNumber()) t.grid = grid.toDouble();
         std::vector<TempoChange> changes;
         for (const Json& c : entry["changes"].items()) {
-            if (!c.isArray() || (c.size() != 3 && c.size() != 5) || !c[size_t(0)].isNumber() ||
+            if (!c.isArray() || (c.size() != 3 && c.size() != 5 && c.size() != 6) || !c[size_t(0)].isNumber() ||
                 !c[size_t(1)].isNumber() || !c[size_t(2)].isNumber())
                 continue;
             TempoChange change{(int)c[size_t(0)].toDouble(), c[size_t(1)].toDouble(), (int)c[size_t(2)].toDouble()};
-            if (c.size() == 5) {  // (a change inside a bar, or a ramp)
+            if (c.size() >= 5) {  // (a change inside a bar, or a ramp, or a signature not N/4)
                 if (!c[size_t(3)].isNumber() || !c[size_t(4)].isBool()) continue;
                 change.beat = c[size_t(3)].toDouble();
                 change.ramp = c[size_t(4)].toBool();
-                if (!(change.beat >= 0 && change.beat <= config::MAX_BEATS_PER_BAR)) continue;
+                if (!(change.beat >= 0 && change.beat <= 4 * config::MAX_BEATS_PER_BAR)) continue;  // (quarters: 16/1)
             }
-            if (change.valid() && config::MIN_BPM <= change.bpm && change.bpm <= config::MAX_BPM &&
-                1 <= change.beatsPerBar && change.beatsPerBar <= config::MAX_BEATS_PER_BAR)
+            if (c.size() == 6)
+                change.beatUnit = timing::checkedUnit(c[size_t(5)].isNumber() ? (int)c[size_t(5)].toDouble() : 0,
+                                                      "a tempo change");
+            if (change.beatsPerBar != timing::clampedBeats(change.beatsPerBar)) {
+                util::debugf("a tempo change at bar %d: %d beats a bar, kept to 1…%d\n", change.bar,
+                             change.beatsPerBar, config::MAX_BEATS_PER_BAR);
+                change.beatsPerBar = timing::clampedBeats(change.beatsPerBar);
+            }
+            if (change.valid() && config::MIN_BPM <= change.bpm && change.bpm <= config::MAX_BPM)
                 changes.push_back(change);
         }
         std::sort(changes.begin(), changes.end());
@@ -774,8 +784,10 @@ Timing readTiming(const Json& entry) {
         t.swingGrid = entry.integer("swing_grid", 1) == 0 ? 0 : 1;
     }
     if (!(config::MIN_BPM <= t.bpm && t.bpm <= config::MAX_BPM)) t.bpm = config::DEFAULT_BPM;
-    if (!(1 <= t.beatsPerBar && t.beatsPerBar <= config::MAX_BEATS_PER_BAR))
-        t.beatsPerBar = config::DEFAULT_BEATS_PER_BAR;
+    if (t.beatsPerBar != timing::clampedBeats(t.beatsPerBar)) {
+        util::debugf("the project's tempo: %d beats a bar, kept to 1…%d\n", t.beatsPerBar, config::MAX_BEATS_PER_BAR);
+        t.beatsPerBar = t.beatsPerBar < 1 ? config::DEFAULT_BEATS_PER_BAR : timing::clampedBeats(t.beatsPerBar);
+    }
     double s, e;
     if (t.loopStart < 0 || !t.loopRange(s, e)) {
         t.loopStart = t.loopEnd = 0.0;

@@ -38,11 +38,10 @@ TempoRef refOf(const TempoMap& m, const TempoPoint& p) {
 }
 
 // the time signature in force just before `beat` (what a point there that isn't a time signature keeps)
-int meterBefore(const TempoMap& m, double beat) {
-    int bar, perBar;
-    double at;
-    m.meterAt(std::max(0.0, beat - 1e-6), bar, at, perBar);
-    return perBar;
+TimeSig meterBefore(const TempoMap& m, double beat) { return m.meterAtBeat(std::max(0.0, beat - 1e-6)).sig(); }
+// a change at bar `bar`, `beat` into it, in `sig`
+TempoChange changeIn(int bar, double bpm, TimeSig sig, double beat, bool ramp) {
+    return TempoChange{bar, bpm, sig.num, beat, ramp, sig.den};
 }
 
 // does the tempo ruling at `beat` ramp (a new point there keeps the ramp going through it)?
@@ -183,10 +182,10 @@ void Timeline::paintTempoLane(Painter& p, const Rect& r, bool contents) {
     }
     for (size_t i = 0; i < segs.size(); i++) {
         const Segment& s = segs[i];
-        if (s.beat != s.barBeat || (i > 0 && segs[i - 1].beatsPerBar == s.beatsPerBar)) continue;
+        if (s.beat != s.barBeat || (i > 0 && segs[i - 1].sig() == s.sig())) continue;
         float x = (float)(s.seconds * pps);
         if (x < area.left() - 60 || x > area.right()) continue;
-        std::string sig = std::to_string(s.beatsPerBar) + "/4";
+        std::string sig = s.sig().text();  // ("7/8")
         p.drawText(RectF(x + 4, (float)(top + h) - (float)font.height() - 2, (float)font.width(sig) + 2, (float)font.height()),
                    AlignLeft | AlignTop, sig, font, lk.labelColor);
     }
@@ -221,21 +220,22 @@ void Timeline::editTempoPoint(const TempoRef& at) {
     const TempoChange* c = at.song() ? nullptr : t.changeAt(at.bar, at.beat);
     double beat = at.song() ? 0 : m->beatOf(TempoChange{at.bar, 120, 4, at.beat});
     double bpm = c ? c->bpm : at.song() ? t.bpm : m->bpmAtBeat(beat);
-    int before = at.song() ? t.beatsPerBar : meterBefore(*m, beat);
-    int perBar = c ? c->beatsPerBar : before;
+    TimeSig before = at.song() ? t.sig() : meterBefore(*m, beat);
+    TimeSig sig = c ? c->sig() : before;
     bool ramp = c ? c->ramp : at.song() && t.ramp;  // (a new change: a step)
     bool canRamp = !m->points().empty() && m->points().back().beat > beat + 1e-9;
-    TempoDialog dialog(dialogParent(), at.bar, bpm, perBar, c != nullptr, at.beat, ramp, canRamp, t.timebaseBeats);
+    TempoDialog dialog(dialogParent(), at.bar, bpm, sig, c != nullptr, at.beat, ramp, canRamp, t.timebaseBeats);
     if (!dialog.run()) return;
     tempoEdit([&] {
         if (at.song()) {
             t.bpm = dialog.bpm;
-            t.beatsPerBar = dialog.beatsPerBar;
+            t.beatsPerBar = dialog.sig().num;
+            t.beatUnit = dialog.sig().den;
             t.ramp = dialog.ramp;
         } else if (dialog.removed) {
             t.removeChange(at.bar, at.beat);
         } else {
-            t.setChange(TempoChange{at.bar, dialog.bpm, at.beat == 0 ? dialog.beatsPerBar : before, at.beat, dialog.ramp});
+            t.setChange(changeIn(at.bar, dialog.bpm, at.beat == 0 ? dialog.sig() : before, at.beat, dialog.ramp));
         }
     });
 }
@@ -325,7 +325,7 @@ bool Timeline::tempoPress(ui::MouseEvent& e) {
         double beat = m->beatAt(seconds);
         TempoRef at = placeAt(*m, beat);
         if (!at.song() && !t.changeAt(at.bar, at.beat)) {
-            t.setChange(TempoChange{at.bar, tempoBpmAt(pos.y), meterBefore(*m, beat), at.beat, rampingAt(*m, beat)});
+            t.setChange(changeIn(at.bar, tempoBpmAt(pos.y), meterBefore(*m, beat), at.beat, rampingAt(*m, beat)));
             timebase::follow(project, *d.before, engine.sr);
             d.moved = true;
             util::debugf("timeline: tempo point added at %s, %g BPM\n", placeText(at).c_str(), tempoBpmAt(pos.y));
@@ -335,7 +335,7 @@ bool Timeline::tempoPress(ui::MouseEvent& e) {
     }
     d.at = *point;
     if (const TempoChange* c = d.at.song() ? nullptr : t.changeAt(d.at.bar, d.at.beat))  // (a time signature: by bars)
-        d.bars = c->atBar() && c->beatsPerBar != meterBefore(*m, m->beatOf(*c));
+        d.bars = c->atBar() && c->sig() != meterBefore(*m, m->beatOf(*c));
     drag = d;
     update();
     return true;
@@ -367,7 +367,10 @@ void Timeline::dragTempo(PointF pos, int mods) {
         moved.bar = to.bar;
         moved.beat = to.beat;
         moved.bpm = bpm;
-        if (!d->bars && to.beat == 0) moved.beatsPerBar = meterBefore(*m, m->beatOf(moved));  // (not a time signature)
+        if (!d->bars && to.beat == 0) {  // (not a time signature)
+            TimeSig before = meterBefore(*m, m->beatOf(moved));
+            moved.beatsPerBar = before.num, moved.beatUnit = before.den;
+        }
         t.setChange(moved);
         d->at = to;
     }

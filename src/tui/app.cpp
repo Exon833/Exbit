@@ -498,11 +498,26 @@ bool Front::transportKey(const Key& k) {
                 }
             }
             break;
-        case C_BEATS:
+        case C_BEATS:  // Up / Down: beats per bar; Enter: type the time signature ("7/8")
             if (d) {
                 MainWindow::TimingChange c;
-                c.beatsPerBar = std::clamp(t.beatsPerBar + d, 1, 32);
+                c.beatsPerBar = timing::clampedBeats(t.beatsPerBar + d);
                 w_.setTiming(c);
+            } else if (enter) {
+                std::string text = t.sig().text();
+                if (ui::getText(&w_, "Time signature", "Beats per bar / the note a beat is (7/8, 6/8, 3/4…):", text)) {
+                    TimeSig sig = t.sig();
+                    if (TimeSig::parse(text, sig)) {
+                        MainWindow::TimingChange c;
+                        c.beatsPerBar = sig.num;
+                        c.beatUnit = sig.den;
+                        w_.setTiming(c);
+                    } else {
+                        w_.showStatus("A time signature is beats per bar (1 to " + std::to_string(config::MAX_BEATS_PER_BAR) +
+                                          ") / 1, 2, 4, 8, 16 or 32: 7/8",
+                                      4000);
+                    }
+                }
             }
             break;
         case C_GRID:
@@ -1397,7 +1412,7 @@ void Front::drawTransport(Screen& s) {
             snprintf(buf, sizeof buf, "%g BPM", t.bpm);
             return std::string(buf);
         }(),
-        std::to_string(t.beatsPerBar) + "/4",
+        t.sig().text(),
         "Grid " + t.gridName(),
         box(t.snapOn) + "Snap",
         "Key " + (t.scale.empty() ? std::string("-") : song_scale::scaleName(t.key, t.scale)),
@@ -1494,10 +1509,12 @@ void Front::drawTimeline(Screen& s, int x, int y, int w, int h) {
         if (c >= 0) s.text(x + c, ry, "|" + std::to_string(b + 1), rs, w - c);
         // (zoomed in, bars far apart: their beats too, as bar.beat)
         double barCols = (tm.barSeconds(b + 1) - bs) / spc;
-        int beats = std::max(1, (int)std::lround(tm.beatAt(tm.barSeconds(b + 1)) - tm.beatAt(bs)));
+        TimeSig sig = tm.sigAt(bs);  // (its beats: the signature's unit, 8ths in 6/8)
+        int beats = std::max(1, sig.num);
+        double unit = sig.unitQuarters().value();
         if (barCols / beats >= 6)
             for (int k = 1; k < beats; k++) {
-                int bc = colOf(tm.secondsAt(tm.beatAt(bs) + k));
+                int bc = colOf(tm.secondsAt(tm.beatAt(bs) + k * unit));
                 if (bc >= 0 && bc < w) s.text(x + bc, ry, "'" + std::to_string(b + 1) + "." + std::to_string(k + 1), rs, w - bc);
             }
         if (b > firstBar + 2000) break;

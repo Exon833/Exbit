@@ -70,10 +70,12 @@ void addClicks(float* out, int channels, int frames, int64_t start, const Clicks
     for (const BeatTime& b : beats) {
         int64_t at = (int64_t)std::nearbyint(b.seconds * sr);
         if (at < earliest) continue;
-        const std::vector<float>& click = b.barStart ? clicks.bar : clicks.beat;
+        // (a compound signature's dotted groups: the bar's click, softer)
+        const std::vector<float>& click = b.barStart || b.groupStart ? clicks.bar : clicks.beat;
+        double g = b.groupStart ? gain * GROUP_GAIN : gain;
         int64_t a = std::max(start, at), e = std::min(start + frames, at + (int64_t)click.size());
         for (int64_t f = a; f < e; f++) {
-            float v = (float)(click[(size_t)(f - at)] * gain);
+            float v = (float)(click[(size_t)(f - at)] * g);
             float* o = out + (f - start) * channels;
             for (int c = 0; c < width; c++) o[c] += v;
         }
@@ -93,22 +95,25 @@ AudioPtr countIn(const MetronomeSettings& settings, const Timing& timing, int ba
     frames = 0;
     if (bars <= 0) return nullptr;
     TempoMapPtr map = timing.map();
-    int perBar = map->beatsPerBarAt(at);
-    int beats = bars * perBar;
-    double beatFrames = map->beatSAt(at) * sr;
+    const Meter& meter = map->meterAtBeat(map->beatAt(at));
+    int perBar = meter.beatsPerBar;
+    int beats = bars * perBar;  // (counted beats: the signature's unit, 8ths in 6/8)
+    double unit = 4.0 / meter.beatUnit;
+    double beatFrames = map->beatSAt(at) * unit * sr;
     frames = (int64_t)std::nearbyint(beats * beatFrames);
     std::vector<float> mono((size_t)std::max<int64_t>(0, frames), 0.0f);
-    int meterBar, meterPerBar;
-    double meterBeat;
-    map->meterAt(map->beatAt(at), meterBar, meterBeat, meterPerBar);
-    double now = map->beatAt(at) - meterBeat;  // (beats since the time signature's first bar line)
+    double now = (map->beatAt(at) - meter.beat) / unit;  // (counted beats since the time signature's first bar line)
     double begin = now - beats;  // (where the count-in starts, in those beats)
     Clicks c = renderClicks(settings, sr);
+    int group = meter.sig().compound() ? 3 : 0;
     for (int64_t beat = (int64_t)std::ceil(begin - 1e-6); beat < (int64_t)std::ceil(now - 1e-6); beat++) {
-        const std::vector<float>& click = ((beat % perBar) + perBar) % perBar == 0 ? c.bar : c.beat;
+        int64_t in = ((beat % perBar) + perBar) % perBar;
+        bool groupStart = group && in != 0 && in % group == 0;
+        const std::vector<float>& click = in == 0 || groupStart ? c.bar : c.beat;
+        float g = groupStart ? (float)GROUP_GAIN : 1.0f;
         int64_t where = std::max<int64_t>(0, (int64_t)std::nearbyint((beat - begin) * beatFrames));
         int64_t n = std::min<int64_t>((int64_t)click.size(), frames - where);
-        for (int64_t k = 0; k < n; k++) mono[(size_t)(where + k)] += click[(size_t)k];
+        for (int64_t k = 0; k < n; k++) mono[(size_t)(where + k)] += click[(size_t)k] * g;
     }
     auto out = std::make_shared<AudioBuffer>();
     out->samples.resize(mono.size() * 2);

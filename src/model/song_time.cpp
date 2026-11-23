@@ -114,11 +114,9 @@ bool rampsOn(const TempoMap& m, double beat) {
     while (i + 1 < ps.size() && ps[i + 1].beat <= beat + 1e-9) i++;
     return ps[i].ramp;
 }
-int perBarAt(const TempoMap& m, double beat) {
-    int bar, perBar;
-    double at;
-    m.meterAt(beat, bar, at, perBar);
-    return perBar;
+TimeSig sigAt(const TempoMap& m, double beat) { return m.meterAtBeat(beat).sig(); }
+TempoChange changeWith(int bar, double bpm, TimeSig sig, bool ramp) {
+    return TempoChange{bar, bpm, sig.num, 0.0, ramp, sig.den};
 }
 }  // namespace
 
@@ -138,11 +136,11 @@ std::string moveTempo(Timing& timing, double atS, double lengthS, bool insert) {
         for (auto& c : timing.changes)
             if (c.bar - 1 >= first) c.bar += count;
         if (rampIn)  // (the ramp ends at the cut, as it did; the new bars hold its tempo)
-            timing.setChange(TempoChange{first + 1, before, perBarAt(*was, cut - 0.5), 0.0, false});
+            timing.setChange(changeWith(first + 1, before, sigAt(*was, cut - 1e-6), false));
         if (through)  // (…and it goes on from where it was after them)
-            timing.setChange(TempoChange{first + count + 1, was->bpmAtBeat(cut), perBarAt(*was, cut), 0.0, true});
+            timing.setChange(changeWith(first + count + 1, was->bpmAtBeat(cut), sigAt(*was, cut), true));
         if (first == 0 && timing.ramp) {  // (bar 1's ramp starts after the new bars)
-            timing.setChange(TempoChange{count + 1, timing.bpm, timing.beatsPerBar, 0.0, true});
+            timing.setChange(changeWith(count + 1, timing.bpm, timing.sig(), true));
             timing.ramp = false;
         }
         return std::string();
@@ -150,7 +148,7 @@ std::string moveTempo(Timing& timing, double atS, double lengthS, bool insert) {
     // (what plays right after the deleted bars, at its tempo: a ramp cut there goes on from its tempo there)
     double end = was->barBeat(first + count);
     double afterBpm = was->bpmAtBeat(end);
-    int afterPerBar = perBarAt(*was, end);
+    TimeSig afterSig = sigAt(*was, end);
     bool afterRamps = rampsOn(*was, end);
     std::vector<TempoChange> kept;
     for (auto c : timing.changes) {
@@ -166,20 +164,22 @@ std::string moveTempo(Timing& timing, double atS, double lengthS, bool insert) {
                   // project file can't hold)
             timing.bpm = c.bpm;
             timing.beatsPerBar = c.beatsPerBar;
+            timing.beatUnit = c.beatUnit;
             timing.ramp = c.ramp;
         }
     }
     TempoMapPtr now = timing.map();
     if (first == 0) {
         timing.bpm = afterBpm;
-        timing.beatsPerBar = afterPerBar;
+        timing.beatsPerBar = afterSig.num;
+        timing.beatUnit = afterSig.den;
         timing.ramp = afterRamps;
     } else if (!timing.changeAtBar(first + 1)) {
         double in = 0;
         bool rampIn = false;
         arriving(*now, cut, in, rampIn);
-        if (rampIn || afterRamps || now->bpmAtBeat(cut) != afterBpm || perBarAt(*now, cut) != afterPerBar)
-            timing.setChange(TempoChange{first + 1, afterBpm, afterPerBar, 0.0, afterRamps});
+        if (rampIn || afterRamps || now->bpmAtBeat(cut) != afterBpm || sigAt(*now, cut) != afterSig)
+            timing.setChange(changeWith(first + 1, afterBpm, afterSig, afterRamps));
     }
     return std::string();
 }

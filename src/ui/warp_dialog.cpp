@@ -157,7 +157,8 @@ void WarpDialog::fill(int select) {
         int bar = 0, beatIn = 0;
         double b = map_->beatAt(t);
         bar = map_->barAt(t);
-        beatIn = (int)std::floor(b - map_->beatAt(map_->barSeconds(bar)) + 1e-6);
+        double unit = map_->sigAt(t).unitQuarters().value();  // (counted in the signature's unit: 8ths in 6/8)
+        beatIn = (int)std::floor((b - map_->beatAt(map_->barSeconds(bar))) / unit + 1e-6);
         markerList->addItem(util::format("beat %7.3f  bar %d.%d  %s  (audio %.3f s)", m.beat, bar + 1,
                                          beatIn + 1, clock(t).c_str(), m.frame / std::max(1, clip_.sourceSr)));
     }

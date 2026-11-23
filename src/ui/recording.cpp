@@ -64,25 +64,28 @@ int64_t countInAudio(const metronome::MetronomeSettings& settings, const Timing&
     // recording starts: starting off a beat, the next beat after the count-in comes as counted
     audio = nullptr;
     if (bars <= 0) return 0;
-    int perBar = std::max(1, timing.beatsPerBarAt(at));
-    int beats = bars * perBar;
-    double beatS = timing.beatSAt(at);
+    TempoMapPtr map = timing.map();
+    const Meter& meter = map->meterAtBeat(map->beatAt(at));
+    int perBar = std::max(1, meter.beatsPerBar);
+    int beats = bars * perBar;  // (counted beats: the signature's unit, 8ths in 6/8)
+    double unit = 4.0 / meter.beatUnit;
+    double beatS = timing.beatSAt(at) * unit;
     double beatFrames = beatS * sr;
     int64_t frames = (int64_t)std::llround(beats * beatFrames);
     std::vector<float> mono((size_t)std::max<int64_t>(0, frames), 0.0f);
     std::vector<float> barClick = metronome::renderClick(settings.bar, sr);
     std::vector<float> beatClick = metronome::renderClick(settings.beat, sr);
-    int meterBar, meterPerBar;
-    double meterBeat;
-    timing.map()->meterAt(timing.beatAt(at), meterBar, meterBeat, meterPerBar);
-    double now = timing.beatAt(at) - meterBeat;  // (beats since the time signature's first bar line)
+    double now = (timing.beatAt(at) - meter.beat) / unit;  // (counted beats since the time signature's first bar line)
     double begin = now - beats;  // (where the count-in starts, in those beats)
+    int group = meter.sig().compound() ? 3 : 0;
     for (int64_t beat = (int64_t)std::ceil(begin - 1e-6); beat < (int64_t)std::ceil(now - 1e-6); beat++) {
         int64_t inBar = ((beat % perBar) + perBar) % perBar;  // (Python's %: never negative)
-        const std::vector<float>& click = inBar == 0 ? barClick : beatClick;
+        bool groupStart = group && inBar != 0 && inBar % group == 0;  // (a compound signature's dotted groups)
+        const std::vector<float>& click = inBar == 0 || groupStart ? barClick : beatClick;
+        float g = groupStart ? (float)metronome::GROUP_GAIN : 1.0f;
         int64_t where = std::max<int64_t>(0, (int64_t)std::llround((beat - begin) * beatFrames));
         int64_t n = std::min<int64_t>((int64_t)click.size(), frames - where);
-        for (int64_t i = 0; i < n; i++) mono[(size_t)(where + i)] += click[(size_t)i];
+        for (int64_t i = 0; i < n; i++) mono[(size_t)(where + i)] += click[(size_t)i] * g;
     }
     auto buf = std::make_shared<AudioBuffer>();
     buf->samples.resize(mono.size() * 2);

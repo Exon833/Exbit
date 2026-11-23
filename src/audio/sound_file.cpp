@@ -20,6 +20,7 @@
 
 #include "audio/codecs.h"
 #include "audio/md5.h"
+#include "core/util.h"
 
 namespace {
 
@@ -1196,8 +1197,9 @@ bool writeFlac(const std::string& path, const float* interleaved, size_t frames,
 
 // beats: times in beats (ticks / ticks per beat) rather than seconds
 static bool readMidi(const std::string& path, std::vector<MidiFileNote>& notes, double& lengthSeconds,
-                     std::string& error, bool beats) {
+                     std::string& error, bool beats, std::vector<MidiFileSig>* sigs = nullptr) {
     notes.clear();
+    std::vector<std::pair<int64_t, MidiFileSig>> sigTicks;  // (time_signature events, at their ticks)
     lengthSeconds = 0;
     FileBytes file;
     if (!file.open(path, error)) return false;
@@ -1288,6 +1290,15 @@ static bool readMidi(const std::string& path, std::vector<MidiFileNote>& notes, 
                     ev.status = 0xFF;
                     ev.tempo = ((uint32_t)d[p] << 16) | ((uint32_t)d[p + 1] << 8) | d[p + 2];
                 }
+                if (type == 0x58 && len >= 2 && sigs) {  // time_signature: numerator, the denominator's power of two
+                    int num = d[p], power = d[p + 1];
+                    if (power > 5 || num < 1) {
+                        util::debugf("%s: a time signature %d/2^%d at tick %lld: read as 4/4\n", path.c_str(), num, power,
+                                     (long long)tick);
+                        num = 4, power = 2;
+                    }
+                    sigTicks.push_back({tick, MidiFileSig{0, num, 1 << power}});
+                }
                 p += len;
             } else if (status == 0xF0 || status == 0xF7) {  // sysex
                 uint32_t len = readVarLen(d, end, p, ok);
@@ -1365,6 +1376,17 @@ static bool readMidi(const std::string& path, std::vector<MidiFileNote>& notes, 
         return a.velocity < b.velocity;
     });
     lengthSeconds = now;
+    if (sigs) {
+        std::stable_sort(sigTicks.begin(), sigTicks.end(),
+                         [](const std::pair<int64_t, MidiFileSig>& a, const std::pair<int64_t, MidiFileSig>& b) {
+                             return a.first < b.first;
+                         });
+        sigs->clear();
+        for (auto& s : sigTicks) {
+            s.second.beat = (double)s.first / (smpteTick > 0 || tpb <= 0 ? 480.0 : (double)tpb);
+            sigs->push_back(s.second);
+        }
+    }
     return true;
 }
 
@@ -1376,6 +1398,12 @@ bool readMidiFile(const std::string& path, std::vector<MidiFileNote>& notes, dou
 bool readMidiFileBeats(const std::string& path, std::vector<MidiFileNote>& notes, double& lengthBeats,
                        std::string& error) {
     return readMidi(path, notes, lengthBeats, error, true);
+}
+
+bool readMidiFileSignatures(const std::string& path, std::vector<MidiFileSig>& sigs, std::string& error) {
+    std::vector<MidiFileNote> notes;
+    double length = 0;
+    return readMidi(path, notes, length, error, true, &sigs);
 }
 
 // ============================== writing MIDI files ==============================

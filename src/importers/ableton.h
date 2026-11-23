@@ -79,7 +79,8 @@ std::vector<float> envelope(int64_t n, int64_t gate, double attackS, double deca
 // A set's tempo automation ((beat, BPM) events by time, as Live keeps them: linear between events, a jump where
 // two share a time; before the first, its value) as the song's tempo changes: a ramp between two events of
 // different tempos, a step where they jump (the ramp then ends a thousandth of a beat before the jump). Bars of
-// `beatsPerBar` beats. Returns how many changes were made.
-int tempoFromEnvelope(Timing& timing, const std::vector<std::pair<double, double>>& events, int beatsPerBar);
+// `beatsPerBar` beats of 1/`beatUnit` notes (Live counts quarter notes). Returns how many changes were made.
+int tempoFromEnvelope(Timing& timing, const std::vector<std::pair<double, double>>& events, int beatsPerBar,
+                      int beatUnit = 4);
 
 }  // namespace ableton

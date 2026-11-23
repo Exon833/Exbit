@@ -140,10 +140,14 @@ void testLane() {
         CHECK(d.bar == 5 && d.beat == 0 && !d.removeButton && !d.rampBox->isChecked());
         d.tempo->setValue(90);
         d.signature->setValue(3);
+        CHECK(d.unit->currentDataInt() == 4 && d.unit->isEnabled());
+        d.unit->setCurrentIndex(d.unit->findData(8));  // (3/8)
+        savePng(outDir() + "/tempo-dialog.png", paintScroll(d));
         return true;
     };
     tl.addTempoPoint(t.barSeconds(4) + 0.01);
-    CHECK(t.changeAtBar(5) && t.changeAtBar(5)->bpm == 90 && t.changeAtBar(5)->beatsPerBar == 3);
+    CHECK(t.changeAtBar(5) && t.changeAtBar(5)->bpm == 90 && t.changeAtBar(5)->sig() == (TimeSig{3, 8}));
+    CHECK(t.barBeat(5) - t.barBeat(4) == 1.5);  // (a bar of 3/8: one and a half quarter notes)
     // now bar 2's can ramp: its menu ramps it; the tempo then rises… falls from bar 2's to 90 at bar 5
     ui::Menu menu2;
     tl.fillTempoMenu(menu2, 2.0, TempoRef{2, 0});

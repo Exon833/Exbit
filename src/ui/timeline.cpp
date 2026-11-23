@@ -536,7 +536,7 @@ ClipPtr Timeline::newMidiClip(const TrackPtr& track, int64_t frame, int64_t fram
     const Timing& t = project.timing;
     double at = (double)frame / engine.sr;
     double seconds = frames ? (double)frames / engine.sr
-                            : (t.beats ? t.secondsAt(t.beatAt(at) + t.beatsPerBarAt(at)) - at : 2.0);  // (a bar of beats)
+                            : (t.beats ? t.secondsAt(t.beatAt(at) + t.barQuartersAt(at)) - at : 2.0);  // (a bar of beats)
     auto clip = std::make_shared<Clip>();
     clip->kind = Kind::Midi;
     clip->name = "MIDI clip";

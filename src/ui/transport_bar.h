@@ -196,7 +196,8 @@ public:
     ui::SpinBox* bpmBox;
     ui::Button* tapButton;      // `pressed` is the tap (T presses it too)
     ui::Button* metronomeButton;  // checkable (Ctrl+M); right-click (rightClicked): its sounds
-    ui::SpinBox* signatureBox;
+    ui::SpinBox* signatureBox;  // the time signature: beats per bar / unitBox
+    ui::ComboBox* unitBox;      // (its denominator: 1, 2, 4, 8, 16, 32, the item data)
     std::unique_ptr<TransportAction> beatsAction, thirdsAction;
 
     void showTiming(const Timing& timing);   // the project's tempo and grid settings, without change signals

@@ -1,6 +1,8 @@
 // The metronome: its two click sounds and when they play (metronome.py). No GUI.
 //
-// One click marks the start of every bar, the other every other beat (quarter note) of the bar,
+// One click marks the start of every bar, the other every other beat of the bar (the signature's unit:
+// quarters in 4/4, eighths in 6/8 and 7/8, halves in 3/2; in a compound signature, 6/8, 9/8, 12/8, each
+// dotted group's first beat gets the bar's click at GROUP_GAIN),
 // following the project's tempo map: its tempo and time signature changes (timing.h, beatTimes;
 // the audio thread reads timing.audioMap()). Each click is a short tone shaped
 // by an attack-sustain-release envelope: it rises from silence to its level in `attackMs`, stays
@@ -23,6 +25,7 @@ extern const char* const WAVEFORMS[4];  // "sine", "triangle", "square", "noise"
 constexpr double MAX_ATTACK_MS = 100, MAX_SUSTAIN_MS = 200, MAX_RELEASE_MS = 200;  // (the envelope editor shows 500 ms)
 constexpr double MIN_DB = -40.0, MAX_DB = 0.0;
 constexpr double MIN_PITCH = 100.0, MAX_PITCH = 8000.0;
+constexpr double GROUP_GAIN = 0.5;  // a compound signature's dotted groups: the bar's click this loud
 
 struct Click {
     double pitch = 1000.0;   // Hz (not used by "noise")

@@ -70,7 +70,7 @@ bool saveMidi(const std::string& path, const std::vector<MidiPart>& parts, const
         double endBeat = i + 1 < segments.size() ? segments[i + 1].beat : std::numeric_limits<double>::infinity();
         if (ends <= startS) continue;  // (over before the part written begins)
         int64_t at = s.seconds <= startS ? 0 : tickOf(s.beat);
-        if (at == 0 || s.beat == s.barBeat) tempo.events.push_back(midi_out::timeSignature(at, s.beatsPerBar, 4));
+        if (at == 0 || s.beat == s.barBeat) tempo.events.push_back(midi_out::timeSignature(at, s.beatsPerBar, s.beatUnit));
         if (s.k == 0) {
             tempo.events.push_back(midi_out::tempo(at, s.bpm));
             continue;

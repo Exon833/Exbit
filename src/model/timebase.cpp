@@ -32,7 +32,8 @@ Before remember(const Project& p) {
 
 namespace {
 bool sameMap(const TempoMap& a, const TempoMap& b) {
-    return a.bpm == b.bpm && a.beatsPerBar == b.beatsPerBar && a.ramp == b.ramp && a.changes == b.changes;
+    return a.bpm == b.bpm && a.beatsPerBar == b.beatsPerBar && a.beatUnit == b.beatUnit && a.ramp == b.ramp &&
+           a.changes == b.changes;
 }
 }  // namespace
 

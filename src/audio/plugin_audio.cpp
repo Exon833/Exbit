@@ -255,7 +255,9 @@ Transport Transport::at(const TempoMap& map, bool playing, int64_t start, int sr
     Transport t;
     double seconds = playing ? (double)start / sr : 0.0;
     t.tempo = map.bpmAt(seconds);
-    t.numerator = map.beatsPerBarAt(seconds);
+    TimeSig sig = map.sigAt(seconds);
+    t.numerator = sig.num;
+    t.denominator = sig.den;
     t.playing = playing;
     t.position = playing ? start : 0;
     t.beats = playing ? std::max(0.0, map.beatAt(seconds)) : 0.0;

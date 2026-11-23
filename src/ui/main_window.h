@@ -266,6 +266,7 @@ public:
         std::optional<double> bpm;
         std::optional<int> beatsPerBar;
         std::optional<bool> beats, thirds;
+        std::optional<int> beatUnit;  // (the time signature's denominator)
     };
     void setTiming(const TimingChange& changes);
     void startTimers();
