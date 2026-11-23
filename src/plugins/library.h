@@ -48,7 +48,7 @@ struct PluginInfo {
     std::string label() const {
         if (isBuiltinPath(path))
             return name + "  (built-in)";
-#ifdef _WIN32
+#ifdef TINYDAW_WINDOWS
         std::string windows = is32Bit() ? "  (32-bit)" : "";  // (on Windows every plugin is a Windows one)
 #else
         std::string windows = looksWindows() ? (is32Bit() ? "  (Windows, 32-bit)" : "  (Windows)") : "";

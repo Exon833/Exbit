@@ -14,6 +14,9 @@
 
 #include <fcntl.h>
 #include <sys/stat.h>
+#ifdef _WIN32
+#include <sys/utime.h>
+#endif
 #include <time.h>
 #include <cstdio>
 
@@ -1017,8 +1020,13 @@ bool keepBackup(const std::string& path, std::string& backupPath, std::string& e
     for (int n = 2; util::fileExists(target); n++)
         target = util::joinPath(folder, stem + " " + stamp + " (" + std::to_string(n) + ").json");
     if (!writeJson(target, data, error)) return false;
+#ifdef _WIN32
+    struct utimbuf times = {st.st_atime, st.st_mtime};  // (its time is when that version was saved)
+    utime(target.c_str(), &times);
+#else
     struct timespec times[2] = {st.st_atim, st.st_mtim};  // (its time is when that version was saved)
     utimensat(AT_FDCWD, target.c_str(), times, 0);
+#endif
     std::vector<Backup> all = backups(path);
     for (size_t i = (size_t)std::max(0, kept); i < all.size(); i++) util::removeFile(all[i].path);
     backupPath = target;
@@ -1094,7 +1102,7 @@ bool writeRecovery(const std::string& path, const Json& data, const std::vector<
         const AudioBuffer& buf = *w.audio;
         if (!writeWav(temp, buf.samples.data(), (size_t)buf.frames(), 2, w.sampleRate, SampleFormat::Float32, error))
             return false;
-        if (rename(temp.c_str(), w.file.c_str()) != 0) {
+        if (!util::renameFile(temp, w.file)) {
             error = "Cannot write " + w.file + ": " + strerror(errno);
             return false;
         }

@@ -22,10 +22,17 @@ namespace plug {
 
 #ifdef _WIN32
 namespace {
+// '/' for '\\' (the program's paths: core/os.h)
+std::string slashes(std::string s) {
+    std::replace(s.begin(), s.end(), '\\', '/');
+    while (s.size() > 3 && s.back() == '/') s.pop_back();
+    return s;
+}
+
 // an environment variable's folder (Windows' own names: %CommonProgramFiles%…), else `otherwise`
 std::string envFolder(const char* name, const char* otherwise) {
     const char* v = getenv(name);
-    return v && *v ? v : otherwise;
+    return slashes(v && *v ? v : otherwise);
 }
 
 // VST2's folder as installers write it in the registry (HKLM, then HKCU: SOFTWARE\VST, VSTPluginsPath)
@@ -41,7 +48,7 @@ std::vector<std::string> registryVst2Folders() {
             int n = WideCharToMultiByte(CP_UTF8, 0, value, -1, nullptr, 0, nullptr, nullptr);
             std::string s(n > 0 ? n - 1 : 0, '\0');
             if (n > 1) WideCharToMultiByte(CP_UTF8, 0, value, -1, &s[0], n, nullptr, nullptr);
-            while (s.size() > 3 && (s.back() == '\\' || s.back() == '/')) s.pop_back();
+            s = slashes(s);
             if (!s.empty() && std::find(out.begin(), out.end(), s) == out.end()) out.push_back(s);
         }
     return out;
@@ -52,12 +59,12 @@ std::vector<std::string> registryVst2Folders() {
 std::vector<std::string> defaultFolders() {
 #ifdef _WIN32
     // the VST3 folder (and, for 32-bit plugins, its 32-bit twin), and the one of a plugin installed for one user
-    std::string common = envFolder("CommonProgramFiles", "C:\\Program Files\\Common Files");
-    std::string common32 = envFolder("CommonProgramFiles(x86)", "C:\\Program Files (x86)\\Common Files");
-    std::vector<std::string> f = {common + "\\VST3"};
-    if (util::lower(common32) != util::lower(common)) f.push_back(common32 + "\\VST3");
+    std::string common = envFolder("CommonProgramFiles", "C:/Program Files/Common Files");
+    std::string common32 = envFolder("CommonProgramFiles(x86)", "C:/Program Files (x86)/Common Files");
+    std::vector<std::string> f = {common + "/VST3"};
+    if (util::lower(common32) != util::lower(common)) f.push_back(common32 + "/VST3");
     if (const char* local = getenv("LOCALAPPDATA"))
-        f.push_back(std::string(local) + "\\Programs\\Common\\VST3");
+        f.push_back(slashes(local) + "/Programs/Common/VST3");
     return f;
 #else
     return {util::joinPath(plat::homeDir(), ".vst3"), "/usr/lib/vst3", "/usr/local/lib/vst3"};
@@ -68,10 +75,9 @@ std::vector<std::string> vst2UsualFolders() {
 #ifdef _WIN32
     // the registry's, then the usual ones, in Program Files and (32-bit plugins) Program Files (x86)
     std::vector<std::string> f = registryVst2Folders();
-    for (const std::string& root : {envFolder("ProgramFiles", "C:\\Program Files"),
-                                    envFolder("ProgramFiles(x86)", "C:\\Program Files (x86)")})
-        for (const char* rel : {"\\VstPlugins", "\\Steinberg\\VstPlugins", "\\Common Files\\VST2",
-                                "\\Common Files\\Steinberg\\VST2"})
+    for (const std::string& root : {envFolder("ProgramFiles", "C:/Program Files"),
+                                    envFolder("ProgramFiles(x86)", "C:/Program Files (x86)")})
+        for (const char* rel : {"/VstPlugins", "/Steinberg/VstPlugins", "/Common Files/VST2", "/Common Files/Steinberg/VST2"})
             if (std::find(f.begin(), f.end(), root + rel) == f.end()) f.push_back(root + rel);
     return f;
 #else
@@ -122,11 +128,7 @@ PluginChoiceNeeded::PluginChoiceNeeded(std::vector<std::string> n)
 std::string loadableFile(const std::string& path) {
 #ifndef TINYDAW_IN_HOST
     if (util::isDir(path) && !util::fileExists(vst3Binary(path)))  // (64-bit, else 32-bit: in a host for it)
-#ifdef _WIN32
-        for (const char* arch : {"Contents\\x86_64-win", "Contents\\x86-win"}) {
-#else
         for (const char* arch : {"Contents/x86_64-win", "Contents/x86-win"}) {
-#endif
             std::string windows = util::joinPath(util::joinPath(path, arch), util::baseName(path));
             if (util::fileExists(windows) && !util::isDir(windows))
                 return windows;

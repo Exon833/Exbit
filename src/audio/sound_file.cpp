@@ -6,7 +6,6 @@
 #include "audio/sound_file.h"
 
 #include <fcntl.h>
-#include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -20,6 +19,7 @@
 
 #include "audio/codecs.h"
 #include "audio/md5.h"
+#include "core/os.h"
 #include "core/util.h"
 
 namespace {
@@ -30,15 +30,14 @@ const char* kNotSound = "Not a sound file this program can read";
 struct FileBytes {
     const uint8_t* data = nullptr;
     size_t size = 0;
-    void* map = nullptr;
+    os::MappedFile map;
     std::string copy;  // when it can't be mapped
-    FileBytes() = default;
-    FileBytes(const FileBytes&) = delete;
-    FileBytes& operator=(const FileBytes&) = delete;
-    ~FileBytes() {
-        if (map) munmap(map, size);
-    }
     bool open(const std::string& path, std::string& error) {
+        if (map.map(path)) {
+            data = map.data;
+            size = map.size;
+            return true;
+        }
         int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
         if (fd < 0) {
             error = "Cannot open " + path + ": " + strerror(errno);
@@ -50,17 +49,7 @@ struct FileBytes {
             error = "Cannot open " + path + ": not a file";
             return false;
         }
-        size = (size_t)st.st_size;
-        if (size > 0) {
-            void* m = mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0);
-            if (m != MAP_FAILED) {
-                map = m;
-                data = (const uint8_t*)m;
-                ::close(fd);
-                return true;
-            }
-        }
-        // read it instead
+        // (empty, or it can't be mapped:) read it instead
         copy.clear();
         char buf[65536];
         ssize_t n;

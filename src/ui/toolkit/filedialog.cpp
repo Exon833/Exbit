@@ -100,6 +100,9 @@ std::string timeText(double t) {
 
 std::string normalize(const std::string& path) {
     std::string p = util::absolutePath(util::expandUser(path));
+#ifdef _WIN32
+    return p;  // ("C:/…": absolutePath collapsed "." and ".." already)
+#endif
     // collapse "." and ".."
     std::vector<std::string> parts;
     for (auto& seg : util::split(p, '/')) {
@@ -566,7 +569,11 @@ public:
         addPlace("Music", util::joinPath(home, "Music"));
         addPlace("Documents", util::joinPath(home, "Documents"));
         addPlace("Downloads", util::joinPath(home, "Downloads"));
+#ifdef _WIN32
+        for (char d = 'C'; d <= 'Z'; d++) addPlace(std::string(1, d) + ":", std::string(1, d) + ":/");  // (the drives)
+#else
         addPlace("/", "/");
+#endif
         const char* user = getenv("USER");
         std::string u = user ? user : util::baseName(home);
         for (std::string base : {std::string("/media/") + u, std::string("/run/media/") + u}) {
@@ -581,7 +588,7 @@ public:
         if (!util::isDir(p)) return;
         folder = p;
         pathEdit->setTextSilently(folder);
-        upBtn->setEnabled(folder != "/");
+        upBtn->setEnabled(folder != "/" && util::dirName(folder) != folder);  // (Windows: "C:/" is a top)
         // the place it is in, lit
         int best = -1;
         size_t bestLen = 0;
@@ -598,7 +605,7 @@ public:
     }
 
     void goUp() {
-        if (folder == "/") return;
+        if (folder == "/" || util::dirName(folder) == folder) return;
         std::string from = util::baseName(folder);
         go(util::dirName(folder).empty() ? "/" : util::dirName(folder));
         for (int i = 0; i < (int)list->entries.size(); ++i)
@@ -612,7 +619,7 @@ public:
         std::vector<FileList::Entry> dirs, fileEntries;
         const Filter& f = filter();
         for (auto& e : util::listDir(folder)) {
-            if (e.name.empty() || e.name[0] == '.') continue;
+            if (e.name.empty() || e.name[0] == '.' || e.hidden) continue;
             std::string full = util::joinPath(folder, e.name);
             bool isDir = e.isDir || util::isDir(full);
             if (isDir) {

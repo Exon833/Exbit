@@ -3,8 +3,7 @@
 // what the console holds; the console's modes and code pages are given back on close() and on a crash.
 // Windows only. It runs in a console of its own (a classic conhost: it starts itself with CREATE_NEW_CONSOLE);
 // --here runs in the console it was started in (over ssh -tt: a pseudo console, as Windows Terminal's).
-//   g++ -std=c++17 -O1 -Isrc -static tests/test_tui_console_win.cpp src/tui/term.cpp src/tui/term_win.cpp
-//       src/tui/screen.cpp -lgdi32 -o build/tests/test_tui_console_win.exe  (one line)
+// (make tests-win builds and runs it, with the program's platform layer: its main loop runs the work posted to it)
 #include <windows.h>
 
 #include <cstdio>
@@ -19,16 +18,6 @@
 #include "tui/term.h"
 
 using namespace tui;
-
-namespace plat {  // (what term_win.cpp needs of the platform layer: work posted to the main thread)
-static std::deque<std::function<void()>> posted;
-static CRITICAL_SECTION postLock;
-void postToMain(std::function<void()> fn) {
-    EnterCriticalSection(&postLock);
-    posted.push_back(std::move(fn));
-    LeaveCriticalSection(&postLock);
-}
-}  // namespace plat
 
 namespace {
 
@@ -216,7 +205,7 @@ Modes modes() {
 }
 
 int runTests(bool here) {
-    InitializeCriticalSection(&plat::postLock);
+    plat::initWithoutDisplay();  // (the main loop: what the input's watch posts runs in processEvents)
     if (!here) setSize(80, 24);
     Modes before = modes();
     {
@@ -241,14 +230,7 @@ int runTests(bool here) {
         DWORD n = 0;
         WriteConsoleInputW(in, &r, 1, &n);
         CloseHandle(in);
-        for (int i = 0; i < 100 && !told; i++) {
-            Sleep(10);
-            EnterCriticalSection(&plat::postLock);
-            auto q = std::move(plat::posted);
-            plat::posted.clear();
-            LeaveCriticalSection(&plat::postLock);
-            for (auto& f : q) f();
-        }
+        for (int i = 0; i < 100 && !told; i++) plat::processEvents(10);
         t.unwatch();
         CHECK(told == 1);
         testPicture(t, 80, 24, !here);
@@ -302,7 +284,6 @@ int main(int argc, char** argv) {
     }
     if (mode == "--here") return runTests(true);
     if (mode == "--demo") {  // (by hand: the keys typed and the size, drawn as tinydaw --tui draws; Ctrl+Q ends it)
-        InitializeCriticalSection(&plat::postLock);
         Terminal t;
         std::string why;
         if (!t.open(why)) return fprintf(stderr, "%s\n", why.c_str()), 1;

@@ -7,9 +7,15 @@
 #ifdef TINYDAW_WINE_PE
 #include <windows.h>  // (src/winehost/include's: wine_get_dos_file_name)
 #endif
+#ifdef TINYDAW_WINDOWS
+#include <windows.h>
+
+#include "core/os.h"
+#endif
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -120,7 +126,7 @@ bool writeFile(const std::string& path, const std::string& data) {
         ::remove(tmp.c_str());
         return false;
     }
-    if (rename(tmp.c_str(), path.c_str()) != 0) {
+    if (!renameFile(tmp, path)) {
         ::remove(tmp.c_str());
         return false;
     }
@@ -146,6 +152,18 @@ bool makeDirs(const std::string& path) {
 
 bool removeFile(const std::string& path) { return ::remove(path.c_str()) == 0; }
 
+bool renameFile(const std::string& from, const std::string& to) {
+#ifdef TINYDAW_WINDOWS
+    if (MoveFileExW(os::widen(from).c_str(), os::widen(to).c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED))
+        return true;
+    DWORD e = GetLastError();  // (as errno, for the callers' strerror)
+    errno = e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND ? ENOENT : e == ERROR_ACCESS_DENIED ? EACCES : EIO;
+    return false;
+#else
+    return ::rename(from.c_str(), to.c_str()) == 0;
+#endif
+}
+
 int64_t fileSize(const std::string& path) {
     struct stat st;
     return stat(path.c_str(), &st) == 0 ? (int64_t)st.st_size : -1;
@@ -154,7 +172,11 @@ int64_t fileSize(const std::string& path) {
 double fileMtime(const std::string& path) {
     struct stat st;
     if (stat(path.c_str(), &st) != 0) return 0;
+#ifdef TINYDAW_WINDOWS
+    return (double)st.st_mtime;  // (whole seconds: the C library's stat has no more)
+#else
     return (double)st.st_mtim.tv_sec + st.st_mtim.tv_nsec * 1e-9;
+#endif
 }
 
 std::vector<DirEntry> listDir(const std::string& path) {
@@ -164,8 +186,16 @@ std::vector<DirEntry> listDir(const std::string& path) {
     while (dirent* e = readdir(d)) {
         if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
         bool dir = false;
+#ifdef TINYDAW_WINDOWS
+        DWORD attr = GetFileAttributesW(os::widen(joinPath(path, e->d_name)).c_str());  // (MinGW's dirent has no d_type)
+        dir = attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY);
+        bool hidden = attr != INVALID_FILE_ATTRIBUTES && (attr & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM));
+        out.push_back({e->d_name, dir, hidden});
+        continue;
+#else
         if (e->d_type == DT_DIR) dir = true;
         else if (e->d_type == DT_UNKNOWN || e->d_type == DT_LNK) dir = isDir(joinPath(path, e->d_name));
+#endif
         out.push_back({e->d_name, dir});
     }
     closedir(d);
@@ -176,10 +206,14 @@ std::vector<DirEntry> listDir(const std::string& path) {
 }
 
 static bool walk(const std::string& dir, const std::function<bool(const std::string&)>& fn,
-                 std::set<std::pair<dev_t, ino_t>>& seen) {
+                 std::set<std::pair<dev_t, std::string>>& seen) {
     struct stat st;
     if (stat(dir.c_str(), &st) != 0) return true;
-    if (!seen.insert({st.st_dev, st.st_ino}).second) return true;
+#ifdef TINYDAW_WINDOWS
+    if (!seen.insert({0, lower(absolutePath(dir))}).second) return true;  // (no inode numbers: the folder's path)
+#else
+    if (!seen.insert({st.st_dev, std::to_string(st.st_ino)}).second) return true;
+#endif
     DIR* d = opendir(dir.c_str());
     if (!d) return true;
     std::vector<std::string> subdirs;
@@ -189,8 +223,12 @@ static bool walk(const std::string& dir, const std::function<bool(const std::str
         if (!e) break;
         if (e->d_name[0] == '.' && (!e->d_name[1] || (e->d_name[1] == '.' && !e->d_name[2]))) continue;
         std::string p = joinPath(dir, e->d_name);
+#ifdef TINYDAW_WINDOWS
+        bool isdir = isDir(p);
+#else
         bool isdir = e->d_type == DT_DIR;
         if (e->d_type == DT_UNKNOWN || e->d_type == DT_LNK) isdir = isDir(p);
+#endif
         if (isdir) subdirs.push_back(p);
         else go = fn(p);
     }
@@ -204,15 +242,25 @@ static bool walk(const std::string& dir, const std::function<bool(const std::str
 }
 
 void walkFiles(const std::string& root, const std::function<bool(const std::string& path)>& fn) {
-    std::set<std::pair<dev_t, ino_t>> seen;
+    std::set<std::pair<dev_t, std::string>> seen;
     walk(root, fn, seen);
 }
 #endif  // TINYDAW_WINE_PE
+
+#ifdef TINYDAW_WINDOWS
+// "C:/…" (or "C:" alone): the drive's 2 characters; else 0
+static size_t drivePrefix(const std::string& p) {
+    return p.size() >= 2 && p[1] == ':' && std::isalpha((unsigned char)p[0]) ? 2 : 0;
+}
+#endif
 
 std::string joinPath(const std::string& a, const std::string& b) {
     if (a.empty()) return b;
     if (b.empty()) return a;
     if (b[0] == '/') return b;
+#ifdef TINYDAW_WINDOWS
+    if (drivePrefix(b)) return b;
+#endif
     return a.back() == '/' ? a + b : a + "/" + b;
 }
 
@@ -220,6 +268,9 @@ std::string dirName(const std::string& path) {
     size_t i = path.find_last_of('/');
     if (i == std::string::npos) return "";
     if (i == 0) return "/";
+#ifdef TINYDAW_WINDOWS
+    if (i == 2 && drivePrefix(path)) return path.substr(0, 3);  // ("C:/x" -> "C:/")
+#endif
     return path.substr(0, i);
 }
 
@@ -243,10 +294,26 @@ std::string extension(const std::string& path) {
 std::string absolutePath(const std::string& path) {
     if (path.empty()) return path;
     std::string p = expandUser(path);
+#ifdef TINYDAW_WINDOWS
+    // shortcut: "\\server\share" (UNC) paths and "C:x" (relative to a drive's own folder) aren't handled
+    p = os::portablePath(p);
+    std::string drive;
+    if (!drivePrefix(p)) {
+        char buf[4096];
+        if (p[0] != '/' && _getcwd(buf, sizeof buf)) p = joinPath(os::portablePath(buf), p);
+        else if (p[0] == '/' && _getcwd(buf, sizeof buf) && drivePrefix(buf)) p = std::string(buf, 2) + p;
+    }
+    if (drivePrefix(p)) {
+        drive = p.substr(0, 2);
+        drive[0] = (char)std::toupper((unsigned char)drive[0]);
+        p = p.substr(2);
+    }
+#else
     if (p[0] != '/') {
         char buf[4096];
         if (getcwd(buf, sizeof buf)) p = joinPath(buf, p);
     }
+#endif
     // normalise "." and ".."
     std::vector<std::string> parts;
     for (auto& part : split(p, '/')) {
@@ -259,7 +326,11 @@ std::string absolutePath(const std::string& path) {
     }
     std::string out;
     for (auto& part : parts) out += "/" + part;
+#ifdef TINYDAW_WINDOWS
+    return drive + (out.empty() ? "/" : out);
+#else
     return out.empty() ? "/" : out;
+#endif
 }
 
 std::string expandUser(const std::string& path) {

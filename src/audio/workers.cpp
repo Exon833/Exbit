@@ -1,10 +1,14 @@
 #include "audio/workers.h"
 
+#ifdef _WIN32
+#include <windows.h>  // (WaitOnAddress / WakeByAddress*: Windows 8 and later, synchronization.lib)
+#else
 #include <linux/futex.h>
 #include <pthread.h>
 #include <sched.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <chrono>
@@ -25,12 +29,25 @@ uint64_t genOf(uint64_t s) { return s >> GEN_SHIFT; }
 int countOf(uint64_t s) { return (int)((s >> COUNT_SHIFT) & FIELD); }
 int nextOf(uint64_t s) { return (int)(s & FIELD); }
 
+#ifdef _WIN32
+void futexWait(std::atomic<uint32_t>* word, uint32_t value) {
+    WaitOnAddress(reinterpret_cast<volatile void*>(word), &value, sizeof value, INFINITE);
+}
+void futexWake(std::atomic<uint32_t>* word, int count) {
+    if (count >= 8) {
+        WakeByAddressAll(reinterpret_cast<void*>(word));
+        return;
+    }
+    for (int i = 0; i < count; i++) WakeByAddressSingle(reinterpret_cast<void*>(word));
+}
+#else
 void futexWait(std::atomic<uint32_t>* word, uint32_t value) {
     syscall(SYS_futex, reinterpret_cast<uint32_t*>(word), FUTEX_WAIT_PRIVATE, value, nullptr, nullptr, 0);
 }
 void futexWake(std::atomic<uint32_t>* word, int count) {
     syscall(SYS_futex, reinterpret_cast<uint32_t*>(word), FUTEX_WAKE_PRIVATE, count, nullptr, nullptr, 0);
 }
+#endif
 inline void pause() {
 #if defined(__x86_64__) || defined(__i386__)
     __builtin_ia32_pause();
@@ -104,7 +121,7 @@ void Pool::run(int jobs, Job fn, void* ctx) {
         if (spins < 4096)
             pause();
         else
-            sched_yield();
+            std::this_thread::yield();
     }
 }
 
@@ -132,12 +149,19 @@ void setChosenCores(int wanted) { chosen.store(std::max(0, wanted)); }
 int chosenCores() { return chosen.load(); }
 
 int availableCores() {
+#ifdef _WIN32
+    // shortcut: threads stay in the process's processor group on Windows 10 (11 spreads them), so beyond 64 logical
+    // processors a part of them waits; SetThreadGroupAffinity per worker when such machines matter
+    DWORD n = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+    if (n > 0) return (int)n;
+#else
     cpu_set_t set;
     CPU_ZERO(&set);
     if (sched_getaffinity(0, sizeof set, &set) == 0) {
         int n = CPU_COUNT(&set);
         if (n > 0) return n;
     }
+#endif
     return std::max(1, (int)std::thread::hardware_concurrency());
 }
 

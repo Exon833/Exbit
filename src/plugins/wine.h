@@ -26,7 +26,7 @@ namespace wine {
 // On Windows itself (plugins/wine_win.cpp) there is no Wine: no prefixes are found, nothing of Wine's is
 // started, and the hosts are tinydaw-plugin-host.exe (-32.exe), started directly; Windows plugins are every
 // plugin there (a 64-bit one with no 64-bit host is loaded in the program itself, a failsafe).
-#ifdef _WIN32
+#ifdef TINYDAW_WINDOWS
 constexpr const char* HOST_NAME = "plugin host";  // (in messages: "its plugin host has ended")
 #else
 constexpr const char* HOST_NAME = "Wine host";

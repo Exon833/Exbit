@@ -1436,9 +1436,15 @@ void MainWindow::openFirstDevice() {
         }
     if (device.empty()) device = audio::defaultOutput(p.driverType);
     if (!device.empty()) openDevice();
+#ifdef _WIN32
+    else if (available.empty())  // (no output device, or the Windows Audio service isn't running)
+        showStatus("No audio output device found: projects can be edited but not heard. Connect one, then "
+                   "Options → Audio properties…");
+#else
     else if (available.empty())  // (none of ALSA, PulseAudio and JACK is installed, or none has an output)
         showStatus("No sound system found (ALSA, PulseAudio or JACK): projects can be edited but not heard. "
                    "Install one, then Options → Audio properties…");
+#endif
     else showStatus("No audio output device found.");
 }
 
@@ -1887,6 +1893,13 @@ void MainWindow::onFrame() {
     Timeline* tl = timeline;
     syncLoop();  // (also after opening a project or changing the sample rate)
     engine.idle();
+    if (engine.deviceLost() != deviceLostShown_) {  // (the device unplugged, or back)
+        deviceLostShown_ = !deviceLostShown_;
+        util::debugf("audio: the device is %s\n", deviceLostShown_ ? "lost" : "back");
+        showStatus(deviceLostShown_ ? "The audio device went away (unplugged, or its sound server stopped). Plug it "
+                                      "back in, or choose another: Options \xe2\x86\x92 Audio properties\xe2\x80\xa6"
+                                    : "The audio device is back: " + engine.deviceName());
+    }
     if (midiInput) midiInput->poll();  // (what the MIDI keyboards played)
     midiFrame();  // (External synths, Sync)
     if (recording) recording->tick();  // (the MIDI effects' notes played since, the loop's passes, monitoring)

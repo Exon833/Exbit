@@ -58,8 +58,10 @@ HANDLE inheritable(int fd) {
 }  // namespace
 
 std::wstring commandLine(const std::string& exe, const std::vector<std::string>& args) {
-    std::wstring line;
-    quote(line, wide(exe));
+    std::wstring line, w = wide(exe);
+    for (auto& c : w)  // (Windows' own way of writing it: the program's paths have '/')
+        if (c == L'/') c = L'\\';
+    quote(line, w);
     for (const auto& a : args) {
         line += L' ';
         quote(line, wide(a));
@@ -100,6 +102,8 @@ int spawn(const std::string& exe, const std::vector<std::string>& args, int inFd
                                             nullptr, nullptr);
     si.lpAttributeList = listed ? attributes : nullptr;
     std::wstring line = commandLine(exe, args), app = wide(exe);
+    for (auto& c : app)
+        if (c == L'/') c = L'\\';
     PROCESS_INFORMATION pi{};
     BOOL ok = CreateProcessW(app.c_str(), &line[0], nullptr, nullptr, TRUE,
                              CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | (listed ? EXTENDED_STARTUPINFO_PRESENT : 0),

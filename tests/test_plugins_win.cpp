@@ -98,11 +98,15 @@ void testFolders() {
     // Windows' own folders, from its environment (no Wine prefixes on Windows)
     auto vst3 = defaultFolders();
     const char* common = getenv("CommonProgramFiles");
-    CHECK(common && !vst3.empty() && util::lower(vst3[0]) == util::lower(std::string(common) + "\\VST3"));
+    auto slashes = [](std::string s) {
+        std::replace(s.begin(), s.end(), '\\', '/');
+        return s;
+    };
+    CHECK(common && !vst3.empty() && util::lower(vst3[0]) == util::lower(slashes(common) + "/VST3"));
     auto vst2 = vst2UsualFolders();
     const char* pf = getenv("ProgramFiles");
-    CHECK(pf && std::find(vst2.begin(), vst2.end(), std::string(pf) + "\\VstPlugins") != vst2.end());
-    CHECK(std::find(vst2.begin(), vst2.end(), std::string(pf) + "\\Steinberg\\VstPlugins") != vst2.end());
+    CHECK(pf && std::find(vst2.begin(), vst2.end(), slashes(pf) + "/VstPlugins") != vst2.end());
+    CHECK(std::find(vst2.begin(), vst2.end(), slashes(pf) + "/Steinberg/VstPlugins") != vst2.end());
     CHECK(wine::prefixes().empty() && wine::vst3Folders(wine::prefixes()).empty() && wine::winePath().empty());
     std::string why;
     CHECK(wine::startPrefix("C:\\x", "", why) < 0 && !why.empty());
@@ -120,14 +124,14 @@ Found testScan(const std::string& win, bool bits32) {
     Found f;
     std::string vst3 = util::joinPath(tempRoot, "VST3"), vst2 = util::joinPath(tempRoot, "VstPlugins");
     // a bundle (as installers lay them: X.vst3\Contents\x86_64-win\X.vst3) and a VST2 DLL in a folder of its own
-    std::string bundle = util::joinPath(vst3, "Tiny\\TinyTestFx.vst3");
-    CHECK(copyFile(util::joinPath(win, "TinyTestFx.vst3"), util::joinPath(bundle, "Contents\\x86_64-win\\TinyTestFx.vst3")));
-    CHECK(copyFile(util::joinPath(win, "TinyTestFx.moduleinfo.json"), util::joinPath(bundle, "Contents\\Resources\\moduleinfo.json")));
-    CHECK(copyFile(util::joinPath(win, "TinyTestSynth.dll"), util::joinPath(vst2, "Tiny Test\\TinyTestSynth.dll")));
+    std::string bundle = util::joinPath(vst3, "Tiny/TinyTestFx.vst3");
+    CHECK(copyFile(util::joinPath(win, "TinyTestFx.vst3"), util::joinPath(bundle, "Contents/x86_64-win/TinyTestFx.vst3")));
+    CHECK(copyFile(util::joinPath(win, "TinyTestFx.moduleinfo.json"), util::joinPath(bundle, "Contents/Resources/moduleinfo.json")));
+    CHECK(copyFile(util::joinPath(win, "TinyTestSynth.dll"), util::joinPath(vst2, "Tiny Test/TinyTestSynth.dll")));
     if (bits32) {
         std::string b32 = util::joinPath(vst3, "TinyTestFx32.vst3");
-        CHECK(copyFile(util::joinPath(win, "TinyTestFx32.vst3"), util::joinPath(b32, "Contents\\x86-win\\TinyTestFx32.vst3")));
-        CHECK(copyFile(util::joinPath(win, "TinyTestSynth32.dll"), util::joinPath(vst2, "Tiny Test\\TinyTestSynth32.dll")));
+        CHECK(copyFile(util::joinPath(win, "TinyTestFx32.vst3"), util::joinPath(b32, "Contents/x86-win/TinyTestFx32.vst3")));
+        CHECK(copyFile(util::joinPath(win, "TinyTestSynth32.dll"), util::joinPath(vst2, "Tiny Test/TinyTestSynth32.dll")));
     }
     PluginLibrary library({vst3}, util::joinPath(tempRoot, "cache.json"), {vst2});
     library.scan();
@@ -335,7 +339,7 @@ int main(int argc, char** argv) {
     if (argc > 2 && std::string(argv[1]) == "--probe")  // (the kind finder's process: this program again)
         return runProbe(argv[2]);
     setvbuf(stdout, nullptr, _IONBF, 0);  // (Windows has no line buffering: _IOLBF is full)
-    plat::isMainThread();  // (this is the main thread: the bridge tells offline rendering by it)
+    plat::initWithoutDisplay();  // (this is the main thread: the bridge tells offline rendering by it)
     wchar_t exe[MAX_PATH];
     GetModuleFileNameW(nullptr, exe, MAX_PATH);
     char exe8[MAX_PATH * 3];
@@ -343,7 +347,9 @@ int main(int argc, char** argv) {
     self = exe8;
     char tmp[MAX_PATH];
     GetTempPathA(MAX_PATH, tmp);
-    tempRoot = util::joinPath(tmp, "tinydaw-plugins-test-" + std::to_string((long)GetCurrentProcessId()));
+    std::string temp = tmp;
+    std::replace(temp.begin(), temp.end(), '\\', '/');  // (the program's paths: core/os.h)
+    tempRoot = util::joinPath(temp, "tinydaw-plugins-test-" + std::to_string((long)GetCurrentProcessId()));
     util::makeDirs(tempRoot);
     testCommandLine();
     testFolders();

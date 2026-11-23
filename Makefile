@@ -21,32 +21,63 @@
 # With 32-bit build support (gcc-multilib, g++-multilib), also tinydaw-wine-host-32.exe, for 32-bit plugins;
 # where Wine is built only for WoW64 (no 32-bit Unix part), that host is built with MinGW's
 # i686-w64-mingw32-g++ instead, as a plain Windows program (src/winehost/unixside.h).
+#
+# On Windows (MSYS2's UCRT64 shell: pacman -S make mingw-w64-ucrt-x86_64-gcc), the same `make` builds tinydaw.exe,
+# linked statically (it needs none of MSYS2's DLLs, only Windows' own), and `make tests-win` the tests that run
+# there. One source tree: Windows-only code is in files named *_win.cpp / *_win.h (tiny differences:
+# #ifdef _WIN32 in place; in the files the Wine host shares, TINYDAW_WINDOWS, as _WIN32 means the Wine host there),
+# left out of the Linux build; Linux-only code (LINUX_ONLY below, *_posix.cpp) is left out of the Windows one.
 
 CXX      ?= g++
 TARGET   := tinydaw
 BUILD    := build
 
+ifeq ($(OS),Windows_NT)
+  WINDOWS := 1
+  EXE := .exe
+endif
+
 ifeq ($(DEBUG),1)
-  OPT := -O0 -g -fsanitize=address,undefined
-  LDOPT := -fsanitize=address,undefined
+  OPT := -O0 -g $(if $(WINDOWS),,-fsanitize=address,undefined)
+  LDOPT := $(if $(WINDOWS),,-fsanitize=address,undefined)
   BUILD := build-debug
   TARGET := tinydaw-debug
 else
   OPT := -O2 -g1 -DNDEBUG
   LDOPT :=
 endif
+TARGET := $(TARGET)$(EXE)
 
 CXXFLAGS ?=
 CXXFLAGS += -std=c++17 $(OPT) -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers \
             -MMD -MP -Isrc -pthread -DTINYDAW_COMMIT='"$(shell git rev-parse HEAD 2>/dev/null)"'
 LDLIBS   := -ldl -pthread -lm
 
-SRCS  := $(shell find src -name '*.cpp' -not -path 'src/winehost/*' -not -name '*_win.cpp' | sort)
+SRCS  := $(shell find src -name '*.cpp' -not -path 'src/winehost/*' | sort)
+# the sources of one system only
+LINUX_ONLY := src/platform/x11.cpp src/platform/x11_api.cpp src/audio/alsa_api.cpp src/audio/devices.cpp src/audio/devices_alsa.cpp \
+              src/audio/devices_jack.cpp src/audio/devices_pulse.cpp src/audio/midi_jack.cpp src/plugins/wine.cpp \
+              $(filter %_posix.cpp,$(SRCS))
+ifeq ($(WINDOWS),1)
+  SRCS := $(filter-out $(LINUX_ONLY),$(SRCS))
+  # (M_PI…; UTF-8 paths and POSIX's small calls: core/posix_win.h; off_t 64-bit: files over 2 GB)
+  CXXFLAGS += -DTINYDAW_WINDOWS -D_USE_MATH_DEFINES -D_FILE_OFFSET_BITS=64 -include core/posix_win.h
+  # static: none of MSYS2's DLLs needed; binmode.o: files the C library opens are binary
+  LDLIBS := -static -pthread $(shell $(CXX) -print-file-name=binmode.o) -luser32 -lgdi32 -lshell32 -lole32 \
+            -loleaut32 -luuid -limm32 -lwinmm -lavrt -ldwmapi -lshcore -lsynchronization -lws2_32 -lm
+  # the manifest (UTF-8 code page, per-monitor DPI awareness), as a resource
+  WIN_RES := $(BUILD)/src/platform/tinydaw_win.res.o
+else
+  SRCS := $(filter-out %_win.cpp,$(SRCS))
+endif
 OBJS  := $(SRCS:%.cpp=$(BUILD)/%.o)
 LIB_OBJS := $(filter-out $(BUILD)/src/main.o,$(OBJS))
 
-TEST_SRCS := $(filter-out tests/%_win.cpp,$(wildcard tests/*.cpp))
-TEST_BINS := $(TEST_SRCS:tests/%.cpp=$(BUILD)/tests/%)
+TEST_SRCS := $(wildcard tests/*.cpp)
+ifneq ($(WINDOWS),1)
+  TEST_SRCS := $(filter-out %_win.cpp,$(TEST_SRCS))
+endif
+TEST_BINS := $(TEST_SRCS:tests/%.cpp=$(BUILD)/tests/%$(EXE))
 
 # test plugins (built from tests/plugins/: a VST2 synth and a VST3 effect, on Tiny DAW's own headers)
 TEST_PLUGINS := $(BUILD)/test-plugins/TinyTestSynth.so \
@@ -107,9 +138,49 @@ ifneq ($(MINGW64),)
   endif
 endif
 
-.PHONY: all clean test hooks appimage publish plugins winehost win-plugins
+# --- Windows: the plugin hosts. The Wine host's code built as Windows programs (TINYDAW_PLUGIN_HOST): each plugin
+# runs out of process in one, started directly (plugins/wine_win.cpp, bridge_win.h). tinydaw-plugin-host.exe, and
+# tinydaw-plugin-host-32.exe for 32-bit plugins where a 32-bit MinGW is installed (MSYS2: pacman -S
+# mingw-w64-i686-gcc; MINGW32=... picks another); without it 32-bit plugins say they need it ---
+ifeq ($(WINDOWS),1)
+  MINGW64 := $(CXX)
+  MINGW32 ?= $(firstword $(wildcard /mingw32/bin/g++.exe))
+  PLUGIN_HOST := tinydaw-plugin-host.exe
+  PLUGIN_HOST32 := tinydaw-plugin-host-32.exe
+  HOST_SRCS := $(filter-out src/winehost/d2dfix.cpp src/winehost/dragdrop.cpp,$(WINE_SRCS)) src/winehost/native_win.cpp \
+               src/core/os_win.cpp src/core/posix_win.cpp
+  HOST_FLAGS := -std=c++17 -O2 -g1 -DNDEBUG -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -MMD -MP \
+                -Isrc -DTINYDAW_PLUGIN_HOST -DTINYDAW_WINDOWS -D_USE_MATH_DEFINES -D_FILE_OFFSET_BITS=64 -D_WIN32_WINNT=0x0A00 \
+                -include core/posix_win.h
+  HOST_LIBS := -static -mconsole -lole32 -luser32 -lgdi32 -ladvapi32 -lws2_32 -luuid -lshell32 -lsynchronization
+  ALL_HOSTS := $(PLUGIN_HOST) $(if $(MINGW32),$(PLUGIN_HOST32))
+  ALL_WIN_TEST := $(WIN_TEST_PLUGINS) $(if $(MINGW32),$(WIN32_TEST_PLUGINS))
+endif
 
-all: $(TARGET) $(ALL_WINE)
+.PHONY: all clean test tests-win hooks appimage publish plugins winehost win-plugins
+
+all: $(TARGET) $(ALL_WINE) $(ALL_HOSTS)
+
+ifeq ($(WINDOWS),1)
+# (the manifest too: UTF-8 the code page, as the program's, for the paths the host is given)
+$(PLUGIN_HOST): $(HOST_SRCS:%.cpp=build/pluginhost/%.o) $(WIN_RES)
+	$(CXX) -o $@ $^ $(HOST_LIBS)
+
+build/pluginhost/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(HOST_FLAGS) -c $< -o $@
+
+$(PLUGIN_HOST32): $(HOST_SRCS:%.cpp=build/pluginhost32/%.o) build/pluginhost32/manifest.res.o
+	$(MINGW32) -o $@ $^ $(HOST_LIBS)
+
+build/pluginhost32/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(MINGW32) $(HOST_FLAGS) -c $< -o $@
+
+build/pluginhost32/manifest.res.o: src/platform/tinydaw_win.rc src/platform/tinydaw_win.manifest
+	@mkdir -p $(dir $@)
+	$(dir $(MINGW32))windres -I src/platform -O coff -o $@ $<
+endif
 
 hooks:
 	ln -sf ../../tools/pre-push .git/hooks/pre-push
@@ -158,8 +229,12 @@ build/winehost/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(WINE_FLAGS) -c $< -o $@
 
-$(TARGET): $(OBJS)
+$(TARGET): $(OBJS) $(WIN_RES)
 	$(CXX) $(LDOPT) -o $@ $^ $(LDLIBS)
+
+$(BUILD)/src/platform/tinydaw_win.res.o: src/platform/tinydaw_win.rc src/platform/tinydaw_win.manifest
+	@mkdir -p $(dir $@)
+	windres -I src/platform -O coff -o $@ $<
 
 $(BUILD)/%.o: %.cpp
 	@mkdir -p $(dir $@)
@@ -177,9 +252,18 @@ $(BUILD)/tests/test_wine: LDLIBS += -lX11 -lXrandr
 # (test_jack_midi makes ALSA MIDI ports itself: linked to libasound, as the program no longer is)
 $(BUILD)/tests/test_jack_midi: LDLIBS += -lasound
 
-$(BUILD)/tests/%: tests/%.cpp $(LIB_OBJS)
+$(BUILD)/tests/%$(EXE): tests/%.cpp $(LIB_OBJS) $(WIN_RES)
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $(LDOPT) -o $@ $< $(LIB_OBJS) $(LDLIBS)
+	$(CXX) $(CXXFLAGS) $(LDOPT) -o $@ $< $(LIB_OBJS) $(WIN_RES) $(LDLIBS)
+
+# the tests that run on Windows (tools/wintests.sh builds and runs them there)
+WIN_TESTS := test_os test_gfx test_model test_project_io test_ui_main test_workers test_midi_win test_wasapi_win \
+             test_tui test_tui_console_win test_plugins_win
+tests-win: $(WIN_TESTS:%=$(BUILD)/tests/%$(EXE)) $(ALL_HOSTS) $(ALL_WIN_TEST)
+	@failed=""; for t in $(WIN_TESTS:%=$(BUILD)/tests/%$(EXE)); do echo "== $$t"; \
+	    TINYDAW_PLUGIN_HOST=$(PLUGIN_HOST) TINYDAW_PLUGIN_HOST32=$(if $(MINGW32),$(PLUGIN_HOST32)) \
+	    TINYDAW_WIN_TEST_PLUGINS=$(WIN_DIR) $$t || failed="$$failed $${t##*/}"; done; \
+	if [ -n "$$failed" ]; then echo "== FAILED:$$failed"; exit 1; fi; echo "== all tests passed"
 
 # (tools/appimage.sh: the AppImage's .DirIcon, drawn by the program's own SVG renderer)
 $(BUILD)/tools/svg2png: tools/svg2png.cpp $(LIB_OBJS)
@@ -230,6 +314,6 @@ test: $(TEST_BINS) $(TEST_PLUGINS) $(ALL_WINE) $(ALL_WIN_TEST)
 	if [ -n "$$failed" ]; then echo "== FAILED:$$failed"; exit 1; fi; echo "== all tests passed"
 
 clean:
-	rm -rf build build-debug tinydaw tinydaw-debug $(WINE_HOST) $(WINE_HOST).so $(WINE_HOST32) $(WINE_HOST32).so wine32
+	rm -rf build build-debug tinydaw tinydaw-debug tinydaw.exe tinydaw-debug.exe $(WINE_HOST) $(WINE_HOST).so $(WINE_HOST32) $(WINE_HOST32).so wine32
 
 -include $(OBJS:.o=.d) $(TEST_BINS:%=%.d) $(WINE_OBJS:.o=.d) $(WINE32_OBJS:.o=.d) $(PE32_OBJS:.o=.d)

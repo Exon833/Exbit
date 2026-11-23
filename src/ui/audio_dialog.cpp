@@ -14,7 +14,7 @@ using namespace ui;
 
 namespace audio_dialog {
 
-bool hasExclusive(const std::string& driverType) { return false; }
+bool hasExclusive(const std::string& driverType) { return driverType == "WASAPI"; }  // (Windows: devices_win.cpp)
 
 std::vector<std::pair<int, std::string>> coreChoices(int available) {
     available = std::max(1, available);

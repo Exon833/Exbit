@@ -21,6 +21,9 @@ inline HMODULE loadWindowsLibrary(const std::string& path, std::string& error) {
     std::wstring w(n > 0 ? n - 1 : 0, L'\0');
     if (n > 1)
         MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, &w[0], n);
+    for (auto& c : w)  // (the altered search path needs '\\': the program's paths have '/')
+        if (c == L'/')
+            c = L'\\';
     h = LoadLibraryExW(w.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
 #endif
     if (!h)

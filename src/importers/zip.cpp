@@ -286,7 +286,7 @@ bool write(const std::string& path, const std::vector<Entry>& entries, std::stri
     if (!writeAll(fd, directory) || !writeAll(fd, end) || fsync(fd) != 0)
         return fail("Cannot write " + temp + ": " + strerror(errno));
     close(fd);
-    if (rename(temp.c_str(), path.c_str()) != 0) {
+    if (!util::renameFile(temp, path)) {
         error = "Cannot write " + path + ": " + strerror(errno);
         unlink(temp.c_str());
         return false;

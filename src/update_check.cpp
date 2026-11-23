@@ -1,9 +1,6 @@
 // Are there updates waiting on GitHub? (update_check.py)
 #include "update_check.h"
 
-#include <fcntl.h>
-#include <spawn.h>
-#include <sys/wait.h>
 #include <unistd.h>
 
 #include <cerrno>
@@ -13,7 +10,7 @@
 #include <ctime>
 #include <regex>
 
-extern char** environ;
+#include "core/os.h"
 
 namespace update_check {
 
@@ -85,24 +82,14 @@ Json fetch(const std::string& url) {
     std::string timeout = std::to_string(TIMEOUT_S);
     std::vector<std::string> args = {"curl", "-s", "-L", "--max-time", timeout, "-H",
                                      "Accept: application/vnd.github+json", "-H", agent, "-w", "\n%{http_code}", url};
-    std::vector<char*> argv;
-    for (auto& a : args) argv.push_back(const_cast<char*>(a.c_str()));
-    argv.push_back(nullptr);
-
+    // (Windows 10 and later have curl.exe too)
     int fds[2];
-    if (pipe(fds) != 0) throw FetchError(std::string("could not start curl: ") + std::strerror(errno));
-    posix_spawn_file_actions_t actions;
-    posix_spawn_file_actions_init(&actions);
-    posix_spawn_file_actions_adddup2(&actions, fds[1], 1);
-    posix_spawn_file_actions_addclose(&actions, fds[0]);
-    posix_spawn_file_actions_addclose(&actions, fds[1]);
-    posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0);
-    posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_WRONLY, 0);
-    pid_t pid = 0;
-    int err = posix_spawnp(&pid, "curl", &actions, nullptr, argv.data(), environ);
-    posix_spawn_file_actions_destroy(&actions);
+    if (!os::makePipe(fds)) throw FetchError(std::string("could not start curl: ") + std::strerror(errno));
+    os::Process child;
+    int err = 0;
+    bool started = os::spawn(args, fds[1], child, &err);
     close(fds[1]);
-    if (err != 0) {
+    if (!started) {
         close(fds[0]);
         throw FetchError(err == ENOENT ? "curl is not installed (it is needed to check for updates)"
                                        : std::string("could not start curl: ") + std::strerror(err));
@@ -116,9 +103,7 @@ Json fetch(const std::string& url) {
         else break;
     }
     close(fds[0]);
-    int status = 0;
-    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
-    int code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    int code = os::waitProcess(child);
     if (code == 127) throw FetchError("curl is not installed (it is needed to check for updates)");
     if (code != 0) throw FetchError(code < 0 ? "curl stopped unexpectedly" : curlProblem(code));
 

@@ -1,7 +1,7 @@
 // The platform layer: native windows, input events, the main loop (timers, file descriptors,
 // work posted from other threads), the clipboard, cursors, file drops from the desktop, and a few
 // desktop services (open a URL or folder, the settings folder). Implemented for Linux on Xlib
-// (platform/x11.cpp); everything above it is platform-neutral.
+// (platform/x11.cpp) and for Windows on Win32 (platform/platform_win.cpp); everything above it is platform-neutral.
 //
 // Only the GUI (main) thread calls into this, except postToMain(), which any thread may call.
 #pragma once

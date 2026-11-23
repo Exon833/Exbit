@@ -1014,11 +1014,20 @@ static void testMidiFiles() {
 }
 
 static void testPaths() {
+#ifdef _WIN32
+    std::string appdata = getenv("APPDATA") ? getenv("APPDATA") : "";
+    setenv("APPDATA", "C:\\tmp\\appdata-test", 1);
+    CHECK(paths::dataDir() == "C:/tmp/appdata-test/TinyDAW");
+    CHECK(paths::dataDir("templates") == "C:/tmp/appdata-test/TinyDAW/templates");
+    setenv("APPDATA", appdata.c_str(), 1);
+    CHECK(util::endsWith(paths::dataDir(), "/TinyDAW"));
+#else
     setenv("XDG_DATA_HOME", "/tmp/xdg-test", 1);
     CHECK(paths::dataDir() == "/tmp/xdg-test/TinyDAW");
     CHECK(paths::dataDir("templates") == "/tmp/xdg-test/TinyDAW/templates");
     unsetenv("XDG_DATA_HOME");
     CHECK(util::endsWith(paths::dataDir(), "/.local/share/TinyDAW"));
+#endif
     paths::setDataDir(util::absolutePath(kDir + "/data"));
     CHECK(paths::makeDataDir("skins") == util::absolutePath(kDir + "/data/skins") &&
           util::isDir(kDir + "/data/skins"));

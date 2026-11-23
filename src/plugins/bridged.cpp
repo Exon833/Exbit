@@ -120,8 +120,9 @@ std::string tempFolder() {
 #ifdef _WIN32
     wchar_t dir[MAX_PATH + 1];
     DWORD n = GetTempPathW(MAX_PATH + 1, dir);
-    std::string s = n ? narrow(std::wstring(dir, n)) : std::string("C:\\Windows\\Temp");
-    while (s.size() > 3 && (s.back() == '\\' || s.back() == '/'))
+    std::string s = n ? narrow(std::wstring(dir, n)) : std::string("C:/Windows/Temp");
+    std::replace(s.begin(), s.end(), '\\', '/');  // (the program's paths: core/os.h)
+    while (s.size() > 3 && s.back() == '/')
         s.pop_back();
     return s;
 #else
@@ -1534,8 +1535,7 @@ std::vector<ClassInfo> bridgedClasses(const std::string& path, std::string& erro
     // or this process killed (a scan's probe that took too long), it ends, hung or not)
     int fds[2], life[2];
 #ifdef _WIN32
-    auto pipe2 = [](int p[2], int) { return child::pipe(p) ? 0 : -1; };
-    constexpr int O_CLOEXEC = 0;
+    auto pipe2 = [](int p[2], int) { return child::pipe(p) ? 0 : -1; };  // (never inherited)
 #endif
     if (pipe2(fds, O_CLOEXEC) != 0) {
         util::removeFile(list);
