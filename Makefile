@@ -3,7 +3,7 @@
 #   make            build ./tinydaw (release, -O2)
 #   make DEBUG=1    build ./tinydaw-debug with -O0 -g and sanitizers (objects in build-debug/)
 #   make test       build and run the unit tests (tests/*.cpp), the worst-case runs too (tests/test_stress.cpp)
-#   make hooks      run `make test` before every git commit (tools/pre-commit; --no-verify skips it once)
+#   make hooks      run `make test` before every git push (tools/pre-push; --no-verify skips it once)
 #   make appimage   build build/appimage/Tiny-DAW-<YEAR.MONTH.DAY.HOUR.MINUTE.SECOND>-x86_64.AppImage
 #   make publish    the same, published as a GitHub release (before every push; tools/appimage.sh)
 #   make clean
@@ -112,7 +112,9 @@ endif
 all: $(TARGET) $(ALL_WINE)
 
 hooks:
-	ln -sf ../../tools/pre-commit .git/hooks/pre-commit
+	ln -sf ../../tools/pre-push .git/hooks/pre-push
+	@# (the hook it replaced, which ran the tests on every commit: gone)
+	@if [ "$$(readlink .git/hooks/pre-commit 2>/dev/null)" = ../../tools/pre-commit ]; then rm -f .git/hooks/pre-commit; fi
 
 appimage:
 	tools/appimage.sh

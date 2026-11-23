@@ -1,0 +1,16 @@
+#!/bin/sh
+# Git's pre-push hook (CLAUDE.md rule 8: every test script, the worst cases included (tests/test_stress.cpp), runs
+# before a push to GitHub; while developing, only the feature's own). Installed by `make hooks` (a link in
+# .git/hooks); `git push --no-verify` skips it once. Not for the unstable branch (rule 23: pushed untested), the
+# webpage's gh-pages branch, tags (the AppImage release's) or a branch being deleted: only what else is pushed.
+cd "$(git rev-parse --show-toplevel)" || exit 1
+need=0
+while read -r localRef localSha remoteRef remoteSha; do
+    case "$remoteRef" in
+    refs/heads/unstable | refs/heads/gh-pages | refs/tags/*) ;;
+    *) [ "$localSha" = 0000000000000000000000000000000000000000 ] || need=1 ;;
+    esac
+done
+[ "$need" = 1 ] || exit 0
+echo "pre-push: make test (git push --no-verify skips it)"
+exec make -j"$(nproc)" test

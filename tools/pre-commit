@@ -1,6 +1,0 @@
-#!/bin/sh
-# Git's pre-commit hook (CLAUDE.md, rule 8: tested before every commit, worst cases included: tests/test_stress.cpp).
-# Installed by `make hooks` (a link in .git/hooks); `git commit --no-verify` skips it once.
-cd "$(git rev-parse --show-toplevel)" || exit 1
-echo "pre-commit: make test (git commit --no-verify skips it)"
-exec make -j"$(nproc)" test

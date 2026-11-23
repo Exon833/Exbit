@@ -551,7 +551,8 @@ MIDI) played in small blocks while every fader, mute and solo changes and tracks
 window resized 400 times from 1 x 1 to 4000 x 2500 while the interface size changes; every slider and
 toggle used in every frame while playing and dragging, then all undone and redone; and the terminal UI
 hit with thousands of keys while its screen is resized. `make hooks` makes git run `make test` before
-every commit (`tools/pre-commit`; `git commit --no-verify` skips it once).
+every push (`tools/pre-push`; `git push --no-verify` skips it once): all of them only then, while working on a
+feature only its own (a push to the `unstable` branch, the webpage or a tag runs none).
 
 `test_parallel` mixes projects with and without worker threads and checks that they sound the same
 bit for bit; with `TINYDAW_PARALLEL_FX=<plugin>` and `TINYDAW_PARALLEL_SYNTH=<plugin>` it plays those
