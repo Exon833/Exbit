@@ -2711,6 +2711,7 @@ bool isMainThread() { return std::this_thread::get_id() == S().mainThread; }
 
 double now() { return monoNow(); }
 double doubleClickTime() { return 0.4; }
+int systemScale() { return 100; }
 int doubleClickDistance() { return 5; }
 
 Rect screenGeometry(Point near) {

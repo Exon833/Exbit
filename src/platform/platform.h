@@ -197,6 +197,9 @@ bool isMainThread();
 
 double now();             // monotonic seconds
 double doubleClickTime(); // seconds between two clicks that make a double-click (0.4)
+// the desktop's own display scale, in percent (Windows: its "Scale" setting, 150 at 144 dpi; X11: 100): the
+// interface size the program starts with until one is chosen
+int systemScale();
 int doubleClickDistance();
 
 // --- screens ---

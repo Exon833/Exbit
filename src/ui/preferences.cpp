@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "core/util.h"
+#include "platform/platform.h"
 #include "plugins/wine.h"
 
 namespace prefs {
@@ -92,9 +93,13 @@ std::string getStr(const std::string& key, const std::string& def) {
 }  // namespace
 
 int prefs::interfaceScale() {
-    int size = getInt("interface_scale", 100);
     auto& sizes = interfaceSizes();
-    return std::find(sizes.begin(), sizes.end(), size) != sizes.end() ? size : 100;
+    // (none chosen yet: the largest size not above the desktop's own scale, 100 % on X11)
+    int fallback = 100;
+    for (int s : sizes)
+        if (s >= 100 && s <= plat::systemScale()) fallback = s;
+    int size = getInt("interface_scale", fallback);
+    return std::find(sizes.begin(), sizes.end(), size) != sizes.end() ? size : fallback;
 }
 
 bool prefs::ownWindowFrames() { return getStr("window_frames", "own") != "system"; }
