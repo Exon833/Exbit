@@ -55,8 +55,17 @@ public:
     std::function<void()> onPress;         // any mouse button pressed on the row itself (selects the track)
     bool mousePress(ui::MouseEvent& e) override;
     bool contextMenu(ui::MouseEvent& e) override;
+    // controls hidden while the row is too low for them all (a track dragged to its smallest): the group added
+    // last is hidden first; shown again when the row is tall enough
+    void addOptional(std::vector<ui::Widget*> group);
+    void fitControls();
+    void restoreControls();  // those it hid shown again (before others are shown or hidden: then fitControls)
+    size_t controlsHidden() const { return hidden_.size(); }
+    void resized() override { fitControls(); }
 
 private:
+    std::vector<std::vector<ui::Widget*>> optional_;
+    std::vector<ui::Widget*> hidden_;  // (by fitControls)
     Color color_;
     std::optional<Color> accent_, text_, topLine_;
     bool current_ = false;

@@ -268,6 +268,39 @@ void LanePanel::setChannels(int channels_) {
     rebuild();
 }
 
+namespace {
+// The rows, one under another, each as tall as its lane (a fixed height), all as wide as the panel: placed by
+// hand, not by a VBox, which measures every row's controls on any change (a row's height dragged with 400 tracks:
+// a quarter of a second each step)
+class RowStack : public ui::Widget {
+public:
+    Point sizeHint() const override {
+        int h = 0;
+        for (auto& c : children())
+            if (c->isVisible() && !c->deleted_) h += c->minimumSize().y;
+        return Point(width(), h);
+    }
+    Point minimumSizeHint() const override { return sizeHint(); }
+    void resized() override { place(); }
+    void childSizeHintChanged(ui::Widget*) override {
+        if (building) return;  // (the rows being made: placed once, after)
+        place();
+        updateGeometry();
+    }
+    bool building = true;
+    void place() {
+        if (width() <= 0) return;  // (not placed in the panel yet: the rows laid out once, when it is)
+        int y = 0;
+        for (auto& c : children()) {
+            if (!c->isVisible() || c->deleted_) continue;
+            int h = c->minimumSize().y;
+            c->setGeometry(Rect(0, y, width(), h));
+            y += h;
+        }
+    }
+};
+}  // namespace
+
 void LanePanel::rebuild() {
     if (rowsBox_) {
         rowsBox_->hide();  // (deleted after the current event)
@@ -292,8 +325,8 @@ void LanePanel::rebuild() {
     styled_ = theme::styles().generation();
     if (restyled) setFixedWidth(lane_panel::panelWidth());
     if (pruned || restyled) timeline.relayout();
-    rowsBox_ = add<ui::Widget>();
-    ui::VBox* rows = ui::vbox(rowsBox_, 0, 0);
+    auto* rows = add<RowStack>();
+    rowsBox_ = rows;
     static_cast<ui::BoxLayout*>(layout())->insertWidget(0, rowsBox_);
     int row = 0;  // track rows alternate in shade, like their lanes
     std::vector<Lane> all = lanes::layout(project);
@@ -314,8 +347,9 @@ void LanePanel::rebuild() {
             ++row;
         }
         frame->applyTextColor();
-        rows->addWidget(frame);
     }
+    rows->building = false;
+    rows->place();
     for (auto& [track, meter] : meters) {
         auto it = oldMeters.find(track);
         if (meter && it != oldMeters.end() && it->second && ui::Widget::alive(it->second)) meter->takeOver(*it->second);
@@ -529,7 +563,9 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
     ui::GridLayout* bottom = glayout.get();
     bottom->hSpacing = std::max(0, ui::style::px(style.controls, "column-gap", 6));
     bottom->vSpacing = std::max(0, ui::style::px(style.controls, "row-gap", 2));
-    col->addLayout(std::move(glayout), 1);
+    col->addLayout(std::move(glayout));
+    col->addStretch(1);  // (a tall row: its controls stay together at the top)
+    std::vector<ui::Widget*> selectors;  // (hidden first in a row too low for all: lane_panel::fitControls)
     ui::ComboBox* outputs = widgets::outputSelector(frame, channels, track->output, [this, alive, track, meter](int first) {
         track->output = first;
         meter->showChannels(lane_panel::trackOutputs(*track));
@@ -538,6 +574,7 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
     // (as tall as Qt's flat combo box comes out in a default-height row: the row's controls fit in 72 px)
     outputs->setFixedHeight(theme::metric("output-selector-height", 18));
     bottom->addWidget(outputs, 0, 0, 1, 1, AlignTop);
+    selectors.push_back(outputs);
     bool recordsAudio = track->kind == Kind::Audio && !asGroup;  // (its input and monitoring: ui/recording.h)
     if (recordsAudio) {  // its input, then the meter
         ui::Widget* meterCell;
@@ -552,6 +589,7 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
             say("Input " + recording::inputName(*track), ts.size());
         });
         input->setFixedHeight(theme::metric("output-selector-height", 18));
+        selectors.push_back(input);
         meterCell->adopt(frame->release(input));
         meterCell->adopt(frame->release(meter));
         meterRow->addWidget(input, 0, AlignTop);
@@ -606,7 +644,10 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
     cell->addStretch(1);
     bottom->addWidget(autoCell, 1, 0);
     bottom->setColumnStretch(1, 1);
-    bottom->setRowStretch(0, 1);
+    // a row too low for all of it (MIN_TRACK_H, a skin's bigger controls): the LUFS readout goes first, then the
+    // output and input selectors; the name, buttons, meter, volume and Auto stay
+    frame->addOptional(selectors);
+    frame->addOptional({display});
     addGrip(frame, timeline, track, nullptr);
     meters[track] = meter;
     loudness[track] = display;
@@ -670,6 +711,7 @@ LaneFrame* LanePanel::automationHeader(ui::Widget* parent, const Lane& lane) {
     detail->setElide(true);
     col->addWidget(detail);
     col->addStretch(1);
+    frame->addOptional({detail});  // (hidden in a lane too low for it)
     addGrip(frame, timeline, nullptr, a);
     return frame;
 }
@@ -1115,6 +1157,10 @@ void LanePanel::rename(const GroupPtr& group) {
 }
 
 void LanePanel::setMetersVisible(bool levels, bool loud) {
+    std::vector<LaneFrame*> rows;  // (what a row too low hid is shown first, then hidden again if still too low)
+    for (auto& [t, f] : frames) rows.push_back(f);
+    for (auto& [g, f] : groupFrames) rows.push_back(f);
+    for (LaneFrame* f : rows) f->restoreControls();
     showLevels = levels;
     showLoudness = loud;
     for (auto& [t, m] : meters) m->setVisible(levels);
@@ -1122,12 +1168,16 @@ void LanePanel::setMetersVisible(bool levels, bool loud) {
     masterStrip.meter->setVisible(levels);
     for (auto& [t, d] : loudness) d->setVisible(loud);
     masterStrip.loudness->setVisible(loud);
+    for (LaneFrame* f : rows) f->fitControls();
 }
 
 void LanePanel::updateHeights() {
-    for (auto& [track, frame] : frames) frame->setFixedHeight(track->height);
-    for (auto& [a, frame] : automationFrames) frame->setFixedHeight(a->height);
-    for (auto& [g, frame] : groupFrames) frame->setFixedHeight(lanes::headerHeight(*g));
+    auto fit = [](LaneFrame* frame, int h) {  // (only those that changed: each change places the rows again)
+        if (frame->minimumSize().y != h || frame->maximumSize().y != h) frame->setFixedHeight(h);
+    };
+    for (auto& [track, frame] : frames) fit(frame, track->height);
+    for (auto& [a, frame] : automationFrames) fit(frame, a->height);
+    for (auto& [g, frame] : groupFrames) fit(frame, lanes::headerHeight(*g));
     fitHeight();
 }
 

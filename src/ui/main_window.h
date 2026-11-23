@@ -145,7 +145,8 @@ public:
     Explorer* explorer = nullptr;
     ui::Widget* explorerDock = nullptr;  // the Explorer with its title bar
     ui::SplitterHandle* explorerHandle = nullptr;
-    int explorerWidth = 0;
+    int explorerWidth = 0;   // as shown (narrower while the window is too narrow for the one chosen)
+    int explorerChosen = 0;  // as dragged to (or the skin's): shown again when the window is wide enough
     ui::StatusBar* status = nullptr;
     std::vector<std::unique_ptr<PinToBottom>> masterPins;
     std::unique_ptr<UpdateChecker> updates;
@@ -177,7 +178,9 @@ public:
     void setExplorerVisible(bool on);    // View → Explorer, the dock's ✕
     void showTempoLane(bool on);         // View → Tempo lane: the tempo lane under the ruler (timeline_tempo.cpp)
     ui::Action* tempoLaneAction = nullptr;
-    void setExplorerWidth(int w);
+    void setExplorerWidth(int w);        // chosen (clamped to the window's room)
+    void fitExplorerWidth();             // the chosen width, in the room the window has now
+    Point leastSize() const override;   // (the window's least: with the Explorer at its narrowest)
     // the timeline's frame (ScrollArea#timeline's border and padding): the track panel's rows moved down by its
     // top, its bottom kept free under the master row, so they still line up with the lanes
     void fitTimelineFrame();

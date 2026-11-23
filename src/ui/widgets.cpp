@@ -37,6 +37,7 @@ void LaneFrame::setCurrent(bool on) {
     if (current_ == on) return;
     current_ = on;
     if (layout()) layout()->invalidate();  // (the edges take a pixel of the inside, as in Qt)
+    fitControls();
     update();
 }
 
@@ -103,6 +104,30 @@ const LaneFrame::Look& LaneFrame::look() const {
     }
     look_ = l;
     return look_;
+}
+
+void LaneFrame::addOptional(std::vector<ui::Widget*> group) {
+    optional_.push_back(std::move(group));  // (fitted when the row is placed: resized)
+}
+
+void LaneFrame::restoreControls() {
+    for (ui::Widget* w : hidden_) w->setVisible(true);
+    hidden_.clear();
+}
+
+void LaneFrame::fitControls() {
+    if (optional_.empty() || !layout() || height() <= 0) return;
+    int room = contentsRect().h;
+    if (hidden_.empty() && layout()->minimumSize().y <= room) return;  // (all of it fits: the usual case)
+    std::vector<ui::Widget*> before = hidden_;
+    restoreControls();
+    for (size_t i = optional_.size(); i-- > 0 && layout()->minimumSize().y > room;)
+        for (ui::Widget* w : optional_[i])
+            if (w->isVisible()) {
+                w->setVisible(false);
+                hidden_.push_back(w);
+            }
+    if (hidden_ != before) relayout();
 }
 
 Rect LaneFrame::contentsRect() const {

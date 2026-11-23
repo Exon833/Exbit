@@ -434,6 +434,9 @@ public:
     void moveWindow(int x, int y);     // client area's screen position
     Rect screenGeometry() const;       // client area on the screen
     void setMinimumWindowSize(int w, int h);
+    // the least size the window manager is told: its minimum and its layout's (a window may count less: one whose
+    // part shrinks with it)
+    virtual Point leastSize() const;
     void centerOn(Window* other);      // over another window (or the screen when null)
     // return false to keep it open (e.g. "save changes?" answered Cancel)
     std::function<bool()> closeRequested;

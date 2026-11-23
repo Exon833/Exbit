@@ -430,7 +430,9 @@ void Button::paint(Painter& p) {
     if (!text_.empty()) {
         // (centred over the whole height, as the padding is symmetric)
         Rect tr(content.x - 2, r.y, content.w + 4, r.h);
-        style::text(p, tr, AlignCenter, text_, f, tc, st, true);
+        // (one glyph, an icon such as ✕: drawn whole over the padding rather than made a "…" as wide)
+        size_t glyphs = std::count_if(text_.begin(), text_.end(), [](char c) { return ((unsigned char)c & 0xC0) != 0x80; });
+        style::text(p, tr, AlignCenter, text_, f, tc, st, glyphs > 1);
     }
 }
 

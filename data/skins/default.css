@@ -626,7 +626,7 @@ OverviewCaption {
 /* The track rows in the panel beside the lanes (TrackPanel): a track's (:alternate every other), an automation
    lane's (:armed: a quarter of ::tint is mixed in), a take's, a group's header. border-left-color: the stripe
    down a row's left; row-gap / column-gap: between its lines / its controls. */
-TrackRow { background-color: var(--row); padding: 5px 8px; row-gap: 4px; column-gap: 4px; }
+TrackRow { background-color: var(--row); padding: 4px 8px 3px; row-gap: 4px; column-gap: 4px; }
 TrackRow:alternate { background-color: var(--row-alt); }
 TrackRow.audio { border-left-color: var(--accent-audio); }
 TrackRow.midi { border-left-color: var(--accent-midi); }

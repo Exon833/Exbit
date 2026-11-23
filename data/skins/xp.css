@@ -103,8 +103,8 @@
 
     /* the original's scroll bars: 17 px */
     --scrollbar-width: 17px;
-    /* a track's volume: room for the slider's whole 21 px thumb */
-    --volume-slider-height: 21px;
+    /* a track's volume: its thumb a size smaller than elsewhere (a track's controls fit its default height) */
+    --volume-slider-height: 15px;
 
     /* The skin's own colours, used by the rules below */
     --xp-edge: #003c74;           /* a button's dark blue edge */
@@ -530,6 +530,9 @@ Slider::handle:hover, Slider::handle:pressed, Slider::handle:disabled { backgrou
 Slider::handle:hover { background-image: url(xp/thumb-hover.svg); }
 Slider::handle:pressed { background-image: url(xp/thumb-pressed.svg); }
 Slider::handle:disabled { background-image: url(xp/thumb-disabled.svg); }
+/* a row's sliders (the tracks', the master's): the thumb a size smaller (--volume-slider-height) */
+LaneFrame Slider { height: 15px; min-height: 15px; }
+LaneFrame Slider::handle { width: 8px; height: 15px; }
 Slider:vertical::handle { width: 21px; height: 11px; background-image: url(xp/thumb-v.svg); }
 Slider:vertical::handle:hover { background-image: url(xp/thumb-v-hover.svg); }
 Slider:vertical::handle:pressed { background-image: url(xp/thumb-v-pressed.svg); }
@@ -812,6 +815,7 @@ OverviewCaption { background-color: var(--overview-bg); color: #3c3b33; }
    ============================================================================================= */
 
 TrackRow {
+    padding: 3px 8px 2px;  /* (inside the current row's 2 px outline: a track's controls fit its default height) */
     background-color: var(--row);
     /* (a soft gloss over the row's colour, its own or the track's) */
     background-image: linear-gradient(to bottom, #ffffff40 0%, #ffffff14 45%, #ffffff00 55%, #00000012 100%);
