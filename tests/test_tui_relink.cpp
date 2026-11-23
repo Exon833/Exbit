@@ -120,7 +120,7 @@ static void testTuiRelink() {
     CHECK(w->project.clips.size() == 2 && missingClips(w->project) == 1);
     d.keys({});
     d.picture("relink-missing-clip");
-    CHECK(d.shows("[mis"));  // ("[missing] Bass", as far as its second on the screen holds)
+    CHECK(d.shows("[mi…"));  // ("[missing] Bass", as far as its second on the screen holds, "…" where it is cut)
     // the File menu holds the rest
     d.keys({key(plat::Key_F10)});
     CHECK(d.shows("Collect and save") && d.shows("Save as archive") && d.shows("Find missing samples"));
@@ -140,7 +140,7 @@ static void testTuiRelink() {
     CHECK(missingClips(w->project) == 0);
     CHECK(w->project.clips[1]->sourcePath == TMP + "/elsewhere/sub/Bass.wav");
     d.keys({});
-    CHECK(!d.shows("[mis"));
+    CHECK(!d.shows("[mi…"));
     w->close();
     app.collectGarbage();
 }

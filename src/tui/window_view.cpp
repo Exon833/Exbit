@@ -44,6 +44,17 @@ std::vector<std::string> wrapLines(const std::string& text, int width) {
         while (i < para.size()) {
             size_t sp = para.find(' ', i);
             std::string word = para.substr(i, sp == std::string::npos ? std::string::npos : sp - i);
+            // (a word wider than a line, CJK written without spaces: broken where the line ends)
+            if (width > 1 && columns(word) > width && !line.empty()) {
+                out.push_back(line);
+                line.clear();
+            }
+            while (width > 1 && columns(word) > width) {
+                std::string head = fit(word, width, false);
+                if (head.empty()) break;
+                out.push_back(head);
+                word = word.substr(head.size());
+            }
             std::string next = line.empty() ? word : line + " " + word;
             if (columns(next) > width && !line.empty()) {
                 out.push_back(line);
@@ -211,16 +222,57 @@ void drawWindow(Screen& s, ui::Window& win, int ax, int ay, int aw, int ah) {
     s.fill(bx, by, bw, bh, U' ', frame);
     s.box(bx, by, bw, bh, frame, win.title());
     int cx = bx + 2, cy = by + 1, cw = bw - 4, ch = bh - 2;
+    if (cw <= 0 || ch <= 0) return;
 
     ui::Widget* focus = win.focusWidget();
+    // (taller than the box: its rows scrolled so the control with the keyboard is shown; ▲ ▼ on the frame: more)
+    int top = 0;
+    if (rows > ch) {
+        for (const Item& it : items) {
+            if (!hasFocusIn(it.w, focus)) continue;
+            // (a list: its row chosen, as placed when drawn below; else the control's first row)
+            int line = 0, n = 0, cur = -1;
+            std::vector<std::string> list;
+            if (it.w->listRows(list, cur)) n = (int)list.size();
+            else if (auto* lw = dynamic_cast<ui::ListWidget*>(it.w)) n = lw->count(), cur = lw->currentRow();
+            else if (auto* tw = dynamic_cast<ui::TreeWidget*>(it.w))
+                for (int r = 0; r < (n = tw->rowCount()); r++)
+                    if (tw->nodeAtRow(r) == tw->current()) cur = r;
+            if (cur >= 0) line = cur - std::max(0, std::min(cur - it.rows / 2, n - it.rows));
+            top = std::clamp(it.row + std::min(it.rows, ch) - ch, 0, it.row);
+            if (it.row + line >= top + ch) top = it.row + line - ch + 1;
+        }
+        top = std::min(top, rows - ch);
+        if (top > 0) s.set(bx + bw - 2, by, U'▲', frame);
+        if (top + ch < rows) s.set(bx + bw - 2, by + bh - 1, U'▼', frame);
+    }
+    auto shows = [&](int y) { return y >= 0 && y < ch; };
     auto put = [&](int x, int y, const std::string& text, Style st, int maxW) {
-        if (y < 0 || y >= ch || x >= cw) return;
+        if (!shows(y) || x >= cw) return;
         s.text(cx + x, cy + y, text, st, std::min(maxW, cw - x));
     };
+    auto band = [&](int x, int y, int w, Style st) {  // a row's ground
+        if (shows(y)) s.fill(cx + x, cy + y, std::min(w, cw - x), 1, U' ', st);
+    };
+    // (a row wider than the box, a toolbar: shifted left so the control with the keyboard is shown; ◀ ▶ beside it: more)
+    int wideRow = -1, left = 0;
+    for (size_t idx = 0; idx < items.size(); idx++) {
+        int end = placedAt[idx] + std::max(widthOf(items[idx]), minWidth(items[idx].w));
+        if (hasFocusIn(items[idx].w, focus) && end > cw) wideRow = items[idx].row, left = std::min(end - cw, placedAt[idx]);
+    }
+    for (size_t idx = 0; idx < items.size(); idx++) {
+        int x = placedAt[idx] - (items[idx].row == wideRow ? left : 0), y = items[idx].row - top;
+        if (!shows(y)) continue;
+        if (x < 0) s.set(cx - 1, cy + y, U'◀', frame);
+        if (x >= cw) s.set(cx + cw, cy + y, U'▶', frame);  // (one not drawn at all: those cut short end in "…")
+    }
+    const Style selFocus = style(Cyan, Black, Reverse | Bold);   // a list's row chosen, the list with the keyboard
+    const Style selIdle = style(White, Blue, Bold | Underline);  // …without it
     for (size_t idx = 0; idx < items.size(); idx++) {
         const Item& it = items[idx];
-        int x = placedAt[idx], y = it.row, w = std::min(std::max(widthOf(it), minWidth(it.w)), cw - x);
-        if (w <= 0) continue;
+        int x = placedAt[idx] - (it.row == wideRow ? left : 0), y = it.row - top;
+        int w = std::min(std::max(widthOf(it), minWidth(it.w)), cw - x);
+        if (x < 0 || w <= 0 || y >= ch || y + it.rows <= 0) continue;
         bool focused = hasFocusIn(it.w, focus);
         bool enabled = it.w->isEnabled();
         Style st = frame;
@@ -242,22 +294,25 @@ void drawWindow(Screen& s, ui::Window& win, int ax, int ay, int aw, int ah) {
             int fw = std::max(4, w);
             std::string text = e->text().empty() && !focused ? e->placeholder() : e->text();
             std::u32string cps = codePoints(text);
-            // (the cursor kept in view)
-            int cur = columns(e->text().substr(0, std::min(e->cursorPosition(), e->text().size())));
-            int first = std::max(0, cur - (fw - 3));
+            auto cells = [](char32_t c) { int n = cellWidth(c); return n < 0 ? 1 : n; };
+            // (the cursor kept in view: the text shown from as far left as leaves its cell in the field)
+            size_t cur = focused ? codePoints(e->text().substr(0, std::min(e->cursorPosition(), e->text().size()))).size() : 0;
+            size_t first = 0;
+            int before = 0;  // (the cells from the first shown to the cursor)
+            for (size_t i = 0; i < cur && i < cps.size(); i++) before += cells(cps[i]);
+            while (first < cur && before > fw - 3) before -= cells(cps[first++]);
             std::string shown;
-            for (int i = first; i < (int)cps.size() && i - first < fw - 2; i++) shown += utf8Of(cps[i]);
+            for (size_t i = first; i < cps.size(); i++) shown += utf8Of(cps[i]);
             Style es = style(Black, White, focused ? Bold : Plain);
-            s.fill(cx + x, cy + y, std::min(fw, cw - x), 1, U' ', es);
+            band(x, y, fw, es);
             put(x, y, "[", es, 1);
             put(x + 1, y, shown, es, fw - 2);
             put(x + fw - 1, y, "]", es, 1);
-            if (focused) {
-                if (Cell* cell = s.at(cx + x + 1 + cur - first, cy + y)) cell->st = style(White, Black, Reverse | Bold);
-            }
+            if (focused && shows(y) && 1 + before < cw - x)  // (the text cursor: a block of the field's colours reversed)
+                if (Cell* cell = s.at(cx + x + 1 + before, cy + y)) cell->st = style(Black, White, Reverse | Bold);
         } else if (auto* sp = dynamic_cast<ui::SpinBox*>(it.w)) {
             std::string shown = "[" + sp->text() + " ^v]";
-            put(x, y, shown, focused ? style(Black, White, Bold) : style(Black, White), std::max(w, columns(shown)));
+            put(x, y, shown, focused ? style(Black, White, Bold | Reverse) : style(Black, White), std::max(w, columns(shown)));
         } else if (auto* cb = dynamic_cast<ui::ComboBox*>(it.w)) {
             std::string shown = "[" + fit(comboText(cb), std::max(1, w - 4)) + " v]";
             put(x, y, shown, focused ? style(Black, White, Bold | Reverse) : style(Black, White), std::max(w, columns(shown)));
@@ -272,7 +327,7 @@ void drawWindow(Screen& s, ui::Window& win, int ax, int ay, int aw, int ah) {
             int cols = std::min(w, cw - x), rowsN = std::min(it.rows, ch - y);
             std::vector<ui::TextCell> cells;
             if (cols > 0 && rowsN > 0 && it.w->textCells(cols, rowsN, cells) && (int)cells.size() >= cols * rowsN)
-                for (int r = 0; r < rowsN; r++)
+                for (int r = std::max(0, -y); r < rowsN; r++)
                     for (int c = 0; c < cols; c++) {
                         const ui::TextCell& t = cells[(size_t)(r * cols + c)];
                         s.set(cx + x + c, cy + y + r, t.ch, Style{t.fg, t.bg, t.attr});
@@ -285,26 +340,25 @@ void drawWindow(Screen& s, ui::Window& win, int ax, int ay, int aw, int ah) {
             int first = std::max(0, std::min(cur - visible / 2, n - visible));
             for (int i = 0; i < visible && first + i < n; i++) {
                 int r = first + i;
-                bool sel = r == cur;
-                Style ls = sel ? (focused ? style(Blue, White, Reverse | Bold) : style(White, Blue, Bold | Underline)) : frame;
-                s.fill(cx + x, cy + y + i, std::min(w, cw - x), 1, U' ', ls);
+                bool sel = r == cur, ring = focused && cur < 0 && i == 0;  // (none chosen: the keyboard's on the first)
+                Style ls = sel ? (focused ? selFocus : selIdle) : ring ? selFocus : frame;
+                band(x, y + i, w, ls);
                 put(x, y + i, (sel ? "> " : "  ") + list[(size_t)r], ls, w);
             }
-            if (n == 0) put(x, y, "(empty)", frame, w);
+            if (n == 0) put(x, y, "(empty)", focused ? selFocus : frame, w);
         } else if (auto* lw = dynamic_cast<ui::ListWidget*>(it.w)) {
             int n = lw->count(), cur = lw->currentRow(), visible = it.rows;
             int first = std::max(0, std::min(cur - visible / 2, n - visible));
             for (int i = 0; i < visible && first + i < n; i++) {
                 int r = first + i;
-                bool sel = r == cur || lw->isRowSelected(r);
-                Style ls = sel ? style(focused ? Black : White, focused ? Cyan : Blue, focused ? Reverse : Bold) : frame;
-                if (sel && focused) ls = style(Blue, White, Reverse | Bold);
+                bool sel = r == cur || lw->isRowSelected(r), ring = focused && cur < 0 && i == 0;
+                Style ls = sel ? (focused ? selFocus : selIdle) : ring ? selFocus : frame;
                 const ui::ListWidget::Item& item = lw->item(r);
                 std::string text = std::string(sel ? "> " : "  ") + (item.checkable ? (item.checked ? "[x] " : "[ ] ") : "") + item.text;
-                s.fill(cx + x, cy + y + i, std::min(w, cw - x), 1, U' ', ls);
+                band(x, y + i, w, ls);
                 put(x, y + i, text, ls, w);
             }
-            if (n == 0) put(x, y, "(empty)", frame, w);
+            if (n == 0) put(x, y, "(empty)", focused ? selFocus : frame, w);
         } else if (auto* tw = dynamic_cast<ui::TreeWidget*>(it.w)) {
             int n = tw->rowCount(), visible = it.rows, cur = 0;
             for (int r = 0; r < n; r++)
@@ -316,8 +370,8 @@ void drawWindow(Screen& s, ui::Window& win, int ax, int ay, int aw, int ah) {
                 bool sel = node == tw->current();
                 std::string mark = node->expandable ? (node->expanded ? "v " : "> ") : "  ";
                 std::string text = std::string(tw->depthAtRow(r) * 2, ' ') + mark + node->text;
-                Style ls = sel ? (focused ? style(Blue, White, Reverse | Bold) : style(White, Blue, Bold | Underline)) : frame;
-                s.fill(cx + x, cy + y + i, std::min(w, cw - x), 1, U' ', ls);
+                Style ls = sel ? (focused ? selFocus : selIdle) : frame;
+                band(x, y + i, w, ls);
                 put(x, y + i, text, ls, w);
             }
         } else if (auto* tabs = dynamic_cast<ui::TabWidget*>(it.w)) {
@@ -337,9 +391,11 @@ void drawWindow(Screen& s, ui::Window& win, int ax, int ay, int aw, int ah) {
     if (auto* pd = dynamic_cast<ui::ProgressDialog*>(&win)) {
         int pw = cw, lo = pd->minimum(), hi = pd->maximum();
         double f = hi > lo ? double(pd->value() - lo) / (hi - lo) : 0;
-        int done = (int)std::lround(std::clamp(f, 0.0, 1.0) * pw);
-        s.fill(cx, cy + rows - 1, done, 1, U'█', frame);
-        s.fill(cx + done, cy + rows - 1, pw - done, 1, U'░', frame);
+        int done = (int)std::lround(std::clamp(f, 0.0, 1.0) * pw), y = rows - 1 - top;
+        if (shows(y)) {
+            s.fill(cx, cy + y, done, 1, U'█', frame);
+            s.fill(cx + done, cy + y, pw - done, 1, U'░', frame);
+        }
     }
 }
 

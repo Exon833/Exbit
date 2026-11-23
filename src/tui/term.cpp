@@ -3,13 +3,16 @@
 
 #include <fcntl.h>
 #include <langinfo.h>
+#include <poll.h>
 #include <signal.h>
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
 
 #include <atomic>
+#include <cctype>
 #include <cerrno>
+#include <chrono>
 #include <clocale>
 #include <cstdlib>
 #include <cstring>
@@ -270,7 +273,59 @@ bool Terminal::open(std::string& why) {
     }
     open_ = true;
     write(kEnter);
+    // its background asked (OSC 11), and DA1 after it, which every terminal answers: that answer ends the wait
+    // for one that doesn't know OSC 11. Keys typed meanwhile are kept for read()
+    write("\x1b]11;?\x1b\\\x1b[c");
+    std::string got;
+    auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
+    for (;;) {
+        int left = (int)std::chrono::duration_cast<std::chrono::milliseconds>(until - std::chrono::steady_clock::now()).count();
+        struct pollfd p {0, POLLIN, 0};
+        if (left <= 0 || poll(&p, 1, left) <= 0) break;
+        got += read();
+        size_t da = got.find("\x1b[?");
+        if (da != std::string::npos && got.find('c', da) != std::string::npos) break;
+    }
+    int l = lightFromReply(got);
+    light_ = l >= 0 ? l == 1 : lightFromColorFgBg(getenv("COLORFGBG")) == 1;
+    // (the answers taken out: what is left was typed)
+    for (const char* start : {"\x1b]11;", "\x1b[?"}) {
+        size_t a = got.find(start);
+        if (a == std::string::npos) continue;
+        size_t b = start[1] == ']' ? got.find_first_of("\x07\x1b", a + 5) : got.find('c', a);
+        if (b == std::string::npos) b = got.size() - 1;
+        else if (got[b] == '\x1b') b++;  // (ESC \ ends it)
+        got.erase(a, b + 1 - a);
+    }
+    typed_ = got;
     return true;
+}
+
+int lightFromReply(const std::string& reply) {
+    size_t at = reply.find("\x1b]11;rgb:");
+    if (at == std::string::npos) return -1;
+    double sum = 0;
+    const double weight[3] = {0.299, 0.587, 0.114};
+    const char* p = reply.c_str() + at + 9;
+    for (int i = 0; i < 3; i++) {
+        char* end = nullptr;
+        unsigned long v = strtoul(p, &end, 16);
+        int digits = (int)(end - p);
+        if (digits < 1 || digits > 4) return -1;
+        sum += weight[i] * (double)v / (double)((1ul << (4 * digits)) - 1);
+        p = end + (i < 2 ? 1 : 0);
+        if (i < 2 && *end != '/') return -1;
+    }
+    return sum > 0.5 ? 1 : 0;
+}
+
+int lightFromColorFgBg(const char* value) {
+    if (!value || !*value) return -1;
+    const char* last = strrchr(value, ';');
+    if (!last || !last[1]) return -1;
+    if (!isdigit((unsigned char)last[1])) return -1;  // ("default")
+    int bg = atoi(last + 1);
+    return bg == 7 || bg == 15 ? 1 : 0;
 }
 
 void Terminal::close() {
@@ -318,6 +373,7 @@ void Terminal::write(const std::string& s) {
 
 std::string Terminal::read() {
     std::string out;
+    out.swap(typed_);
     char buf[512];
     for (;;) {
         ssize_t n = ::read(0, buf, sizeof buf);

@@ -49,11 +49,20 @@ public:
     bool size(int& w, int& h) const;  // columns and rows
     bool resized();                   // the window changed size since last asked (SIGWINCH)
     static bool utf8();               // the locale's characters are UTF-8 (else: ASCII only)
+    // its background is light (a light theme): asked of it when opened (OSC 11), else told by COLORFGBG; dark
+    // when neither says
+    bool light() const { return light_; }
     void write(const std::string& s);
     std::string read();               // what has been typed (without waiting)
 
 private:
-    bool open_ = false;
+    bool open_ = false, light_ = false;
+    std::string typed_;  // (keys typed while the background was asked: read() gives them first)
 };
+
+// (tests) a background's lightness from the terminal's answer to OSC 11 ("ESC ] 11 ; rgb:ffff/ffff/ffff BEL") or
+// from COLORFGBG ("0;15": the text's colour, then the background's): 1 light, 0 dark, -1 not told
+int lightFromReply(const std::string& reply);
+int lightFromColorFgBg(const char* value);
 
 }  // namespace tui

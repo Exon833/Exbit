@@ -98,6 +98,11 @@ private:
     int bodyRows_ = 0;                   // track rows shown (last drawn)
     int timelineCols_ = 60;
 
+    bool unsaved_ = false;          // the menu bar's " *" (asked of the project at most every UNSAVED_S: it is slow)
+    double unsavedAt_ = -1, unsavedCost_ = 0;
+    ui::Window* lastTop_ = nullptr;
+    void closeUnder();              // a window that has just opened over F1's list or the bar's menu: they close
+
     ui::Window* topWindow() const;  // a dialog or popup over the main window, if any
     bool drawsWindow(ui::Window* win) const;
     int openWindows() const;        // the program's windows of their own open (an editor…), not dialogs

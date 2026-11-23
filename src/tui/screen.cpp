@@ -2,8 +2,39 @@
 #include "tui/screen.h"
 
 #include <algorithm>
+#include <cwchar>
+#include <locale.h>
 
 namespace tui {
+
+int cellWidth(char32_t cp) {
+    if (cp < 0x7F) return cp >= 0x20 ? 1 : -1;
+    if (cp < 0xA0) return -1;  // (DEL, the C1 controls: a terminal would act on them)
+    if (cp < 0x300) return 1;
+    // as the terminal counts them: the C library's table (in a UTF-8 locale of this thread's own, whatever the
+    // program's locale is)
+    static locale_t utf8 = [] {
+        for (const char* name : {"C.UTF-8", "C.utf8", "en_US.UTF-8", "en_US.utf8"})
+            if (locale_t l = newlocale(LC_CTYPE_MASK, name, (locale_t)0)) return l;
+        return (locale_t)0;
+    }();
+    if (utf8) {
+        locale_t was = uselocale(utf8);
+        int w = wcwidth((wchar_t)cp);
+        uselocale(was);
+        return w;
+    }
+    // shortcut: no UTF-8 locale installed: the main wide and zero-width ranges only (a complete table if it matters)
+    if ((cp >= 0x300 && cp < 0x370) || (cp >= 0x200B && cp <= 0x200F) || (cp >= 0x20D0 && cp <= 0x20FF) ||
+        (cp >= 0xFE00 && cp <= 0xFE0F))
+        return 0;
+    if ((cp >= 0x1100 && cp <= 0x115F) || (cp >= 0x2E80 && cp <= 0xA4CF && cp != 0x303F) || (cp >= 0xAC00 && cp <= 0xD7A3) ||
+        (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0xFE30 && cp <= 0xFE4F) || (cp >= 0xFF00 && cp <= 0xFF60) ||
+        (cp >= 0xFFE0 && cp <= 0xFFE6) || (cp >= 0x1F300 && cp <= 0x1F64F) || (cp >= 0x1F900 && cp <= 0x1F9FF) ||
+        (cp >= 0x20000 && cp <= 0x3FFFD))
+        return 2;
+    return 1;
+}
 
 std::string utf8Of(char32_t cp) {
     std::string out;
@@ -72,16 +103,34 @@ std::u32string codePoints(const std::string& s) {
     return out;
 }
 
-int columns(const std::string& s) { return (int)codePoints(s).size(); }
+namespace {
+int widthOf(char32_t cp) {  // (a character not drawn as itself: as U+FFFD, one cell)
+    int w = cellWidth(cp);
+    return w < 0 ? 1 : w;
+}
+}  // namespace
+
+int columns(const std::string& s) {
+    int n = 0;
+    for (char32_t cp : codePoints(s)) n += widthOf(cp);
+    return n;
+}
 
 std::string fit(const std::string& s, int n, bool ellipsis) {
-    std::u32string cps = codePoints(s);
-    if ((int)cps.size() <= n) return s;
-    std::string out;
-    int keep = std::max(0, ellipsis ? n - 1 : n);
-    for (int i = 0; i < keep; i++) out += utf8Of(cps[i]);
-    if (ellipsis && n > 0) out += utf8Of(U'…');
-    return out;
+    if (columns(s) <= n) return s;
+    std::u32string out;
+    int room = std::max(0, ellipsis ? n - 1 : n), used = 0;
+    for (char32_t cp : codePoints(s)) {
+        int w = widthOf(cp);
+        if (used + w > room) break;
+        out += cp;
+        used += w;
+    }
+    while (!out.empty() && out.back() == U'‍') out.pop_back();  // (no joiner left dangling)
+    if (ellipsis && n > 0) out += U'…';
+    std::string bytes;
+    for (char32_t cp : out) bytes += utf8Of(cp);
+    return bytes;
 }
 
 void Screen::resize(int w, int h) {
@@ -93,19 +142,45 @@ void Screen::resize(int w, int h) {
 void Screen::clear(Style st) { std::fill(cells_.begin(), cells_.end(), Cell{U' ', st}); }
 
 void Screen::set(int x, int y, char32_t ch, Style st) {
-    if (Cell* c = at(x, y)) *c = Cell{ch, st};
+    Cell* c = at(x, y);
+    if (!c) return;
+    int w = cellWidth(ch);
+    Cell* next = at(x + 1, y);
+    if (w < 1 || (w == 2 && !next)) ch = U' ', w = 1;  // (a control or zero-width character alone; a wide one at the edge)
+    // (a wide character's halves never apart: one written over, the other becomes a space)
+    if (c->ch == WIDE_TAIL && x > 0) at(x - 1, y)->ch = U' ';
+    if (next && next->ch == WIDE_TAIL && w == 1) next->ch = U' ';
+    *c = Cell{ch, st};
+    if (w == 2) {
+        if (Cell* after = at(x + 2, y); after && after->ch == WIDE_TAIL) after->ch = U' ';
+        *next = Cell{WIDE_TAIL, st};
+    }
 }
 
 int Screen::text(int x, int y, const std::string& s, Style st, int maxW) {
     if (y < 0 || y >= h_) return 0;
     int limit = maxW < 0 ? w_ - x : std::min(maxW, w_ - x);
-    int n = 0;
-    for (char32_t cp : codePoints(s)) {
-        if (n >= limit) break;
+    if (limit <= 0) return 0;
+    std::u32string cps = codePoints(s);
+    int total = 0, ink = 0;  // (ink: up to the last character that isn't a space)
+    for (char32_t& cp : cps) {
         if (cp == U'\n' || cp == U'\t') cp = U' ';
-        if (cp < 0x20) continue;
+        if (cellWidth(cp) < 0) cp = U'�';
+        total += widthOf(cp);
+        if (cp != U' ') ink = total;
+    }
+    bool cut = ink > limit;  // (cut: "…" after what fits)
+    int room = cut ? limit - 1 : limit, n = 0;
+    for (char32_t cp : cps) {
+        int w = widthOf(cp);
+        if (w == 0) continue;
+        if (n + w > room) break;
         set(x + n, y, cp, st);
-        n++;
+        n += w;
+    }
+    if (cut) {
+        set(x + n++, y, U'…', st);
+        while (n < limit) set(x + n++, y, U' ', st);  // (a wide character that didn't fit: its cell blank)
     }
     return n;
 }
@@ -138,18 +213,28 @@ void Screen::box(int x, int y, int w, int h, Style st, const std::string& title)
 }
 
 namespace {
+// the style a cell is sent in: text hard to read on a light background (the terminal's own), darker there
+Style onGround(Style st, bool light) {
+    if (!light || st.bg != Default || (st.attr & Reverse)) return st;
+    if (st.fg == White) st.fg = Default;
+    else if (st.fg == Yellow) st.fg = Magenta;
+    else if (st.fg == Cyan) st.fg = Blue;
+    return st;
+}
+
 std::string sgr(Style st) {
     std::string s = "\x1b[0";
     if (st.attr & Bold) s += ";1";
     if (st.attr & Underline) s += ";4";
     if (st.attr & Reverse) s += ";7";
-    if (st.fg != Default) s += ";3" + std::to_string(st.fg);
-    if (st.bg != Default) s += ";4" + std::to_string(st.bg);
+    // (only the 8 colours: 38 or 48 would start an extended colour's parameters)
+    if (st.fg < 8) s += ";3" + std::to_string(st.fg);
+    if (st.bg < 8) s += ";4" + std::to_string(st.bg);
     return s + "m";
 }
 }  // namespace
 
-std::string Screen::output(Screen& shown, bool utf8) const {
+std::string Screen::output(Screen& shown, bool utf8, bool light) const {
     std::string out;
     bool fresh = shown.w_ != w_ || shown.h_ != h_;
     if (fresh) {
@@ -163,19 +248,29 @@ std::string Screen::output(Screen& shown, bool utf8) const {
         for (int x = 0; x < w_; x++) {
             size_t i = (size_t)y * w_ + x;
             const Cell& c = cells_[i];
-            if (c == shown.cells_[i]) continue;
+            // a wide character's two cells are sent as one (the tail with its head); not into the bottom-right cell
+            bool head = x + 1 < w_ && cells_[i + 1].ch == WIDE_TAIL && cellWidth(c.ch) == 2 && !(y == h_ - 1 && x + 2 == w_);
+            if (c.ch == WIDE_TAIL && x > 0 && cellWidth(cells_[i - 1].ch) == 2) continue;
+            if (c == shown.cells_[i] && (!head || cells_[i + 1] == shown.cells_[i + 1])) continue;
             // (the bottom-right cell is never written: some terminals scroll when it is)
             if (x == w_ - 1 && y == h_ - 1) continue;
             if (cx != x || cy != y) out += "\x1b[" + std::to_string(y + 1) + ";" + std::to_string(x + 1) + "H";
-            if (c.st != cur) {
-                out += sgr(c.st);
-                cur = c.st;
+            Style st = onGround(c.st, light);
+            if (st != cur) {
+                out += sgr(st);
+                cur = st;
             }
-            char32_t ch = c.ch < 0x20 ? U' ' : c.ch;
+            // (anything else as wide as it isn't meant to be, a control character: a space)
+            char32_t ch = cellWidth(c.ch) != (head ? 2 : 1) ? U' ' : c.ch;
             if (utf8) out += utf8Of(ch);
             else out += asciiOf(ch);
             shown.cells_[i] = c;
             cx = x + 1;
+            if (head) {
+                if (!utf8 || ch == U' ') out += ' ';  // (sent as one ASCII character: a space in the tail's cell)
+                shown.cells_[i + 1] = cells_[i + 1];
+                cx++;
+            }
             cy = y;
         }
     }
@@ -185,7 +280,8 @@ std::string Screen::output(Screen& shown, bool utf8) const {
 
 std::string Screen::line(int y) const {
     std::string s;
-    for (int x = 0; x < w_; x++) s += utf8Of(cells_[(size_t)y * w_ + x].ch);
+    for (int x = 0; x < w_; x++)
+        if (cells_[(size_t)y * w_ + x].ch != WIDE_TAIL) s += utf8Of(cells_[(size_t)y * w_ + x].ch);
     size_t end = s.find_last_not_of(' ');
     return end == std::string::npos ? "" : s.substr(0, end + 1);
 }
