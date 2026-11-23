@@ -95,8 +95,9 @@ struct Patch {
     std::string name = "Init", category;
     // THE DRAWN SYNTH (Instrument ▾ → Drawn synth…; its window is a canvas, ui/wave_canvas.h): one cycle of a wave
     // drawn by hand, WAVE_POINTS values -1…1, joined by straight lines. Osc 1 plays it in place of its wave,
-    // band-limited for each note's pitch and with its DC taken away (synth_voice.cpp); the rest of the patch
-    // (Init's: Env 1, an open filter) is as ever. Replaced whole, as the patch is. Null: an ordinary patch.
+    // band-limited for each note's pitch and with its DC taken away, at the level drawn: the canvas's top is full
+    // scale (0 dBFS at velocity 127), with no filter (synth_voice.cpp); Env 1 (Init's) shapes each note. Replaced
+    // whole, as the patch is. Null: an ordinary patch.
     std::shared_ptr<const std::vector<float>> drawn;
     Patch();  // every parameter at its default ("Init": one saw through an open low-pass filter)
     double operator[](int p) const { return v[p]; }

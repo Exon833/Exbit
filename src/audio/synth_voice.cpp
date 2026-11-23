@@ -71,7 +71,7 @@ inline double wrap(double p) { return p - std::floor(p); }
 
 // A DRAWN WAVE as Osc 1 plays it for one voice: TABLE frames of one cycle, its harmonics above `fMax`'s Nyquist
 // (and its DC) taken away, so no partial folds back however sharp the drawing (an FFT of the drawn points joined
-// by straight lines; the bins kept, transformed back). Built for the voice's highest pitch: lower notes of a
+// by straight lines; the bins kept, transformed back), then scaled to peak where the drawing peaks. Built for the voice's highest pitch: lower notes of a
 // sliding run keep the same top harmonic, never one past Nyquist.
 constexpr int TABLE = 2048;
 constexpr int DRAWN = -1;  // (oscillate's wave for it)
@@ -89,8 +89,14 @@ std::vector<float> drawnTable(const std::vector<float>& drawn, double fMax, int 
     x[0] = 0;
     for (int k = keep + 1; k <= TABLE - keep - 1; k++) x[(size_t)k] = 0;
     plan.inverse(x.data());
+    // scaled back to the drawing's own peak (taking the DC away, or the harmonics past Nyquist, moves it): drawn to
+    // the very top, it peaks at full scale
+    double drawnPeak = 0, peak = 0;
+    for (float v : drawn) drawnPeak = std::max(drawnPeak, (double)std::fabs(v));
+    for (int i = 0; i < TABLE; i++) peak = std::max(peak, std::fabs(x[(size_t)i].real() / TABLE));
+    double scale = peak > 1e-9 ? drawnPeak / peak : 0.0;  // (a flat line: silence)
     std::vector<float> out((size_t)TABLE + 1);  // (one more: the first again, for interpolating at the end)
-    for (int i = 0; i < TABLE; i++) out[(size_t)i] = (float)(x[(size_t)i].real() / TABLE);
+    for (int i = 0; i < TABLE; i++) out[(size_t)i] = (float)(x[(size_t)i].real() / TABLE * scale);
     out[TABLE] = out[0];
     return out;
 }
@@ -278,7 +284,10 @@ void renderVoice(const Patch& P, const Voice& voice, int sr, double beatS, std::
     double pitchFrom = voice.fromPitch, gainFrom = p0->gain, panFrom = p0->pan;
     double pitch = voice.fromPitch, gain = p0->gain, pan = p0->pan;
     float bl[CONTROL], br[CONTROL];
-    const double outBase = OUT_GAIN;
+    // a Drawn synth: what is drawn is what is heard: no filter, and the canvas's height full scale (its top 0 dBFS
+    // at full velocity), where the other patches leave headroom (OUT_GAIN) for their resonance and unison
+    const bool drawn = !table.empty();
+    const double outBase = drawn ? 1.0 : OUT_GAIN;
 
     for (int64_t i0 = 0; i0 < n; i0 += CONTROL) {
         int m = (int)std::min<int64_t>(CONTROL, n - i0);
@@ -382,8 +391,8 @@ void renderVoice(const Patch& P, const Voice& voice, int sr, double beatS, std::
                 xl += (std::tanh(dg * xl) * dn - xl) * dmix;
                 if (stereo) xr += (std::tanh(dg * xr) * dn - xr) * dmix;
             }
-            double yl = fl.run(xl, a1, a2, a3, k, ftype) * comp;
-            double yr = stereo ? fr.run(xr, a1, a2, a3, k, ftype) * comp : yl;
+            double yl = drawn ? xl : fl.run(xl, a1, a2, a3, k, ftype) * comp;
+            double yr = !stereo ? yl : drawn ? xr : fr.run(xr, a1, a2, a3, k, ftype) * comp;
             double level = out * env;
             if (voice.cut >= 0 && i >= voice.cut) level *= std::max(0.0, 1.0 - (double)(i - voice.cut) / CUT_FADE);
             outL[(size_t)i] = (float)(yl * level * nl);

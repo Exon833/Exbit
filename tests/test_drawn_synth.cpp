@@ -12,6 +12,7 @@
 
 #include "audio/engine.h"
 #include "audio/fft.h"
+#include "audio/render.h"
 #include "audio/synth_patch.h"
 #include "check.h"
 #include "core/util.h"
@@ -92,7 +93,7 @@ std::vector<float> square() {
 
 static void testSound() {
     // the starting sine: at the key's pitch (A4: 440 Hz), nothing else
-    AudioPtr a = render(drawnPatch(), {{0.0, 1.0, 69, 127}}, SR, 1.0);
+    AudioPtr a = subsynth::render(drawnPatch(), {{0.0, 1.0, 69, 127}}, SR, 1.0);
     CHECK(a && finite(*a));
     if (!a) return;
     const int N = 8192;
@@ -104,27 +105,60 @@ static void testSound() {
 
     // a square drawn, played high (C7, 2093 Hz): only its own harmonics, none folded back past Nyquist
     double f0 = 440.0 * std::pow(2.0, (96 - 69) / 12.0);
-    AudioPtr sq = render(drawnOf(square()), {{0.0, 1.0, 96, 127}}, SR, 1.0);
+    AudioPtr sq = subsynth::render(drawnOf(square()), {{0.0, 1.0, 96, 127}}, SR, 1.0);
     CHECK(sq && finite(*sq));
     if (sq) {
         double share = harmonicShare(spectrum(*sq, SR / 4, N), f0, N);
         printf("   a drawn square at %.0f Hz: %.4f of its power on its harmonics\n", f0, share);
         CHECK(share > 0.995);
     }
-    // the same square as the synth's own pulse wave sounds alike (both band-limited): the levels close
-    Patch pulse;
-    pulse.v[O1_WAVE] = PULSE;
-    pulse.v[O1_WIDTH] = 0.5;
-    AudioPtr ref = render(pulse, {{0.0, 1.0, 60, 127}}, SR, 1.0);
-    AudioPtr drawnLow = render(drawnOf(square()), {{0.0, 1.0, 60, 127}}, SR, 1.0);
-    if (ref && drawnLow) CHECK(std::fabs(peakOf(*ref) - peakOf(*drawnLow)) < 0.35 * peakOf(*ref));
+    // THE LEVEL DRAWN IS THE LEVEL HEARD: drawn to the very top, a note at full velocity peaks at 0 dBFS (sine,
+    // square, a drawing all above the centre line whose DC is taken away); half as high, -6 dB; at any pitch
+    auto peakDb = [](const AudioPtr& out) { return out ? 20 * std::log10(std::max(1e-9, peakOf(*out))) : -999.0; };
+    std::vector<float> upper((size_t)WAVE_POINTS, 0.0f);
+    for (int i = WAVE_POINTS / 4; i < WAVE_POINTS / 2; i++) upper[(size_t)i] = 1.0f;
+    std::vector<float> half = square();
+    for (float& v : half) v *= 0.5f;
+    for (int pitch : {36, 60, 84}) {
+        double sineDb = peakDb(subsynth::render(drawnPatch(), {{0.0, 1.0, (double)pitch, 127}}, SR, 1.0));
+        double squareDb = peakDb(subsynth::render(drawnOf(square()), {{0.0, 1.0, (double)pitch, 127}}, SR, 1.0));
+        double upperDb = peakDb(subsynth::render(drawnOf(upper), {{0.0, 1.0, (double)pitch, 127}}, SR, 1.0));
+        double halfDb = peakDb(subsynth::render(drawnOf(half), {{0.0, 1.0, (double)pitch, 127}}, SR, 1.0));
+        printf("   key %d at full velocity: sine %.2f dB, square %.2f dB, above the centre %.2f dB, half %.2f dB\n", pitch,
+               sineDb, squareDb, upperDb, halfDb);
+        CHECK(std::fabs(sineDb) < 0.1);
+        CHECK(std::fabs(squareDb) < 0.1);
+        CHECK(std::fabs(upperDb) < 0.1);
+        CHECK(std::fabs(halfDb + 6.02) < 0.1);
+    }
+    // and through the whole mix (a track at 0 dB, the master at 0 dB): its top reaches the master at 0 dBFS
+    {
+        Project pr;
+        TrackPtr t = pr.addTrack(Kind::Midi);
+        t->needsInstrument = false;
+        std::atomic_store(&t->synth, PatchPtr(std::make_shared<const Patch>(drawnOf(square()))));
+        ClipPtr c = makeMidiClip("Held", {{0.0, 1.0, 60, 127}}, 1.0, SR);
+        c->track = t;
+        pr.addClip(c);
+        c->prepare(SR);
+        auto mix = ::render::renderMix(pr, 0, SR, SR);
+        CHECK(mix.has_value());
+        if (mix) {
+            double m = 0;
+            for (float v : *mix) m = std::max(m, (double)std::fabs(v));
+            printf("   through the mix: %.2f dBFS on the master\n", 20 * std::log10(std::max(1e-9, m)));
+            CHECK(std::fabs(20 * std::log10(std::max(1e-9, m))) < 0.1);
+        }
+    }
+    // velocity scales it, as on every instrument (64 of 127: about -6 dB)
+    CHECK(std::fabs(peakDb(subsynth::render(drawnPatch(), {{0.0, 1.0, 60, 64}}, SR, 1.0)) - 20 * std::log10(64 / 127.0)) < 0.1);
 
     // a drawing off centre: its DC taken away (a flat line is silence)
-    AudioPtr flat = render(drawnOf(std::vector<float>((size_t)WAVE_POINTS, 0.6f)), {{0.0, 0.5, 60, 127}}, SR, 0.5);
+    AudioPtr flat = subsynth::render(drawnOf(std::vector<float>((size_t)WAVE_POINTS, 0.6f)), {{0.0, 0.5, 60, 127}}, SR, 0.5);
     CHECK(flat && peakOf(*flat) < 1e-4);
 
     // the same notes render the same, bit for bit
-    AudioPtr again = render(drawnOf(square()), {{0.0, 1.0, 96, 127}}, SR, 1.0);
+    AudioPtr again = subsynth::render(drawnOf(square()), {{0.0, 1.0, 96, 127}}, SR, 1.0);
     CHECK(sq && again && sq->samples == again->samples);
 }
 
@@ -354,7 +388,7 @@ static void testWorstCase() {
     std::vector<Note> all;
     for (int pitch = 0; pitch < 128; pitch++) all.push_back({pitch * 0.002, 0.6, (double)pitch, 127});
     for (const auto& wave : {square(), noise, spikes}) {
-        AudioPtr out = render(drawnOf(wave), all, SR, 0.7);
+        AudioPtr out = subsynth::render(drawnOf(wave), all, SR, 0.7);
         CHECK(out && finite(*out));
         if (out) CHECK(peakOf(*out) < 64);
     }
