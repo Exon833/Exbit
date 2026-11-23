@@ -85,8 +85,8 @@ struct Shades {
     Color fieldHover;   // … under the mouse                  mix(base, text, .36)
     Color itemHover;    // list rows under the mouse          mix(base, text, .07)
     Color panel;        // boxes grouping controls            mix(window, base, .45)
-    Color handle;       // scroll bar handles                 mix(window, window_text, .22)
-    Color handleHover;  //                                    mix(window, window_text, .38)
+    Color handle;       // scroll bar handles                 mix(window, window_text, .50): 3:1 on the window
+    Color handleHover;  //                                    mix(window, window_text, .65)
     Color accentHover;  //                                    mix(accent, black, .15): its text keeps its contrast
 };
 const Shades& shades();

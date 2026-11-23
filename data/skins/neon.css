@@ -204,7 +204,7 @@ Slider::handle:hover, Slider::handle:pressed { background-color: #ffffff; }
 
 /* scroll bars: a flat steel thumb, cyan under the pointer */
 ScrollBar { background-color: var(--nd-black); }
-ScrollBar::thumb { background-color: #26303e; border-radius: 0; margin: 2px; }
+ScrollBar::thumb { background-color: #565e68; border-radius: 0; margin: 2px; }  /* (3:1 on the black) */
 ScrollBar::thumb:hover, ScrollBar::thumb:pressed { background-color: var(--nd-cyan-dim); }
 
 /* tabs: the chosen one yellow with a yellow line under it */

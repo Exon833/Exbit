@@ -553,14 +553,14 @@ ScrollBar::thumb {
     background-position: center;
     border: 1px solid #ffffff;
     border-radius: 3px;
-    box-shadow: inset -2px 0 0 #bad1fc, inset 1px 1px 0 #b7caf5, 0 1px 0 #7c9fd3;
+    box-shadow: inset -2px 0 0 #bad1fc, inset 1px 1px 0 #b7caf5, 0 1px 0 #6a8cc8;  /* (the outer edge: 3:1 on the track) */
     margin: 0 1px 1px 1px;
     min-height: 8px;
     min-width: 8px;
 }
 ScrollBar:horizontal::thumb {
     background-image: url(xp/grip-h.svg), linear-gradient(to bottom, #c9d7fc 0%, #c3d3fb 50%, #b9cdf9 100%);
-    box-shadow: inset 0 -2px 0 #bad1fc, inset 1px 1px 0 #b7caf5, 1px 0 0 #7c9fd3;
+    box-shadow: inset 0 -2px 0 #bad1fc, inset 1px 1px 0 #b7caf5, 1px 0 0 #6a8cc8;
     margin: 1px 1px 1px 0;
 }
 ScrollBar::thumb:hover {

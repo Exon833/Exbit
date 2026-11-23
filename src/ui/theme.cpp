@@ -137,8 +137,8 @@ void refresh() {
         {&Shades::fieldHover, "--field-hover", "base", "text", 0.36f},
         {&Shades::itemHover, "--item-hover", "base", "text", 0.07f},
         {&Shades::panel, "--panel", "window", "base", 0.45f},
-        {&Shades::handle, "--handle", "window", "window_text", 0.22f},
-        {&Shades::handleHover, "--handle-hover", "window", "window_text", 0.38f},
+        {&Shades::handle, "--handle", "window", "window_text", 0.50f},
+        {&Shades::handleHover, "--handle-hover", "window", "window_text", 0.65f},
         {&Shades::accentHover, "--accent-hover", "accent", "", 0.15f},  // ("": black)
     };
     for (auto& m : mixes)

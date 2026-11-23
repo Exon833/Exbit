@@ -371,8 +371,8 @@ made from `default.css` by `tools/skins_reference.py`.
 | `--field-hover` | `color-mix(in srgb, var(--base) 64%, var(--text) 36%)` | … under the mouse |
 | `--item-hover` | `color-mix(in srgb, var(--base) 93%, var(--text) 7%)` | list rows under the mouse |
 | `--panel` | `color-mix(in srgb, var(--window) 55%, var(--base) 45%)` | boxes grouping controls |
-| `--handle` | `color-mix(in srgb, var(--window) 78%, var(--window-text) 22%)` | scroll bar handles |
-| `--handle-hover` | `color-mix(in srgb, var(--window) 62%, var(--window-text) 38%)` | … under the mouse |
+| `--handle` | `color-mix(in srgb, var(--window) 50%, var(--window-text) 50%)` | scroll bar handles |
+| `--handle-hover` | `color-mix(in srgb, var(--window) 35%, var(--window-text) 65%)` | … under the mouse |
 | `--accent-hover` | `color-mix(in srgb, var(--accent) 85%, #000000 15%)` | lit buttons under the mouse |
 | `--focus` | `color-mix(in srgb, var(--accent) 50%, var(--window-text) 50%)` | the keyboard focus: edges of the control that has it |
 

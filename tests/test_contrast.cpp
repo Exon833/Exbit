@@ -412,6 +412,32 @@ void sweepControls() {
         slider->setEnabled(true);
         judgePair("Slider::handle :disabled against the window", dh, 1.8, "its box on " + hx(around));
     }
+    // scroll bars (ScrollArea's and the windows' own: the same styles): the thumb, its edge or its fill, against the
+    // bar's track, in each of its states, both ways
+    for (Orientation o : {Orientation::Vertical, Orientation::Horizontal}) {
+        auto* sb = win.add<ScrollBar>(o);
+        bool vert = o == Orientation::Vertical;
+        sb->setGeometry(vert ? Rect(860, 10, theme::scrollbarWidth(), 200) : Rect(300, 370, 200, theme::scrollbarWidth()));
+        Box track = paintBox(sb->computedStyle(), sb->width(), sb->height(), around);
+        PartStyles parts(*sb);
+        for (const char* st : {"", "hover", "pressed"}) {
+            std::vector<const char*> sts;
+            if (*st) sts.push_back(st);
+            const css::Style& ts = parts.get("thumb", sts);
+            int tw = vert ? sb->width() : 60, th = vert ? 60 : sb->height();
+            Image img(tw + 4, th + 4, track.mode);  // (room around it: an outer shadow is its edge in some skins)
+            {
+                Painter p(img, 1);
+                ui::style::box(p, Rect(2, 2, tw, th), ts);
+            }
+            double m = 1;
+            for (int y = 0; y < img.height(); y++)
+                for (int x = 0; x < img.width(); x++) m = std::max(m, contrast(img.colorAt(x, y), track.mode));
+            judgePair(std::string("ScrollBar::thumb (") + (vert ? "vertical" : "horizontal") + ") :" + (*st ? st : "normal") +
+                          " against its track", m, 3.0, "its box on " + hx(track.mode));
+        }
+        sb->hide();
+    }
     // the list's rows: text on each kind of row, and the selected row against its neighbours (side by side: 3:1, or
     // an edge around it that is)
     {

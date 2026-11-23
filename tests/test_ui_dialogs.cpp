@@ -131,8 +131,8 @@ static void testSkinFiles() {
         CHECK(same(sh.fieldHover, mixColor(q("base"), q("text"), 0.36f)));
         CHECK(same(sh.itemHover, mixColor(q("base"), q("text"), 0.07f)));
         CHECK(same(sh.panel, mixColor(q("window"), q("base"), 0.45f)));
-        CHECK(same(sh.handle, mixColor(q("window"), q("window_text"), 0.22f)));
-        CHECK(same(sh.handleHover, mixColor(q("window"), q("window_text"), 0.38f)));
+        CHECK(same(sh.handle, mixColor(q("window"), q("window_text"), 0.50f)));
+        CHECK(same(sh.handleHover, mixColor(q("window"), q("window_text"), 0.65f)));
         CHECK(same(sh.accentHover, mixColor(q("accent"), Color(0, 0, 0), 0.15f)));
     }
     skin::apply(skin::find("Light"));
