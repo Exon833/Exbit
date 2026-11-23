@@ -440,6 +440,30 @@ void testFront() {
     d.keys({key(plat::Key_Escape)});
     while (ui::Window* top = topWindowBut(w)) top->close();
 
+    // --- the transport's time signature: shown N/D; Enter types one ("7/8") ---
+    CHECK(transport.find("4/4") != std::string::npos);
+    Front::Pane paneWas = f.pane;
+    int controlWas = f.control;
+    f.pane = Front::Pane::Transport;
+    f.control = 8;  // (C_BEATS)
+    d.queue = {key(plat::Key_Return)};
+    d.at = 0;
+    app.nestedLoop = [&](const std::function<bool()>& done) {
+        d.queue.push_back(key(plat::Key_End));
+        for (int i = 0; i < 6; i++) d.queue.push_back(key(plat::Key_Backspace));
+        for (const char* c : {"7", "/", "8"}) d.queue.push_back(key(c[0], 0, c));
+        d.queue.push_back(key(plat::Key_Return));
+        d.step(done);
+    };
+    d.step([] { return false; });
+    app.nestedLoop = [&d](const std::function<bool()>& done) { d.step(done); };
+    CHECK(w->project.timing.sig() == (TimeSig{7, 8}));
+    d.settle();
+    CHECK(d.screen.line(1).find("7/8") != std::string::npos);
+    w->project.timing.setSignature(1, {4, 4});
+    w->setTiming({});
+    f.pane = paneWas, f.control = controlWas;
+
     // --- the ruler (Up from the first lane): Enter, the tempo dialog; F12 hides an open window ---
     d.keys({key(plat::Key_Tab), key(plat::Key_Tab), key(plat::Key_Tab)});
     f.selectLane(0);

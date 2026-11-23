@@ -264,7 +264,8 @@ public:
         });
         if (event) sig = toInt(std::string(event->get("Value")), "EnumEvent");
         beatsPerBar = ((sig % 99) + 99) % 99 + 1;
-        denominator = 1 << std::max(0, std::min(10, sig / 99));
+        // (Live's EnumEvent: (numerator - 1) + 99 · log2(denominator))
+        denominator = timing::checkedUnit(1 << std::max(0, std::min(10, sig / 99)), "the Live set's time signature");
         spb = 60.0 / bpm;
         util::walkFiles(folder, [&](const std::string& path) {
             std::string ext = util::extension(path);
@@ -1435,9 +1436,6 @@ void convertSet(const std::string& als, const std::string& output, Project& proj
         report.push_back(util::format("%zu Session view clip%s left out: only the arrangement is imported (Tiny DAW "
                                       "has no clip launcher; record or drag them into Live's arrangement first)",
                                       sessionClips, sessionClips == 1 ? "" : "s"));
-    if (reader.denominator != 4)
-        report.push_back(util::format("the set is in %d/%d: Tiny DAW counts quarter notes, so bars are %d beats of a quarter",
-                                      reader.beatsPerBar, reader.denominator, reader.beatsPerBar));
     std::string folder = project_io::audioFolder(output);
     if (util::isDir(folder) && !util::listDir(folder).empty())
         throw Error(folder + " isn't empty: import into a new place (or empty it first)");
@@ -1446,6 +1444,7 @@ void convertSet(const std::string& als, const std::string& output, Project& proj
     project.clear();
     project.timing.bpm = reader.bpm;
     project.timing.beatsPerBar = reader.beatsPerBar;
+    project.timing.beatUnit = reader.denominator;
     project.timing.publish();
     // clips are prepared as Tiny DAW plays them: through their track's MIDI effects and built-in sampler
     // (the program sets these hooks at start-up; a command-line conversion or a test may not have)
@@ -1706,7 +1705,7 @@ void convertSet(const std::string& als, const std::string& output, Project& proj
     project.setMarkers(markers);
     if (!reader.tempoEvents.empty()) {  // (everything was placed at the set's tempo: it moves to its beats on the new map)
         timebase::Before before = timebase::remember(project);
-        int made = tempoFromEnvelope(project.timing, reader.tempoEvents, reader.beatsPerBar);
+        int made = tempoFromEnvelope(project.timing, reader.tempoEvents, reader.beatsPerBar, reader.denominator);
         size_t moved = timebase::follow(project, before, SR).size();
         util::debugf("ableton: tempo automation: %zu events → %d tempo changes; %zu clips moved to their beats\n",
                      reader.tempoEvents.size(), made, moved);
@@ -1790,7 +1789,8 @@ std::string frozenFile(const std::string& folder, const std::string& trackName, 
     return file;
 }
 
-int tempoFromEnvelope(Timing& timing, const std::vector<std::pair<double, double>>& events, int beatsPerBar) {
+int tempoFromEnvelope(Timing& timing, const std::vector<std::pair<double, double>>& events, int beatsPerBar,
+                      int beatUnit) {
     if (events.empty()) return 0;
     const double JUMP = 1e-3;  // beats: a ramp running into a jump ends this much before it
     auto bpmOf = [](double v) { return std::min(config::MAX_BPM, std::max(config::MIN_BPM, v)); };
@@ -1813,18 +1813,20 @@ int tempoFromEnvelope(Timing& timing, const std::vector<std::pair<double, double
     auto ramps = [&](size_t k) { return !ps[k].hold && k + 1 < ps.size() && ps[k + 1].bpm != ps[k].bpm; };
     timing.bpm = ps[0].bpm;
     timing.beatsPerBar = std::max(1, beatsPerBar);
+    timing.beatUnit = timing::checkedUnit(beatUnit, "tempoFromEnvelope");
     timing.ramp = ramps(0);
     timing.changes.clear();
     int perBar = std::max(1, beatsPerBar);
+    double barLen = timing.sig().barQuarters().value();  // (a bar in quarter notes, as Live counts its beats)
     double lastBpm = ps[0].bpm;
     bool lastRamps = timing.ramp;
     for (size_t k = 1; k < ps.size(); k++) {
         bool ramp = ramps(k);
         if (ps[k].bpm == lastBpm && !lastRamps && !ramp) continue;  // (no change)
-        int bar = (int)std::floor(ps[k].beat / perBar + 1e-9) + 1;
-        double in = ps[k].beat - (double)(bar - 1) * perBar;
+        int bar = (int)std::floor(ps[k].beat / barLen + 1e-9) + 1;
+        double in = ps[k].beat - (double)(bar - 1) * barLen;
         if (in < 1e-9) in = 0;
-        timing.changes.push_back(TempoChange{bar, ps[k].bpm, perBar, in, ramp});
+        timing.changes.push_back(TempoChange{bar, ps[k].bpm, perBar, in, ramp, timing.beatUnit});
         lastBpm = ps[k].bpm;
         lastRamps = ramp;
     }

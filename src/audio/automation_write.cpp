@@ -338,7 +338,7 @@ std::vector<AutoPoint> drawShape(const std::vector<AutoPoint>& points, double st
         return overwrite(points, run);
     }
     double b0 = timing.beatAt(start), b1 = timing.beatAt(end);
-    double len = perBar ? std::max(1, timing.beatsPerBarAt(start)) : 1.0;
+    double len = perBar ? timing.barQuartersAt(start) : 1.0;  // (a bar in beats: 3.5 in 7/8)
     std::vector<Corner> corners = cornersOf(shape);
     bool done = false;
     for (int c = 0; c < MAX_CYCLES && !done; ++c) {

@@ -2,7 +2,7 @@
 // its own: small Live sets as gzip-compressed XML with the element paths ableton.py reads, and sample files
 // in the set's folder; then converts them and checks the project (as returned, and as saved and loaded).
 //
-// Covered: tempo, time signature (and the report for a non-quarter one), locators, tracks (name, colour,
+// Covered: tempo, time signature (its real denominator: 7/8), locators, tracks (name, colour,
 // fader, pan, mute, solo), return tracks and sends, groups (buses with their own fader, pan, effects and sends;
 // mute, fold, solo, nested groups), audio clips (place, offset, gain, fades, warping →
 // stretch, unwarped transpose → tape-like, loops, deactivated), sample lookup (relative path, by name with
@@ -767,8 +767,8 @@ static void testSmallSets() {
     ableton::Result r;
     std::string error;
     CHECK(ableton::convert(dir + "/Seven.als", kDir + "/out/Seven/Seven.json", p, r, error));
-    CHECK(p.timing.bpm == 100 && p.timing.beatsPerBar == 7);
-    CHECK(reportHas(r, "the set is in 7/8: Tiny DAW counts quarter notes, so bars are 7 beats of a quarter"));
+    CHECK(p.timing.bpm == 100 && p.timing.beatsPerBar == 7 && p.timing.beatUnit == 8);  // (the real denominator)
+    CHECK(p.timing.barBeat(1) == 3.5);  // (a bar of 7/8: three and a half quarter notes)
     CHECK(r.report.size() >= 1 && r.report[0].find("Seven.als: 100 BPM, 7/8; 1 tracks, 0 returns, 1 clips, 0 frozen, 0 markers") == 0);
     ClipPtr c = clipNamed(p, "Hit");
     CHECK(c && c->start == (int64_t)(1.2 * SR) && c->length == (int64_t)(0.5 * SR));

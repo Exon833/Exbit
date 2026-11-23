@@ -110,7 +110,7 @@ effects::ModClock clockAt(const TempoMap& map, bool playing, int64_t frame, int 
     c.seconds = seconds;
     c.beats = playing ? map.beatAt(seconds) : 0.0;
     c.tempo = map.bpmAt(seconds);
-    c.beatsPerBar = map.beatsPerBarAt(seconds);
+    c.beatsPerBar = map.barQuartersAt(seconds);  // (a bar's quarter notes: 3.5 in 7/8)
     return c;
 }
 

@@ -28,7 +28,7 @@ namespace history {
 #define SLOT_FIELDS(X) X(path) X(name) X(kind) X(pluginName) X(bypass) X(placed) X(atX) X(atY) X(volumeDb) X(mix)
 #define LANE_FIELDS(X) X(slot) X(param) X(points)
 #define TIMING_FIELDS(X)                                                                                         \
-    X(bpm) X(beatsPerBar) X(loopStart) X(loopEnd) X(changes) X(ramp) X(timebaseBeats) X(key) X(scale) X(swing) X(swingGrid) X(automationFollows)
+    X(bpm) X(beatsPerBar) X(beatUnit) X(loopStart) X(loopEnd) X(changes) X(ramp) X(timebaseBeats) X(key) X(scale) X(swing) X(swingGrid) X(automationFollows)
 
 #define DECL_TRACK(f) decltype(Track::f) f;
 #define DECL_GROUP(f) decltype(Group::f) f;
@@ -323,7 +323,8 @@ std::string Snapshot::describe(const Project& p) const {
     {  // (before the markers: with the timebase in beats a tempo edit moves them too)
         const TimingData& t = d.timing;
         const Timing& o = p.timing;
-        if (!same(t.bpm, o.bpm) || !same(t.beatsPerBar, o.beatsPerBar) || !same(t.changes, o.changes) ||
+        if (!same(t.bpm, o.bpm) || !same(t.beatsPerBar, o.beatsPerBar) || !same(t.beatUnit, o.beatUnit) ||
+            !same(t.changes, o.changes) ||
             !same(t.ramp, o.ramp))
             return "Tempo";
         if (!same(t.timebaseBeats, o.timebaseBeats)) return "Timebase";

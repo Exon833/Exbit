@@ -845,7 +845,9 @@ static void testRoundTrip() {
                              {"scale", Json("Major")},
                              {"grid", Json(20)}});
     Timing bt = project_io::readTiming(bad);
-    CHECK(bt.changes.size() == 1 && bt.changes[0].bar == 5 && bt.key == 0 && bt.scale.empty() && bt.grid == 0);
+    // (…but a time signature's numerator out of range is kept to 1…MAX_BEATS_PER_BAR)
+    CHECK(bt.changes.size() == 2 && bt.changes[0].bar == 5 && bt.key == 0 && bt.scale.empty() && bt.grid == 0);
+    CHECK(bt.changes[1].bar == 6 && bt.changes[1].beatsPerBar == config::MAX_BEATS_PER_BAR);
     Timing unknown = project_io::readTiming(Json::object({{"key", Json(3)}, {"scale", Json("Lydian")}}));
     CHECK(unknown.scale.empty() && unknown.key == 0);
 }

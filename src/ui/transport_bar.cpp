@@ -336,10 +336,16 @@ void TransportBar::buildTimingControls() {
     metronomeButton->setProperty("accent", "true");  // lit in the skin's accent colour when on
     signatureBox = right_->add<ui::SpinBox>();
     signatureBox->setRange(1, config::MAX_BEATS_PER_BAR);
-    signatureBox->setSuffix(" / 4");
+    signatureBox->setSuffix(" /");
     signatureBox->setKeyboardTracking(false);
     signatureBox->setToolTip("Time signature: beats per bar");
     right->addWidget(signatureBox);
+    unitBox = right_->add<ui::ComboBox>();
+    for (int den : {1, 2, 4, 8, 16, 32}) unitBox->addItem(std::to_string(den), den);
+    unitBox->setCurrentIndexSilently(unitBox->findData(4));
+    unitBox->setWheelEnabled(false);
+    unitBox->setToolTip("Time signature: the note a beat is (4 a quarter, 8 an eighth: 6/8 is six eighths a bar)");
+    right->addWidget(unitBox);
     for (ui::SpinBox* box : {bpmBox, signatureBox}) {  // only take the keyboard when clicked
         box->setFocusPolicy(ui::FocusPolicy::Click);
         if (box->editor()) box->editor()->setFocusPolicy(ui::FocusPolicy::Click);
@@ -421,7 +427,7 @@ void TransportBar::buildFitting() {
     steps_ = {compact, collapseAdd, shortLabel,
               hide({icon(6)}), hide({syncButton}), hide({swingButton}), hide({keyButton}), hide({icon(5)}), hide({icon(4)}),
               hide({thirdsButton}), hide({gridButton}), hide({beatsButton}),
-              hide({signatureBox}), hide({tapButton}), hide({metronomeButton}),
+              hide({signatureBox, unitBox}), hide({tapButton}), hide({metronomeButton}),
               hide({timeLabel, timeSeparator}), hide({icon(3)}),
               hide({icon(2)}), hideAdd, hide({bpmBox}),
               hide({icon(1)}), hide({icon(0)})};
@@ -554,7 +560,8 @@ void TransportBar::fillMoreMenu(ui::Menu& menu) {
         menu.addAction("Metronome sounds…", rightClick(metronomeButton));
     }
     if (!signatureBox->isVisible())
-        menu.addAction("Time signature: " + std::to_string(signatureBox->intValue()) + " / 4…", [this] { askSignature(); });
+        menu.addAction("Time signature: " + std::to_string(signatureBox->intValue()) + " / " + unitBox->currentText() + "…",
+                       [this] { askSignature(); });
     if (!beatsButton->isVisible()) {
         menu.addSeparator();
         addAction(beatsAction.get());
@@ -584,10 +591,13 @@ void TransportBar::askTempo() {
 }
 
 void TransportBar::askSignature() {
-    int beats = signatureBox->intValue();
-    if (track_dialogs::getInt(window(), "Time signature", "Beats (quarter notes) per bar:", beats,
-                              (int)signatureBox->minimum(), (int)signatureBox->maximum()))
-        signatureBox->setValue(beats);
+    std::string text = std::to_string(signatureBox->intValue()) + "/" + unitBox->currentText();
+    if (!track_dialogs::getText(window(), "Time signature", "Beats per bar / the note a beat is (7/8, 6/8, 3/4…):", text))
+        return;
+    TimeSig sig{signatureBox->intValue(), unitBox->currentDataInt(4)};  // (not one: as it was)
+    if (!TimeSig::parse(text, sig)) util::debugf("transport: time signature \"%s\" read as %s\n", text.c_str(), sig.text().c_str());
+    unitBox->setCurrentIndex(unitBox->findData(sig.den));
+    signatureBox->setValue(sig.num);
 }
 
 namespace transport_bar {
@@ -685,6 +695,7 @@ void TransportBar::showTiming(const Timing& timing) {
     timing_ = &timing;
     bpmBox->setValueSilently(timing.bpm);
     signatureBox->setValueSilently(timing.beatsPerBar);
+    unitBox->setCurrentIndexSilently(std::max(0, unitBox->findData(timing.beatUnit)));
     beatsAction->setCheckedSilently(timing.beats);
     thirdsAction->setCheckedSilently(timing.thirds);
     loopAction->setCheckedSilently(timing.looping);

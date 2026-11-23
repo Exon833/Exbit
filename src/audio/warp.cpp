@@ -85,7 +85,8 @@ double BeatMap::beatAt(double frame) const {
 }
 
 bool sameTempo(const TempoMap& a, const TempoMap& b) {
-    return &a == &b || (a.bpm == b.bpm && a.beatsPerBar == b.beatsPerBar && a.changes == b.changes && a.ramp == b.ramp);
+    return &a == &b || (a.bpm == b.bpm && a.beatsPerBar == b.beatsPerBar && a.beatUnit == b.beatUnit &&
+                         a.changes == b.changes && a.ramp == b.ramp);
 }
 
 // --- rendering ---

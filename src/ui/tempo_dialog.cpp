@@ -4,6 +4,7 @@
 #include <cstdio>
 
 #include "config.h"
+#include "ui/toolkit/controls.h"
 #include "ui/toolkit/layout.h"
 
 std::function<bool(TempoDialog&)> TempoDialog::testRun;
@@ -17,10 +18,10 @@ std::string placeName(int bar, double beat) {  // "bar 5" / "bar 5, beat 3" (bea
 }
 }  // namespace
 
-TempoDialog::TempoDialog(ui::Window* parent, int bar_, double bpm_, int beatsPerBar_, bool hasChange, double beat_,
+TempoDialog::TempoDialog(ui::Window* parent, int bar_, double bpm_, TimeSig sig_, bool hasChange, double beat_,
                          bool ramp_, bool canRamp, bool beatsTimebase)
     : ui::Dialog(parent, "Tempo from " + placeName(bar_, beat_), 380, 230), bar(bar_), beat(beat_), bpm(bpm_),
-      beatsPerBar(beatsPerBar_), ramp(ramp_) {
+      beatsPerBar(sig_.num), beatUnit(timing::checkedUnit(sig_.den, "the tempo dialog")), ramp(ramp_) {
     setStyleType("TempoDialog");
     ui::FormLayout* form = ui::styleRoom(ui::form(this, 11, 6), computedStyle());
     std::string from = beat == 0 ? "From the start of bar " + std::to_string(bar) : "From " + placeName(bar, beat);
@@ -42,10 +43,20 @@ TempoDialog::TempoDialog(ui::Window* parent, int bar_, double bpm_, int beatsPer
     form->addRow(nullptr, rampBox);
     signature = add<ui::SpinBox>();
     signature->setRange(1, config::MAX_BEATS_PER_BAR);
-    signature->setSuffix(" / 4");
     signature->setValueSilently(beatsPerBar);
     signature->setEnabled(beat == 0);  // (a time signature starts at a bar)
-    form->addRow("Time signature", signature);
+    signature->setToolTip("Beats in a bar");
+    unit = add<ui::ComboBox>();
+    for (int den : {1, 2, 4, 8, 16, 32}) unit->addItem(std::to_string(den), den);
+    unit->setCurrentIndexSilently(std::max(0, unit->findData(beatUnit)));
+    unit->setEnabled(beat == 0);
+    unit->setToolTip("The note a beat is: 4 a quarter, 8 an eighth (6/8: six eighths a bar)");
+    auto row = std::make_unique<ui::HBox>();
+    row->setSpacing(6);
+    row->addWidget(signature, 1);
+    row->addWidget(add<ui::Label>("/"));
+    row->addWidget(unit, 1);
+    form->addRow("Time signature", std::move(row));
     auto* hint = add<ui::Label>(beatsTimebase ? "The song keeps its beats (Timebase: Beats): clips, notes, automation and "
                                                 "markers move with the tempo; audio plays at its own speed."
                                               : "Clips stay where they are in seconds (Timebase: Time); the grid, the "
@@ -72,6 +83,7 @@ void TempoDialog::remove() {
 void TempoDialog::take() {
     bpm = tempo->value();
     beatsPerBar = signature->intValue();
+    beatUnit = timing::checkedUnit(unit->currentDataInt(4), "the tempo dialog");
     ramp = rampBox->isChecked();
 }
 

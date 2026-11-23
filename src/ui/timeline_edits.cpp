@@ -312,7 +312,7 @@ void Timeline::fromBeats(const ClipPtr& clip, int64_t frame) {
     int sr = engine.sr;
     double at = (double)frame / sr;
     double beat0 = t.beatAt(at);
-    int perBar = t.beatsPerBarAt(at);
+    double perBar = t.barQuartersAt(at);  // (a bar in beats: 3.5 in 7/8)
     for (auto& n : notes) beats = std::max(beats, n.end);
     int bars = std::max(1, (int)std::ceil(beats / perBar - 1e-6));
     auto seconds = [&](double b) { return t.secondsAt(beat0 + b) - at; };
@@ -535,7 +535,7 @@ void Timeline::paintTempoChanges(Painter& p, const Rect& r) {
         if (x < r.left() - 200 || x > r.right() - 1) continue;
         // (a change inside a bar: no bar number there, nor a time signature; a ramp: an arrow)
         float after = change.atBar() ? lk.labelFont.width(std::to_string(change.bar)) : 0.0f;
-        std::string text = g(change.bpm) + " BPM" + (change.atBar() ? " " + std::to_string(change.beatsPerBar) + "/4" : "") +
+        std::string text = g(change.bpm) + " BPM" + (change.atBar() ? " " + change.sig().text() : "") +
                            (change.ramp ? " ↗" : "");
         p.drawText(PointF((float)x + (lk.labelPadLeft + lk.tempoMargin) + after, (float)lk.tempoBaseline), text,
                    lk.tempoFont, lk.tempoColor);
@@ -561,7 +561,7 @@ void Timeline::fillRulerMenu(ui::Menu& menu, PointF pos) {
     const TempoChange* change = timing.changeAtBar(bar + 1);
     ui::Action* tempo = menu.addAction(
         "Tempo and time signature from bar " + std::to_string(bar + 1) + "…" +
-            (change ? "  (" + g(change->bpm) + " BPM " + std::to_string(change->beatsPerBar) + "/4)" : ""),
+            (change ? "  (" + g(change->bpm) + " BPM " + change->sig().text() + ")" : ""),
         [this, bar] { editTempo(bar + 1); });
     tempo->setEnabled(timing.beats);
     {  // (the tempo lane's: a change near here, or one to add; the timebase)
