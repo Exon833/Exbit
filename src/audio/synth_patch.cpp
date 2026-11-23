@@ -200,10 +200,16 @@ Patch fromJson(const Json& j) {
         int s = sourceOf(m.str("source")), t = paramOf(m.str("target"));
         if (s >= 0 && t >= 0) p.setMod(s, t, m.num("depth", 0));
     }
-    if (const Json& wave = j["drawn"]; wave.isArray() && wave.items().size() >= 2) {
-        std::vector<float> w;
-        for (const Json& v : wave.items()) w.push_back(v.isNumber() ? (float)v.toDouble() : 0.0f);
-        p.drawn = std::make_shared<const std::vector<float>>(fitWave(w));
+    if (j.has("drawn")) {  // a Drawn synth's: its wave as one cycle
+        const Json& wave = j["drawn"];
+        if (wave.isArray() && wave.items().size() >= 2) {
+            std::vector<float> w;
+            for (const Json& v : wave.items()) w.push_back(v.isNumber() ? (float)v.toDouble() : 0.0f);
+            p.drawn = std::make_shared<const std::vector<float>>(fitWave(w));
+        } else {  // (damaged: still the Drawn synth, its wave the sine it starts with, not another instrument)
+            util::debugf("synth: a Drawn synth's wave was unreadable: the sine it starts with instead\n");
+            p.drawn = drawnPatch().drawn;
+        }
     }
     return p;
 }

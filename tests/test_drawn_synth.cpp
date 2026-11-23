@@ -187,12 +187,20 @@ static void testFiles() {
         CHECK((*odd.drawn)[0] == -1.0f);
         for (float v : *odd.drawn) CHECK(std::isfinite(v) && v >= -1.0f && v <= 1.0f);
     }
-    // a wave of one point (or none) isn't a drawing
+    // FALLBACK: a damaged wave (one point, none, not a list) is still the Drawn synth, playing its starting sine
+    // (not the ordinary synth: the track keeps its instrument)
     Json one = toJson(Patch());
     Json single = Json::array();
     single.push(Json(0.5));
     one.set("drawn", single);
-    CHECK(fromJson(one).drawn == nullptr);
+    Patch fromOne = fromJson(one);
+    CHECK(fromOne.drawn && *fromOne.drawn == *drawnPatch().drawn);
+    Json text = toJson(Patch());
+    text.set("drawn", Json("garbage"));
+    Patch fromText = fromJson(text);
+    CHECK(fromText.drawn && *fromText.drawn == *drawnPatch().drawn);
+    AudioPtr heard = subsynth::render(fromText, {{0.0, 0.5, 69, 127}}, SR, 0.5);
+    CHECK(heard && peakOf(*heard) > 0.5);  // (and it sounds)
 }
 
 // --- the window ---
