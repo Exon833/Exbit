@@ -5,8 +5,12 @@
 // that turn the last picture sent into this one (only the cells that changed).
 //
 // Characters: with a UTF-8 locale as they are (lines, blocks, arrows); else lines and blocks become
-// ASCII (- | + #) and other non-ASCII characters '?'. Every character takes one cell (wide ones aren't
-// told apart).
+// ASCII (- | + #) and other non-ASCII characters '?'. A character takes the cells a terminal gives it
+// (wcwidth: CJK and most emoji two, the cell after them holding WIDE_TAIL); zero-width ones (combining
+// marks, joiners) and control characters aren't drawn. Text cut to fit ends in "…".
+//
+// Colours: what is drawn on the terminal's own background (Default) in a colour hard to read on it is
+// drawn in a darker one on a light background (output()'s `light`): yellow, cyan, white text on white.
 #pragma once
 #include <cstdint>
 #include <string>
@@ -23,6 +27,8 @@ struct Style {
     bool operator!=(const Style& o) const { return !(*this == o); }
 };
 inline Style style(uint8_t fg, uint8_t bg = Default, uint8_t attr = Plain) { return Style{fg, bg, attr}; }
+
+constexpr char32_t WIDE_TAIL = 0;  // a cell covered by the wide character before it
 
 struct Cell {
     char32_t ch = U' ';
@@ -51,8 +57,8 @@ public:
     void box(int x, int y, int w, int h, Style st, const std::string& title = "");
 
     // the escape sequences that make `shown` (the terminal's picture now) this one; shown becomes it.
-    // A shown picture of another size is drawn afresh.
-    std::string output(Screen& shown, bool utf8) const;
+    // A shown picture of another size is drawn afresh. light: the terminal's background is light
+    std::string output(Screen& shown, bool utf8, bool light = false) const;
     // (tests) the characters, a line per row, trailing spaces cut
     std::string lines() const;
     std::string line(int y) const;
@@ -62,13 +68,15 @@ private:
     std::vector<Cell> cells_;
 };
 
+// the cells a code point takes in a terminal: 2 (wide), 1, 0 (combining, joiner), -1 (a control character)
+int cellWidth(char32_t cp);
 // the UTF-8 of a code point; and, without UTF-8, the ASCII it is drawn as
 std::string utf8Of(char32_t cp);
 char asciiOf(char32_t cp);
 // the code points of a UTF-8 string (invalid bytes as U+FFFD)
 std::u32string codePoints(const std::string& s);
-// s cut to at most n characters ("…" at the end when cut, with ellipsis)
+// s cut to at most n cells ("…" at the end when cut, with ellipsis); never inside a wide character
 std::string fit(const std::string& s, int n, bool ellipsis = true);
-int columns(const std::string& s);  // characters (cells) in it
+int columns(const std::string& s);  // the cells it takes
 
 }  // namespace tui

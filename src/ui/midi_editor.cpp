@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <numeric>
 
 #include "audio/midi_effects.h"
@@ -1554,8 +1555,10 @@ bool PianoRoll::textCells(int cols, int rows, std::vector<ui::TextCell>& cells) 
     int first = std::clamp(centre - shown / 2, 0, std::max(0, (int)rs.size() - shown));
     double from = 0, to = 0;
     ed.windowS(from, to);
+    std::map<int, int> rowOf;  // (a pitch shown: its row; the notes then gone through once, not once a row)
     for (int r = 0; r < shown && first + r < (int)rs.size(); r++) {
         int pitch = rs[(size_t)(first + r)];
+        rowOf[pitch] = r + 1;
         bool black = pitch % 12 == 1 || pitch % 12 == 3 || pitch % 12 == 6 || pitch % 12 == 8 || pitch % 12 == 10;
         std::string name = ed.keyLabel(pitch);
         if (name.empty()) name = midi_editor::noteName(pitch);
@@ -1563,26 +1566,33 @@ bool PianoRoll::textCells(int cols, int rows, std::vector<ui::TextCell>& cells) 
         for (int c = 0; c < noteCols; c++) {
             double a = t0 + c * dt;
             bool beat = std::floor(tm.beatAt(origin + a + dt - 1e-9)) != std::floor(tm.beatAt(origin + a - 1e-9));
-            bool outside = a + dt <= from || a >= to;
-            at(KEYS + c, r + 1) = ui::TextCell{beat ? U'·' : U' ', (uint8_t)(outside ? 0 : 4), 9, 0};
+            bool outside = a + dt <= from || a >= to;  // (outside the clip: no beats)
+            at(KEYS + c, r + 1) = ui::TextCell{beat && !outside ? U'·' : U' ', 4, 9, 0};
         }
-        for (int i = 0; i < (int)ed.notes.size(); i++) {
-            const Note& n = ed.notes[(size_t)i];
-            if ((int)std::lround(n.pitch) != pitch) continue;
-            int a = (int)std::floor((n.start - t0) / dt + 1e-9), b = (int)std::ceil((n.end - t0) / dt - 1e-9);
-            b = std::max(b, a + 1);
-            bool sel = ed.selected.count(i) > 0, off = ed.off.count(i) > 0;
-            for (int c = std::max(0, a); c < std::min(noteCols, b); c++)
-                at(KEYS + c, r + 1) = ui::TextCell{off ? U'░' : c == a ? U'▐' : U'█', 2, 9, (uint8_t)(sel ? 1 | 2 : 0)};
-        }
-        for (const Note& n : ed.preview) {  // the open tool's result: ▒ where no note is, ▌ where each starts
-            if ((int)std::lround(n.pitch) != pitch) continue;
-            int a = (int)std::floor((n.start - t0) / dt + 1e-9), b = std::max(a + 1, (int)std::ceil((n.end - t0) / dt - 1e-9));
-            for (int c = std::max(0, a); c < std::min(noteCols, b); c++) {
-                ui::TextCell& cell = at(KEYS + c, r + 1);
-                if (c == a) cell = ui::TextCell{U'▌', 6, 9, 1};
-                else if (cell.ch == U' ' || cell.ch == U'·') cell = ui::TextCell{U'▒', 6, 9, 0};
-            }
+    }
+    auto span = [&](const Note& n, int& a, int& b, int& r) {  // its columns and row, false: not in view
+        auto it = rowOf.find((int)std::lround(n.pitch));
+        if (it == rowOf.end()) return false;
+        r = it->second;
+        a = (int)std::floor((n.start - t0) / dt + 1e-9);
+        b = std::max(a + 1, (int)std::ceil((n.end - t0) / dt - 1e-9));
+        return b > 0 && a < noteCols;
+    };
+    for (int i = 0; i < (int)ed.notes.size(); i++) {
+        int a = 0, b = 0, r = 0;
+        if (!span(ed.notes[(size_t)i], a, b, r)) continue;
+        // (selected: cyan and shaded, so they show without colour too; never reversed: a reversed block is a hole)
+        bool sel = ed.selected.count(i) > 0, off = ed.off.count(i) > 0;
+        for (int c = std::max(0, a); c < std::min(noteCols, b); c++)
+            at(KEYS + c, r) = ui::TextCell{off ? U'░' : c == a ? U'▐' : sel ? U'▓' : U'█', (uint8_t)(sel ? 6 : 2), 9, (uint8_t)(sel ? 1 : 0)};
+    }
+    for (const Note& n : ed.preview) {  // the open tool's result: ▒ where no note is, ▌ where each starts
+        int a = 0, b = 0, r = 0;
+        if (!span(n, a, b, r)) continue;
+        for (int c = std::max(0, a); c < std::min(noteCols, b); c++) {
+            ui::TextCell& cell = at(KEYS + c, r);
+            if (c == a) cell = ui::TextCell{U'▌', 6, 9, 1};
+            else if (cell.ch == U' ' || cell.ch == U'·') cell = ui::TextCell{U'▒', 6, 9, 0};
         }
     }
     // the keyboard's cursor
@@ -1593,7 +1603,7 @@ bool PianoRoll::textCells(int cols, int rows, std::vector<ui::TextCell>& cells) 
     if (kr > 0 && kc >= 0 && kc < noteCols) {
         ui::TextCell& k = at(KEYS + kc, kr);
         if (k.ch == U' ' || k.ch == U'·') k.ch = U'│';
-        k.attr |= 2 | 1;
+        k.attr |= hasFocus() ? 2 | 1 : 1;  // (reversed while the roll has the keyboard)
         k.fg = 3;
     }
     return true;
@@ -1685,13 +1695,13 @@ bool StepGrid::textCells(int cols, int rows, std::vector<ui::TextCell>& cells) c
             bool beat = std::fabs(tm.beatAt(origin + t) - std::round(tm.beatAt(origin + t))) < 1e-6;
             at(KEYS + c, r) = ui::TextCell{lit ? U'■' : beat ? U'▫' : U'·', (uint8_t)(lit ? 2 : 4), 9, (uint8_t)(lit ? 1 : 0)};
             if (first + r == keyRow && ed.keyT >= 0 && stepsFrom(t, ed.keyT) == 0 && ed.keyT >= t - 1e-9) {
-                at(KEYS + c, r).attr |= 2 | 1;
+                at(KEYS + c, r).attr |= hasFocus() ? 2 | 1 : 1;  // (reversed while the grid has the keyboard)
                 at(KEYS + c, r).fg = 3;
             }
         }
     }
     if (rs.empty()) put(0, 0, "no rows yet: R adds one", 9, 0);
-    put(0, rows - 1, "+ Row (R)", 6, 0);
+    put(0, rows - 1, "+ Row (R)", 6, hasFocus() ? 2 : 0);  // (reversed: the grid has the keyboard)
     return true;
 }
 

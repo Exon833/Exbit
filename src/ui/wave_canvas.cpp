@@ -131,7 +131,7 @@ bool WaveCanvas::textCells(int cols, int rows, std::vector<ui::TextCell>& cells)
     if (cols < 1 || rows < 1 || n < 1) return true;
     auto rowOf = [&](double v) { return std::clamp((int)std::lround((1 - v) / 2 * (rows - 1)), 0, rows - 1); };
     int mid = rowOf(0);
-    for (int c = 0; c < cols; c++) cells[(size_t)(mid * cols + c)] = ui::TextCell{U'─', 8, 9, 0};  // ─
+    for (int c = 0; c < cols; c++) cells[(size_t)(mid * cols + c)] = ui::TextCell{U'─', 4, 9, 0};  // ─ (blue: dim)
     int cursorCol = std::clamp((int)((long long)cursor * cols / n), 0, cols - 1);
     for (int c = 0; c < cols; c++) {
         int i = std::clamp((int)((long long)c * n / cols), 0, n - 1);

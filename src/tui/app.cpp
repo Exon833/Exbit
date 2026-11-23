@@ -55,9 +55,15 @@ constexpr double FRAME_S = 1.0 / 30;  // the terminal is drawn (and the main win
 const Style kBar = style(Black, White);                 // the menu bar, the transport, the status bar
 const Style kPane = style(Default, Default);
 const Style kTitle = style(Default, Default, Bold);
-const Style kFocusTitle = style(Black, Cyan, Bold);     // the title of the part with the keyboard
+// (a highlight reversed is given its colours the other way round, so reverse video shows them as meant: black on
+// cyan, white on blue; and a terminal without colour still shows it reversed)
+const Style kFocusTitle = style(Cyan, Black, Bold | Reverse);  // the title of the part with the keyboard: black on cyan
 const Style kMenu = style(Black, White);
-const Style kMenuHi = style(White, Blue, Bold | Reverse);
+const Style kMenuHi = style(Blue, White, Bold | Reverse);      // the menu entry, the transport's control: white on blue
+const Style kSelFocus = kFocusTitle;                           // the row chosen in the part with the keyboard
+const Style kSelIdle = style(Default, Default, Reverse);       // …in the part without it
+
+uint8_t groundOf(const Style& st) { return st.attr & Reverse ? st.fg : st.bg; }  // (the colour a cell shows behind its text)
 
 double dbOf(double gain) { return gain > 1e-6 ? 20 * std::log10(gain) : -120; }
 
@@ -290,8 +296,20 @@ void Front::dropGoneMenus() {
     open.clear();
 }
 
+void Front::closeUnder() {
+    // (a window opened by a timer, a recording ending, autosave's recovery offer… while F1's list or the bar's menu
+    // was up: it takes the keys, so they go, rather than staying drawn over it or open under it, deaf)
+    ui::Window* top = topWindow();
+    if (top && top != lastTop_ && !ui::Menu::ofWindow(top)) {
+        helpShown = false;
+        if (barMenu >= 0 || ownMenu_) closeMenus();
+    }
+    lastTop_ = top;
+}
+
 void Front::key(const Key& k) {
     dropGoneMenus();
+    closeUnder();
     {  // the automation lane with the keyboard is the timeline's current one (its range: Ctrl+C / X / V, Del)
         std::optional<Lane> lane = pane == Pane::Timeline ? currentLane() : std::nullopt;
         w_.timeline->currentAutomation = lane && lane->automation ? lane->automation : nullptr;
@@ -365,6 +383,7 @@ void Front::key(const Key& k) {
     if (k.key == plat::Key_F1) {
         helpShown = true;
         helpTop = 0;
+        lastTop_ = topWindow();  // (a window opening after it: it closes)
         return;
     }
     if (k.key == plat::Key_F2 && !k.mods) {
@@ -1052,6 +1071,7 @@ void Front::showOwnMenu(std::unique_ptr<ui::Menu> menu) {
     if (!menu || menu->isEmpty()) return;
     closeMenus();
     ownMenu_ = std::move(menu);
+    lastTop_ = topWindow();  // (a window opening after it: it closes)
     open.push_back({ownMenu_.get(), -1});
     menuKey(Key{plat::Key_Down});
 }
@@ -1064,6 +1084,7 @@ void Front::openBarMenu(int i) {
     i = (i % (int)menus.size() + (int)menus.size()) % (int)menus.size();
     closeMenus();
     barMenu = i;
+    lastTop_ = topWindow();  // (a window opening after it: it closes)
     ui::Menu* m = menus[(size_t)i].get();
     if (m->aboutToShow) m->aboutToShow(m);
     open.push_back({m, -1});
@@ -1235,44 +1256,59 @@ void Front::chooseItem(ui::Menu* m, int item) {
 
 void Front::draw(Screen& s) {
     dropGoneMenus();
+    closeUnder();
     s.clear();
     int W = s.width(), H = s.height();
-    if (W < 60 || H < 14) {
-        s.text(0, 0, "Tiny DAW needs a terminal of at least 60 x 14 (this one: " + std::to_string(W) + " x " +
-                         std::to_string(H) + ")",
-               kTitle);
-        return;
+    // too small for the main window: what it needs, said in as many rows as it takes; a dialog or window open is
+    // still drawn (over the whole terminal), and a menu, so they can be answered and closed
+    bool tiny = W < 60 || H < 14;
+    if (tiny) {
+        std::string say = "Tiny DAW needs a terminal of at least 60 x 14 (this one: " + std::to_string(W) + " x " + std::to_string(H) + ")";
+        std::string line;
+        int y = 0;
+        for (size_t i = 0; i <= say.size() && y < H; i++) {
+            size_t sp = std::min(say.find(' ', i), say.size());
+            std::string word = say.substr(i, sp - i);
+            if (!line.empty() && columns(line) + 1 + columns(word) > W) s.text(0, y++, line, kTitle), line.clear();
+            line += (line.empty() ? "" : " ") + word;
+            i = sp;
+        }
+        if (y < H) s.text(0, y, line, kTitle);
+    } else {
+        if (secondsPerColumn <= 0) secondsPerColumn = w_.project.timing.barSeconds(1) / 8;
+        drawMenuBar(s);
+        drawTransport(s);
+        int top = 2, bodyH = H - 3;
+        int ex = w_.explorerDock->isVisible() ? std::clamp(W / 5, EXPLORER_MIN, EXPLORER_MAX) : 0;
+        int pw = std::clamp(W / 4, PANEL_MIN, PANEL_MAX);
+        int tx = ex ? ex + 1 : 0, tw = W - tx - pw - 1;
+        if (ex) {
+            drawExplorer(s, 0, top, ex, bodyH);
+            s.vline(ex, top, bodyH, kPane);
+        }
+        drawTimeline(s, tx, top, tw, bodyH);
+        s.vline(tx + tw, top, bodyH, kPane);
+        drawPanel(s, tx + tw + 1, top, pw, bodyH);
+        drawStatus(s);
     }
-    if (secondsPerColumn <= 0) secondsPerColumn = w_.project.timing.barSeconds(1) / 8;
-    drawMenuBar(s);
-    drawTransport(s);
-    int top = 2, bodyH = H - 3;
-    int ex = w_.explorerDock->isVisible() ? std::clamp(W / 5, EXPLORER_MIN, EXPLORER_MAX) : 0;
-    int pw = std::clamp(W / 4, PANEL_MIN, PANEL_MAX);
-    int tx = ex ? ex + 1 : 0, tw = W - tx - pw - 1;
-    if (ex) {
-        drawExplorer(s, 0, top, ex, bodyH);
-        s.vline(ex, top, bodyH, kPane);
-    }
-    drawTimeline(s, tx, top, tw, bodyH);
-    s.vline(tx + tw, top, bodyH, kPane);
-    drawPanel(s, tx + tw + 1, top, pw, bodyH);
-    drawStatus(s);
     if (menuOpen()) drawMenus(s);
     // the program's windows over it (dialogs, a menu a control opened: drawn above as menus)
     int n = openWindows();
     if (n > shownWindows_) windowsHidden = false;  // (one just opened: shown)
     shownWindows_ = n;
     for (ui::Window* win : ui::App::get().windows())
-        if (drawsWindow(win) && !ui::Menu::ofWindow(win)) drawWindow(s, *win, 2, 1, W - 4, H - 2);
-    if (topWindow() && !ui::Menu::ofWindow(topWindow())) {  // (how to get out of it)
+        if (drawsWindow(win) && !ui::Menu::ofWindow(win)) {
+            if (tiny) drawWindow(s, *win, 0, 0, W, H);
+            else drawWindow(s, *win, 2, 1, W - 4, H - 2);
+        }
+    if (!tiny && topWindow() && !ui::Menu::ofWindow(topWindow())) {  // (how to get out of it)
         std::string help = topWindow()->isModal() ? " Tab: next  Enter: OK  Esc: cancel " : " Ctrl+W: close it  F12: the main window ";
         if (dynamic_cast<MidiEditor*>(topWindow())) help = " F2: tools  K: knife  Ctrl+J: join  P: row" + help;
         if (auto* synth = dynamic_cast<synth_dialog::SynthDialog*>(topWindow()))
             help = (synth->wave->isVisible() ? " Left/Right: a point  Up/Down: its value"  // (a Drawn synth's canvas)
                                              : " Up/Down: control  Left/Right: change  M: Modulate…") + help;
         s.text(std::max(0, W - columns(help) - 1), H - 1, help, style(Black, Yellow));
-    } else if (windowsHidden && n) {
+    } else if (!tiny && windowsHidden && n) {
         std::string help = " F12: " + std::to_string(n) + (n == 1 ? " window" : " windows") + " open ";
         s.text(std::max(0, W - columns(help) - 1), H - 1, help, style(Black, Yellow));
     }
@@ -1306,7 +1342,16 @@ void Front::drawMenuBar(Screen& s) {
         x += columns(t) + 1;
     }
     std::string name = w_.projectPath.empty() ? "Untitled" : util::stem(w_.projectPath);
-    if (w_.hasUnsavedChanges()) name += " *";
+    // (MainWindow::hasUnsavedChanges describes the whole project: 40 ms with 10,000 clips; asked every UNSAVED_S,
+    // or less often when it is slow: at most a 50th of the time)
+    constexpr double UNSAVED_S = 0.5;
+    double now = plat::now();
+    if (unsavedAt_ < 0 || now - unsavedAt_ >= std::max(UNSAVED_S, unsavedCost_ * 50) || now < unsavedAt_) {
+        unsaved_ = w_.hasUnsavedChanges();
+        unsavedCost_ = plat::now() - now;
+        unsavedAt_ = now;
+    }
+    if (unsaved_) name += " *";
     name += "   F1 keys";
     int nx = std::max(x + 1, s.width() - columns(name) - 1);
     s.text(nx, 0, name, kBar);
@@ -1377,7 +1422,7 @@ void Front::drawExplorer(Screen& s, int x, int y, int w, int h) {
         const auto& e = entries[(size_t)k];
         std::string name = e.isDir ? e.name + "/" : e.name;
         bool sel = k == entry;
-        Style st = sel ? (focused ? style(Black, Cyan, Bold) : style(Default, Default, Reverse)) : kPane;
+        Style st = sel ? (focused ? kSelFocus : kSelIdle) : kPane;
         if (sel) s.fill(x, y + 2 + i, w, 1, U' ', st);
         s.text(x, y + 2 + i, (sel ? ">" : " ") + fit(name, w - 1), st, w);
     }
@@ -1402,13 +1447,15 @@ void Front::drawTimeline(Screen& s, int x, int y, int w, int h) {
 
     // the overview: the whole song in a row, the part shown marked
     double songS = std::max({(double)w_.project.endFrame() / sr, viewStart + w * spc, 1.0});
+    std::vector<char> any((size_t)std::max(0, w), 0);  // (the columns a clip is in: each clip once)
+    for (auto& cl : w_.project.clips) {
+        double a = (double)cl->start / sr * w / songS, b = (double)cl->end() / sr * w / songS;
+        for (int c = std::max(0, (int)std::floor(a)); c < std::min(w, (int)std::ceil(b)); c++) any[(size_t)c] = 1;
+    }
     for (int c = 0; c < w; c++) {
         double a = songS * c / w, b = songS * (c + 1) / w;
-        bool any = false;
-        for (auto& cl : w_.project.clips)
-            if ((double)cl->start / sr < b && (double)cl->end() / sr > a) any = true;
         bool shown = b > viewStart && a < viewStart + w * spc;
-        s.set(x + c, y, any ? U'▄' : U' ', shown ? style(Default, Default, Reverse) : style(Cyan));
+        s.set(x + c, y, any[(size_t)c] ? U'▄' : U' ', shown ? style(Default, Default, Reverse) : style(Cyan));
     }
     // the title row and ruler: bar numbers, the loop range
     int ry = y + 1;
@@ -1537,16 +1584,16 @@ void Front::drawTimeline(Screen& s, int x, int y, int w, int h) {
         for (int r = 0; r < rows && firstRow + r < (int)ls.size(); r++)
             if (Cell* cell = s.at(x + cc, lanesTop + r)) {
                 bool curLane = firstRow + r == laneRow;
-                cell->st.attr |= Reverse;
-                if (curLane && focused) cell->st.attr |= Bold;
-                if (cell->ch == U' ' || cell->ch == U'·' || cell->ch == U'¦' || cell->ch == U':') cell->ch = curLane ? U'│' : U' ';
+                Style st = cell->st;
+                st.attr ^= Reverse;  // (over a selected clip, itself reversed: un-reversed, so it still shows)
+                if (curLane && focused) st.attr |= Bold;
+                char32_t ch = cell->ch == U' ' || cell->ch == U'·' || cell->ch == U'¦' || cell->ch == U':' ? (curLane ? U'│' : U' ') : cell->ch;
+                s.set(x + cc, lanesTop + r, ch == WIDE_TAIL ? U' ' : ch, st);  // (half a wide character: a space)
             }
     if (e.playing) {
         int pc = colOf(heard);
-        if (pc >= 0 && pc < w) {
-            for (int r = -1; r < rows + 1; r++)
-                if (Cell* cell = s.at(x + pc, lanesTop + r)) *cell = Cell{U'┃', style(Yellow, Default, Bold)};
-        }
+        if (pc >= 0 && pc < w)
+            for (int r = -1; r < rows + 1; r++) s.set(x + pc, lanesTop + r, U'┃', style(Yellow, Default, Bold));
     }
 }
 
@@ -1565,9 +1612,9 @@ void Front::drawPanel(Screen& s, int x, int y, int w, int h) {
     int nameW = std::max(4, w - 15 - METER_COLS);
     auto row = [&](int ry, const std::string& name, bool muted, bool soloed, double db, double pan, const LevelMeter* m,
                    bool sel, uint8_t color, bool isMaster, bool safe = false) {
-        Style st = sel ? (focused ? style(Black, Cyan, Bold) : style(Default, Default, Reverse)) : kPane;
+        Style st = sel ? (focused ? kSelFocus : kSelIdle) : kPane;
         if (sel) s.fill(x, ry, w, 1, U' ', st);
-        s.set(x, ry, isMaster ? U' ' : U'▌', style(color, sel ? st.bg : (uint8_t)Default));
+        s.set(x, ry, isMaster ? U' ' : U'▌', style(color, sel ? groundOf(st) : (uint8_t)Default));
         s.text(x + 1, ry, fit(name, nameW), st, nameW);
         // (name M S pan dB meter: 1 + name + 1 + 2 + 1 + 3 + 1 + 5 + 1 + meter)
         int cx = x + 1 + nameW + 1;
@@ -1581,7 +1628,7 @@ void Front::drawPanel(Screen& s, int x, int y, int w, int h) {
         if (!isMaster) s.text(cx + 3, ry, panText, st);
         std::string v = dbText(db);
         s.text(cx + 7, ry, std::string(std::max(0, 5 - columns(v)), ' ') + v, st);
-        s.text(cx + 13, ry, meterBar(m, METER_COLS, utf8), style(Green, sel ? st.bg : (uint8_t)Default));
+        s.text(cx + 13, ry, meterBar(m, METER_COLS, utf8), style(Green, sel ? groundOf(st) : (uint8_t)Default));
     };
     std::vector<Lane> ls = lanes();
     laneRow = std::clamp(laneRow, -1, (int)ls.size());
@@ -1592,7 +1639,7 @@ void Front::drawPanel(Screen& s, int x, int y, int w, int h) {
         const Lane& lane = ls[(size_t)k];
         int ry = y + 2 + r;
         bool sel = k == laneRow && (focused || pane == Pane::Timeline);
-        Style st = sel ? (focused ? style(Black, Cyan, Bold) : style(Default, Default, Reverse)) : kPane;
+        Style st = sel ? (focused ? kSelFocus : kSelIdle) : kPane;
         if (lane.track) {
             const TrackPtr& t = lane.track;
             auto it = w_.panel->meters.find(t);
@@ -1605,7 +1652,7 @@ void Front::drawPanel(Screen& s, int x, int y, int w, int h) {
             row(ry, (marks.empty() ? "" : marks + " ") + (many && in ? "* " : "") + t->name, t->muted, t->soloed,
                 t->volumeDb, t->pan, it != w_.panel->meters.end() ? it->second : nullptr, sel,
                 nearestColor(t->color, t->kind == Kind::Midi ? Green : Blue), false, t->soloSafe);
-            if (t->armed) s.set(x + 1, ry, utf8 ? U'●' : U'R', style(Red, sel ? st.bg : (uint8_t)Default, Bold));
+            if (t->armed) s.set(x + 1, ry, utf8 ? U'●' : U'R', style(Red, sel ? groundOf(st) : (uint8_t)Default, Bold));
             continue;
         }
         if (lane.group && routing::busOn(*lane.group)) {  // a group bus: its row as a track's (its group's M and S)
@@ -1905,7 +1952,9 @@ struct Loop {
             shown.resize(1, 1);  // (drawn afresh)
         }
         front.draw(screen);
-        term.write(screen.output(shown, utf8));
+        // (as one update, where the terminal can (DEC mode 2026; others ignore it): a big frame never shown half drawn)
+        std::string out = screen.output(shown, utf8, term.light());
+        if (!out.empty()) term.write("\x1b[?2026h" + out + "\x1b[?2026l");
     }
 
     void run(const std::function<bool()>& done) {
@@ -1954,6 +2003,7 @@ int run(const std::vector<std::string>& files) {
     ui::App& app = ui::App::get();
     app.initHeadless();  // (the toolkit without a display: windows aren't shown; its clock is moved on by Loop)
     util::setDebug(diagnostics);  // (initHeadless turns them off, for the tests)
+    util::debugf("tui: the terminal's background: %s, UTF-8: %s\n", term.light() ? "light" : "dark", Terminal::utf8() ? "yes" : "no");
     int rc = 0;
     {
         auto* window = new MainWindow();
@@ -1969,6 +2019,7 @@ int run(const std::vector<std::string>& files) {
         loop.size();
         loop.lastFrame = plat::now();
         int input = plat::watchFd(0, [&loop] { loop.keys.feed(loop.term.read(), plat::now()); });
+        loop.keys.feed(term.read(), plat::now());  // (keys typed while the terminal was set up)
         app.nestedLoop = [&loop](const std::function<bool()>& done) { loop.run(done); };
         // work kept by a run that didn't close normally; plugins whose kind isn't known yet (as main.cpp)
         app.singleShot(0, [window] {
