@@ -384,6 +384,7 @@ private:
     std::thread thread_;
     std::vector<float> out_, in_;  // one block; the capture side's frames not given yet
     size_t inFrames_ = 0;
+    bool fresh_ = true;  // (capture: no packet since it started)
 
     bool init(std::string& error, bool first);
     bool initExclusive(IMMDevice* dev, bool first, std::string& error);
@@ -630,6 +631,7 @@ bool WasapiStream::initShared(IMMDevice* dev, bool first, std::string& error) {
 bool WasapiStream::start() {
     if (thread_.joinable()) return true;
     underflows = 0;
+    fresh_ = true;
     if (client_ && FAILED(client_->Start())) return false;
     ResetEvent(quit_);
     thread_ = std::thread([this] { loop(); });
@@ -655,7 +657,8 @@ bool WasapiStream::serve() {
             UINT32 n = 0;
             DWORD flags = 0;
             if (FAILED(capture_->GetBuffer(&data, &n, &flags, nullptr, nullptr))) return false;
-            if (flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) underflows++;
+            if ((flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) && !fresh_) underflows++;  // (the first: starting)
+            fresh_ = false;
             size_t room = in_.size() / ch_ - inFrames_;
             size_t take = std::min<size_t>(n, room);
             float* dst = in_.data() + inFrames_ * ch_;
@@ -731,6 +734,7 @@ void WasapiStream::loop() {
                     gone = false;
                     lost = false;
                     inFrames_ = 0;
+                    fresh_ = true;
                     util::debugf("audio: WASAPI: the %s is back\n", input_ ? "input" : "output");
                     continue;
                 }

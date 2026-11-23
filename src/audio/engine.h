@@ -202,6 +202,9 @@ public:
     void close();
     bool isOpen() const { return (bool)stream_; }
     std::string deviceName() const;
+    // the device went away while open (unplugged, the sound server stopped): Windows' WASAPI goes on silently and
+    // takes it again when it is back; the others stop until another is opened
+    bool deviceLost() const { return (stream_ && stream_->lost) || (inputStream_ && inputStream_->lost); }
     double outputLatency() const;  // seconds
     // How many input channels can be recorded: the stream's (duplex), else the driver type's default
     // input device's (0 if there is none).
