@@ -364,6 +364,7 @@ private:
     DWORD style_ = 0, exStyle_ = 0;
     bool ownFrame_ = false;  // decorated false: the program draws the frame, the client area is all of it
     int x_ = 0, y_ = 0, w_ = 0, h_ = 0;
+    int reportedW_ = 0, reportedH_ = 0;  // the size the listener last heard of (Resize), as X11's
     int minW_ = 0, minH_ = 0;
     bool visible_ = false, shownOnce_ = false, moved_ = false;
     bool focus_ = false, maximized_ = false, minimized_ = false, fullscreen_ = false, wantMaximized_ = false;
@@ -461,8 +462,8 @@ UINT dpiOf(HWND h) {
 
 WinWindow::WinWindow(const WindowOptions& o, WindowListener* l) : listener_(l), opts_(o) {
     State& s = S();
-    w_ = std::max(1, o.w);
-    h_ = std::max(1, o.h);
+    w_ = reportedW_ = std::max(1, o.w);
+    h_ = reportedH_ = std::max(1, o.h);
     minW_ = o.minW;
     minH_ = o.minH;
     HWND owner = o.transientFor ? (HWND)o.transientFor->nativeHandle() : nullptr;
@@ -471,7 +472,7 @@ WinWindow::WinWindow(const WindowOptions& o, WindowListener* l) : listener_(l), 
         exStyle_ = WS_EX_TOOLWINDOW | (o.offscreen ? 0 : WS_EX_TOPMOST) | (o.takesFocus && !o.offscreen ? 0 : WS_EX_NOACTIVATE);
     } else {
         ownFrame_ = !o.decorated;
-        style_ = (o.dialog ? (WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MAXIMIZEBOX) : WS_OVERLAPPEDWINDOW) | WS_CLIPCHILDREN;
+        style_ = (o.dialog ? (WS_CAPTION | WS_SYSMENU | WS_THICKFRAME) : WS_OVERLAPPEDWINDOW) | WS_CLIPCHILDREN;
         if (!o.resizable) style_ &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
         if (ownFrame_) style_ |= WS_THICKFRAME | WS_MINIMIZEBOX;  // (still snapped, sized, minimized by Windows)
     }
@@ -616,7 +617,8 @@ void WinWindow::setResizable(bool r) {
     if (opts_.popup || opts_.offscreen || !hwnd_) return;
     opts_.resizable = r;
     DWORD st = (DWORD)GetWindowLongPtrW(hwnd_, GWL_STYLE);
-    if (r || ownFrame_) st |= WS_THICKFRAME | WS_MAXIMIZEBOX;
+    DWORD box = opts_.dialog ? 0 : WS_MAXIMIZEBOX;  // (dialogs: no maximize button, as Windows' own)
+    if (r || ownFrame_) st |= WS_THICKFRAME | box;
     else st &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
     style_ = st;
     SetWindowLongPtrW(hwnd_, GWL_STYLE, (LONG_PTR)st);
@@ -678,6 +680,8 @@ void WinWindow::setDecorated(bool on) {
     if (opts_.popup || opts_.offscreen || !hwnd_ || ownFrame_ == !on) return;
     ownFrame_ = !on;
     opts_.decorated = on;
+    // (the style as it is now: WS_VISIBLE and WS_MAXIMIZE kept)
+    style_ = (DWORD)GetWindowLongPtrW(hwnd_, GWL_STYLE);
     if (ownFrame_) style_ |= WS_THICKFRAME | WS_MINIMIZEBOX;
     SetWindowLongPtrW(hwnd_, GWL_STYLE, (LONG_PTR)style_);
     if (!ownFrame_) SetWindowRgn(hwnd_, nullptr, TRUE);
@@ -1003,10 +1007,11 @@ LRESULT WinWindow::proc(UINT msg, WPARAM w, LPARAM l) {
             maximized_ = w == SIZE_MAXIMIZED;
             minimized_ = w == SIZE_MINIMIZED;
             int nw = LOWORD(l), nh = HIWORD(l);
-            bool sized = !minimized_ && nw > 0 && nh > 0 && (nw != w_ || nh != h_);
+            // (resize() set w_ and h_ already: what counts is what the listener knows)
+            bool sized = !minimized_ && nw > 0 && nh > 0 && (nw != reportedW_ || nh != reportedH_);
             if (!minimized_ && nw > 0 && nh > 0) {
-                w_ = nw;
-                h_ = nh;
+                w_ = reportedW_ = nw;
+                h_ = reportedH_ = nh;
             }
             if (sized || wasMax != maximized_) applyRegion();
             if (sized) {
