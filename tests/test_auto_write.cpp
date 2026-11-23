@@ -760,9 +760,12 @@ void testTimelineBends() {
     tl.mouseRelease(e);
     tl.mouseDoubleClick(e);
     CHECK(lane->points[0].bend == 0 && lane->points.size() == 3);
-    // without Ctrl a click still adds a point (Alt: off the grid, as before)
+    // without Ctrl a double-click adds a point (Alt: off the grid, as before)
     e = mouse(4.3 * tl.pps, tl.automationY(al, 0.9), plat::ModAlt);
     tl.mousePress(e);
+    tl.mouseRelease(e);
+    CHECK(lane->points.size() == 3);  // (one click: none)
+    tl.mouseDoubleClick(e);
     tl.mouseRelease(e);
     CHECK(lane->points.size() == 4);
     // the lane's menu: curve the segment there, and shapes over the loop

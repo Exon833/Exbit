@@ -11,7 +11,8 @@
 //     +------+--------------------------------------------+--+
 //
 // Editing (a change goes into the clip when the mouse is let go, so it is rendered once):
-//     click an empty spot      a new note there, one grid step long (drag to make it longer)
+//     double-click empty spot  a new note there, one grid step long (drag to make it longer); a single click
+//                              (or drag) on an empty spot only selects
 //     drag a note              move it in time and pitch (all selected notes together)
 //     drag a note's right end  change its length
 //     click / Ctrl+click       select / add to the selection; Delete deletes the selected notes
@@ -22,9 +23,10 @@
 //                              keeping their lengths; ▾ for a gentler strength (75 / 50 / 25 %: part
 //                              of the way) and for quantizing their ends too
 //     right-click a note       delete it
-//     Stamp ▾                  a chord: a click places all of it, rooted on the key clicked (dragging lengthens
+//     Stamp ▾                  a chord: a double-click places all of it, rooted on the key clicked (dragging lengthens
 //                              it); "In the scale" stacks the song's scale in thirds (needs a scale)
-//     Shift+drag               a box: the notes it touches are selected (Ctrl+Shift adds them to the selection)
+//     drag an empty spot       a box: the notes it touches are selected (Ctrl adds them to the selection); a
+//                              click there clears the selection
 //     Ctrl+drag a note         copies of the selected notes go where they are dropped (Ctrl+click: select)
 //     arrows                   the selected notes a grid step earlier / later (Left, Right), a semitone up / down
 //                              (Up, Down; folded, a row); Shift+Up / Down an octave, Shift+Left / Right shorter /
@@ -238,7 +240,7 @@ public:
     bool mousePress(ui::MouseEvent& e) override;
     bool mouseMove(ui::MouseEvent& e) override;
     bool mouseRelease(ui::MouseEvent& e) override;
-    bool mouseDoubleClick(ui::MouseEvent& e) override { return mousePress(e); }
+    bool mouseDoubleClick(ui::MouseEvent& e) override { return press(e, true); }
     bool wheel(ui::WheelEvent& e) override;
     void resized() override;
     // the roll takes the editing keys itself (Delete, arrows, 0, Ctrl+A/C/V/X/D/U…), before any shortcut
@@ -248,6 +250,8 @@ public:
     bool textCells(int cols, int rows, std::vector<ui::TextCell>& cells) const override;
 private:
     MidiEditor* ed_;
+    // a press; `twice`: the second of a double-click, which alone adds a note on an empty spot (one click selects)
+    bool press(ui::MouseEvent& e, bool twice);
     void paintGrid(Painter& p, int h);
     void paintKeys(Painter& p, int h);
     void paintGhosts(Painter& p, int w);

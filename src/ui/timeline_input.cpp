@@ -28,7 +28,7 @@ int indexIn(const std::vector<TrackPtr>& tracks, const TrackPtr& t) {
 // --- automation points --------------------------------------------------------------------------
 
 void Timeline::automationPress(ui::MouseEvent& e, const Lane& lane) {
-    // a click in an automation lane: grab the point there, or add one there (and grab it)
+    // a press in an automation lane: grab the point there, or (a double-click) add one there and grab it
     Automation& a = *lane.automation;
     PointF pos(e.pos);
     if (lane.owner->frozen) return;
@@ -261,8 +261,12 @@ bool Timeline::mousePress(ui::MouseEvent& e) {
     }
     auto lane = laneAt(pos.y);
     currentAutomation = lane && lane->automation ? lane->automation : nullptr;
-    if (lane && lane->automation && (e.mods & plat::ModShift) && !lane->owner->frozen && !lane->owner->busOf) {
-        // Shift+drag in an automation lane: a time range on its track (the lane's own: Ctrl+C / V, Del)
+    // an automation lane: a point grabbed, Ctrl on a segment bends it; anywhere else (or with Shift) a click only
+    // selects: a time range of its curve. Points are added by a double-click (mouseDoubleClick).
+    bool grabs = lane && lane->automation && !(e.mods & plat::ModShift) &&
+                 (pointAt(*lane, pos) >= 0 || ((e.mods & plat::ModCtrl) && segmentAt(*lane, pos.x) >= 0));
+    if (lane && lane->automation && !grabs && !lane->owner->frozen && !lane->owner->busOf) {
+        // a time range on its track (the lane's own: Ctrl+C / V, Del)
         setCurrentTrack(lane->owner);
         int64_t frame = snappedFrameAt(pos.x, e.mods);
         setCursor(frame);
@@ -278,7 +282,7 @@ bool Timeline::mousePress(ui::MouseEvent& e) {
     }
     if (lane && lane->automation) {
         setCurrentTrack(lane->owner);
-        automationPress(e, *lane);
+        if (grabs) automationPress(e, *lane);
         return true;
     }
     if (lane && lane->take) {  // a take lane: drag across the part to use
@@ -545,6 +549,9 @@ bool Timeline::mouseDoubleClick(ui::MouseEvent& e) {
         } else if (index >= 0 && !lane->owner->frozen) {
             drag = std::monostate();
             deletePoint(*lane, index);
+        } else if (!(e.mods & plat::ModCtrl)) {  // an empty spot: a new point there (and grabbed, to drag)
+            setCurrentTrack(lane->owner);
+            automationPress(e, *lane);
         }
     } else if (lane && lane->group) {  // double-click a group's header lane: fold or unfold it
         toggleFold(lane->group);

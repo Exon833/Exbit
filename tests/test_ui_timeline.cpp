@@ -465,7 +465,11 @@ void testMidiAndAutomation() {
     tl.automationEdited.connect([&] { ++edits; });
     double yHalf = tl.automationY(al, 0.5);
     e = mouse(200, yHalf);
-    tl.mousePress(e);
+    tl.mousePress(e);  // one click only selects (a time range): no point
+    CHECK(lane->points.size() == 0);
+    CHECK(std::holds_alternative<RangeDrag>(tl.drag));
+    tl.mouseRelease(e);
+    tl.mouseDoubleClick(e);  // a double-click adds one, grabbed
     CHECK(lane->points.size() == 1);
     CHECK_NEAR(lane->points[0].t, 2.0, 1e-9);
     CHECK_NEAR(lane->points[0].v, 0.5, 0.02);
@@ -478,7 +482,7 @@ void testMidiAndAutomation() {
     CHECK(edits >= 2);
     // a second point; the first can't pass it
     e = mouse(400, tl.automationY(al, 0.0));
-    tl.mousePress(e);
+    tl.mouseDoubleClick(e);
     tl.mouseRelease(e);
     CHECK(lane->points.size() == 2);
     e = mouse(250, tl.automationY(al, 1.0));

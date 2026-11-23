@@ -54,6 +54,12 @@ void click(Widget* w, Point p, int button = plat::LeftButton, int mods = 0) {
     press(w, p, button, mods);
     release(w, p, button, mods);
 }
+// a double-click held down (its second press: dragging it lengthens what it added)
+void doublePress(Widget* w, Point p, int mods = 0) {
+    click(w, p, plat::LeftButton, mods);
+    gTime += 0.1;
+    w->window()->onEvent(nullptr, mouseEv(plat::Event::MouseDown, w->mapToWindow(p), plat::LeftButton, plat::LeftButton, mods));
+}
 void doubleClick(Widget* w, Point p) {
     click(w, p);
     gTime += 0.1;
@@ -206,9 +212,26 @@ static void testMouseEditing() {
     MidiEditor ed(nullptr, f.clip, f.project, f.engine, [&] { f.changes++; }, f.link());
     ed.showWindow();
     double step = ed.stepS();
-    // click an empty spot: a new note, one grid step long, starting on the grid line before the click
+    // one click on an empty spot only selects: nothing added, the selection cleared; a drag there selects with a box
     Point empty((int)ed.xOf(3.0 + step * 0.7), (int)*ed.yOf(57) + 3);
-    press(ed.roll, empty);
+    ed.selected = {0};
+    click(ed.roll, empty);
+    CHECK(ed.notes.size() == 4);
+    CHECK(ed.selected.empty());
+    CHECK(f.changes == 0);
+    Point corner = notePoint(ed, 1, 0.5);
+    Point outside((int)ed.xOf(0.01), corner.y - 2 * ed.rowH);
+    if (ed.noteAt(outside.x, outside.y) < 0) {
+        press(ed.roll, outside);
+        dragTo(ed.roll, Point(corner.x, corner.y + 1));
+        release(ed.roll, Point(corner.x, corner.y + 1));
+        CHECK(ed.notes.size() == 4);
+        CHECK(ed.selected.count(1) == 1);
+        CHECK(f.changes == 0);
+    }
+    gTime += 1.0;  // (not a double-click with the next press)
+    // double-click an empty spot: a new note, one grid step long, starting on the grid line before the click
+    doublePress(ed.roll, empty);
     CHECK(ed.notes.size() == 5);
     CHECK(ed.held && *ed.held == 57);  // it sounds while held
     CHECK(f.changes == 0);              // nothing goes into the clip before the release
@@ -267,7 +290,7 @@ static void testMouseEditing() {
     int total = (int)ed.notes.size();
     Point far((int)ed.xOf(before + step * 0.2), (int)*ed.yOf(62) + 3);
     if (far.x < ed.roll->width()) {
-        press(ed.roll, far);
+        doublePress(ed.roll, far);
         dragTo(ed.roll, Point(far.x + (int)(step * 4 * ed.pps), far.y));
         release(ed.roll, Point(far.x + (int)(step * 4 * ed.pps), far.y));
         CHECK((int)ed.notes.size() == total + 1);

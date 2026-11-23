@@ -211,8 +211,8 @@ int wrappedHeight(const std::string& text, const Font& f, float width) {
 
 // the hint under the toolbar: the piano roll's, the Steps view's
 const char* const ROLL_HINT =
-    "Click to add a note, drag to move, drag its right end to resize, right-click to delete. Shift+drag: select "
-    "with a box; Ctrl+drag: copy; arrows: move (Shift+arrows: octave, length); Ctrl+C / X / V, Ctrl+D duplicate, "
+    "Double-click to add a note, drag to move, drag its right end to resize, right-click to delete. Drag an empty "
+    "spot: select with a box; Ctrl+drag: copy; arrows: move (Shift+arrows: octave, length); Ctrl+C / X / V, Ctrl+D duplicate, "
     "Ctrl+U quantize, G slide, K knife, Ctrl+J join, Shift+click a key: its row. Alt: no snapping (to the grid or the scale).";
 const char* const KNIFE_HINT =
     "The knife: click a note, or drag across notes, to cut them at the line (Enter: at the keyboard's cursor). "
@@ -1942,7 +1942,9 @@ void PianoRoll::paintKeys(Painter& p, int h) {
     p.fillRect(Rect(KEYS_W - look.keysEdgeW, 0, look.keysEdgeW, h), look.keysEdge);
 }
 
-bool PianoRoll::mousePress(ui::MouseEvent& e) {
+bool PianoRoll::mousePress(ui::MouseEvent& e) { return press(e, false); }
+
+bool PianoRoll::press(ui::MouseEvent& e, bool twice) {
     MidiEditor& ed = *ed_;
     using K = MidiEditor::Drag::Kind;
     Point pos = e.pos;
@@ -1984,7 +1986,8 @@ bool PianoRoll::mousePress(ui::MouseEvent& e) {
         return true;
     }
     if (e.button != plat::LeftButton) return true;
-    if (index < 0 && (e.mods & plat::ModShift)) {  // Shift: a selection box (Ctrl too: adds to it)
+    // an empty spot: one click selects (a box; Shift too; Ctrl adds to the selection), a double-click adds a note
+    if (index < 0 && (!twice || (e.mods & plat::ModShift))) {
         MidiEditor::Drag d;
         d.kind = K::Box;
         d.startPos = d.pos = pos;

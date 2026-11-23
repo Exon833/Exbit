@@ -65,6 +65,12 @@ void click(Widget* w, Point p, int button = plat::LeftButton, int mods = 0) {
     press(w, p, button, mods);
     release(w, p, button, mods);
 }
+// a double-click held down (its second press: dragging it lengthens what it added)
+void doublePress(Widget* w, Point p, int mods = 0) {
+    click(w, p, plat::LeftButton, mods);
+    gTime += 0.1;
+    w->window()->onEvent(nullptr, mouseEv(plat::Event::MouseDown, w->mapToWindow(p), plat::LeftButton, plat::LeftButton, mods));
+}
 void keyDown(Window& w, int k, int mods = 0, bool repeat = false) {
     plat::Event e;
     e.type = plat::Event::KeyDown;
@@ -288,11 +294,11 @@ static void testStamp() {
     CHECK(ed.stampButton->text() == "Major");
     CHECK(ed.stamped(60) == (std::vector<int>{60, 64, 67}));
     CHECK(ed.stamped(125) == (std::vector<int>{125}));  // (beyond 127: left out)
-    // a click places the whole chord, all selected, the root held
+    // a double-click places the whole chord, all selected, the root held
     size_t before = ed.notes.size();
     double t = 3.0;
     Point p((int)ed.xOf(t + 0.1), (int)*ed.yOf(62) + 3);
-    press(ed.roll, p);
+    doublePress(ed.roll, p);
     CHECK(ed.notes.size() == before + 3);
     CHECK(ed.held && *ed.held == 62);
     dragTo(ed.roll, Point((int)ed.xOf(t + 1.6), p.y));  // dragging lengthens all of it

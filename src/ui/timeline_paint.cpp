@@ -325,7 +325,7 @@ void Timeline::paintAutomation(Painter& p, const Rect& r, const Lane& lane) {
         int baseline = paint::lengthPx(lk.hint, "baseline", lane.height / 2 + 4, lane.height);
         p.drawText(PointF((float)left + lk.hintPadLeft, (float)(lane.top + baseline)),
                    a.armed ? "Write is on: play the song and move the control to write the curve"
-                           : "Click to add points to the curve",
+                           : "Double-click to add points to the curve",
                    lk.hintFont, lk.hintColor);
     }
 }

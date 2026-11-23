@@ -63,15 +63,15 @@
 //
 // A track's automation lanes (Auto on its row) lie under it: each a parameter's curve, from 0 at the
 // bottom to 1 at the top (drag its bottom edge to make it taller; double-click the edge for the
-// standard height). Click to add a point (dragged at once), drag points (in time they snap like the
-// cursor, Alt: freely), double-click or right-click a point to delete it; right-click the lane for
-// its menu. A frozen track's lanes are locked, like its clips.
+// standard height). Double-click to add a point (dragged at once; a single click only selects: a time
+// range, as Shift+drag below), drag points (in time they snap like the cursor, Alt: freely),
+// double-click or right-click a point to delete it; right-click the lane for its menu. A frozen track's lanes are locked, like its clips.
 // Curved segments (AutoPoint::bend): Ctrl+drag a segment between two points up or down to bow it that
 // way (Alt is the grid's: it adds a point off the grid), Ctrl+double-click it to straighten it; the
 // lane's right-click menu curves and straightens the segment there too, and draws shapes (ramps, sine,
 // triangle, saw, square: a cycle per bar or beat) over the selected range or the loop
 // (automation_write.h). A lane armed for writing (Write on its row) is tinted red.
-// Shift+drag in a lane selects a time range of its curve (currentAutomation): Ctrl+C / Ctrl+X copy or cut
+// Dragging in a lane off its points (or Shift+drag) selects a time range of its curve (currentAutomation): Ctrl+C / Ctrl+X copy or cut
 // it, Ctrl+V pastes at the cursor, Del clears it (clipboard.h). While automation follows clips (Edit menu,
 // model/auto_follow.h) moving, copying, pasting and duplicating clips takes their tracks' automation along.
 //
