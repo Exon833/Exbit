@@ -66,8 +66,12 @@ WINE_FLAGS := $(WINE_BASE) -D_WIN64 '-D__stdcall=__attribute__((ms_abi))' '-D__c
 WINE_HOST32 := tinydaw-wine-host-32.exe
 WINE32_OBJS := $(WINE_SRCS:%.cpp=build/winehost32/%.o)
 WINE32_FLAGS := $(WINE_BASE) -m32 '-D__stdcall=__attribute__((stdcall))' '-D__cdecl=__attribute__((cdecl))'
+# built only when winegcc can build 32-bit programs (a tiny one links): a Wine built only for WoW64 has no
+# 32-bit Unix part; then 32-bit plugins say they need this host, and the rest builds as usual
 ifneq ($(WINEGCC),)
-  ALL_WINE := $(WINE_HOST) $(WINE_HOST32)
+  WINE32_OK := $(shell mkdir -p build/wine32check && printf 'int main(void){return 0;}\n' > build/wine32check/t.c && \
+                 $(WINEGCC) -m32 -mconsole -o build/wine32check/t.exe build/wine32check/t.c -lkernel32 >/dev/null 2>&1 && echo yes)
+  ALL_WINE := $(WINE_HOST) $(if $(WINE32_OK),$(WINE_HOST32))
 endif
 
 # --- Windows builds of the test plugins, and a test installer (for test_wine; with MinGW's
@@ -101,7 +105,7 @@ appimage:
 publish:
 	tools/appimage.sh --publish
 
-winehost: $(WINE_HOST) $(WINE_HOST32)
+winehost: $(ALL_WINE)
 
 $(WINE_HOST32): $(WINE32_OBJS)
 	$(WINEGCC) -m32 -mconsole -o $@ $^ -lstdc++ -lm -lpthread -lole32 -luser32 -ladvapi32 -lkernel32 -Wl,-z,defs
