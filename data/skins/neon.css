@@ -24,7 +24,7 @@
     --nd-panel: #11151d;
     --nd-steel: #1d2430;
     --nd-red: #ff003c;          /* lines, warnings */
-    --nd-red-text: #ff6a5f;     /* labels (red, readable on the dark: 6:1) */
+    --nd-red-text: #ff7d72;     /* labels (red, readable on the dark: 7.8:1; the thin face draws its strokes lighter) */
     --nd-yellow: #fcee0a;       /* what is chosen */
     --nd-cyan: #00f0ff;         /* what is active, live */
     --nd-cyan-dim: #1d7f88;
@@ -46,7 +46,7 @@
     --tooltip-text: var(--nd-yellow);
     --disabled-text: #4a5262;
     --hint-text: #8a95a8;
-    --dimmed-text: #626c7d;
+    --dimmed-text: #737c8b;
     --accent: var(--nd-cyan);
     --accent-text: var(--nd-black);
     --frame-edge: var(--nd-red);
@@ -70,7 +70,7 @@
     --selection-edge: #00f0ffc8;
     --automation-lane: #08090d;
     --automation-line: var(--nd-yellow);
-    --loop: #ff003cb4;
+    --loop: #ff003cd0;
     --loop-off: #ff003c46;
     --frozen-tint: #00f0ff3c;
     --overview-bg: var(--nd-black);
@@ -138,17 +138,20 @@ PushButton:hover, PushButton:focus {
     color: var(--nd-yellow);
 }
 Button:pressed, Button:checked { background-color: var(--nd-cyan); color: var(--nd-black); }
+IconButton:pressed::icon { color: var(--nd-black); }  /* (on the cyan) */
 Button:lit { background-color: var(--nd-yellow); color: var(--nd-black); }
-Button:lit:hover { background-color: #fff35a; }
+Button:lit:where(:not(:toggled)):hover { background-color: #fff35a; }  /* (not a lit toggle: a hovered M would look like S) */
 Button:toggled { background-color: var(--toggle-color, var(--accent)); color: var(--nd-black); }
 Button:disabled, PushButton:disabled { color: var(--disabled-text); background-color: #0d1016; }
-ToolButton.autoRaise, ToolButton.autoRaise:disabled { background: transparent; }
-ToolButton.autoRaise:hover { background-color: var(--nd-hover); }
+/* (flat until the pointer is over them; checked, held or lit they take the rules above: no dark text on the dark) */
+ToolButton.autoRaise:not(:checked):not(:pressed):not(:lit), ToolButton.autoRaise:disabled { background: transparent; }
+ToolButton.autoRaise:hover:not(:checked):not(:pressed):not(:lit) { background-color: var(--nd-hover); }
+ToolButton:focus { box-shadow: inset 0 0 0 1px var(--nd-yellow); }  /* the keyboard focus (no edges here: a line inside) */
 PushButton:focus:lit, PushButton:focus:disabled { border-color: transparent; }
 
 /* the record button, while recording: hazard stripes */
 .toggle-record:toggled {
-    background: repeating-linear-gradient(135deg, var(--nd-red) 0, var(--nd-red) 6px, #b0002a 6px, #b0002a 12px);
+    background: repeating-linear-gradient(135deg, #e4003a 0, #e4003a 6px, #b0002a 6px, #b0002a 12px);  /* (white text: 4.8:1) */
     color: #ffffff;
 }
 
@@ -215,11 +218,11 @@ GroupBox { background-color: #0d1118; border-radius: 0; border-left: 2px solid v
 GroupBox::title { color: var(--nd-red-text); font-weight: bold; letter-spacing: 1.2px; }
 
 /* lists and trees: the chosen row yellow */
+ListWidget::item:hover, TreeWidget::item:hover, FileList::item:hover { background-color: #12171f; }
 ListWidget::item:selected, TreeWidget::item:selected, FileList::item:selected {
     background-color: var(--nd-yellow);
     color: var(--nd-black);
 }
-ListWidget::item:hover, TreeWidget::item:hover, FileList::item:hover { background-color: #12171f; }
 
 /* menus: black with a red edge; the item under the pointer yellow */
 MenuBar::item:hover, MenuBar::item:open { background-color: var(--nd-yellow); color: var(--nd-black); }

@@ -244,7 +244,7 @@ void editInstrument(ui::Window* parent, PluginHost& host, const TrackPtr& track,
         sampler_dialog::openSampler(track);
     } else if (track->needsInstrument) {
         ui::msg::information(parent, "No instrument yet",
-                             track->name + " is silent until it has an instrument: choose one with ▾ next to 🎹.");
+                             track->name + " is silent until it has an instrument: choose one with the ▾ of its instrument button.");
     } else if (!slot) {
         synth_dialog::openSynth(track);  // (the built-in synth's window)
     } else if (host.canReload(slot)) {
@@ -257,7 +257,7 @@ void editInstrument(ui::Window* parent, PluginHost& host, const TrackPtr& track,
         }
     } else if (!plugin_audio::usable(slot)) {
         ui::msg::information(parent, "Instrument not loaded",
-                             slot->name + " isn't loaded, so its window can't open. Choose it again with ▾ next to 🎹.");
+                             slot->name + " isn't loaded, so its window can't open. Choose it again with the ▾ of its instrument button.");
     } else {
         host.edit(slot, track->name);
     }

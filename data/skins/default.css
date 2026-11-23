@@ -16,14 +16,14 @@
     --text: #dcdde0;               /* Text in fields and lists */
     --button: #36383d;             /* Buttons */
     --button-text: #dcdde0;        /* Button text */
-    --highlight: #3d7ab8;          /* Selected items */
+    --highlight: #3c79b6;          /* Selected items */
     --highlighted-text: #ffffff;   /* Selected items' text */
     --tooltip-base: #1e1f22;       /* Tooltips */
     --tooltip-text: #dcdde0;       /* Tooltip text */
     --disabled-text: #6b6e75;      /* Disabled text */
     --hint-text: #9a9da5;          /* Hints */
-    --dimmed-text: #70737c;        /* Dimmed notes (updates) */
-    --accent: #3d7ab8;             /* Lit buttons (FX with plugins, Preview, Metronome…) */
+    --dimmed-text: #92959b;        /* Dimmed notes (updates) */
+    --accent: #3c79b6;             /* Lit buttons (FX with plugins, Preview, Metronome…) */
     --accent-text: #ffffff;        /* Text on lit buttons */
     --frame-edge: #111111;         /* Thin edges */
 
@@ -64,13 +64,14 @@
     --accent-return: #d0913c;      /* Return track stripe */
     --mute: #c0392b;               /* Mute (M) when on */
     --solo: #d4a017;               /* Solo (S) when on */
+    --solo-text: #1e1f22;          /* Text on Solo (S) when on */
     --record: #d0433a;             /* Recording: ● Rec when on, the take as it grows */
 
     /* Meters */
     --meter-bg: #121316;           /* Meter background */
     --meter-ok: #46c86e;           /* Meter: up to -12 dB (and CPU load) */
     --meter-warn: #dcbe3c;         /* Meter: up to 0 dB */
-    --meter-hot: #dc3c32;          /* Meter: at 0 dB */
+    --meter-hot: #d63a30;          /* Meter: at 0 dB */
 
     /* MIDI editor */
     --keys-white: #e8e8ea;         /* White keys */
@@ -89,13 +90,14 @@
     --pressed: color-mix(in srgb, var(--button) 82%, var(--button-text) 18%);  /* pressed, or switched on */
     --disabled: color-mix(in srgb, var(--button) 50%, var(--window) 50%);  /* a disabled button's fill */
     --line: color-mix(in srgb, var(--window) 90%, var(--window-text) 10%);  /* dividing lines, edges of menus */
-    --field-edge: color-mix(in srgb, var(--base) 86%, var(--text) 14%);  /* the edge of fields */
-    --field-hover: color-mix(in srgb, var(--base) 74%, var(--text) 26%);  /* … under the mouse */
+    --field-edge: color-mix(in srgb, var(--base) 78%, var(--text) 22%);  /* the edge of fields */
+    --field-hover: color-mix(in srgb, var(--base) 64%, var(--text) 36%);  /* … under the mouse */
     --item-hover: color-mix(in srgb, var(--base) 93%, var(--text) 7%);  /* list rows under the mouse */
     --panel: color-mix(in srgb, var(--window) 55%, var(--base) 45%);  /* boxes grouping controls */
     --handle: color-mix(in srgb, var(--window) 78%, var(--window-text) 22%);  /* scroll bar handles */
     --handle-hover: color-mix(in srgb, var(--window) 62%, var(--window-text) 38%);  /* … under the mouse */
-    --accent-hover: color-mix(in srgb, var(--accent) 85%, var(--accent-text) 15%);  /* lit buttons under the mouse */
+    --accent-hover: color-mix(in srgb, var(--accent) 85%, #000000 15%);  /* lit buttons under the mouse */
+    --focus: color-mix(in srgb, var(--accent) 50%, var(--window-text) 50%);  /* the keyboard focus: edges of the control that has it */
 }
 
 /* ---------------------------------------------------------------------------------------------------------
@@ -122,21 +124,21 @@ Button:hover { background-color: var(--hover); }
 Button:pressed, Button:checked { background-color: var(--pressed); }
 Button:lit { background-color: var(--accent); color: var(--accent-text); }
 Button:lit:hover { background-color: var(--accent-hover); }
-Button:toggled { background-color: var(--toggle-color, var(--accent)); }
-Button:toggled:hover {
-    background-color: color-mix(in srgb, var(--toggle-color, var(--accent)) 85%, var(--accent-text) 15%);
-}
+Button:toggled { background-color: var(--toggle-color, var(--accent)); color: var(--toggle-text, var(--accent-text)); }
+Button:toggled:hover { background-color: color-mix(in srgb, var(--toggle-color, var(--accent)) 85%, #000000 15%); }
 Button:disabled { color: var(--disabled-text); }
 PushButton:disabled { background-color: var(--disabled); }
 ToolButton:disabled { background-color: var(--button); }
 ToolButton.autoRaise:disabled { background-color: transparent; }
-PushButton:focus { border-color: var(--accent); }
-PushButton:focus:lit, PushButton:focus:disabled { border-color: transparent; }
+/* the keyboard focus: an edge in --focus (on a lit button, in its text's colour) */
+PushButton:focus, ToolButton:focus { border-color: var(--focus); }
+PushButton:focus:lit, ToolButton:focus:lit { border-color: var(--accent-text); }
+PushButton:focus:disabled { border-color: transparent; }
 Button::arrow { background-color: transparent; }
 Button:arrow-hover::arrow { background-color: var(--pressed); }
 Button::separator { background-color: var(--line); }
 .toggle-mute { --toggle-color: var(--mute); }
-.toggle-solo { --toggle-color: var(--solo); }
+.toggle-solo { --toggle-color: var(--solo); --toggle-text: var(--solo-text); }
 .toggle-record { --toggle-color: var(--record); }
 .toggle-accent { --toggle-color: var(--accent); }
 
@@ -200,13 +202,14 @@ CheckBox::indicator {
     margin-right: 6px;
     padding: 1px;
     background-color: var(--base);
-    border: 1px solid var(--field-hover);
+    border: 1px solid color-mix(in srgb, var(--window-text) 50%, var(--window));  /* (3:1 on the window: the only sign of the box) */
     border-radius: 3px;
     color: var(--accent-text);
 }
 CheckBox:hover::indicator { border-color: var(--accent); }
 CheckBox:checked::indicator { background-color: var(--accent); border-color: var(--accent); }
 CheckBox:disabled::indicator { background-color: var(--disabled); border-color: var(--disabled); }
+CheckBox::label:focus { outline: 1px solid var(--focus); }
 
 /* Group boxes: the box (the frame) starts margin-top down, its controls inside its padding. ::title is placed
    against the frame: margin-top below its top (-19px: in the 20 px above it), margin-left in; height is its row
@@ -288,9 +291,9 @@ LineEdit {
 }
 LineEdit:frameless { background-color: transparent; border-width: 0; padding: 4px 5px; }
 LineEdit:hover { border-color: var(--field-hover); }
-LineEdit:focus { border-color: var(--accent); }
+LineEdit:focus { border-color: var(--focus); }
 LineEdit:disabled { border-color: var(--field-edge); color: var(--disabled-text); }
-LineEdit::placeholder { color: color-mix(in srgb, var(--text) 50%, transparent); }
+LineEdit::placeholder { color: color-mix(in srgb, var(--text) 62%, transparent); }
 LineEdit::selection { background-color: var(--highlight); color: var(--highlighted-text); padding: 1px 0; }
 LineEdit::cursor { background-color: currentColor; width: 1px; }
 LineEdit::clear-button {
@@ -314,7 +317,7 @@ SpinBox {
     padding: 3px 7px;
 }
 SpinBox:hover { border-color: var(--field-hover); }
-SpinBox:focus { border-color: var(--accent); }
+SpinBox:focus { border-color: var(--focus); }
 SpinBox:disabled { border-color: var(--field-edge); }
 SpinBox::up-button, SpinBox::down-button {
     background-color: transparent;
@@ -337,7 +340,7 @@ ComboBox {
     padding: 3px 7px 3px 5px;
 }
 ComboBox:hover { border-color: var(--field-hover); }
-ComboBox:focus, ComboBox:open { border-color: var(--accent); }
+ComboBox:focus, ComboBox:open { border-color: var(--focus); }
 ComboBox:disabled { border-color: var(--field-edge); color: var(--disabled-text); }
 ComboBox::arrow {
     background-color: transparent;
@@ -384,6 +387,7 @@ Slider::fill:disabled { background-color: var(--field-hover); }
 Slider::handle { width: 10px; height: 10px; background-color: var(--button-text); border-radius: 5px; }
 Slider::handle:hover, Slider::handle:pressed { background-color: var(--accent); }
 Slider::handle:disabled { background-color: var(--disabled-text); }
+Slider:focus::handle { box-shadow: 0 0 0 2px var(--focus); }
 
 /* Scroll bars: :horizontal / :vertical; width / height: the size it asks for (across it: --scrollbar-width).
    ::thumb (:hover and :pressed are its own: under the mouse, dragged): margin around it in the bar, its
@@ -404,6 +408,7 @@ ListWidget::item { height: 22px; padding: 0 4px; color: var(--text); }
 ListWidget::item:alternate { background-color: var(--alternate-base); }
 ListWidget::item:hover { background-color: var(--item-hover); }
 ListWidget::item:selected { background-color: var(--highlight); color: var(--highlighted-text); }
+ListWidget:focus::item:selected { box-shadow: inset 0 0 0 1px var(--highlighted-text); }  /* the keyboard focus */
 ListWidget::item:disabled { color: var(--disabled-text); }
 ListWidget::item:bold { font-weight: bold; }
 ListWidget::indicator {
@@ -425,6 +430,7 @@ TreeWidget { background-color: var(--base); width: 256px; height: 192px; min-wid
 TreeWidget::item { height: 20px; padding: 0 4px 0 0; color: var(--text); }
 TreeWidget::item:hover { background-color: var(--item-hover); }
 TreeWidget::item:selected { background-color: var(--highlight); color: var(--highlighted-text); }
+TreeWidget:focus::item:selected { box-shadow: inset 0 0 0 1px var(--highlighted-text); }
 TreeWidget::item:disabled { color: var(--disabled-text); }
 TreeWidget::item:bold { font-weight: bold; }
 TreeWidget::branch { width: 16px; padding: 0 3px; color: var(--hint-text); }
@@ -467,6 +473,7 @@ FileList::header {
 FileList::item { height: 22px; padding: 0 4px 0 6px; color: var(--text); }
 FileList::item:hover { background-color: var(--item-hover); }
 FileList::item:selected { background-color: var(--highlight); color: var(--highlighted-text); }
+FileList:focus::item:selected { box-shadow: inset 0 0 0 1px var(--highlighted-text); }
 FileList::icon { width: 14px; margin-right: 6px; color: var(--hint-text); }
 FileList::icon:selected { color: var(--highlighted-text); }
 FileList::detail { padding: 0 6px; --spare: 4px; color: var(--hint-text); }
@@ -539,7 +546,7 @@ Ruler:looping::loop { background-color: var(--loop); }
 Ruler::loop-edge { width: 2px; }
 Ruler::marker { background-color: var(--accent); color: var(--accent-text); height: 50%; padding: 0 2px 0 5px; }
 Ruler::marker-line { background-color: var(--accent); width: 2px; }
-Ruler::tempo { color: var(--accent); margin-left: 6px; baseline: 15px; }
+Ruler::tempo { color: color-mix(in srgb, var(--accent) 60%, var(--ruler-text)); margin-left: 6px; baseline: 15px; }
 
 /* Lanes (boxes as wide as the timeline): a track's (:alternate every other), a group's header (.group: in the
    group's own colour when it has one; padding around its miniature clips), an automation lane's (.automation;
@@ -560,7 +567,7 @@ Lane.automation::range { background-color: color-mix(in srgb, var(--automation-l
 Lane.automation::range-edge { color: color-mix(in srgb, var(--automation-line) 27.45%, transparent); stroke-width: 1px; }
 Lane.automation::guide { color: color-mix(in srgb, var(--automation-line) 15.69%, transparent); }  /* dotted */
 Lane.automation::label {  /* the values at the top and the bottom of the range */
-    color: color-mix(in srgb, var(--automation-line) 66.67%, transparent);
+    color: color-mix(in srgb, var(--automation-line) 70%, var(--window-text));
     font-size: calc(1em - 2px);
     padding: 2px 6px 1px;
     width: 220px;
@@ -568,7 +575,7 @@ Lane.automation::label {  /* the values at the top and the bottom of the range *
 }
 Lane.automation::value {  /* a stepped parameter's values, on their lines */
     background-color: var(--automation-lane);
-    color: color-mix(in srgb, var(--automation-line) 66.67%, transparent);
+    color: color-mix(in srgb, var(--automation-line) 70%, var(--window-text));
     font-size: calc(1em - 2px);
     padding: 0 4px 0 2px;
     margin-left: 4px;
@@ -708,6 +715,7 @@ LevelMeter::bar:ok, LevelMeter::peak:ok { background-color: var(--meter-ok); }
 LevelMeter::bar:warn, LevelMeter::peak:warn { background-color: var(--meter-warn); }
 LevelMeter::bar:hot, LevelMeter::peak:hot { background-color: var(--meter-hot); }
 LevelMeter::peak { width: 2px; }
+LevelMeter::rms { background-color: #00000080; }  /* the RMS bar, over the peak bar: a darker shade of it */
 LevelMeter::number { background-color: var(--meter-bg); color: var(--ruler-text); }
 LevelMeter::number:clipped { background-color: var(--meter-hot); color: var(--accent-text); }
 
@@ -1001,7 +1009,7 @@ SynthPage::current, SynthPage::target { color: var(--selected-note); }
 SynthPage::handle { color: var(--window); }
 SynthPage::env1 { color: #f0b43c; stroke-width: 2.5px; }
 SynthPage::env2 { color: #5ac878; stroke-width: 2.5px; }
-SynthPage::lfo { color: #5aa0f0; stroke-width: 2.5px; }
+SynthPage::lfo { color: color-mix(in srgb, #5aa0f0 70%, var(--window-text)); stroke-width: 2.5px; }  /* (3:1 on light skins too) */
 /* the Drawn synth's canvas (ui/wave_canvas.h): its background, the wave (color); ::grid the centre line and
    quarters, ::cursor the keyboard's point */
 WaveCanvas { background-color: var(--base); color: var(--accent); }

@@ -15,7 +15,7 @@
     --tooltip-text: #d8d8d8;
     --disabled-text: #555555;
     --hint-text: #8a8a8a;
-    --dimmed-text: #5e5e5e;
+    --dimmed-text: #757575;
     --accent: #00a3c7;
     --accent-text: #000000;
     --frame-edge: #2a2a2a;
@@ -66,3 +66,6 @@
     --selected-note: #ffffff;
     --sample-wave: #26c6ff;
 }
+
+/* lit toggles under the mouse: lighter (their text is black here; default.css darkens them for white text) */
+Button:toggled:hover { background-color: color-mix(in srgb, var(--toggle-color, var(--accent)) 85%, #ffffff 15%); }

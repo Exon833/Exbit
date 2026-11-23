@@ -275,14 +275,14 @@ made from `default.css` by `tools/skins_reference.py`.
 | `--text` | `#dcdde0` | Text in fields and lists |
 | `--button` | `#36383d` | Buttons |
 | `--button-text` | `#dcdde0` | Button text |
-| `--highlight` | `#3d7ab8` | Selected items |
+| `--highlight` | `#3c79b6` | Selected items |
 | `--highlighted-text` | `#ffffff` | Selected items' text |
 | `--tooltip-base` | `#1e1f22` | Tooltips |
 | `--tooltip-text` | `#dcdde0` | Tooltip text |
 | `--disabled-text` | `#6b6e75` | Disabled text |
 | `--hint-text` | `#9a9da5` | Hints |
-| `--dimmed-text` | `#70737c` | Dimmed notes (updates) |
-| `--accent` | `#3d7ab8` | Lit buttons (FX with plugins, Preview, Metronome…) |
+| `--dimmed-text` | `#92959b` | Dimmed notes (updates) |
+| `--accent` | `#3c79b6` | Lit buttons (FX with plugins, Preview, Metronome…) |
 | `--accent-text` | `#ffffff` | Text on lit buttons |
 | `--frame-edge` | `#111111` | Thin edges |
 
@@ -329,6 +329,7 @@ made from `default.css` by `tools/skins_reference.py`.
 | `--accent-return` | `#d0913c` | Return track stripe |
 | `--mute` | `#c0392b` | Mute (M) when on |
 | `--solo` | `#d4a017` | Solo (S) when on |
+| `--solo-text` | `#1e1f22` | Text on Solo (S) when on |
 | `--record` | `#d0433a` | Recording: ● Rec when on, the take as it grows |
 
 ### Meters
@@ -338,7 +339,7 @@ made from `default.css` by `tools/skins_reference.py`.
 | `--meter-bg` | `#121316` | Meter background |
 | `--meter-ok` | `#46c86e` | Meter: up to -12 dB (and CPU load) |
 | `--meter-warn` | `#dcbe3c` | Meter: up to 0 dB |
-| `--meter-hot` | `#dc3c32` | Meter: at 0 dB |
+| `--meter-hot` | `#d63a30` | Meter: at 0 dB |
 
 ### MIDI editor
 
@@ -366,13 +367,14 @@ made from `default.css` by `tools/skins_reference.py`.
 | `--pressed` | `color-mix(in srgb, var(--button) 82%, var(--button-text) 18%)` | pressed, or switched on |
 | `--disabled` | `color-mix(in srgb, var(--button) 50%, var(--window) 50%)` | a disabled button's fill |
 | `--line` | `color-mix(in srgb, var(--window) 90%, var(--window-text) 10%)` | dividing lines, edges of menus |
-| `--field-edge` | `color-mix(in srgb, var(--base) 86%, var(--text) 14%)` | the edge of fields |
-| `--field-hover` | `color-mix(in srgb, var(--base) 74%, var(--text) 26%)` | … under the mouse |
+| `--field-edge` | `color-mix(in srgb, var(--base) 78%, var(--text) 22%)` | the edge of fields |
+| `--field-hover` | `color-mix(in srgb, var(--base) 64%, var(--text) 36%)` | … under the mouse |
 | `--item-hover` | `color-mix(in srgb, var(--base) 93%, var(--text) 7%)` | list rows under the mouse |
 | `--panel` | `color-mix(in srgb, var(--window) 55%, var(--base) 45%)` | boxes grouping controls |
 | `--handle` | `color-mix(in srgb, var(--window) 78%, var(--window-text) 22%)` | scroll bar handles |
 | `--handle-hover` | `color-mix(in srgb, var(--window) 62%, var(--window-text) 38%)` | … under the mouse |
-| `--accent-hover` | `color-mix(in srgb, var(--accent) 85%, var(--accent-text) 15%)` | lit buttons under the mouse |
+| `--accent-hover` | `color-mix(in srgb, var(--accent) 85%, #000000 15%)` | lit buttons under the mouse |
+| `--focus` | `color-mix(in srgb, var(--accent) 50%, var(--window-text) 50%)` | the keyboard focus: edges of the control that has it |
 
 ### Basic controls sizes
 
@@ -489,9 +491,9 @@ Each entry gives the type's own properties (what it reads besides its box), its 
 - **`Button`**, with **`PushButton`** and **`ToolButton`**: a box; `color`, the font; `padding` (its room around
   the text and icon, which gives its size). States `:hover` (not while held off it), `:pressed`, `:checked`,
   `:default`, `:lit` (accent-coloured: lit, accent and checked, a dialog's default button…), `:toggled` (a
-  switched-on toggle with a role: its `--toggle-color`), `:icon`, `:arrow-hover`, `:disabled`, `:focus`. Classes
+  switched-on toggle with a role: its `--toggle-color`, its text `--toggle-text`, else `--accent-text`), `:icon`, `:arrow-hover`, `:disabled`, `:focus`. Classes
   `.lit`, `.accent`, `.autoRaise`, `.toggle` with `.toggle-mute`, `.toggle-solo`, `.toggle-record`,
-  `.toggle-accent` (each sets `--toggle-color`). Parts `::arrow` (the drop-down part of a split button: a box)
+  `.toggle-accent` (each sets `--toggle-color`; `.toggle-solo` also `--toggle-text`). Parts `::arrow` (the drop-down part of a split button: a box)
   and `::separator` (the line before it: `background-color`).
 - **`IconButton`** (a `ToolButton`): `::icon` `color`, with `:checked` and `:disabled`.
 
@@ -729,7 +731,8 @@ from its style is `--layout-spacing` (rows and columns) and `--grid-spacing` (gr
 
 - **`LevelMeter`**: a box around the whole meter, the bars and number inside its border and padding. Parts
   `::track` (a box; its bar and peak are drawn inside its border and padding), `::bar` and `::peak` (`:ok`,
-  `:warn`, `:hot`: a box, so a gradient makes glossy bars; `::peak` `width`), `::number` (`:clipped`: a box, `color`, `font-family`, `font-weight`).
+  `:warn`, `:hot`: a box, so a gradient makes glossy bars; `::peak` `width`), `::rms` (`:ok`, `:warn`, `:hot`: the
+  RMS bar along the middle of the peak bar, a box over it; none: drawn as `::peak`), `::number` (`:clipped`: a box, `color`, `font-family`, `font-weight`).
 - **`CpuMonitor`**: a box (its left border is the line by the ruler), `color`, the font, `padding`. Parts
   `::late` (`color`, `min-width`), `::track` (a box, `height`; the bar inside its border and padding), `::bar`
   (`:ok`, `:warn`, `:hot`: a box).

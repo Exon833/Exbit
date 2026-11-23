@@ -37,7 +37,7 @@
     --tooltip-text: #000000;
     --disabled-text: #808080;
     --hint-text: #404040;
-    --dimmed-text: #606060;
+    --dimmed-text: #4e4e4e;
     --accent: #000080;
     --accent-text: #ffffff;
     --frame-edge: #000000;
@@ -61,7 +61,7 @@
     --selection-edge: #000080;
     --automation-lane: #eaeaea;
     --automation-line: #800080;
-    --loop: #008080c0;
+    --loop: #005c5ce6;
     --loop-off: #00808050;
     --frozen-tint: #00008030;
     --overview-bg: #c0c0c0;
@@ -79,7 +79,7 @@
     --accent-return: #808000;
     --mute: #ff4040;
     --solo: #ffff00;
-    --record: #ff0000;
+    --record: #e00000;
 
     /* Meters: a black well with green, yellow and red */
     --meter-bg: #000000;
@@ -206,6 +206,7 @@ Button:toggled, Button:toggled:hover {
 }
 .toggle-mute:toggled, .toggle-record:toggled { color: #ffffff; }
 .toggle-accent:toggled { color: #ffffff; }
+Button.toggle-solo:toggled, Button.toggle-solo:toggled:hover { color: #000000; }
 
 /* Disabled: grey text embossed in white */
 Button:disabled { color: var(--disabled-text); text-shadow: 1px 1px #ffffff; }
@@ -236,6 +237,7 @@ Button::separator { background-color: #808080; }
 IconButton::icon { color: #000000; }
 IconButton:checked::icon { color: #000000; }
 IconButton:disabled::icon { color: #808080; }
+LineEdit:focus, SpinBox:focus, ComboBox:focus { box-shadow: var(--sunken-inner), inset 0 0 0 2px #000000; }  /* the keyboard focus: a black line inside the well */
 
 /* ============================================================================================================
    Basic controls: labels, check boxes, group boxes, tabs, separators, the status bar, tooltips, dialogs
@@ -393,7 +395,7 @@ ComboBox:hover, ComboBox:focus, ComboBox:open, ComboBox:disabled { border-color:
 LineEdit:disabled, SpinBox:disabled, ComboBox:disabled { background-color: #c0c0c0; color: #808080; }
 LineEdit:read-only { background-color: #c0c0c0; }
 LineEdit:frameless:disabled, LineEdit:frameless:read-only { background-color: transparent; }
-LineEdit::placeholder { color: #808080; }
+LineEdit::placeholder { color: #707070; }
 LineEdit::selection { background-color: #000080; color: #ffffff; padding: 1px 0; }
 LineEdit::cursor { background-color: #000000; width: 1px; }
 LineEdit::clear-button { color: #000000; }
@@ -691,7 +693,7 @@ LevelMeter {
 }
 LevelMeter::track { background-color: #000000; }
 LevelMeter::number { background-color: #000000; color: #00ff00; }
-LevelMeter::number:clipped { background-color: #ff0000; color: #ffffff; }
+LevelMeter::number:clipped { background-color: #e00000; color: #ffffff; }
 
 /* The transport: a raised tool bar */
 Transport {

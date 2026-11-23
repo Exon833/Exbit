@@ -51,7 +51,7 @@
 
 namespace hunt {
 
-const std::string HOUT = "build/ui-samples/skin-hunt";
+std::string HOUT = "build/ui-samples/skin-hunt";
 double hElapsed() { return std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count(); }
 
 // --- colours ---
@@ -84,6 +84,7 @@ struct Hit {
     double worst = 1e9;
     std::vector<std::string> where;
     std::map<std::string, double> per;  // each place's worst value
+    std::map<std::string, std::string> perDetail;  // … and what it was
     int count = 0;
 };
 std::map<std::string, Hit> hits;
@@ -105,7 +106,10 @@ void hit(const std::string& check, const std::string& key, const std::string& wh
         if (!picture.empty()) h.picture = picture;
     }
     if (std::find(h.where.begin(), h.where.end(), where) == h.where.end()) h.where.push_back(where);
-    if (!h.per.count(where) || value < h.per[where]) h.per[where] = value;
+    if (!h.per.count(where) || value < h.per[where]) {
+        h.per[where] = value;
+        h.perDetail[where] = detail;
+    }
 }
 
 // --- pixels ---
@@ -348,6 +352,7 @@ void contrastWindow(Window& win, const std::string& pic) {
         if (!w->isShown() || covered(w)) continue;
         Rect d = deviceRectOf(w);
         if (d.w < 3 || d.h < 3) continue;
+        if (d.h * 10 < (int)(w->height() * win.scale()) * 6) { skipped++; continue; }  // (mostly cut off by what holds it: a layout matter)
         const css::Style& st = w->computedStyle();
         Point o = w->mapToWindow(Point(0, 0));
         Rect inner = ui::style::contents(Rect(o.x, o.y, w->width(), w->height()), st);
@@ -569,7 +574,7 @@ void judgeSurfaces(const Widget* owner) {
         {"button_text", "button", "4.5"}, {"highlighted_text", "highlight", "4.5"}, {"accent_text", "accent", "4.5"},
         {"tooltip_text", "tooltip_base", "4.5"}, {"hint_text", "window", "4.5"}, {"hint_text", "base", "4.5"},
         {"dimmed_text", "window", "4.5"}, {"ruler_text", "ruler_bg", "4.5"}, {"keys_label", "keys_white", "4.5"},
-        {"accent_text", "mute", "3"}, {"accent_text", "solo", "3"}, {"accent_text", "record", "3"},
+        {"accent_text", "mute", "3"}, {"solo_text", "solo", "3"}, {"accent_text", "record", "3"},
         {"playhead", "lane", "3"}, {"cursor", "lane", "3"}, {"automation_line", "automation_lane", "3"},
         {"grid_bar", "lane", "1.3"}, {"sample_wave", "base", "3"}, {"selected_note", "lane", "3"},
     };
@@ -1191,6 +1196,7 @@ void writeRaw() {
 
 }  // namespace hunt
 
+#ifndef SKIN_HUNT_NO_MAIN  // (tests/test_contrast.cpp includes the hunt for its helpers)
 int main() {
     using namespace hunt;
     plat::initWithoutDisplay();
@@ -1230,3 +1236,4 @@ int main() {
     CHECK(true);
     TEST_MAIN_END();
 }
+#endif
