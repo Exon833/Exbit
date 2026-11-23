@@ -123,6 +123,7 @@ struct DragEvent {
 
 class Window;
 class Menu;
+class ScrollBar;
 class TitleBar;
 
 enum class FocusPolicy { None, Click, Tab, Strong };
@@ -200,6 +201,9 @@ public:
     void setLayout(std::unique_ptr<class Layout> layout);
     class Layout* layout() const { return layout_.get(); }
     void relayout();          // run the layout (and later its children's) now
+    // the rect its layout fills (default contentsRect(); a window smaller than its layout's minimum: larger, and
+    // scrolled)
+    virtual Rect layoutArea() { return contentsRect(); }
     // a child without a layout above it changed its size hint (ScrollArea's viewport: re-place the content)
     virtual void childSizeHintChanged(Widget* child) {}
     virtual void resized() {} // called after the geometry's size changed (and the layout ran)
@@ -530,11 +534,27 @@ public:
     // its native window was made opaque (while transparency was off, or before a compositing manager ran) though
     // see-through ones can be made now: a popup kept between uses (a menu's) is better made again before it shows
     bool madeOpaque() const;
+    // --- (added) a dialog or tool window (not the main window, not a popup) smaller than its layout's minimum (a
+    // small screen, a large interface size, a window manager making it smaller): its widgets are laid out at that
+    // minimum, never squashed, and scroll: scroll bars at its right and bottom, the wheel where nothing else takes
+    // it, the keyboard focus kept in view. It opens at least at that minimum and at most as big as the screen, on it.
+    bool scrollsWhenSmall() const;
+    Point scrollOffset() const { return scroll_; }
+    bool overflows() const;                    // smaller than that minimum now: its scroll bars shown
+    void scrollTo(Point offset);               // (clamped)
+    void ensureVisible(Widget* w);             // scrolled so w (inside it) shows
+    Rect layoutArea() override;
+    bool wheel(WheelEvent& e) override;
 protected:
     // the window's paint() draws its own style's box (a menu's, a tooltip's): see-through, it isn't also drawn
     // under it (a translucent background or a shadow would be drawn twice)
     bool paintsOwnBox_ = false;
 private:
+    Point scroll_;                     // (scrollsWhenSmall) how far its widgets are scrolled
+    ScrollBar* scrollBars_[2] = {nullptr, nullptr};  // vertical, horizontal (made when first needed)
+    bool everShown_ = false, moved_ = false, placingBars_ = false;  // shown once; moveWindow() called (else the platform centres it)
+    Point contentMinimum();            // its layout's minimum, and its own
+    void fitScreen();                  // (first shown) at least its minimum, on the screen and not bigger
     std::unique_ptr<plat::Window> native_;
     std::string title_;
     Image fb_;
@@ -717,6 +737,7 @@ public:
     void scheduleLayout(Widget* w);
     int loopLevel() const { return depth_; }
     Rect screenAt(Point globalPos) const;  // the available area of the screen there
+    Rect headlessScreen{0, 0, 1920, 1080};  // (headless) the one screen, in logical px (tests: small and huge ones)
     Point cursorPos() const;
     int grabEpoch_ = 0;                 // (internal) bumped when a popup / modal takes the mouse
     // (internal)

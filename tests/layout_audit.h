@@ -157,9 +157,11 @@ inline std::string pathOf(const ui::Widget* w, bool withIndex = true) {
 
 inline bool isPlainContainer(const ui::Widget* w) { return w->type() == "Widget"; }
 
-// inside a ScrollArea's viewport (its content may be larger: scrolled, not clipped)
+// inside a ScrollArea's viewport, or a window smaller than its minimum (its content may be larger: scrolled, not
+// clipped)
 inline bool isScrollContent(const ui::Widget* w) {
     const ui::Widget* p = w->parent();
+    if (auto* win = dynamic_cast<const ui::Window*>(p); win && win->overflows()) return true;  // (a window too small: scrolls)
     if (!p || !p->parent()) return false;
     auto* sa = dynamic_cast<const ui::ScrollArea*>(p->parent());
     return sa && sa->viewport() == p;

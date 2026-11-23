@@ -27,6 +27,7 @@ public:
     bool drawing() const { return last_ >= 0; }
 
     Point sizeHint() const override;
+    Point minimumSizeHint() const override { return Point(160, 80); }  // (room to draw in, however small its window)
     void paint(Painter& p) override;
     bool mousePress(ui::MouseEvent& e) override;
     bool mouseMove(ui::MouseEvent& e) override;

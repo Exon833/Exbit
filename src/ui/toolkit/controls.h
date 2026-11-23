@@ -16,6 +16,9 @@ namespace ui {
 class Menu;
 class ComboPopup;
 
+// greedy word wrapping at spaces, as the painter's text blocks do (each '\n' starts a line)
+std::vector<std::string> wrapLines(const std::string& text, const Font& f, float width);
+
 // --- text ---
 // Styled as `Label` (default.css, Basic controls): its colour and font (color, font-*; .hint, .dimmed, #time, #lufs),
 // padding (inside `margin`), :link (a link: underlined while text-decoration is underline), ::image (an image's
@@ -50,13 +53,17 @@ public:
     Font font() const;      // setFont's, else the stylesheets'
     Color color() const;    // setColor's, else the stylesheets' (.hint: hint text, .dimmed: dimmed text, :link: accent)
     Point sizeHint() const override;
+    // (wrapped: as narrow as 'label-min-width', and at least as tall as its lines take at the width it has now)
     Point minimumSizeHint() const override;
     void paint(Painter& p) override;
     bool mousePress(MouseEvent& e) override;
     bool mouseDoubleClick(MouseEvent& e) override;
     void styleStates(std::vector<std::string>& out) const override;  // + :link
+    void resized() override;  // (wrapped: more or fewer lines at its new width, the layouts above told)
     int margin = 0;         // px around it (added to the stylesheets' padding)
 private:
+    int wrappedLines(int width) const;  // its lines wrapped at that width (its padding and margins inside it)
+    int lines_ = -1;        // (wrapped) wrappedLines(width()) when last resized
     std::string text_, link_;
     int align_ = AlignLeft | AlignVCenter;
     bool wrap_ = false, elide_ = false, hasFont_ = false, hasColor_ = false;

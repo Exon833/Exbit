@@ -55,13 +55,21 @@ public:
     }
     ~MenuPopup() override {
         if (subTimer >= 0) App::get().cancelTimer(subTimer);
+        stopScrolling();
     }
     Menu* menu;
     Widget* owner = nullptr;
     MenuPopup* parentPopup = nullptr;
     MenuPopup* child = nullptr;
     int hover = -1, subTimer = -1, childIndex = -1;
-    std::vector<Rect> rects;  // per action (empty: not shown)
+    std::vector<Rect> rects;  // per action, where it is shown (empty: not shown)
+    // a menu taller than the screen: as tall as the screen, its items scrolled between an arrow strip at the top
+    // and one at the bottom (the pointer over one scrolls that way; the wheel; the keys keep the chosen item shown)
+    std::vector<Rect> full;   // per action, unscrolled
+    int scrollY = 0, maxScroll = 0, arrowH = 0, scrollDir = 0, scrollTimer = -1;
+    Point size;               // as measured and fitted (before it is opened at it)
+    bool scrolls() const { return arrowH > 0; }
+    Rect view() const { return Rect(0, arrowH, size.x, std::max(0, size.y - 2 * arrowH)); }
 
     // an item's states (Menu::item, and its ::check, ::shortcut and ::arrow): hover (chosen by the mouse or the
     // keys), disabled, checkable, checked, section (a heading), submenu
@@ -119,10 +127,56 @@ public:
             rects[i] = Rect(border.left + pad.left, y, std::max(0, w - border.w() - pad.w()), heights[i]);
             y += heights[i];
         }
-        return Point(w, y + pad.bottom + border.bottom);
+        full = rects;
+        scrollY = maxScroll = arrowH = 0;
+        size = Point(w, y + pad.bottom + border.bottom);
+        return size;
+    }
+
+    // its size (from measure()) on the screen `scr`: no taller than it, scrolling when cut
+    Point fit(Point sz, const Rect& scr) {
+        if (scr.h <= 0 || sz.y <= scr.h) return sz;
+        arrowH = std::max(12, style::textHeight(theme::uiFont()));
+        int last = 0;  // (the last item's bottom: scrolled no further than that over the bottom strip)
+        for (const Rect& r : full)
+            if (!r.empty()) last = std::max(last, r.bottom());
+        sz.y = scr.h;
+        size = sz;
+        maxScroll = std::max(0, last + 2 * arrowH - sz.y);
+        scrollTo(0);
+        return sz;
+    }
+
+    void scrollTo(int y) {
+        scrollY = std::max(0, std::min(y, maxScroll));
+        for (size_t i = 0; i < full.size() && i < rects.size(); ++i)
+            rects[i] = full[i].empty() ? full[i] : full[i].translated(0, arrowH - scrollY);
+        update();
+    }
+
+    void ensureShown(int i) {
+        if (!scrolls() || i < 0 || i >= (int)rects.size()) return;
+        Rect r = rects[i], v = view();
+        if (r.y < v.y) scrollTo(scrollY - (v.y - r.y));
+        else if (r.bottom() > v.bottom()) scrollTo(scrollY + (r.bottom() - v.bottom()));
+    }
+
+    void stopScrolling() {
+        scrollDir = 0;
+        if (scrollTimer >= 0) App::get().cancelTimer(scrollTimer);
+        scrollTimer = -1;
+    }
+
+    // (the pointer over an arrow strip) a step that way, and again while it stays there
+    void scrollStep() {
+        scrollTimer = -1;
+        if (!scrollDir || !isOpen()) return;
+        scrollTo(scrollY + scrollDir * std::max(4, arrowH / 2));
+        scrollTimer = App::get().singleShot(40, [this] { scrollStep(); });
     }
 
     int itemAt(Point p) const {
+        if (scrolls() && !view().contains(p)) return -1;
         for (size_t i = 0; i < rects.size(); ++i)
             if (!rects[i].empty() && rects[i].contains(p)) return (int)i;
         return -1;
@@ -145,6 +199,16 @@ public:
         Font base = theme::uiFont();
         auto& acts = menu->actions();
         std::vector<const char*> states;
+        p.save();
+        if (scrolls()) {
+            // the arrow strips: an arrow where there is more that way
+            Color ac = style::foreground(computedStyle());
+            float sz = (float)std::max(6, arrowH / 2);
+            float x = (width() - sz) / 2.f;
+            if (scrollY > 0) style::icon(p, x, (arrowH - sz) / 2.f, sz, "up", ac);
+            if (scrollY < maxScroll) style::icon(p, x, size.y - arrowH + (arrowH - sz) / 2.f, sz, "down", ac);
+            p.setClip(view());
+        }
         for (size_t i = 0; i < acts.size() && i < rects.size(); ++i) {
             const Action* a = acts[i].get();
             Rect r = rects[i];
@@ -185,6 +249,7 @@ public:
                     style::icon(p, ax, in.y + (in.h - aw) / 2.f, (float)aw, "right", style::foreground(ar));
             }
         }
+        p.restore();
     }
 
     MenuPopup* rootPopup() {
@@ -220,6 +285,7 @@ public:
 
     void hideEvent() override {
         cancelTimer();
+        stopScrolling();
         Menu* m = menu;
         if (m->aboutToHide) m->aboutToHide();
         m->hidden.emit();
@@ -253,6 +319,7 @@ public:
         int above = style::insets(cs, "border-width").top + style::insets(cs, "padding").top;
         int x = me.right() - 3, y = me.y + r.y - above;
         Rect scr = App::get().screenAt(Point(me.x + me.w / 2, me.y + r.y));
+        sz = c->fit(sz, scr);
         if (x + sz.x > scr.right()) x = std::max(scr.x, me.x - sz.x + 3);
         if (y + sz.y > scr.bottom()) y = std::max(scr.y, scr.bottom() - sz.y);
         child = c;
@@ -286,6 +353,7 @@ public:
             if (from < 0 && k == 0 && dir > 0) i = 0;
             if (selectable(acts[i].get())) {
                 hover = i;
+                ensureShown(i);
                 update();
                 return;
             }
@@ -311,6 +379,12 @@ public:
     }
 
     bool mouseMove(MouseEvent& e) override {
+        int dir = scrolls() && rect().contains(e.pos) && !view().contains(e.pos) ? (e.pos.y < arrowH ? -1 : 1) : 0;
+        if (dir != scrollDir) {
+            stopScrolling();
+            scrollDir = dir;
+            if (dir) scrollStep();
+        }
         int i = rect().contains(e.pos) ? itemAt(e.pos) : -1;
         auto& acts = menu->actions();
         if (i >= 0 && !selectable(acts[i].get())) i = -1;
@@ -351,7 +425,10 @@ public:
         return true;
     }
 
-    bool wheel(WheelEvent&) override { return true; }
+    bool wheel(WheelEvent& e) override {
+        if (scrolls() && e.dy != 0) scrollTo(scrollY - (int)std::lround(e.dy * 3 * std::max(12, arrowH)));
+        return true;
+    }
 
     bool keyPress(KeyEvent& e) override {
         auto& acts = menu->actions();
@@ -397,6 +474,7 @@ public:
                     if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
                 if (selectable(acts[i].get()) && t.compare(0, ch.size(), ch) == 0) {
                     hover = i;
+                    ensureShown(i);
                     update();
                     break;
                 }
@@ -468,6 +546,8 @@ void Menu::clear() {
     chosen_ = nullptr;
     if (popup_ && popup_->isOpen()) {
         Point sz = popup_->measure();
+        Rect g = popup_->screenGeometry();
+        sz = popup_->fit(sz, App::get().screenAt(Point(g.x + g.w / 2, g.y)));
         popup_->hover = -1;
         popup_->resizeWindow(sz.x, sz.y);
         popup_->update();
@@ -493,6 +573,7 @@ void Menu::show(Point at, const Rect* anchor, Widget* owner) {
     p->parentPopup = nullptr;
     p->hover = -1;
     Point sz = p->measure();
+    sz = p->fit(sz, App::get().screenAt(anchor ? Point(anchor->x + anchor->w / 2, anchor->y + anchor->h / 2) : at));
     Point pos;
     if (anchor) {
         pos = placeBelow(*anchor, sz.x, sz.y);

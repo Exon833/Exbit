@@ -27,7 +27,8 @@ std::vector<std::string> splitLines(const std::string& s) {
     return out;
 }
 
-// greedy word wrapping at spaces (as the painter's text blocks do)
+}  // namespace
+
 std::vector<std::string> wrapLines(const std::string& text, const Font& f, float width) {
     std::vector<std::string> out;
     for (const std::string& para : splitLines(text)) {
@@ -55,6 +56,7 @@ std::vector<std::string> wrapLines(const std::string& text, const Font& f, float
     return out;
 }
 
+namespace {
 int linesHeight(const Font& f, int n) {
     if (n <= 0) return 0;
     return (int)std::ceil((n - 1) * f.lineSpacing() + f.ascent() + f.descent());
@@ -119,9 +121,25 @@ Point Label::sizeHint() const {
 
 Point Label::minimumSizeHint() const {
     Point h = sizeHint();
-    if (wrap_ || elide_)
-        h.x = std::min(h.x, theme::metric("label-min-width", 16) + 2 * margin + style::insets(computedStyle(), "padding").w());
+    style::Insets pad = style::insets(computedStyle(), "padding");
+    if (wrap_ || elide_) h.x = std::min(h.x, theme::metric("label-min-width", 16) + 2 * margin + pad.w());
+    if (wrap_ && !text_.empty() && width() > 0)
+        h.y = std::max(h.y, linesHeight(font(), wrappedLines(width())) + pad.h() + 2 * margin);
     return h;
+}
+
+int Label::wrappedLines(int width) const {
+    float room = (float)(width - style::insets(computedStyle(), "padding").w() - 2 * margin);
+    return room > 0 ? (int)wrapLines(text_, font(), room).size() : 1;
+}
+
+void Label::resized() {
+    if (!wrap_ || text_.empty()) return;
+    int n = wrappedLines(width());
+    if (n != lines_) {
+        lines_ = n;
+        updateGeometry();
+    }
 }
 
 void Label::paint(Painter& p) {

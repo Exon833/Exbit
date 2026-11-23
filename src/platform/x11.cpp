@@ -569,6 +569,12 @@ public:
 
     void show() override;
     void hide() override;
+    // (centred on its parent or the screen) on the screen that holds its middle: its top-left corner at least
+    void keepOnScreen() {
+        Rect scr = screenGeometry(Point(x_ + w_ / 2, y_ + h_ / 2));
+        x_ = std::max(scr.x, std::min(x_, scr.right() - w_));
+        y_ = std::max(scr.y, std::min(y_, scr.bottom() - h_));
+    }
     bool isVisible() const override { return visible_; }
     void setTitle(const std::string& title) override;
     void resize(int w, int h) override;
@@ -748,10 +754,7 @@ XWindow::XWindow(const WindowOptions& o, WindowListener* l) : listener_(l), opts
         Rect area = o.transientFor ? o.transientFor->geometry() : screenGeometry(cursorPos());
         x_ = area.x + (area.w - w_) / 2;
         y_ = area.y + (area.h - h_) / 2;
-        if (!o.transientFor) {
-            x_ = std::max(x_, area.x);
-            y_ = std::max(y_, area.y);
-        }
+        keepOnScreen();
     }
 
     // see-through (32-bit) while a compositing manager runs and transparency is on; offscreen windows (photographs
@@ -890,10 +893,7 @@ void XWindow::show() {
         Rect area = opts_.transientFor ? opts_.transientFor->geometry() : screenGeometry(cursorPos());
         x_ = area.x + (area.w - w_) / 2;
         y_ = area.y + (area.h - h_) / 2;
-        if (!opts_.transientFor) {
-            x_ = std::max(x_, area.x);
-            y_ = std::max(y_, area.y);
-        }
+        keepOnScreen();
         XMoveWindow(s.dpy, win_, x_, y_);
         applySizeHints();
     }

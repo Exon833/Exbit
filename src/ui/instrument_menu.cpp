@@ -85,7 +85,7 @@ ui::Menu* fillInstrumentMenu(ui::Menu* menu, ui::Window* parent, PluginHost& hos
                   [parent, &host, track, chosen, openPanel] { useRack(parent, host, track, chosen, openPanel); });
     rack->tooltip = "Several instruments on this track at once, each with its own volume";
     ui::Action* external = checkable(  // (a hardware synth: ui/midi_ports_dialog.h)
-        menu, track->ext.on ? "External synth: " + track->ext.port + "â¦" : std::string(EXTERNAL),
+        menu, track->ext.on ? "External synth: " + track->ext.port + "\xe2\x80\xa6" : std::string(EXTERNAL),
         track->ext.on && !track->needsInstrument,
         [parent, track, chosen] { midi_ports_dialog::editExternal(parent, track, chosen); });
     external->tooltip = "A hardware synth: its notes go out to a MIDI port, its sound comes back on an audio input";

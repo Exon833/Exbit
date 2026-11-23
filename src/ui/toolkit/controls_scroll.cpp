@@ -791,7 +791,10 @@ Point ScrollArea::sizeHint() const {
 Point ScrollArea::minimumSizeHint() const {
     const css::Style& st = computedStyle();
     style::Insets b = style::insets(st, "border-width"), pad = style::insets(st, "padding");
-    return Point(4 * vbar_->thickness() + b.w() + pad.w(), 4 * hbar_->thickness() + b.h() + pad.h());
+    // (room for a bar's own least length beside the other bar)
+    int vt = vbar_->thickness(), ht = hbar_->thickness();
+    return Point(std::max(4 * vt, hbar_->minimumSizeHint().x + vt) + b.w() + pad.w(),
+                 std::max(4 * ht, vbar_->minimumSizeHint().y + ht) + b.h() + pad.h());
 }
 
 // ============================================================================================

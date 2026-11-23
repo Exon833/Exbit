@@ -11,6 +11,7 @@
 
 #include "core/util.h"
 #include "ui/theme.h"
+#include "ui/toolkit/controls.h"
 #include "ui/toolkit/frame.h"
 #include "ui/toolkit/layout.h"
 #include "ui/toolkit/style.h"
@@ -271,7 +272,7 @@ void Widget::setLayout(std::unique_ptr<Layout> l) {
 
 void Widget::relayout() {
     layoutDirty_ = false;
-    if (layout_) layout_->apply(this, contentsRect());
+    if (layout_) layout_->apply(this, layoutArea());
 }
 
 void Widget::updateGeometry() {
@@ -821,25 +822,18 @@ public:
         setStyleType("ToolTip");
         paintsOwnBox_ = true;
     }
-    std::string text;
-    // its size for that text
-    Point measure(const std::string& text) const {
+    std::vector<std::string> lines;  // the text as shown: wrapped to the screen's width
+    // its size for that text, at most `maxW` wide (the lines wrapped at spaces to fit)
+    Point measure(const std::string& text, int maxW) {
         const css::Style& st = computedStyle();
         Font f = style::font(st, theme::uiFont());
         style::Insets b = style::insets(st, "border-width"), pad = style::insets(st, "padding");
+        lines = wrapLines(text, f, (float)std::max(40, maxW - b.w() - pad.w()));
         float w = 0;
-        int lines = 0;
-        size_t start = 0;
-        while (true) {
-            size_t nl = text.find('\n', start);
-            std::string line = text.substr(start, nl == std::string::npos ? std::string::npos : nl - start);
-            w = std::max(w, f.width(line));
-            ++lines;
-            if (nl == std::string::npos) break;
-            start = nl + 1;
-        }
-        int h = (int)std::ceil(lines * f.lineSpacing() - (f.lineSpacing() - f.height()));
-        return Point((int)std::ceil(w) + b.w() + pad.w(), h + b.h() + pad.h());
+        for (auto& l : lines) w = std::max(w, f.width(l));
+        int n = (int)lines.size();
+        int h = (int)std::ceil(n * f.lineSpacing() - (f.lineSpacing() - f.height()));
+        return Point(std::min((int)std::ceil(w) + b.w() + pad.w(), std::max(maxW, 1)), h + b.h() + pad.h());
     }
     void paint(Painter& p) override {
         const css::Style& st = computedStyle();
@@ -848,15 +842,13 @@ public:
         Font f = style::font(st, theme::uiFont());
         Color tc = style::foreground(st);
         float y = (float)content.y;
-        size_t start = 0;
-        while (true) {
-            size_t nl = text.find('\n', start);
-            std::string line = text.substr(start, nl == std::string::npos ? std::string::npos : nl - start);
+        p.save();
+        p.setClip(content);  // (a word wider than the screen: cut at its edge)
+        for (auto& line : lines) {
             p.drawText(PointF((float)content.x, y + f.ascent()), line, f, tc);
             y += f.lineSpacing();
-            if (nl == std::string::npos) break;
-            start = nl + 1;
         }
+        p.restore();
     }
 };
 }  // namespace
@@ -971,6 +963,8 @@ void Window::showWindow() {
     else if (opts_.popup) applyFrameInsets(false);
     relayout();
     app.doLayouts();
+    if (!everShown_ && scrollsWhenSmall()) fitScreen();
+    everShown_ = true;
     if (layout()) {
         Point m = layout()->minimumSize();
         Point mn = minimumSize();
@@ -1037,6 +1031,7 @@ void Window::resizeWindow(int w, int h) {
 }
 
 void Window::moveWindow(int x, int y) {
+    moved_ = true;
     hgeom_.x = x;
     hgeom_.y = y;
     FrameInsets d = deviceFrame();
@@ -1058,6 +1053,120 @@ Rect Window::screenGeometry() const {
     return Rect(hgeom_.x, hgeom_.y, width(), height());
 }
 
+bool Window::scrollsWhenSmall() const {
+    return !opts_.popup && !opts_.offscreen && App::get().mainWindow != this;
+}
+
+Point Window::contentMinimum() {
+    Point m = minimumSize();
+    if (layout()) {
+        Point lm = layout()->minimumSize();
+        m = Point(std::max(m.x, lm.x), std::max(m.y, lm.y));
+    }
+    return m;
+}
+
+Rect Window::layoutArea() {
+    Rect r = rect();
+    if (!layout() || !scrollsWhenSmall()) return r;
+    Point m = contentMinimum();
+    bool needH = m.x > r.w, needV = m.y > r.h;
+    if (!needH && !needV) {
+        scroll_ = Point(0, 0);
+        for (ScrollBar* b : scrollBars_)
+            if (b && b->isVisible()) b->hide();
+        return r;
+    }
+    for (int i = 0; i < 2; i++)
+        if (!scrollBars_[i]) {
+            scrollBars_[i] = add<ScrollBar>(i == 0 ? Orientation::Vertical : Orientation::Horizontal);
+            scrollBars_[i]->hide();
+            scrollBars_[i]->valueChanged.connect([this, i](int v) {
+                if (!placingBars_) scrollTo(i == 0 ? Point(scroll_.x, v) : Point(v, scroll_.y));
+            });
+        }
+    ScrollBar *vb = scrollBars_[0], *hb = scrollBars_[1];
+    int tv = vb->thickness(), th = hb->thickness();
+    // (the bars lie over its edges, its widgets keep their width: a bar showing never changes how they wrap; with
+    // both, each scrolls that much further, past the other)
+    int W = std::max(r.w, m.x), H = std::max(r.h, m.y);
+    int rangeX = needH ? W + (needV ? tv : 0) - r.w : 0, rangeY = needV ? H + (needH ? th : 0) - r.h : 0;
+    scroll_ = Point(std::max(0, std::min(scroll_.x, rangeX)), std::max(0, std::min(scroll_.y, rangeY)));
+    placingBars_ = true;
+    vb->setVisible(needV);
+    hb->setVisible(needH);
+    if (needV) {
+        vb->setGeometry(r.w - tv, 0, tv, r.h - (needH ? th : 0));
+        vb->setRange(0, rangeY);
+        vb->setPageStep(r.h);
+        vb->setValue(scroll_.y);
+        vb->raise();
+    }
+    if (needH) {
+        hb->setGeometry(0, r.h - th, r.w - (needV ? tv : 0), th);
+        hb->setRange(0, rangeX);
+        hb->setPageStep(r.w);
+        hb->setValue(scroll_.x);
+        hb->raise();
+    }
+    placingBars_ = false;
+    return Rect(-scroll_.x, -scroll_.y, W, H);
+}
+
+bool Window::overflows() const {
+    return (scrollBars_[0] && scrollBars_[0]->isVisible()) || (scrollBars_[1] && scrollBars_[1]->isVisible());
+}
+
+void Window::scrollTo(Point offset) {
+    if (offset.x == scroll_.x && offset.y == scroll_.y) return;
+    scroll_ = Point(std::max(0, offset.x), std::max(0, offset.y));
+    relayout();  // (clamps it)
+    update();
+}
+
+void Window::ensureVisible(Widget* w) {
+    if (!w || w == this || !isAncestorOf(w) || !scrollsWhenSmall()) return;
+    Point at = w->mapToWindow(Point(0, 0));
+    int vw = width() - (scrollBars_[0] && scrollBars_[0]->isVisible() ? scrollBars_[0]->width() : 0);
+    int vh = height() - (scrollBars_[1] && scrollBars_[1]->isVisible() ? scrollBars_[1]->height() : 0);
+    Point to = scroll_;
+    if (at.x + w->width() > vw) to.x += at.x + std::min(w->width(), vw) - vw;
+    if (at.x < 0) to.x += at.x;
+    if (at.y + w->height() > vh) to.y += at.y + std::min(w->height(), vh) - vh;
+    if (at.y < 0) to.y += at.y;
+    scrollTo(to);
+}
+
+bool Window::wheel(WheelEvent& e) {
+    // (reached when no widget under the pointer took it): a window scrolled because it is too small
+    bool horiz = e.shift() || std::fabs(e.dx) > std::fabs(e.dy);
+    ScrollBar* b = scrollBars_[horiz ? 1 : 0];
+    if (!b || !b->isVisible()) b = scrollBars_[horiz ? 0 : 1];  // (the one bar there is)
+    return b && b->isVisible() && b->wheel(e);
+}
+
+// (the first time it shows) at least its layout's minimum, at most the screen (its frame too), on the screen
+void Window::fitScreen() {
+    Rect sg = screenGeometry();
+    Rect scr = App::get().screenAt(Point(sg.x + sg.w / 2, sg.y + sg.h / 2));
+    if (scr.empty()) return;
+    Point m = contentMinimum();
+    int maxW = std::max(1, scr.w - frame_.left - frame_.right), maxH = std::max(1, scr.h - frame_.top - frame_.bottom);
+    int w = std::min(std::max(width(), m.x), maxW), h = std::min(std::max(height(), m.y), maxH);
+    if (!layout()) w = width(), h = height();  // (it places its own widgets, a plugin's view: it can't scroll, kept)
+    if (w != width() || h != height()) {
+        util::debugf("window \"%s\": %dx%d made %dx%d to fit the screen %dx%d (its least %dx%d: it scrolls below that)\n",
+                     title_.c_str(), width(), height(), w, h, scr.w, scr.h, m.x, m.y);
+        resizeWindow(w, h);
+    }
+    // (placed by the program, or without a display: kept on the screen; else the platform centres it there)
+    if (native_ && !moved_) return;
+    int x = sg.x - (w - sg.w) / 2, y = sg.y - (h - sg.h) / 2;  // (its middle kept)
+    x = std::max(scr.x + frame_.left, std::min(x, scr.right() - frame_.right - w));
+    y = std::max(scr.y + frame_.top, std::min(y, scr.bottom() - frame_.bottom - h));
+    if (x != sg.x || y != sg.y) moveWindow(x, y);
+}
+
 void Window::setMinimumWindowSize(int w, int h) {
     setMinimumSize(w, h);
     if (native_) setNativeMinimum(w, h);
@@ -1065,6 +1174,12 @@ void Window::setMinimumWindowSize(int w, int h) {
 
 void Window::setNativeMinimum(int w, int h) {
     if (!native_) return;
+    if (scrollsWhenSmall()) {  // (it scrolls when smaller: never asks for more than the screen)
+        Rect sg = screenGeometry();
+        Rect scr = App::get().screenAt(Point(sg.x + sg.w / 2, sg.y + sg.h / 2));
+        w = std::min(w, std::max(1, scr.w - frame_.left - frame_.right));
+        h = std::min(h, std::max(1, scr.h - frame_.top - frame_.bottom));
+    }
     FrameInsets d = deviceFrame();
     native_->setMinimumSize(toDevice(w) + d.left + d.right, toDevice(h) + d.top + d.bottom);
 }
@@ -1087,6 +1202,7 @@ void Window::centerOn(Window* other) {
 void Window::setFocusWidget(Widget* w) {
     if (w && (w->window() != this || w->deleted_)) return;
     if (focus_ == w) return;
+    if (w && overflows()) ensureVisible(w);
     Widget* old = focus_;
     focus_ = w;
     if (old && Widget::alive(old)) {
@@ -2482,7 +2598,7 @@ Window* App::windowAt(Point g) const {
 }
 
 Rect App::screenAt(Point g) const {
-    if (headless_) return Rect(0, 0, 1920, 1080);
+    if (headless_) return headlessScreen;
     if (scale_ != 1) {
         Rect r = plat::screenGeometry(Point(toScreen(g.x), toScreen(g.y)));
         if (r.empty()) r = plat::primaryScreenGeometry();
@@ -2631,13 +2747,14 @@ void App::showToolTip(Point g, const std::string& text, Widget* owner) {
         tip_ = std::make_unique<TipWindow>(o);
     }
     auto* tw = static_cast<TipWindow*>(tip_.get());
-    tw->text = text;
     tipText_ = text;
-    Point sz = tw->measure(text);
     Rect scr = screenAt(g);
+    Point sz = tw->measure(text, scr.w);
     int x = g.x + 2, y = g.y + 18;
     if (x + sz.x > scr.right()) x = std::max(scr.x, scr.right() - sz.x);
     if (y + sz.y > scr.bottom()) y = std::max(scr.y, g.y - sz.y - 4);
+    sz.y = std::min(sz.y, std::max(1, scr.h));  // (taller than the screen: cut)
+    if (y + sz.y > scr.bottom()) y = std::max(scr.y, scr.bottom() - sz.y);
     tw->resizeWindow(sz.x, sz.y);
     tw->moveWindow(x, y);
     tw->update();

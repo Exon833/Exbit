@@ -163,7 +163,9 @@ static void testGeometryAndSnapping() {
     MidiEditor ed(nullptr, f.clip, f.project, f.engine, [&] { f.changes++; }, f.link());
     ed.showWindow();
     CHECK(ed.title() == "Notes: Melody \xe2\x80\x94 Piano");
-    CHECK(ed.width() == 960 && ed.height() == 560);
+    // (960x560, or wider: a window opens at least at its layout's minimum, its toolbar never cut)
+    int openW = std::max(960, ed.layout()->minimumSize().x);
+    CHECK(ed.width() == openW && ed.height() == 560);
     CHECK(ed.roll->width() > 800 && ed.roll->height() >= 200);
     CHECK(ed.velocity->height() == VELOCITY_H && ed.ruler->height() == RULER_H);
     // fit: the clip (4 s) across the roll; the notes (60…72) around the middle
@@ -446,7 +448,7 @@ static void testVelocityRulerWheel() {
     CHECK(ed.roll->width() == 1920 - 10);
     CHECK_NEAR(ed.pps, (ed.roll->width() - KEYS_W - 20) / (wTo - wFrom), 1e-6);
     ed.expandButton->click();
-    CHECK(!ed.isExpanded() && ed.width() == 960);
+    CHECK(!ed.isExpanded() && ed.width() == std::max(960, ed.layout()->minimumSize().x));
 
     // the clip went away: a commit closes the editor
     bool closed = false;
