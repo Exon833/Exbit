@@ -1064,6 +1064,10 @@ MeterFader:pressed::marker { background-color: var(--accent); }
 PanKnob { background-color: var(--button); padding: 3px; }
 PanKnob::pointer { color: var(--button-text); stroke-width: 1.5px; }
 PanKnob::arc { color: var(--accent); stroke-width: 2px; }
+/* on a group's row the knob's usual --button matches the row (--group-lane): a mid-tone disc, its pointer the row's
+   colour, about 3:1 each way in every skin */
+PanKnob.group { background-color: color-mix(in srgb, var(--group-lane) 40%, var(--window-text) 60%); }
+PanKnob.group::pointer { color: var(--group-lane); }
 SendsPanel {
     background-color: var(--window);
     border: 1px solid var(--line);

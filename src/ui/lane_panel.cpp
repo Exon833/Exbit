@@ -492,6 +492,7 @@ LaneFrame* LanePanel::trackHeader(ui::Widget* parent, const TrackPtr& track, boo
         track->pan = v;  // the mixer reads it every buffer
         automation::recorder().move(automation::armedControlLane(*track, automation::PAN), (v + 1) / 2);
     });
+    if (asGroup) pan->addStyleClass("group");  // (PanKnob.group: on a group's row, whose colour is the knob's)
     // (its Pan lane armed for writing, while playing: the knob held writes it: automation_write.h)
     pan->grabbed = [this, alive, track, pan](bool on) {
         if (on && !alive.expired()) say("Pan", targets(track).size());

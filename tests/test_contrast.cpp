@@ -544,6 +544,22 @@ void sweepSurfaces(const Widget* owner) {
 }
 
 // --- meters: bars against the meter, the RMS bar against the peak bar it is drawn in ---
+// the pan knob on a group's row (PanKnob.group): its disc against the row (--group-lane, which the usual --button
+// matched), its pointer against the disc
+void sweepGroupKnob() {
+    Window win(plat::WindowOptions{});
+    win.resizeWindow(40, 40);
+    auto* k = win.add<PanKnob>(0.0, [](double) {});
+    k->addStyleClass("group");
+    win.showWindow();
+    Color row = theme::c("group_lane");
+    Color disc = ui::style::color(k->computedStyle(), "background-color", row);
+    Color pointer = ui::style::color(k->computedStyle("pointer"), "color", disc);
+    judgePair("PanKnob.group disc on a group's row", contrast(disc, row), 3.0, hx(disc) + " on " + hx(row));
+    judgePair("PanKnob.group pointer on its disc", contrast(pointer, disc), 3.0, hx(pointer) + " on " + hx(disc));
+    win.hideWindow();
+}
+
 void sweepMeter() {
     for (double rmsDb : {-20.0, -8.0}) {
         Window win(plat::WindowOptions{});
@@ -673,6 +689,7 @@ int main() {
         sweepSurfaces(r.w);
         sweepControls();
         sweepMeter();
+        sweepGroupKnob();
         ca::sweepGlyphs();
         size_t before = hunt::hits.size();
         (void)before;
