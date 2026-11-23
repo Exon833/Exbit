@@ -6,7 +6,9 @@
 // The host is Linux code (built with g++, linked by winegcc against Wine's DLLs), so every Win32
 // function and callback is declared with Windows' calling convention: x64's (WINAPI = ms_abi) for the
 // 64-bit host, __stdcall for the 32-bit one (tinydaw-wine-host-32.exe); the pointer-sized types follow
-// the build. Wide strings are UTF-16 (WCHAR = char16_t; wchar_t stays the Linux 32-bit one).
+// the build. Wide strings are UTF-16 (WCHAR = char16_t; wchar_t stays the Linux 32-bit one). Where Wine
+// has no 32-bit Unix part, the 32-bit host is built with MinGW instead (TINYDAW_WINE_PE), on the same
+// declarations.
 #pragma once
 #include <cstddef>
 #include <cstdint>
@@ -130,6 +132,19 @@ WINAPI HANDLE CreateThread(void* security, SIZE_T stack, LPTHREAD_START_ROUTINE 
 WINAPI DWORD WaitForSingleObject(HANDLE handle, DWORD ms);
 #define STACK_SIZE_PARAM_IS_A_RESERVATION 0x00010000u
 WINAPI BOOL CloseHandle(HANDLE handle);
+// (a file's pages shared: the 32-bit host built as a Windows program maps Tiny DAW's /dev/shm block)
+WINAPI HANDLE CreateFileW(LPCWSTR name, DWORD access, DWORD share, void* security, DWORD how, DWORD flags,
+                          HANDLE templateFile);
+WINAPI HANDLE CreateFileMappingW(HANDLE file, void* security, DWORD protect, DWORD sizeHigh, DWORD sizeLow,
+                                 LPCWSTR name);
+WINAPI void* MapViewOfFile(HANDLE mapping, DWORD access, DWORD offsetHigh, DWORD offsetLow, SIZE_T bytes);
+#define GENERIC_READ 0x80000000u
+#define GENERIC_WRITE 0x40000000u
+#define FILE_SHARE_READ 0x1u
+#define FILE_SHARE_WRITE 0x2u
+#define OPEN_EXISTING 3u
+#define FILE_MAP_ALL_ACCESS 0xf001fu
+#define INVALID_HANDLE_VALUE ((HANDLE)(LONG_PTR)-1)
 WINAPI void Sleep(DWORD ms);
 WINAPI HANDLE GetCurrentThread(void);
 WINAPI DWORD GetCurrentThreadId(void);
@@ -155,7 +170,14 @@ WINAPI BOOL K32EnumProcessModules(HANDLE process, HMODULE* modules, DWORD size, 
 #define THREAD_PRIORITY_TIME_CRITICAL 15
 
 // Wine's own (kernel32): a Unix path's DOS name ("Z:\…", "C:\…"), allocated on the process heap
+#ifdef TINYDAW_WINE_PE  // (MinGW's kernel32 has no Wine exports: taken from Wine's at run time)
+inline LPWSTR wine_get_dos_file_name(LPCSTR unixName) {
+    static auto fn = (LPWSTR(WINAPI*)(LPCSTR))GetProcAddress(GetModuleHandleW(u"kernel32.dll"), "wine_get_dos_file_name");
+    return fn ? fn(unixName) : nullptr;
+}
+#else
 WINAPI LPWSTR wine_get_dos_file_name(LPCSTR unixName);
+#endif
 
 // --- user32 ---
 WINAPI ATOM RegisterClassExW(const WNDCLASSEXW* wc);
@@ -164,6 +186,10 @@ WINAPI HWND CreateWindowExW(DWORD exStyle, LPCWSTR className, LPCWSTR title, DWO
 WINAPI BOOL DestroyWindow(HWND hwnd);
 WINAPI LRESULT DefWindowProcW(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 WINAPI BOOL ShowWindow(HWND hwnd, int how);
+WINAPI BOOL RedrawWindow(HWND hwnd, const RECT* update, void* region, UINT flags);
+#define RDW_INVALIDATE 0x0001u
+#define RDW_ERASE 0x0004u
+#define RDW_ALLCHILDREN 0x0080u
 WINAPI BOOL SetWindowPos(HWND hwnd, HWND after, int x, int y, int w, int h, UINT flags);
 WINAPI BOOL GetWindowRect(HWND hwnd, RECT* rect);
 WINAPI BOOL GetClientRect(HWND hwnd, RECT* rect);
@@ -334,6 +360,13 @@ WINAPI HWND WindowFromPoint(POINT point);
 WINAPI LONG GetWindowLongW(HWND hwnd, int index);
 WINAPI BOOL ScreenToClient(HWND hwnd, POINT* point);
 // Wine's own (kernel32): a DOS path's Unix name, allocated on the process heap
+#ifdef TINYDAW_WINE_PE
+inline char* wine_get_unix_file_name(LPCWSTR dosName) {
+    static auto fn = (char*(WINAPI*)(LPCWSTR))GetProcAddress(GetModuleHandleW(u"kernel32.dll"), "wine_get_unix_file_name");
+    return fn ? fn(dosName) : nullptr;
+}
+#else
 WINAPI char* wine_get_unix_file_name(LPCWSTR dosName);
+#endif
 
 }  // extern "C"

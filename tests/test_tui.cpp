@@ -341,7 +341,8 @@ void testFront() {
     d.keys({key('E', 0, "e")});
     ui::Window* fx = topWindowBut(w);
     CHECK(fx && d.shows("IN → OUT"));
-    d.keys({key(plat::Key_Insert), key(plat::Key_Return)});  // (the chooser: its first, the Bit-crusher)
+    // (the chooser: the Bit-crusher looked for, whatever else is installed)
+    d.keys(std::vector<Key>{key(plat::Key_Insert)} + typed("bit-crusher") + std::vector<Key>{key(plat::Key_Return)});
     CHECK(t->effects.size() == 1);
     d.picture("effects");
     CHECK(d.shows("Bit-crusher"));
@@ -502,6 +503,7 @@ int main() {
     plat::initWithoutDisplay();
     ui::App::get().initHeadless();
     util::makeDirs(TMP);
+    util::removeFile(TMP + "/settings.json");  // (a run's recent plugins and projects aren't the next one's)
     settings::setPath(TMP + "/settings.json");
     // a sample for the Explorer: 2 s of a quiet tone
     {

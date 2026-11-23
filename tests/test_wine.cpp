@@ -50,6 +50,10 @@
 
 using namespace plug;
 
+namespace xlib {
+bool load(std::string& why);  // (platform/x11_api.h's: not included, its Xlib internals clash with the toolkit's names)
+}
+
 namespace {
 
 std::string tempRoot;
@@ -436,6 +440,10 @@ void testEditor(Plugin& p, const std::string& label) {
         printf("   (no X display: window not tested)\n");
         return;
     }
+    // (Tiny DAW's own Xlib, which the plugin window's code calls: loaded when its window system
+    // starts, which this test doesn't start)
+    std::string why;
+    CHECK(xlib::load(why));
     CHECK(p.hasEditor());
     Window ours = XCreateSimpleWindow(dpy, DefaultRootWindow(dpy), 40, 40, 400, 300, 0, 0, 0);
     XMapWindow(dpy, ours);

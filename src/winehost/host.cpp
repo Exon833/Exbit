@@ -14,6 +14,10 @@
 // process's first thread, which only waits for it to end: see serveOnPluginThread);
 // a reader thread passes the socket's requests to it; the audio thread waits on the shared memory's
 // futex. All three are Win32 threads (CreateThread), as the plugin may call Windows from any.
+//
+// Where Wine is built only for WoW64 (no 32-bit Unix part), the 32-bit host is a plain Windows
+// program instead, built with MinGW (TINYDAW_WINE_PE): the same code, its few Linux calls made by a
+// Linux library of its own (winehost/unixside.h).
 #include <windows.h>
 
 #include <algorithm>
@@ -30,11 +34,17 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <sched.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#ifdef TINYDAW_WINE_PE
+#include <io.h>
+
+#include "winehost/unixside.h"
+#else
 #include <sys/mman.h>
 #include <sys/socket.h>
-#include <sys/stat.h>
 #include <sys/un.h>
-#include <unistd.h>
+#endif
 
 #include "core/json.h"
 #include "core/util.h"
@@ -79,6 +89,7 @@ int ticks = 0;
 
 // --- the window ---
 HWND editorWindow = nullptr;
+int repaintTicks = 0;  // (shown by Tiny DAW: drawn again after so many idle ticks, see SHOW_EDITOR)
 const char16_t EDITOR_CLASS[] = u"TinyDAWPluginWindow";
 
 [[noreturn]] void quit() {
@@ -93,6 +104,9 @@ void reply(const Incoming& in, const Writer& w) { sendMessage(sock, in.header.op
 
 void realtime() {
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+#ifdef TINYDAW_WINE_PE
+    unixside::realtime();
+#else
     sched_param sp{};
     int lo = sched_get_priority_min(SCHED_FIFO), hi = sched_get_priority_max(SCHED_FIFO);
     sp.sched_priority = std::min(hi, lo + 69);  // (a little below Tiny DAW's own audio thread, which waits for this one)
@@ -100,6 +114,16 @@ void realtime() {
         sp.sched_priority = lo + 9;
         pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);
     }
+#endif
+}
+
+// (Tiny DAW ends the host by it: Wine's own process id isn't it)
+int linuxPid() {
+#ifdef TINYDAW_WINE_PE
+    return unixside::linuxPid();
+#else
+    return getpid();
+#endif
 }
 
 bool tracing = getenv("TINYDAW_WINE_TRACE") != nullptr;
@@ -270,6 +294,23 @@ void writeParameters(Writer& w) {
 // --- the requests ---
 
 bool openSharedMemory(const std::string& name) {
+#ifdef TINYDAW_WINE_PE  // (shm_open's file, mapped by its DOS name: Wine shares the pages)
+    LPWSTR dos = wine_get_dos_file_name(("/dev/shm/" + name.substr(name[0] == '/')).c_str());
+    HANDLE file = dos ? CreateFileW(dos, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                                    OPEN_EXISTING, 0, nullptr)
+                      : INVALID_HANDLE_VALUE;
+    if (dos)
+        HeapFree(GetProcessHeap(), 0, dos);
+    if (file == INVALID_HANDLE_VALUE)
+        return false;
+    HANDLE mapping = CreateFileMappingW(file, nullptr, PAGE_READWRITE, 0, 0, nullptr);
+    CloseHandle(file);
+    void* m = mapping ? MapViewOfFile(mapping, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(AudioBlock)) : nullptr;
+    if (mapping)
+        CloseHandle(mapping);
+    if (!m)
+        return false;
+#else
     int fd = shm_open(name.c_str(), O_RDWR, 0600);
     if (fd < 0)
         return false;
@@ -277,6 +318,7 @@ bool openSharedMemory(const std::string& name) {
     close(fd);
     if (m == MAP_FAILED)
         return false;
+#endif
     block = (AudioBlock*)m;
     return true;
 }
@@ -480,8 +522,15 @@ void serve(const Incoming& in) {
         break;
     }
     case SHOW_EDITOR:
-        if (editorWindow)
+        if (editorWindow) {
             ShowWindow(editorWindow, SW_SHOWNA);
+            // what it drew off every screen, before Tiny DAW took its window in, isn't there, and Wine
+            // settles the window it took in a little later: drawn again then (some 0.3 s), or a plugin
+            // that draws only when asked (the test synth) stays blank.
+            // shortcut: a fixed delay, not Wine's word that the window is settled; if a slow machine still
+            // shows such a window blank, find that moment (winex11's handling of the ReparentNotify)
+            repaintTicks = 20;
+        }
         break;
     case CLOSE_EDITOR:
         closeEditor();
@@ -752,6 +801,8 @@ LRESULT WINAPI messageProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
     if (msg == WM_TIMER && wp == IDLE_TIMER) {
+        if (repaintTicks > 0 && --repaintTicks == 0 && editorWindow)
+            RedrawWindow(editorWindow, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
         try {
             collectNews();
         } catch (const std::exception&) {
@@ -783,15 +834,20 @@ DWORD WINAPI readerMain(LPVOID) {
 }
 
 int serveMain(const std::string& socketName) {
+#ifdef TINYDAW_WINE_PE
+    sock = unixside::connectUnix(socketName.c_str());
+    if (sock < 0) {
+#else
     sock = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     sockaddr_un addr{};
     addr.sun_family = AF_UNIX;
     std::strncpy(addr.sun_path, socketName.c_str(), sizeof(addr.sun_path) - 1);
     if (sock < 0 || connect(sock, (sockaddr*)&addr, sizeof(addr)) != 0) {
+#endif
         fprintf(stderr, "tinydaw-wine-host: cannot reach Tiny DAW (%s: %s)\n", socketName.c_str(), strerror(errno));
         return 1;
     }
-    sendMessage(sock, HELLO, 0, Writer().i32((int32_t)getpid()).u32(VERSION).data);
+    sendMessage(sock, HELLO, 0, Writer().i32((int32_t)linuxPid()).u32(VERSION).data);
     OleInitialize(nullptr);
     HINSTANCE self = GetModuleHandleW(nullptr);
     WNDCLASSEXW wc{};
@@ -825,7 +881,11 @@ int serveMain(const std::string& socketName) {
 DWORD WINAPI lifelineMain(LPVOID) {
     char c[64];
     for (;;) {
+#ifdef TINYDAW_WINE_PE
+        ssize_t k = unixside::read(0, c, sizeof(c));
+#else
         ssize_t k = read(0, c, sizeof(c));
+#endif
         if (k < 0 && errno == EINTR)
             continue;
         if (k <= 0)
@@ -837,10 +897,14 @@ DWORD WINAPI lifelineMain(LPVOID) {
 // --classes: one JSON line per file: {"path": …, "classes": [{name, vendor, subcategories, version, instrument}]}
 // or {"path": …, "error": …}
 int classesMain(const std::string& listFile) {
+#ifdef TINYDAW_WINE_PE
+    if (unixside::isFifo(0))
+#else
     struct stat in {};
     if (fstat(0, &in) == 0 && S_ISFIFO(in.st_mode))
+#endif
         CreateThread(nullptr, 0, lifelineMain, nullptr, 0, nullptr);
-    std::string me = std::string(CLASSES_PID_MARK) + std::to_string((long)getpid()) + "\n";
+    std::string me = std::string(CLASSES_PID_MARK) + std::to_string((long)linuxPid()) + "\n";
     fwrite(me.data(), 1, me.size(), stdout);
     fflush(stdout);
     if (getenv("TINYDAW_WINE_TEST_HANG"))  // (tests) a plugin that hangs while it is listed
@@ -1040,6 +1104,11 @@ int serveOnPluginThread(const std::string& socketName) {
 }  // namespace
 
 int main(int argc, char** argv) {
+#ifdef TINYDAW_WINE_PE
+    _setmode(0, _O_BINARY);  // (as the Linux build's: "\n" stays "\n" for Tiny DAW, which reads the lines)
+    _setmode(1, _O_BINARY);
+    _setmode(2, _O_BINARY);
+#endif
     std::string mode = argc > 1 ? argv[1] : "", arg = argc > 2 ? argv[2] : "";
     watchForCrashes();
     if (mode == "--serve" && !arg.empty())

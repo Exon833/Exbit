@@ -4,6 +4,9 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <unistd.h>
+#ifdef TINYDAW_WINE_PE
+#include <windows.h>  // (src/winehost/include's: wine_get_dos_file_name)
+#endif
 
 #include <algorithm>
 #include <cctype>
@@ -37,6 +40,64 @@ void debugf(const char* fmt, ...) {
     va_end(ap);
 }
 
+#ifdef TINYDAW_WINE_PE
+// The 32-bit Wine host built as a Windows program (MinGW; winehost/unixside.h) is given Unix paths,
+// as the Linux builds are: its files are opened by their DOS names (Wine's), in UTF-16.
+// shortcut: only what the host uses (removeFile, fileSize, fileMtime, listDir and walkFiles
+// aren't in this build: a link error says so if the host ever needs one)
+static std::wstring dosName(const std::string& path) {
+    std::wstring w;
+    if (LPWSTR dos = wine_get_dos_file_name(path.c_str())) {
+        w = (const wchar_t*)dos;
+        HeapFree(GetProcessHeap(), 0, dos);
+    }
+    return w;
+}
+
+bool readFile(const std::string& path, std::string& out) {
+    FILE* f = _wfopen(dosName(path).c_str(), L"rb");
+    if (!f) return false;
+    out.clear();
+    char buf[65536];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof buf, f)) > 0) out.append(buf, n);
+    bool ok = !ferror(f);
+    fclose(f);
+    return ok;
+}
+
+bool writeFile(const std::string& path, const std::string& data) {
+    std::wstring tmp = dosName(path + ".tmp"), to = dosName(path);
+    FILE* f = _wfopen(tmp.c_str(), L"wb");
+    if (!f) return false;
+    bool ok = fwrite(data.data(), 1, data.size(), f) == data.size();
+    ok = (fclose(f) == 0) && ok;
+    if (ok) _wremove(to.c_str());  // (the CRT's rename doesn't replace a file)
+    if (!ok || _wrename(tmp.c_str(), to.c_str()) != 0) {
+        _wremove(tmp.c_str());
+        return false;
+    }
+    return true;
+}
+
+bool fileExists(const std::string& path) {
+    struct _stat64 st;
+    return _wstat64(dosName(path).c_str(), &st) == 0;
+}
+
+bool isDir(const std::string& path) {
+    struct _stat64 st;
+    return _wstat64(dosName(path).c_str(), &st) == 0 && (st.st_mode & _S_IFDIR);
+}
+
+bool makeDirs(const std::string& path) {
+    if (path.empty() || isDir(path)) return true;
+    std::string parent = dirName(path);
+    if (!parent.empty() && parent != path && !makeDirs(parent)) return false;
+    return _wmkdir(dosName(path).c_str()) == 0 || isDir(path);
+}
+
+#else
 bool readFile(const std::string& path, std::string& out) {
     FILE* f = fopen(path.c_str(), "rb");
     if (!f) return false;
@@ -146,6 +207,7 @@ void walkFiles(const std::string& root, const std::function<bool(const std::stri
     std::set<std::pair<dev_t, ino_t>> seen;
     walk(root, fn, seen);
 }
+#endif  // TINYDAW_WINE_PE
 
 std::string joinPath(const std::string& a, const std::string& b) {
     if (a.empty()) return b;

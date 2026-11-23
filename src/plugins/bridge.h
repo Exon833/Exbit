@@ -16,7 +16,8 @@
 //     transport and parameter changes, wakes the host's audio thread (a futex), and waits for it to
 //     be done. A host that's late leaves the buffer silent rather than holding the audio thread.
 //
-// Both sides are Linux code, so this header uses Linux calls only (no Win32).
+// Both sides are Linux code, so this header uses Linux calls only (no Win32; the 32-bit host built
+// as a Windows program makes them through its Linux side, winehost/unixside.h).
 #pragma once
 #include <atomic>
 #include <cstdint>
@@ -28,11 +29,15 @@
 #include <climits>
 #include <cstddef>
 #include <ctime>
+#ifdef TINYDAW_WINE_PE
+#include "winehost/unixside.h"  // (the 32-bit host as a Windows program: the same calls, made by its Linux side)
+#else
 #include <linux/futex.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+#endif
 
 namespace bridge {
 
@@ -306,7 +311,11 @@ static_assert(sizeof(AudioBlock) == 241768, "AudioBlock");
 
 inline long futex(std::atomic<uint32_t>* word, int op, uint32_t value, const timespec* timeout = nullptr) {
     static_assert(sizeof(std::atomic<uint32_t>) == 4, "a futex is 32 bits");
+#ifdef TINYDAW_WINE_PE
+    return unixside::futex(word, op, value, timeout);
+#else
     return ::syscall(SYS_futex, reinterpret_cast<uint32_t*>(word), op, value, timeout, nullptr, 0);
+#endif
 }
 
 inline void wake(std::atomic<uint32_t>* word) { futex(word, FUTEX_WAKE, INT_MAX); }

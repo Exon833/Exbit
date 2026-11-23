@@ -192,7 +192,10 @@ std::string hostPath(bool bits32) {
     for (const char* rel : {"", "..", "../..", "../lib/tinydaw"}) {
         std::string dir = *rel ? util::joinPath(exe, rel) : exe;
         std::string p = util::joinPath(dir, bits32 ? "tinydaw-wine-host-32.exe" : "tinydaw-wine-host.exe");
-        if (util::fileExists(p) && util::fileExists(p + ".so"))
+        // (a Winelib host is its .exe and .so; the 32-bit one built as a plain Windows program, where Wine
+        // is built only for WoW64, has its Linux side in wine32/ next to it instead: winehost/unixside.h)
+        if (util::fileExists(p) && (util::fileExists(p + ".so") ||
+                                    (bits32 && util::fileExists(util::joinPath(dir, "wine32/i386-windows/tinydaw-unix32.dll")))))
             return util::absolutePath(p);
     }
     return "";
@@ -453,7 +456,8 @@ bool availableIn(const std::string& prefix, std::string& why, bool bits32) {
     }
     if (bits32 && hostPath(true).empty()) {
         why = "32-bit Windows plugins need tinydaw-wine-host-32.exe next to Tiny DAW (built by make when winegcc can "
-              "build 32-bit programs: gcc-multilib and g++-multilib, and Wine's 32-bit part)";
+              "build 32-bit programs: gcc-multilib and g++-multilib, and Wine's 32-bit part; or, with a Wine built "
+              "only for WoW64, when MinGW's i686-w64-mingw32-g++ is installed)";
         return false;
     }
     if (!bits32 && prefixArch(prefix) == "win32") {
@@ -735,10 +739,18 @@ int spawnHost(const std::string& prefix, const std::vector<std::string>& args, i
     std::string wine = winePathFor(prefix), host = hostPath(bits32);
     std::vector<std::string> env;
     std::string overrides = "winedbg.exe=d";  // (a crashing plugin ends its host, with no Wine crash dialog)
+    // (the 32-bit host built as a plain Windows program: Wine finds its Linux side through WINEDLLPATH)
+    std::string dllPath = util::joinPath(util::dirName(host), "wine32");
+    if (!bits32 || !util::isDir(dllPath))
+        dllPath.clear();
     for (char** e = environ; *e; e++) {
         std::string s = *e;
         if (util::startsWith(s, "WINEPREFIX="))
             continue;
+        if (!dllPath.empty() && util::startsWith(s, "WINEDLLPATH=")) {
+            dllPath += ":" + s.substr(12);
+            continue;
+        }
         if (util::startsWith(s, "WINEDLLOVERRIDES=")) {
             overrides = s.substr(17) + ";" + overrides;
             continue;
@@ -754,6 +766,8 @@ int spawnHost(const std::string& prefix, const std::vector<std::string>& args, i
     if (!prefix.empty())
         env.push_back("WINEPREFIX=" + prefix);
     env.push_back("WINEDLLOVERRIDES=" + overrides);
+    if (!dllPath.empty())
+        env.push_back("WINEDLLPATH=" + dllPath);
     if (!getenv("WINEDEBUG"))
         env.push_back("WINEDEBUG=-all");
     if (vulkan)

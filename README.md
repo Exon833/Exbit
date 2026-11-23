@@ -464,7 +464,10 @@ program; audio through shared memory, `src/plugins/bridge.h`), so a Windows plug
 falls silent instead of taking the program with it. 32-bit plugins (listed as "… (Windows, 32-bit)")
 run in `tinydaw-wine-host-32.exe`, built by `make` beside the 64-bit host when winegcc can build
 32-bit programs (the `gcc-multilib` and `g++-multilib` packages, and Wine's 32-bit part), in a
-64-bit prefix through Wine's WoW64 or in a 32-bit-only one. They are looked for in
+64-bit prefix through Wine's WoW64 or in a 32-bit-only one. Where Wine is built only for WoW64 (no
+32-bit Unix part: `winegcc -m32` can't link), it is built with MinGW's `i686-w64-mingw32-g++`
+instead, as a plain Windows program whose few Linux calls go to a small Linux library of its own
+(in `wine32/` beside it; `src/winehost/unixside.h`). They are looked for in
 `C:\Program Files (x86)` too (VST3 bundles' `Contents\x86-win`, the usual VST2 folders there).
 
 No Terminal is needed to set them up: Options → Wine prefixes → **New prefix…** makes a 64-bit

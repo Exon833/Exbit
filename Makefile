@@ -18,7 +18,9 @@
 # With Wine's winegcc installed, it also builds tinydaw-wine-host.exe (src/winehost: the host
 # that runs Windows plugins under Wine, plugins/bridge.h), on Tiny DAW's own Win32 declarations
 # (src/winehost/include); without it, Windows plugins say they need it. WINEGCC=... picks another.
-# With 32-bit build support (gcc-multilib, g++-multilib), also tinydaw-wine-host-32.exe, for 32-bit plugins.
+# With 32-bit build support (gcc-multilib, g++-multilib), also tinydaw-wine-host-32.exe, for 32-bit plugins;
+# where Wine is built only for WoW64 (no 32-bit Unix part), that host is built with MinGW's
+# i686-w64-mingw32-g++ instead, as a plain Windows program (src/winehost/unixside.h).
 
 CXX      ?= g++
 TARGET   := tinydaw
@@ -85,6 +87,19 @@ WIN_FLAGS := -std=c++17 -O2 -static -Wall -Wextra -Wno-unused-parameter -Wno-mis
 WIN_TEST_PLUGINS := $(WIN_DIR)/TinyTestFx.vst3 $(WIN_DIR)/TinyTestFx.moduleinfo.json \
                     $(WIN_DIR)/TinyTestSynth.dll $(WIN_DIR)/TinyTestInstaller.exe
 WIN32_TEST_PLUGINS := $(WIN_DIR)/TinyTestFx32.vst3 $(WIN_DIR)/TinyTestSynth32.dll
+# the 32-bit host as a plain Windows program, where winegcc can't build 32-bit ones and MinGW is there: its
+# Linux calls go to a Linux library of its own (winehost/unixside.h), reached through a builtin DLL
+WINE_UNIX32 := wine32/i386-windows/tinydaw-unix32.dll wine32/x86_64-unix/tinydaw-unix32.so
+PE32_OBJS := $(WINE_SRCS:%.cpp=build/winehostpe32/%.o)
+PE32_FLAGS := $(filter-out -fPIC -D_WIN32,$(WINE_BASE)) -DTINYDAW_WINE_PE
+ifneq ($(WINEGCC),)
+  ifeq ($(WINE32_OK),)
+    ifneq ($(MINGW32),)
+      WINE_PE32 := yes
+      ALL_WINE += $(WINE_HOST32) $(WINE_UNIX32)
+    endif
+  endif
+endif
 ifneq ($(MINGW64),)
   ALL_WIN_TEST := $(WIN_TEST_PLUGINS)
   ifneq ($(MINGW32),)
@@ -107,8 +122,28 @@ publish:
 
 winehost: $(ALL_WINE)
 
+ifeq ($(WINE_PE32),yes)
+$(WINE_HOST32): $(PE32_OBJS)
+	$(MINGW32) -static -mconsole -o $@ $^ -lole32 -luser32 -ladvapi32 -lkernel32
+else
 $(WINE_HOST32): $(WINE32_OBJS)
 	$(WINEGCC) -m32 -mconsole -o $@ $^ -lstdc++ -lm -lpthread -lole32 -luser32 -ladvapi32 -lkernel32 -Wl,-z,defs
+endif
+
+build/winehostpe32/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(MINGW32) $(PE32_FLAGS) -c $< -o $@
+
+# (built by winegcc on Wine's own headers, and marked builtin: only a builtin DLL may call into its Unix part)
+wine32/i386-windows/tinydaw-unix32.dll: src/winehost/unix32.c src/winehost/tinydaw-unix32.spec
+	@mkdir -p $(dir $@)
+	$(WINEGCC) -b i686-windows -shared -include windows.h -include $(dir $(WINEGCC))../include/wine/unixlib.h \
+	    -o $@ src/winehost/tinydaw-unix32.spec $<
+	$(dir $(WINEGCC))winebuild --builtin $@
+
+wine32/x86_64-unix/tinydaw-unix32.so: src/winehost/unixside.c src/winehost/unixside.h
+	@mkdir -p $(dir $@)
+	$(CC) -std=c11 -O2 -Wall -Wextra -fPIC -shared -Isrc -o $@ $<
 
 build/winehost32/%.o: %.cpp
 	@mkdir -p $(dir $@)
@@ -193,6 +228,6 @@ test: $(TEST_BINS) $(TEST_PLUGINS) $(ALL_WINE) $(ALL_WIN_TEST)
 	if [ -n "$$failed" ]; then echo "== FAILED:$$failed"; exit 1; fi; echo "== all tests passed"
 
 clean:
-	rm -rf build build-debug tinydaw tinydaw-debug $(WINE_HOST) $(WINE_HOST).so $(WINE_HOST32) $(WINE_HOST32).so
+	rm -rf build build-debug tinydaw tinydaw-debug $(WINE_HOST) $(WINE_HOST).so $(WINE_HOST32) $(WINE_HOST32).so wine32
 
--include $(OBJS:.o=.d) $(TEST_BINS:%=%.d) $(WINE_OBJS:.o=.d) $(WINE32_OBJS:.o=.d)
+-include $(OBJS:.o=.d) $(TEST_BINS:%=%.d) $(WINE_OBJS:.o=.d) $(WINE32_OBJS:.o=.d) $(PE32_OBJS:.o=.d)

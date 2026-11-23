@@ -68,6 +68,11 @@ strip --strip-debug "$app/usr/bin/tinydaw"
 for host in tinydaw-wine-host.exe tinydaw-wine-host-32.exe; do
     if [ -f "$host" ] && [ -f "$host.so" ]; then cp "$host" "$host.so" "$app/usr/bin/"; fi
 done
+# (the 32-bit host built with MinGW, where Wine is built only for WoW64: its Linux side is in wine32/)
+if [ -f tinydaw-wine-host-32.exe ] && [ -f wine32/i386-windows/tinydaw-unix32.dll ]; then
+    cp tinydaw-wine-host-32.exe "$app/usr/bin/"
+    cp -r wine32 "$app/usr/bin/"
+fi
 cp -r data/icons data/skins data/templates data/presets "$app/usr/share/tinydaw/"
 cp LICENSE LICENSE.md "$app/usr/share/tinydaw/"
 cp data/icons/tinydaw.svg "$app/tinydaw.svg"
