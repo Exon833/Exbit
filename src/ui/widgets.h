@@ -219,10 +219,11 @@ ui::Button* fxButton(ui::Widget* parent, const std::vector<SlotPtr>& effects, st
 // with the built-in synth (no settings), shows the menu; its ▾ shows the menu, which fillMenu(menu)
 // fills each time it opens (the instruments to choose from). The menu is owned by the button.
 // sampler: the track's built-in sampler when it plays one (no instrument plugin): click opens its window;
-// padKit: its Pad Kit likewise (it wins over the sampler, as Track::playsPadKit says)
+// padKit: its Pad Kit likewise (it wins over the sampler, as Track::playsPadKit says); drawn: it plays the Drawn
+// synth (its built-in synth with a drawn wave): click opens its canvas
 ui::Button* instrumentButton(ui::Widget* parent, const SlotPtr& instrument, std::function<void()> edit,
                              std::function<void(ui::Menu&)> fillMenu, int rack = -1, SamplerPtr sampler = nullptr,
-                             PadKitPtr padKit = nullptr);
+                             PadKitPtr padKit = nullptr, bool drawn = false);
 ui::Button* iconButton(ui::Widget* parent, const std::string& text, std::function<void()> slot,
                        const std::string& tooltip = "");
 // a menu owned by a widget (deleted with it): for buttons' setMenu

@@ -22,7 +22,7 @@
 // Patches are replaced whole on every change (never changed in place), as SamplerSettings is: undo and
 // the audio thread see whole ones. Saved in projects (project_io: "synth", only when set) and as preset
 // files: JSON {"format": "tinydaw-synth", "name", "category", "params": {key: value}, "mods": [{"source",
-// "target", "depth"}]}; keys missing take their defaults. The presets shipped are in the program's data
+// "target", "depth"}], and a Drawn synth's "drawn": [WAVE_POINTS numbers]}; keys missing take their defaults. The presets shipped are in the program's data
 // (data/presets/synth/<category>/), the user's own in <data>/presets/synth/<category>/ (paths.h).
 #pragma once
 #include <cstdint>
@@ -58,6 +58,7 @@ constexpr int CONTROL = 16;            // frames between modulation updates
 constexpr double MAX_TAIL_S = 30.0;    // a release never rings longer
 constexpr double OUT_GAIN = 0.2;       // a note's level at velocity 127, one oscillator at full level, 0 dB
 constexpr const char* FORMAT = "tinydaw-synth";
+constexpr int WAVE_POINTS = 256;       // a drawn wave's points across its one cycle (Patch::drawn)
 
 struct ParamInfo {
     enum Kind { Number, Log, Int, Choice, Toggle };
@@ -92,6 +93,11 @@ struct Patch {
     double v[PARAMS];
     std::vector<Mod> mods;
     std::string name = "Init", category;
+    // THE DRAWN SYNTH (Instrument ▾ → Drawn synth…; its window is a canvas, ui/wave_canvas.h): one cycle of a wave
+    // drawn by hand, WAVE_POINTS values -1…1, joined by straight lines. Osc 1 plays it in place of its wave,
+    // band-limited for each note's pitch and with its DC taken away (synth_voice.cpp); the rest of the patch
+    // (Init's: Env 1, an open filter) is as ever. Replaced whole, as the patch is. Null: an ordinary patch.
+    std::shared_ptr<const std::vector<float>> drawn;
     Patch();  // every parameter at its default ("Init": one saw through an open low-pass filter)
     double operator[](int p) const { return v[p]; }
     bool operator==(const Patch& o) const;
@@ -102,6 +108,10 @@ struct Patch {
     void setMod(int source, int target, double depth);
 };
 using PatchPtr = std::shared_ptr<const Patch>;
+// a Drawn synth's patch: Init's, named "Drawn", its wave a sine to start drawing over
+Patch drawnPatch();
+// `wave` (any length ≥ 2, read as one cycle) as WAVE_POINTS values, each finite and within -1…1
+std::vector<float> fitWave(const std::vector<float>& wave);
 
 // --- files ---
 Json toJson(const Patch& p);

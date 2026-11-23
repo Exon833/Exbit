@@ -205,8 +205,8 @@ static void testTerminal() {
     TrackPtr kit = drums(*w);
     d.keys({key(plat::Key_Tab)});  // (the track panel)
     f.setCurrent(kit);
-    // I: the instrument menu; its fourth entry: Pads to tracks
-    d.keys({key('I', 0, "i"), key(plat::Key_Down), key(plat::Key_Down), key(plat::Key_Down)});
+    // I: the instrument menu; its fifth entry (after the built-in synth, the Drawn synth, the sampler, Pad Kit): Pads to tracks
+    d.keys({key('I', 0, "i"), key(plat::Key_Down), key(plat::Key_Down), key(plat::Key_Down), key(plat::Key_Down)});
     d.picture("pad-tracks-instrument-menu");
     CHECK(d.shows("Pads to tracks"));
     d.keys({key(plat::Key_Return)});

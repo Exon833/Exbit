@@ -41,7 +41,8 @@ extends; that program is in the repository's history.
   (Shift-click its key), overlaps removed; a Steps view of the same clip; notes with their own chance, repeats (rolls),
   slide, pan and fine pitch; linked clips (edit one, every linked copy changes); the built-in synth (two
   oscillators and noise, unison, a filter, two envelopes, an LFO, glide, drift; drag a ⊕ onto a knob to
-  modulate it; 36 presets by category), the sampler (Classic, One-shot or Slice; a filter with its envelope, an
+  modulate it; 36 presets by category), the Drawn synth (nothing to set: draw one cycle of its wave on a canvas,
+  and every key plays it), the sampler (Classic, One-shot or Slice; a filter with its envelope, an
   LFO, glide, warp, reverse, normalise) and Pad Kit (a sample per pad, choke groups; any pad on its own track, or Pads to tracks; slice a
   loop onto one by its hits, a grid or by hand, hearing each slice); MIDI effects (arpeggiator, chord, scale, note length, velocity, random, pitch, groove), also on notes
   played live, and committed into the notes (this clip, every clip, or onto a new track); MIDI keyboards (several ports at once: Options → MIDI ports…; a

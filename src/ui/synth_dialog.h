@@ -22,6 +22,9 @@
 // A track playing the classic voice shows the Init patch's values and a line saying so; changing anything (or
 // choosing a preset) gives it that patch.
 //
+// A DRAWN SYNTH (its patch has Patch::drawn: Instrument ▾ → Drawn synth…): the window shows only its wave, on a
+// canvas to draw it on (ui/wave_canvas.h), and Close: no presets, knobs or modulation.
+//
 // THE MAIN WINDOW: after undo / redo synth_dialog::reloadAll(); when tracks go away synth_dialog::closeGone(project).
 //
 // Styles (default.css): SynthDialog (padding, row-gap). SynthPage: background-color, color and font (names and
@@ -41,6 +44,7 @@
 #include "ui/toolkit/controls.h"
 #include "ui/toolkit/dialogs.h"
 #include "ui/toolkit/menu.h"
+#include "ui/wave_canvas.h"
 
 namespace synth_dialog {
 
@@ -113,7 +117,8 @@ public:
     ui::Button *presetsButton, *saveButton, *modulateButton, *synthView, *modView;
     ui::Widget* modPanel;
     ui::ListWidget* modList;
-    ui::Button *addMod, *editMod, *removeMod;
+    ui::Button *addMod, *editMod, *removeMod, *playButton;
+    WaveCanvas* wave;  // a Drawn synth's (Patch::drawn): all its window shows
     ui::Menu presetsMenu;
 
     void apply(const subsynth::Patch& p, bool final);  // the track plays it now (its clips rendered: final, or soon)
@@ -128,6 +133,7 @@ public:
 
 private:
     int renderTimer_ = -1;
+    bool drawnShown_ = false;  // the canvas shown (a Drawn synth), not the page
     void fillPresets(ui::Menu* menu);
     void showPatch();
     void renderClips();

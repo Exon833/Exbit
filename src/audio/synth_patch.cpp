@@ -126,7 +126,31 @@ Patch::Patch() {
 bool Patch::operator==(const Patch& o) const {
     for (int p = 0; p < PARAMS; p++)
         if (v[p] != o.v[p]) return false;
-    return mods == o.mods && name == o.name && category == o.category;
+    bool sameWave = drawn == o.drawn || (drawn && o.drawn && *drawn == *o.drawn);
+    return sameWave && mods == o.mods && name == o.name && category == o.category;
+}
+
+std::vector<float> fitWave(const std::vector<float>& wave) {
+    std::vector<float> out((size_t)WAVE_POINTS, 0.0f);
+    size_t n = wave.size();
+    if (n < 2) return out;
+    for (int i = 0; i < WAVE_POINTS; i++) {  // (read as one cycle: the last point leads back to the first)
+        double at = (double)i * n / WAVE_POINTS;
+        size_t a = (size_t)at % n, b = (a + 1) % n;
+        double f = at - std::floor(at);
+        double v = wave[a] + (wave[b] - wave[a]) * f;
+        out[(size_t)i] = std::isfinite(v) ? (float)std::clamp(v, -1.0, 1.0) : 0.0f;
+    }
+    return out;
+}
+
+Patch drawnPatch() {
+    Patch p;
+    p.name = "Drawn";
+    std::vector<float> sine((size_t)WAVE_POINTS);
+    for (int i = 0; i < WAVE_POINTS; i++) sine[(size_t)i] = (float)std::sin(2 * 3.14159265358979323846 * i / WAVE_POINTS);
+    p.drawn = std::make_shared<const std::vector<float>>(std::move(sine));
+    return p;
 }
 
 const Mod* Patch::modOf(int source, int target) const {
@@ -154,8 +178,14 @@ Json toJson(const Patch& p) {
     for (const Mod& m : p.mods)
         mods.push(Json::object({{"source", Json(sourceKey(m.source))}, {"target", Json(info(m.target).key)},
                                 {"depth", Json(m.depth)}}));
-    return Json::object({{"format", Json(FORMAT)}, {"version", Json(1)}, {"name", Json(p.name)},
-                         {"category", Json(p.category)}, {"params", params}, {"mods", mods}});
+    Json out = Json::object({{"format", Json(FORMAT)}, {"version", Json(1)}, {"name", Json(p.name)},
+                             {"category", Json(p.category)}, {"params", params}, {"mods", mods}});
+    if (p.drawn) {
+        Json wave = Json::array();
+        for (float v : *p.drawn) wave.push(Json(std::round(v * 1e5) / 1e5));  // (5 decimals: far finer than drawn)
+        out.set("drawn", wave);
+    }
+    return out;
 }
 
 Patch fromJson(const Json& j) {
@@ -169,6 +199,11 @@ Patch fromJson(const Json& j) {
     for (const Json& m : j["mods"].items()) {
         int s = sourceOf(m.str("source")), t = paramOf(m.str("target"));
         if (s >= 0 && t >= 0) p.setMod(s, t, m.num("depth", 0));
+    }
+    if (const Json& wave = j["drawn"]; wave.isArray() && wave.items().size() >= 2) {
+        std::vector<float> w;
+        for (const Json& v : wave.items()) w.push_back(v.isNumber() ? (float)v.toDouble() : 0.0f);
+        p.drawn = std::make_shared<const std::vector<float>>(fitWave(w));
     }
     return p;
 }

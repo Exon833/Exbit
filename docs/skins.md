@@ -782,6 +782,8 @@ from its style is `--layout-spacing` (rows and columns) and `--grid-spacing` (gr
   font. Parts `::section` (a box), `::title` (`color`, the font), `::knob` (`background-color`), `::pointer` and
   `::arc` (`color`, `stroke-width`), `::choice` (a box, `color`), `::current` and `::target` (`color`), `::handle`
   (`background-color`, `color`), `::env1`, `::env2`, `::lfo` (the modulation rings: `color`, `stroke-width`).
+- **`WaveCanvas`** (the Drawn synth's canvas, in its `SynthDialog`): `background-color`, `color` (the wave's line).
+  Parts `::grid` (`color`: the centre line and quarters), `::cursor` (`color`: the keyboard's point).
 - **`PadView`**: states `:selected`, `:dropping`; `--choke-1`, `--choke-2`, `--choke-3`, `--choke-4`, `--choke-5`, `--choke-6`, `--choke-7`, `--choke-8` (the choke groups' colours). Parts
   `::choke-tint`, `::empty`, `::name` (`:selected`), `::stripe`, `::frame`.
 

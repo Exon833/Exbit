@@ -3,6 +3,7 @@
 
 #include "audio/patch.h"
 #include "audio/plugin_audio.h"
+#include "core/util.h"
 #include "ui/midi_ports_dialog.h"
 #include "ui/pad_kit_dialog.h"
 #include "ui/plugin_dialog.h"
@@ -47,10 +48,19 @@ ui::Menu* fillInstrumentMenu(ui::Menu* menu, ui::Window* parent, PluginHost& hos
         menu->addSeparator();
     }
     bool builtIn = !current && !track->needsInstrument && !track->usesRack && !track->sampler && !track->padKit && !track->ext.on;
-    checkable(menu, BUILTIN, builtIn, [parent, &host, track, chosen] { setInstrument(parent, host, track, nullptr, chosen); });
-    if (builtIn)  // (its patch: ui/synth_dialog.h)
+    subsynth::PatchPtr patch = std::atomic_load(&track->synth);
+    bool drawn = builtIn && patch && patch->drawn;
+    checkable(menu, BUILTIN, builtIn && !drawn, [parent, &host, track, chosen] {
+        subsynth::PatchPtr now = std::atomic_load(&track->synth);
+        if (now && now->drawn) std::atomic_store(&track->synth, subsynth::PatchPtr());  // (the classic voice again)
+        setInstrument(parent, host, track, nullptr, chosen);
+        if (auto* d = synth_dialog::openFor(track.get())) d->reload();  // (an open canvas: the knobs again)
+    });
+    if (builtIn && !drawn)  // (its patch: ui/synth_dialog.h)
         menu->addAction(SYNTH, [track] { synth_dialog::openSynth(track); })->tooltip =
             "Its oscillators, filter, envelopes, LFO, modulation and presets";
+    checkable(menu, DRAWN, drawn, [parent, &host, track, chosen] { useDrawn(parent, host, track, chosen); })->tooltip =
+        "A synth with nothing to set: draw one cycle of its wave, and every key plays it";
     SamplerPtr sampler = std::atomic_load(&track->sampler);
     ui::Action* sampled = checkable(
         menu, sampler && sampler->sample ? "Built-in sampler: " + sampler->sample->name + "\xe2\x80\xa6" : std::string(SAMPLER),
@@ -177,6 +187,14 @@ bool useSampler(ui::Window* parent, PluginHost& host, const TrackPtr& track, std
     if (chosen) chosen();
     sampler_dialog::openSampler(track);
     return true;
+}
+
+void useDrawn(ui::Window* parent, PluginHost& host, const TrackPtr& track, std::function<void()> chosen) {
+    subsynth::PatchPtr now = std::atomic_load(&track->synth);
+    if (!now || !now->drawn) std::atomic_store(&track->synth, subsynth::PatchPtr(std::make_shared<const subsynth::Patch>(subsynth::drawnPatch())));
+    util::debugf("instrument: %s plays the Drawn synth\n", track->name.c_str());
+    if (!setInstrument(parent, host, track, nullptr, chosen)) return;
+    synth_dialog::openSynth(track);
 }
 
 void usePadKit(ui::Window* parent, PluginHost& host, const TrackPtr& track, std::function<void()> chosen) {

@@ -382,7 +382,8 @@ void testFront() {
     while (ui::Window* top = topWindowBut(w)) top->close();
 
     // --- the Pad Kit (a MIDI track, I: its instrument menu), its pads by the arrows ---
-    d.keys({key('N', 0, "n"), key('I', 0, "i"), key(plat::Key_Down), key(plat::Key_Down), key(plat::Key_Return)});
+    d.keys({key('N', 0, "n"), key('I', 0, "i"), key(plat::Key_Down), key(plat::Key_Down), key(plat::Key_Down),
+            key(plat::Key_Return)});  // (past the built-in synth, the Drawn synth and the sampler)
     TrackPtr midi = w->timeline->currentTrack;
     CHECK(midi && midi->kind == Kind::Midi && midi->padKit);
     CHECK(d.shows("13 empty") && d.shows("> 1 empty"));

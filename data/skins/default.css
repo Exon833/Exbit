@@ -1002,6 +1002,11 @@ SynthPage::handle { color: var(--window); }
 SynthPage::env1 { color: #f0b43c; stroke-width: 2.5px; }
 SynthPage::env2 { color: #5ac878; stroke-width: 2.5px; }
 SynthPage::lfo { color: #5aa0f0; stroke-width: 2.5px; }
+/* the Drawn synth's canvas (ui/wave_canvas.h): its background, the wave (color); ::grid the centre line and
+   quarters, ::cursor the keyboard's point */
+WaveCanvas { background-color: var(--base); color: var(--accent); }
+WaveCanvas::grid { color: var(--grid-bar); }
+WaveCanvas::cursor { color: var(--selected-note); }
 
 /* The sampler's waveform (a SampleWaveform): what is before its start and after its end, and their lines. */
 SamplerWaveform::outside { background-color: var(--roll-shade); }

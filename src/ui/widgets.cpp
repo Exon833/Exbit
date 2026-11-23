@@ -613,7 +613,7 @@ ui::Menu* ownedMenu(ui::Widget* owner) {
 
 ui::Button* instrumentButton(ui::Widget* parent, const SlotPtr& instrument, std::function<void()> edit,
                              std::function<void(ui::Menu&)> fillMenu, int rack, SamplerPtr sampler,
-                             PadKitPtr padKit) {
+                             PadKitPtr padKit, bool drawn) {
     ui::Button* b = toolButton(parent, "🎹", theme::metric("instrument-button-width", 40),
                                theme::metric("row-button-height", 22), "");
     ui::Menu* menu = ownedMenu(b);
@@ -638,6 +638,9 @@ ui::Button* instrumentButton(ui::Widget* parent, const SlotPtr& instrument, std:
     } else if (sampler) {
         b->setToolTip("Instrument: built-in sampler, playing " + (sampler->sample ? sampler->sample->name : std::string()) +
                       "\nClick to open its window; ▾ to choose another instrument");
+        if (edit) b->clicked.connect(edit);
+    } else if (drawn) {
+        b->setToolTip("Instrument: Drawn synth\nClick to draw its wave; \xe2\x96\xbe to choose another instrument");
         if (edit) b->clicked.connect(edit);
     } else {
         b->setToolTip("Instrument: Built-in synth (no settings)\nClick to choose another instrument");

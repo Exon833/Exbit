@@ -1268,8 +1268,9 @@ void Front::draw(Screen& s) {
     if (topWindow() && !ui::Menu::ofWindow(topWindow())) {  // (how to get out of it)
         std::string help = topWindow()->isModal() ? " Tab: next  Enter: OK  Esc: cancel " : " Ctrl+W: close it  F12: the main window ";
         if (dynamic_cast<MidiEditor*>(topWindow())) help = " F2: tools  K: knife  Ctrl+J: join  P: row" + help;
-        if (dynamic_cast<synth_dialog::SynthDialog*>(topWindow()))
-            help = " Up/Down: control  Left/Right: change  M: Modulate…" + help;
+        if (auto* synth = dynamic_cast<synth_dialog::SynthDialog*>(topWindow()))
+            help = (synth->wave->isVisible() ? " Left/Right: a point  Up/Down: its value"  // (a Drawn synth's canvas)
+                                             : " Up/Down: control  Left/Right: change  M: Modulate…") + help;
         s.text(std::max(0, W - columns(help) - 1), H - 1, help, style(Black, Yellow));
     } else if (windowsHidden && n) {
         std::string help = " F12: " + std::to_string(n) + (n == 1 ? " window" : " windows") + " open ";
@@ -1850,6 +1851,9 @@ void Front::drawHelp(Screen& s) {
         "  M, Modulate…      a source (Env 1, Env 2, LFO) onto a control, and how far (0 %: removed)",
         "  Presets, Save     Tab to them: presets by category (Init (classic): the old voice); your own",
         "  Modulation        Tab to it: every routing; Add…, Edit…, Remove",
+        "The Drawn synth (I on a MIDI track: Drawn synth…; Shift+I while it plays it): its wave",
+        "  Left/Right        a point (Shift: 16)  Home/End: the first, the last",
+        "  Up/Down           its value a 32nd up or down (Shift: a 256th)",
         "Dialogs: Tab moves between controls, Enter is the default button, Esc cancels.",
         "Keys: Options > Keyboard shortcuts… changes them (those marked \"not in the terminal\" only work in the window).",
         "",

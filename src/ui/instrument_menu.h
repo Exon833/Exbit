@@ -3,7 +3,9 @@
 // The menu belongs to the "Choose instrument" button that fills a new MIDI track's row, and to the
 // ▾ of the instrument button (🎹) on its row once it has one: the built-in synth, or a VST
 // instrument found on this computer (plugins/library.h), loaded with the usual "please wait" window
-// (plugin_host.h). The track is silent until its first instrument is chosen and loaded. Clicking
+// (plugin_host.h). "Drawn synth…": the built-in synth playing one cycle of a wave drawn by hand (its window: just
+// the canvas, ui/wave_canvas.h); "Built-in synth" again leaves the drawing for the ordinary synth. The track is
+// silent until its first instrument is chosen and loaded. Clicking
 // 🎹 itself opens the instrument's own window (editInstrument); "Synth…" (and 🎹) the built-in synth's
 // (ui/synth_dialog.h) while the track plays it.
 //
@@ -41,6 +43,7 @@ namespace instrument_menu {
 
 constexpr const char* BUILTIN = "Built-in synth";
 constexpr const char* SYNTH = "Synth…";  // the built-in synth's window (ui/synth_dialog.h), while it plays
+constexpr const char* DRAWN = "Drawn synth…";  // the built-in synth playing a wave drawn by hand (Patch::drawn)
 constexpr const char* RACK = "Instrument patch panel…";
 constexpr const char* SAMPLER = "Built-in sampler…";
 constexpr const char* PAD_KIT = "Pad Kit…";
@@ -62,6 +65,9 @@ bool setInstrument(ui::Window* parent, PluginHost& host, const TrackPtr& track, 
 // make the track play its built-in sampler (asking for a sample if it has none yet), and open its window;
 // false if no sample was chosen
 bool useSampler(ui::Window* parent, PluginHost& host, const TrackPtr& track, std::function<void()> chosen);
+// make the track play the Drawn synth (its built-in synth with a drawn wave: a sine the first time; another patch
+// it had is replaced, as the sampler's settings are by the built-in synth), and open its canvas
+void useDrawn(ui::Window* parent, PluginHost& host, const TrackPtr& track, std::function<void()> chosen);
 // make the track play its Pad Kit (an empty one the first time), and open its window
 void usePadKit(ui::Window* parent, PluginHost& host, const TrackPtr& track, std::function<void()> chosen);
 // make the track play its instrument patch panel, and open it; the first time, the instrument it

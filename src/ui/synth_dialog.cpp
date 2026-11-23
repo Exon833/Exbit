@@ -534,18 +534,27 @@ SynthDialog::SynthDialog(ui::Window* window, TrackPtr track_)
     mcol->addLayout(std::move(mrow));
     col->addWidget(modPanel, 1);
 
+    wave = add<WaveCanvas>();
+    wave->changed = [this](const std::vector<float>& w, bool final) {
+        Patch p = page->patch;
+        p.drawn = std::make_shared<const std::vector<float>>(w);
+        apply(p, final);
+    };
+    wave->setVisible(false);
+    col->addWidget(wave, 1);
+
     col->addStretch(1);
     auto buttons = std::make_unique<ui::HBox>();
-    ui::Button* play = ui::pushButton(this, "Play C4", [this] { playNote(); });
-    play->setToolTip("Hear it on the track (also: the MIDI editor's keys, or a MIDI keyboard)");
-    buttons->addWidget(play);
+    playButton = ui::pushButton(this, "Play C4", [this] { playNote(); });
+    playButton->setToolTip("Hear it on the track (also: the MIDI editor's keys, or a MIDI keyboard)");
+    buttons->addWidget(playButton);
     buttons->addStretch(1);
     buttons->addWidget(ui::pushButton(this, "Close", [this] { close(); }));
     col->addLayout(std::move(buttons));
-    showPatch();
     showModulation(false);
+    showPatch();
     adjustSize();
-    page->setFocus();
+    (drawnShown_ ? (ui::Widget*)wave : page)->setFocus();
 }
 
 SynthDialog::~SynthDialog() {
@@ -569,6 +578,29 @@ void SynthDialog::showPatch() {
     editMod->setEnabled(modList->count() > 0);
     removeMod->setEnabled(modList->count() > 0);
     page->update();
+    // a Drawn synth: its canvas alone (the wave as the track has it, unless it is being drawn)
+    bool drawn = now && now->drawn;
+    if (drawn && !wave->drawing() && wave->wave != *now->drawn) {
+        wave->wave = *now->drawn;
+        wave->update();
+    }
+    if (drawn != drawnShown_) {
+        drawnShown_ = drawn;
+        for (ui::Widget* w : std::initializer_list<ui::Widget*>{presetsButton, saveButton, modulateButton, synthView,
+                                                                 modView, presetName, playButton})
+            w->setVisible(!drawn);
+        wave->setVisible(drawn);
+        if (drawn) {
+            classicNote->setVisible(false);
+            page->setVisible(false);
+            modPanel->setVisible(false);
+            wave->setFocus();
+        } else {
+            showModulation(false);
+        }
+        setTitle((drawn ? "Drawn synth \xe2\x80\x94 " : "Synth \xe2\x80\x94 ") + track->name);
+        adjustSize();
+    }
 }
 
 void SynthDialog::apply(const Patch& p, bool final) {
@@ -703,6 +735,8 @@ SynthDialog* openSynth(const TrackPtr& track) {
     if (!dialog) {
         dialog = new SynthDialog(sampler_dialog::host().window, track);
         gWindows[track.get()] = dialog;
+    } else {
+        dialog->reload();  // (as the track plays now: a Drawn synth's canvas, or the knobs)
     }
     dialog->open();
     dialog->raiseWindow();

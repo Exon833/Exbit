@@ -13,6 +13,7 @@
 #include <cmath>
 #include <numeric>
 
+#include "audio/fft.h"
 #include "audio/synth_patch.h"
 #include "audio/workers.h"
 #include "core/util.h"
@@ -68,12 +69,45 @@ inline double blamp(double t, double dt) {
 }
 inline double wrap(double p) { return p - std::floor(p); }
 
-// n frames of a wave into out (added at `gain`), its phase stepped on
-void oscillate(int wave, double& phase, double dt, double width, float gainL, float gainR, float* l, float* r, int n) {
+// A DRAWN WAVE as Osc 1 plays it for one voice: TABLE frames of one cycle, its harmonics above `fMax`'s Nyquist
+// (and its DC) taken away, so no partial folds back however sharp the drawing (an FFT of the drawn points joined
+// by straight lines; the bins kept, transformed back). Built for the voice's highest pitch: lower notes of a
+// sliding run keep the same top harmonic, never one past Nyquist.
+constexpr int TABLE = 2048;
+constexpr int DRAWN = -1;  // (oscillate's wave for it)
+std::vector<float> drawnTable(const std::vector<float>& drawn, double fMax, int sr) {
+    std::vector<fft::cd> x((size_t)TABLE);
+    const size_t n = drawn.size();
+    for (int i = 0; i < TABLE; i++) {
+        double at = (double)i * n / TABLE;
+        size_t a = (size_t)at % n, b = (a + 1) % n;
+        x[(size_t)i] = drawn[a] + (drawn[b] - drawn[a]) * (at - std::floor(at));
+    }
+    static const fft::Plan plan(TABLE);  // (const after it is made: shared by the workers)
+    plan.forward(x.data());
+    int keep = std::clamp((int)std::floor(0.5 * sr / std::max(1.0, fMax)), 1, TABLE / 2 - 1);
+    x[0] = 0;
+    for (int k = keep + 1; k <= TABLE - keep - 1; k++) x[(size_t)k] = 0;
+    plan.inverse(x.data());
+    std::vector<float> out((size_t)TABLE + 1);  // (one more: the first again, for interpolating at the end)
+    for (int i = 0; i < TABLE; i++) out[(size_t)i] = (float)(x[(size_t)i].real() / TABLE);
+    out[TABLE] = out[0];
+    return out;
+}
+
+// n frames of a wave into out (added at `gain`), its phase stepped on; `table`: a DRAWN wave's (drawnTable)
+void oscillate(int wave, double& phase, double dt, double width, float gainL, float gainR, float* l, float* r, int n,
+               const float* table = nullptr) {
     double p = phase;
     for (int i = 0; i < n; i++) {
         double v;
         switch (wave) {
+        case DRAWN: {
+            double at = p * TABLE;
+            int k = (int)at;
+            v = table[k] + (table[k + 1] - table[k]) * (at - k);
+            break;
+        }
         case SINE: v = std::sin(2 * PI * p); break;
         case TRIANGLE: {
             v = p < 0.5 ? 4 * p - 1 : 3 - 4 * p;
@@ -181,7 +215,14 @@ void renderVoice(const Patch& P, const Voice& voice, int sr, double beatS, std::
     outR.assign((size_t)n, 0.0f);
     const int unison = std::clamp((int)P[UNISON], 1, MAX_UNISON);  // (a patch made in code may hold anything)
     const int ftype = std::clamp((int)P[F_TYPE], 0, 2);
-    const int waves[2] = {(int)P[O1_WAVE], (int)P[O2_WAVE]};
+    const int waves[2] = {P.drawn ? DRAWN : (int)P[O1_WAVE], (int)P[O2_WAVE]};
+    std::vector<float> table;  // (a Drawn synth's Osc 1: band-limited for the voice's highest pitch, as tuned)
+    if (P.drawn && P.drawn->size() >= 2) {
+        double top = voice.fromPitch;
+        for (const Part& pt : voice.parts) top = std::max(top, pt.pitch);
+        top += 12 * P[O1_OCT] + P[O1_SEMI] + (P[O1_FINE] + P[SPREAD] + std::abs(DRIFT_STATIC) + DRIFT_CENTS) / 100;
+        table = drawnTable(*P.drawn, 440.0 * std::pow(2.0, (top - 69) / 12), sr);
+    }
     const int lfoShape = (int)P[LFO_SHAPE];
     const int sync = std::clamp((int)P[LFO_SYNC], 0, 11);
     const bool retrig = P[LFO_RETRIG] >= 0.5;
@@ -304,7 +345,8 @@ void renderVoice(const Patch& P, const Voice& voice, int sr, double beatS, std::
                 double f = 440.0 * std::pow(2.0, (semis - 69 + (cents + uDrift[u]) / 100) / 12);
                 double dt = std::min(0.45, f / sr);
                 float gl = (float)level * (stereo ? uL[u] : 1.0f), gr = (float)level * (stereo ? uR[u] : 1.0f);
-                oscillate(waves[o], phase[o][u], dt, width, gl, gr, bl, br, m);
+                if (waves[o] == DRAWN && table.empty()) continue;  // (a drawn wave of under 2 points: silent)
+                oscillate(waves[o], phase[o][u], dt, width, gl, gr, bl, br, m, table.data());
             }
         }
         if (noiseOn) {
