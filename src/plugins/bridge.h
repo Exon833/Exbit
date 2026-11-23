@@ -18,6 +18,10 @@
 //
 // Both sides are Linux code, so this header uses Linux calls only (no Win32; the 32-bit host built
 // as a Windows program makes them through its Linux side, winehost/unixside.h).
+//
+// On Windows itself (TINYDAW_BRIDGE_WIN: Tiny DAW built for Windows, and its host built as a Windows
+// program, tinydaw-plugin-host.exe, spawned directly: no Wine) the same protocol, with Windows' means:
+// plugins/bridge_win.h.
 #pragma once
 #include <atomic>
 #include <cstdint>
@@ -29,7 +33,10 @@
 #include <climits>
 #include <cstddef>
 #include <ctime>
-#ifdef TINYDAW_WINE_PE
+#if defined(_WIN32) && !defined(TINYDAW_WINE_HOST) && !defined(TINYDAW_WINE_PE)
+#define TINYDAW_BRIDGE_WIN 1
+#include "plugins/bridge_win.h"  // (Windows itself: sockets, shared memory and wake-ups of its own)
+#elif defined(TINYDAW_WINE_PE)
 #include "winehost/unixside.h"  // (the 32-bit host as a Windows program: the same calls, made by its Linux side)
 #else
 #include <linux/futex.h>
@@ -156,6 +163,7 @@ private:
     }
 };
 
+#ifndef TINYDAW_BRIDGE_WIN  // (else bridge_win.h's)
 // all of n bytes (false: the other side is gone)
 inline bool sendAll(int fd, const void* p, size_t n) {
     const char* c = (const char*)p;
@@ -216,6 +224,8 @@ inline bool sendAllWithin(int fd, const void* p, size_t n, double seconds, size_
     return true;
 }
 
+#endif
+
 inline std::string framed(uint32_t op, uint32_t seq, const std::string& payload) {
     Header h{op, seq, (uint32_t)payload.size()};
     std::string all((const char*)&h, sizeof(h));
@@ -240,6 +250,7 @@ inline bool recvMessage(int fd, Header& h, std::string& payload) {
     return h.size == 0 || recvAll(fd, &payload[0], h.size);
 }
 
+#ifndef TINYDAW_BRIDGE_WIN
 // is a message waiting (or the other side gone)? waits up to ms
 inline bool readable(int fd, int ms) {
     pollfd p{fd, POLLIN, 0};
@@ -249,6 +260,7 @@ inline bool readable(int fd, int ms) {
     while (r < 0 && errno == EINTR);
     return r > 0;
 }
+#endif
 
 // --- the audio thread's shared memory ---
 
@@ -309,6 +321,7 @@ static_assert(sizeof(Note) == 28, "Note");
 static_assert(offsetof(AudioBlock, params) == 28768 && offsetof(AudioBlock, in) == 45160, "AudioBlock");
 static_assert(sizeof(AudioBlock) == 241768, "AudioBlock");
 
+#ifndef TINYDAW_BRIDGE_WIN
 inline long futex(std::atomic<uint32_t>* word, int op, uint32_t value, const timespec* timeout = nullptr) {
     static_assert(sizeof(std::atomic<uint32_t>) == 4, "a futex is 32 bits");
 #ifdef TINYDAW_WINE_PE
@@ -346,5 +359,6 @@ inline bool waitChange(std::atomic<uint32_t>* word, uint32_t value, double secon
     }
     return true;
 }
+#endif
 
 }  // namespace bridge

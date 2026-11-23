@@ -36,7 +36,7 @@
 #include "plugins/plugin.h"
 #include "plugins/vst2.h"
 #include "plugins/winlib.h"
-#ifndef _WIN32
+#ifndef TINYDAW_IN_HOST
 #include "plugins/wine.h"
 #endif
 
@@ -770,8 +770,8 @@ std::unique_ptr<Plugin> loadVst2(const std::string& path, std::string& error) {
 }
 
 std::vector<ClassInfo> vst2Classes(const std::string& path, std::string& error) {
-#ifndef _WIN32
-    if (wine::isWindowsPlugin(path))  // (a Windows plugin: asked through Wine)
+#ifndef TINYDAW_IN_HOST
+    if (wine::isWindowsPlugin(path))  // (a Windows plugin: asked through Wine; on Windows, of its own host)
         return bridgedClasses(path, error);
 #endif
     std::vector<ClassInfo> result;

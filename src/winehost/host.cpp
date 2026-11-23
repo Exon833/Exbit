@@ -18,6 +18,14 @@
 // Where Wine is built only for WoW64 (no 32-bit Unix part), the 32-bit host is a plain Windows
 // program instead, built with MinGW (TINYDAW_WINE_PE): the same code, its few Linux calls made by a
 // Linux library of its own (winehost/unixside.h).
+//
+// On Windows itself the same code is tinydaw-plugin-host.exe (TINYDAW_PLUGIN_HOST, built with MinGW on
+// Windows' own headers; plugins/bridge.h's TINYDAW_BRIDGE_WIN): Tiny DAW starts it directly, the socket
+// and wake-ups are Windows' (plugins/bridge_win.h), the plugin's window is made inside Tiny DAW's (a
+// child window of another process's), and Wine's fixes (d2dfix, dragdrop) aren't there (native_win.cpp).
+#ifdef TINYDAW_PLUGIN_HOST
+#include <winsock2.h>  // (before windows.h)
+#endif
 #include <windows.h>
 
 #include <algorithm>
@@ -40,6 +48,9 @@
 #include <io.h>
 
 #include "winehost/unixside.h"
+#elif defined(TINYDAW_PLUGIN_HOST)
+#include <io.h>
+#include <psapi.h>
 #else
 #include <sys/mman.h>
 #include <sys/socket.h>
@@ -106,6 +117,14 @@ void realtime() {
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
 #ifdef TINYDAW_WINE_PE
     unixside::realtime();
+#elif defined(TINYDAW_PLUGIN_HOST)
+    // (MMCSS, as Windows' audio programs do: avrt.dll, loaded when there)
+    using AvSet = HANDLE(WINAPI*)(LPCWSTR, LPDWORD);
+    static HMODULE avrt = LoadLibraryW(L"avrt.dll");
+    if (auto set = avrt ? (AvSet)(void*)GetProcAddress(avrt, "AvSetMmThreadCharacteristicsW") : nullptr) {
+        DWORD task = 0;
+        set(L"Pro Audio", &task);
+    }
 #else
     sched_param sp{};
     int lo = sched_get_priority_min(SCHED_FIFO), hi = sched_get_priority_max(SCHED_FIFO);
@@ -121,6 +140,8 @@ void realtime() {
 int linuxPid() {
 #ifdef TINYDAW_WINE_PE
     return unixside::linuxPid();
+#elif defined(TINYDAW_PLUGIN_HOST)
+    return (int)GetCurrentProcessId();  // (Windows: no launcher, Tiny DAW's child itself)
 #else
     return getpid();
 #endif
@@ -228,7 +249,11 @@ LRESULT WINAPI editorProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
+#ifdef TINYDAW_PLUGIN_HOST
+uint64_t x11Window(HWND hwnd) { return (uint64_t)(uintptr_t)hwnd; }  // (Windows: the window itself)
+#else
 uint64_t x11Window(HWND hwnd) { return (uint64_t)(uintptr_t)GetPropA(hwnd, "__wine_x11_whole_window"); }
+#endif
 
 void startTestDrag();
 void stopTestDrag();
@@ -294,7 +319,13 @@ void writeParameters(Writer& w) {
 // --- the requests ---
 
 bool openSharedMemory(const std::string& name) {
-#ifdef TINYDAW_WINE_PE  // (shm_open's file, mapped by its DOS name: Wine shares the pages)
+#ifdef TINYDAW_PLUGIN_HOST
+    void* m = mapShared(name, sizeof(AudioBlock), false);
+    if (!m)
+        return false;
+    bindWake(&((AudioBlock*)m)->request, name + "-request", false);  // (else polled: bridge_win.h)
+    bindWake(&((AudioBlock*)m)->done, name + "-done", false);
+#elif defined(TINYDAW_WINE_PE)  // (shm_open's file, mapped by its DOS name: Wine shares the pages)
     LPWSTR dos = wine_get_dos_file_name(("/dev/shm/" + name.substr(name[0] == '/')).c_str());
     HANDLE file = dos ? CreateFileW(dos, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
                                     OPEN_EXISTING, 0, nullptr)
@@ -402,9 +433,9 @@ void serve(const Incoming& in) {
             ExitThread(0);                           // on it ended it: the audio thread plays on
         if (getenv("TINYDAW_WINE_TEST_CRASH")) {  // (tests) a plugin's crash: a fault in Windows code on it
             using StrlenFn = size_t(WINAPI*)(const char*);
-            HMODULE crt = LoadLibraryW(u"ucrtbase.dll");
+            HMODULE crt = LoadLibraryW((LPCWSTR)u"ucrtbase.dll");
             const char* volatile nothing = nullptr;  // (not seen through by the compiler)
-            if (auto f = crt ? (StrlenFn)GetProcAddress(crt, "strlen") : nullptr)
+            if (auto f = crt ? (StrlenFn)(void*)GetProcAddress(crt, "strlen") : nullptr)
                 f(nothing);
         }
 
@@ -469,13 +500,26 @@ void serve(const Incoming& in) {
         int sx = r.i32(), sy = r.i32();  // where Tiny DAW's window is on the screen
         if (!r.ok())
             sx = sy = 0;
+#ifdef TINYDAW_PLUGIN_HOST
+        HWND parent = (HWND)(intptr_t)r.i64();  // (Windows: Tiny DAW's window, which the plugin's goes in)
+        if (!r.ok() || !IsWindow(parent))
+            parent = nullptr;
+#endif
         fixWineDirect2D();  // (if the plugin loaded them only now)
         fixWineDxgi();
         fixWineDirectWrite();
         closeEditor();
         // a borderless popup, not shown, where Tiny DAW's window is (plugins look at where their
         // window is when they make it: JUCE 8 picks the screen it repaints with then, once)
-        editorWindow = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, (LPCWSTR)EDITOR_CLASS, u"Tiny DAW plugin",
+#ifdef TINYDAW_PLUGIN_HOST
+        // (Windows: a child of Tiny DAW's window, at its corner; else, a failsafe, a window of its own there)
+        if (parent)
+            editorWindow = CreateWindowExW(WS_EX_NOPARENTNOTIFY, (LPCWSTR)EDITOR_CLASS, (LPCWSTR)u"Tiny DAW plugin",
+                                           WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 0, 0, 640, 400, parent, nullptr,
+                                           GetModuleHandleW(nullptr), nullptr);
+        if (!editorWindow)
+#endif
+        editorWindow = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, (LPCWSTR)EDITOR_CLASS, (LPCWSTR)u"Tiny DAW plugin",
                                        WS_POPUP | WS_CLIPCHILDREN, sx, sy, 640, 400, nullptr, nullptr,
                                        GetModuleHandleW(nullptr), nullptr);
         int pw = 0, ph = 0;
@@ -658,7 +702,7 @@ BOOL WINAPI dragGetCursorPos(POINT* p) {
 
 // every loaded module's imports of those three, pointed at the ones above
 void quietPointer() {
-    HMODULE user32 = LoadLibraryW(u"user32.dll");
+    HMODULE user32 = LoadLibraryW((LPCWSTR)u"user32.dll");
     realSetCursorPos = (void*)GetProcAddress(user32, "SetCursorPos");
     realGetCursorPos = (void*)GetProcAddress(user32, "GetCursorPos");
     realClipCursor = (void*)GetProcAddress(user32, "ClipCursor");
@@ -837,6 +881,9 @@ int serveMain(const std::string& socketName) {
 #ifdef TINYDAW_WINE_PE
     sock = unixside::connectUnix(socketName.c_str());
     if (sock < 0) {
+#elif defined(TINYDAW_PLUGIN_HOST)
+    sock = connectTo(socketName);
+    if (sock < 0) {
 #else
     sock = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     sockaddr_un addr{};
@@ -854,16 +901,16 @@ int serveMain(const std::string& socketName) {
     wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = messageProc;
     wc.hInstance = self;
-    wc.lpszClassName = u"TinyDAWHost";
+    wc.lpszClassName = (LPCWSTR)u"TinyDAWHost";
     RegisterClassExW(&wc);
     WNDCLASSEXW ec{};
     ec.cbSize = sizeof(ec);
     ec.lpfnWndProc = editorProc;
     ec.hInstance = self;
-    ec.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    ec.hCursor = LoadCursorW(nullptr, (LPCWSTR)IDC_ARROW);
     ec.lpszClassName = (LPCWSTR)EDITOR_CLASS;
     RegisterClassExW(&ec);
-    messageWindow = CreateWindowExW(0, u"TinyDAWHost", u"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, self, nullptr);
+    messageWindow = CreateWindowExW(0, (LPCWSTR)u"TinyDAWHost", (LPCWSTR)u"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, self, nullptr);
     SetTimer(messageWindow, IDLE_TIMER, IDLE_MS, nullptr);
     if (tracing)
         SetWindowsHookExW(WH_GETMESSAGE, traceHook, nullptr, GetCurrentThreadId());
@@ -899,6 +946,8 @@ DWORD WINAPI lifelineMain(LPVOID) {
 int classesMain(const std::string& listFile) {
 #ifdef TINYDAW_WINE_PE
     if (unixside::isFifo(0))
+#elif defined(TINYDAW_PLUGIN_HOST)
+    if (GetFileType(GetStdHandle(STD_INPUT_HANDLE)) == FILE_TYPE_PIPE)
 #else
     struct stat in {};
     if (fstat(0, &in) == 0 && S_ISFIFO(in.st_mode))
@@ -1066,7 +1115,7 @@ LONG WINAPI watchFaults(EXCEPTION_POINTERS* info) {
 }
 
 void watchForCrashes() {
-    ntdllModule = GetModuleHandleW(u"ntdll.dll");
+    ntdllModule = GetModuleHandleW((LPCWSTR)u"ntdll.dll");
     if (ntdllModule) {
         const unsigned char* base = (const unsigned char*)ntdllModule;
         uint32_t pe = *(const uint32_t*)(base + 0x3C);
@@ -1103,8 +1152,24 @@ int serveOnPluginThread(const std::string& socketName) {
 
 }  // namespace
 
+#ifdef TINYDAW_PLUGIN_HOST
+// (Windows) a plugin's crash ends the host at once: no error dialog for it, nothing waiting on it
+LONG WINAPI endOnCrash(EXCEPTION_POINTERS* info) {
+    const EXCEPTION_RECORD* r = info ? info->ExceptionRecord : nullptr;
+    std::fprintf(stderr, "tinydaw-plugin-host: the plugin crashed (exception %08x at %s); the host ends\n",
+                 r ? (unsigned)r->ExceptionCode : 0u, r ? whereIs(r->ExceptionAddress).c_str() : "?");
+    std::fflush(stderr);
+    TerminateProcess(GetCurrentProcess(), 3);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+#endif
+
 int main(int argc, char** argv) {
-#ifdef TINYDAW_WINE_PE
+#ifdef TINYDAW_PLUGIN_HOST
+    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+    SetUnhandledExceptionFilter(endOnCrash);
+#endif
+#if defined(TINYDAW_WINE_PE) || defined(TINYDAW_PLUGIN_HOST)
     _setmode(0, _O_BINARY);  // (as the Linux build's: "\n" stays "\n" for Tiny DAW, which reads the lines)
     _setmode(1, _O_BINARY);
     _setmode(2, _O_BINARY);

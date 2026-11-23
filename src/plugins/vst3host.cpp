@@ -44,7 +44,7 @@
 #include "plugins/plugin.h"
 #include "plugins/vst3_api.h"
 #include "plugins/winlib.h"
-#ifndef _WIN32
+#ifndef TINYDAW_IN_HOST
 #include "plugins/library.h"
 #include "plugins/wine.h"
 #endif
@@ -1586,8 +1586,8 @@ std::string vst3Binary(const std::string& bundle) {
 }
 
 std::vector<ClassInfo> vst3Classes(const std::string& path, std::string& error) {
-#ifndef _WIN32
-    if (wine::isWindowsPlugin(loadableFile(path)))  // (a Windows plugin: asked through Wine)
+#ifndef TINYDAW_IN_HOST
+    if (wine::isWindowsPlugin(loadableFile(path)))  // (a Windows plugin: asked through Wine; on Windows, of its own host)
         return bridgedClasses(loadableFile(path), error);
 #endif
     std::vector<ClassInfo> result;

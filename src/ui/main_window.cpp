@@ -711,15 +711,25 @@ void MainWindow::buildOptionsMenu() {
     ui::Menu* starts = menu->addMenu("&New projects start from");  // (an empty project, or a template: templates.h)
     starts->aboutToShow = [this](ui::Menu* m) { templates::fillDefaultMenu(m, *this); };
     menu->addAction("&VST2 plugin folders…", [this] { chooseVst2Folders(); });
+#ifndef _WIN32  // (Wine's: on Windows plugins and their installers run as they are)
     menu->addAction("&Wine prefixes…", [this] { chooseWinePrefixes(); });
     menu->addAction("&Install Windows plugin…", [this] { installWindowsPlugin(); });
+#endif
     menu->addAction("&Keyboard shortcuts…", [this] { showShortcuts(); })->tooltip =
         "Every command and its keys: find one, give it other keys; keymaps to import and export";
+#ifdef _WIN32
+    menu->addCheckable("Reload crashed plugins automaticall&y", prefs.reloadCrashedPlugins, [this](bool on) {
+            prefs.reloadCrashedPlugins = plugins->autoReload = on;
+            prefs.save();
+        })->tooltip = "A plugin whose plugin host crashed starts again by itself, with the settings it last had "
+                      "(at most 3 times a minute; then it stays stopped)";
+#else
     menu->addCheckable("Reload crashed Windows plugins automaticall&y", prefs.reloadCrashedPlugins, [this](bool on) {
             prefs.reloadCrashedPlugins = plugins->autoReload = on;
             prefs.save();
         })->tooltip = "A Windows plugin whose Wine host crashed starts again by itself, with the settings it last had "
                       "(at most 3 times a minute; then it stays stopped)";
+#endif
     menu->addCheckable("&Warp new audio files", prefs.warpNewFiles, [this](bool on) {
             prefs.warpNewFiles = timeline->warpNewFiles = on;
             prefs.save();

@@ -16,6 +16,12 @@
 // auxiliary audio input (VST3), or its 3rd and 4th inputs (VST2), is its sidechain.
 #pragma once
 #include <cstdint>
+
+// built into a plugin host (src/winehost: the Wine hosts, or tinydaw-plugin-host.exe on Windows), not the
+// program: the plugin is loaded here, never passed on to another host
+#if defined(TINYDAW_WINE_HOST) || defined(TINYDAW_WINE_PE) || defined(TINYDAW_PLUGIN_HOST)
+#define TINYDAW_IN_HOST 1
+#endif
 #include <memory>
 #include <string>
 #include <vector>

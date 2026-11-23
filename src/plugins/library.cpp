@@ -13,15 +13,49 @@
 
 #include "core/util.h"
 #include "platform/platform.h"
-#ifndef _WIN32
 #include "plugins/wine.h"
+#ifdef _WIN32
+#include <windows.h>
 #endif
 
 namespace plug {
 
+#ifdef _WIN32
+namespace {
+// an environment variable's folder (Windows' own names: %CommonProgramFiles%…), else `otherwise`
+std::string envFolder(const char* name, const char* otherwise) {
+    const char* v = getenv(name);
+    return v && *v ? v : otherwise;
+}
+
+// VST2's folder as installers write it in the registry (HKLM, then HKCU: SOFTWARE\VST, VSTPluginsPath)
+std::vector<std::string> registryVst2Folders() {
+    std::vector<std::string> out;
+    for (HKEY root : {HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER})
+        for (REGSAM view : {KEY_WOW64_64KEY, KEY_WOW64_32KEY}) {
+            wchar_t value[1024];
+            DWORD size = sizeof value;
+            if (RegGetValueW(root, L"SOFTWARE\\VST", L"VSTPluginsPath", RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ | view, nullptr,
+                             value, &size) != ERROR_SUCCESS)
+                continue;
+            int n = WideCharToMultiByte(CP_UTF8, 0, value, -1, nullptr, 0, nullptr, nullptr);
+            std::string s(n > 0 ? n - 1 : 0, '\0');
+            if (n > 1) WideCharToMultiByte(CP_UTF8, 0, value, -1, &s[0], n, nullptr, nullptr);
+            while (s.size() > 3 && (s.back() == '\\' || s.back() == '/')) s.pop_back();
+            if (!s.empty() && std::find(out.begin(), out.end(), s) == out.end()) out.push_back(s);
+        }
+    return out;
+}
+}  // namespace
+#endif
+
 std::vector<std::string> defaultFolders() {
 #ifdef _WIN32
-    std::vector<std::string> f = {"C:\\Program Files\\Common Files\\VST3"};
+    // the VST3 folder (and, for 32-bit plugins, its 32-bit twin), and the one of a plugin installed for one user
+    std::string common = envFolder("CommonProgramFiles", "C:\\Program Files\\Common Files");
+    std::string common32 = envFolder("CommonProgramFiles(x86)", "C:\\Program Files (x86)\\Common Files");
+    std::vector<std::string> f = {common + "\\VST3"};
+    if (util::lower(common32) != util::lower(common)) f.push_back(common32 + "\\VST3");
     if (const char* local = getenv("LOCALAPPDATA"))
         f.push_back(std::string(local) + "\\Programs\\Common\\VST3");
     return f;
@@ -32,8 +66,14 @@ std::vector<std::string> defaultFolders() {
 
 std::vector<std::string> vst2UsualFolders() {
 #ifdef _WIN32
-    return {"C:\\Program Files\\VstPlugins", "C:\\Program Files\\Steinberg\\VstPlugins",
-            "C:\\Program Files\\Common Files\\VST2", "C:\\Program Files\\Common Files\\Steinberg\\VST2"};
+    // the registry's, then the usual ones, in Program Files and (32-bit plugins) Program Files (x86)
+    std::vector<std::string> f = registryVst2Folders();
+    for (const std::string& root : {envFolder("ProgramFiles", "C:\\Program Files"),
+                                    envFolder("ProgramFiles(x86)", "C:\\Program Files (x86)")})
+        for (const char* rel : {"\\VstPlugins", "\\Steinberg\\VstPlugins", "\\Common Files\\VST2",
+                                "\\Common Files\\Steinberg\\VST2"})
+            if (std::find(f.begin(), f.end(), root + rel) == f.end()) f.push_back(root + rel);
+    return f;
 #else
     return {util::joinPath(plat::homeDir(), ".vst"), "/usr/lib/vst", "/usr/local/lib/vst", "/usr/lib/lxvst"};
 #endif
@@ -41,7 +81,12 @@ std::vector<std::string> vst2UsualFolders() {
 
 bool PluginInfo::is32Bit() const {
 #ifdef _WIN32
-    return false;
+    static std::mutex lock;
+    static std::map<std::string, bool> known;  // (labels are asked for often; a file's header once)
+    std::lock_guard<std::mutex> hold(lock);
+    auto it = known.find(path);
+    if (it == known.end()) it = known.emplace(path, wine::is32BitPlugin(loadableFile(path))).first;
+    return it->second;
 #else
     static std::mutex lock;
     static std::map<std::string, bool> known;  // (labels are asked for often; a file's header once)
@@ -75,20 +120,24 @@ PluginChoiceNeeded::PluginChoiceNeeded(std::vector<std::string> n)
       names(std::move(n)) {}
 
 std::string loadableFile(const std::string& path) {
+#ifndef TINYDAW_IN_HOST
+    if (util::isDir(path) && !util::fileExists(vst3Binary(path)))  // (64-bit, else 32-bit: in a host for it)
+#ifdef _WIN32
+        for (const char* arch : {"Contents\\x86_64-win", "Contents\\x86-win"}) {
+#else
+        for (const char* arch : {"Contents/x86_64-win", "Contents/x86-win"}) {
+#endif
+            std::string windows = util::joinPath(util::joinPath(path, arch), util::baseName(path));
+            if (util::fileExists(windows) && !util::isDir(windows))
+                return windows;
+        }
+#endif
 #if defined(_WIN32) && defined(__i386__)
     std::string inner = util::joinPath(util::joinPath(path, "Contents\\x86-win"), util::baseName(path));
 #elif defined(_WIN32)
     std::string inner = util::joinPath(util::joinPath(path, "Contents\\x86_64-win"), util::baseName(path));
 #else
     std::string inner = vst3Binary(path);
-    if (util::isDir(path) && !util::fileExists(inner))  // (a Windows bundle, run through Wine: 64-bit, else 32-bit)
-        for (const char* arch : {"Contents/x86_64-win", "Contents/x86-win"}) {
-            std::string windows = util::joinPath(util::joinPath(path, arch), util::baseName(path));
-            if (util::fileExists(windows)) {
-                inner = windows;
-                break;
-            }
-        }
 #endif
     return util::isDir(path) && util::fileExists(inner) && !util::isDir(inner) ? inner : path;
 }
@@ -161,6 +210,7 @@ constexpr int MAX_FOLDERS = 50000;
 
 struct Walk {
     std::set<std::pair<dev_t, ino_t>> seen;
+    std::set<std::string> seenPaths;  // (Windows: no inode numbers; its folders, as named, lowercase)
     int folders = 0;
 };
 
@@ -176,9 +226,15 @@ bool isWinePrefix(const std::string& folder) {
 void findNamed(const std::string& folder, const std::string& suffix, std::vector<std::string>& out, Walk& walk,
                bool inWine = false, int depth = 0) {
     struct stat st;
+#ifdef _WIN32
+    if (depth > 32 || ++walk.folders > MAX_FOLDERS || stat(folder.c_str(), &st) != 0 ||
+        !walk.seenPaths.insert(util::lower(folder)).second)
+        return;
+#else
     if (depth > 32 || ++walk.folders > MAX_FOLDERS || stat(folder.c_str(), &st) != 0 ||
         !walk.seen.insert({st.st_dev, st.st_ino}).second)
         return;
+#endif
     bool prefix = !inWine && isWinePrefix(folder);
     inWine = inWine || prefix;
     for (const auto& e : util::listDir(folder)) {
@@ -189,6 +245,7 @@ void findNamed(const std::string& folder, const std::string& suffix, std::vector
             out.push_back(path);
         if (!e.isDir)
             continue;
+#ifndef _WIN32  // (no Wine prefixes there)
         if (inWine) {
             struct stat link;
             if (lstat(path.c_str(), &link) == 0 && S_ISLNK(link.st_mode))
@@ -197,6 +254,7 @@ void findNamed(const std::string& folder, const std::string& suffix, std::vector
                 (util::baseName(folder) == "drive_c" && util::lower(e.name) == "windows"))
                 continue;
         }
+#endif
         findNamed(path, suffix, out, walk, inWine, depth + 1);
     }
 }

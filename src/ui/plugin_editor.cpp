@@ -172,7 +172,7 @@ void EditorWindow::showStopped() {
     if (reloadable) {
         auto row = std::make_unique<ui::HBox>();
         auto* reload = add<ui::Button>("Reload");
-        reload->setToolTip("Start " + slot->name + " again in a new Wine host, with the settings it last had");
+        reload->setToolTip("Start " + slot->name + " again in a new " + wine::HOST_NAME + ", with the settings it last had");
         reload->clicked.connect([this] {
             SlotPtr s = slot;
             reloadRequested.emit(s);

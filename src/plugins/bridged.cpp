@@ -22,6 +22,12 @@
 // puts that window's X11 window (Wine's) inside its own plugin window, embedded by XEmbed, and tells
 // the host where on the screen it really is (for the plugin's sums with the mouse); embedded, Wine
 // takes that without moving its X11 window. (Should it move or leave anyway, it is put back.)
+//
+// On Windows itself (plugins/wine_win.cpp) the host is tinydaw-plugin-host.exe, a Windows program,
+// our child (no launcher between): the socket, shared memory and wake-ups are Windows' (bridge_win.h),
+// and the plugin's window is a child window of ours, made by the host in it (a window of another
+// process's); it moves with ours. Where the host couldn't make it there, its own window is kept over
+// ours (EDITOR_PLACE) instead.
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
@@ -35,6 +41,12 @@
 #include <stdexcept>
 #include <thread>
 
+#ifdef _WIN32
+#include <io.h>
+#include <unistd.h>
+
+#include "plugins/child_win.h"
+#else
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/mman.h>
@@ -43,6 +55,7 @@
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#endif
 
 #include "core/json.h"
 #include "core/util.h"
@@ -54,10 +67,17 @@
 #include "plugins/probe.h"
 #include "plugins/wine.h"
 
+#ifndef _WIN32
 #include "platform/x11_api.h"  // (last: Xlib's macros, Bool, None…, would clash with names above)
+#endif
 
 namespace plug {
+#ifdef _WIN32
+using Window = uintptr_t;  // (Windows: a window's HWND)
+struct Display;
+#else
 TINYDAW_X11(TINYDAW_X11_USE)  // (loaded with the display: these windows are the GUI's)
+#endif
 
 namespace {
 
@@ -94,6 +114,82 @@ public:
 private:
     std::atomic_flag flag = ATOMIC_FLAG_INIT;
 };
+
+// the temporary folder (the lists given to a host)
+std::string tempFolder() {
+#ifdef _WIN32
+    wchar_t dir[MAX_PATH + 1];
+    DWORD n = GetTempPathW(MAX_PATH + 1, dir);
+    std::string s = n ? narrow(std::wstring(dir, n)) : std::string("C:\\Windows\\Temp");
+    while (s.size() > 3 && (s.back() == '\\' || s.back() == '/'))
+        s.pop_back();
+    return s;
+#else
+    const char* tmp = getenv("TMPDIR");
+    return tmp && *tmp ? tmp : "/tmp";
+#endif
+}
+
+#ifdef _WIN32
+int ownPid() { return (int)GetCurrentProcessId(); }
+void removeName(const std::string& path) {
+    if (!path.empty())
+        DeleteFileW(wide(path).c_str());
+}
+
+// (Windows: the host is our child itself, no launcher between; its process by its handle, as a pidfd)
+bool processAlive(int pid) {
+    HANDLE h = pid > 0 ? OpenProcess(SYNCHRONIZE, FALSE, (DWORD)pid) : nullptr;
+    if (!h)
+        return false;
+    bool alive = WaitForSingleObject(h, 0) == WAIT_TIMEOUT;
+    CloseHandle(h);
+    return alive;
+}
+
+int launcherEnded(int launcher) {
+    int code = -1;
+    return launcher > 0 && child::finished(launcher, code) ? code : -1;
+}
+
+int processHandle(int pid) {
+    HANDLE h = pid > 0 ? OpenProcess(SYNCHRONIZE | PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, (DWORD)pid)
+                       : nullptr;
+    return h ? (int)(intptr_t)h : -1;  // (a handle's 32 significant bits, as Windows keeps them)
+}
+
+bool running(int host, int handle) {
+    return handle >= 0 ? WaitForSingleObject((HANDLE)(intptr_t)handle, 0) == WAIT_TIMEOUT : processAlive(host);
+}
+
+bool mainThreadEnded(int) { return false; }  // (Wine's trouble: on Windows a plugin's crash ends its host)
+
+void killHost(int host, int handle) {
+    if (handle >= 0)
+        TerminateProcess((HANDLE)(intptr_t)handle, 1);
+    else if (host > 0)
+        child::kill(host);
+}
+
+void endProcesses(int host, int handle, int& launcher, double graceSeconds) {
+    double until = secondsNow() + graceSeconds;
+    while (host > 0 && running(host, handle) && secondsNow() < until)
+        Sleep(10);
+    if (host > 0 && running(host, handle))
+        killHost(host, handle);
+    if (handle >= 0)
+        CloseHandle((HANDLE)(intptr_t)handle);
+    while (launcher > 0 && launcherEnded(launcher) < 0 && secondsNow() < until)
+        Sleep(10);
+    if (launcher > 0 && launcherEnded(launcher) < 0)
+        child::kill(launcher);
+    launcher = -1;
+}
+#else
+int ownPid() { return (int)getpid(); }
+void closeSocket(int fd) { close(fd); }
+void removeName(const std::string& path) { unlink(path.c_str()); }
+void unlinkShared(const std::string& name) { shm_unlink(name.c_str()); }
 
 // a process that isn't our child (the host: Wine's launcher started it), still there?
 bool processAlive(int pid) { return pid > 0 && (kill(pid, 0) == 0 || errno == EPERM); }
@@ -170,6 +266,7 @@ void endProcesses(int host, int handle, int& launcher, double graceSeconds) {
     }
     launcher = -1;
 }
+#endif
 
 class BridgedPlugin final : public Plugin {
 public:
@@ -179,7 +276,17 @@ public:
             throw std::runtime_error(why);
         changes.reserve((size_t)MAX_PARAM_CHANGES);
         int n = ++made;
-        std::string tag = std::to_string((long)getpid()) + "-" + std::to_string(n);
+        std::string tag = std::to_string((long)ownPid()) + "-" + std::to_string(n);
+#ifdef _WIN32
+        shmName = "Local\\tinydaw-plugin-" + tag;  // (this session's)
+        void* m = mapShared(shmName, sizeof(AudioBlock), true);
+        if (!m)
+            throw std::runtime_error("Cannot make the shared memory for a plugin host");
+        block = new (m) AudioBlock();
+        // (its two futex words, woken through events of their own: else polled, bridge_win.h)
+        if (!bindWake(&block->request, shmName + "-request", true) || !bindWake(&block->done, shmName + "-done", true))
+            util::debugf("plugin host: no events for %s: its buffers are polled\n", shmName.c_str());
+#else
         shmName = "/tinydaw-wine-" + tag;
         int fd = shm_open(shmName.c_str(), O_CREAT | O_EXCL | O_RDWR, 0600);
         if (fd < 0 || ftruncate(fd, sizeof(AudioBlock)) != 0) {
@@ -195,6 +302,7 @@ public:
             throw std::runtime_error("Cannot map the shared memory for a Windows plugin");
         }
         block = new (m) AudioBlock();
+#endif
         try {
             start(path, wanted, tag);
         } catch (...) {
@@ -402,7 +510,7 @@ public:
                 stateFetched = true;
                 return knownComponent;
             }
-            throw std::runtime_error(name_ + " didn't give its settings (its Wine host doesn't answer)");
+            throw std::runtime_error(name_ + " didn't give its settings (its " + wine::HOST_NAME + " doesn't answer)");
         }
         Reader r(answer);
         std::string component = r.str();
@@ -427,7 +535,7 @@ public:
     void setState(const std::string& component, const std::string& controller) override {
         std::string answer;
         if (!call(SET_STATE, Writer().str(component).str(controller), answer, STATE_SECONDS))
-            throw std::runtime_error(name_ + " didn't take its settings (its Wine host doesn't answer)");
+            throw std::runtime_error(name_ + " didn't take its settings (its " + wine::HOST_NAME + " doesn't answer)");
         Reader r(answer);
         bool ok = r.b();
         std::string error = r.str();
@@ -443,6 +551,51 @@ public:
 
     // --- the window ---
 
+#ifdef _WIN32
+    // (Windows: the host makes the plugin's window inside ours, `parent`, an HWND; display isn't used)
+    bool openEditor(uintptr_t parent, void* display, double scale, int& w, int& h) override {
+        closeEditor();
+        if (!parent || !IsWindow((HWND)parent))
+            return false;
+        POINT at{0, 0};
+        ClientToScreen((HWND)parent, &at);
+        std::string answer;
+        if (!call(OPEN_EDITOR, Writer().f64(scale).i32(at.x).i32(at.y).i64((int64_t)parent), answer, CALL_SECONDS))
+            return false;
+        Reader r(answer);
+        bool ok = r.b();
+        uint64_t made = (uint64_t)r.i64();
+        int pw = r.i32(), ph = r.i32();
+        bool resizable = r.b();
+        if (!r.ok() || !ok || !made)
+            return false;
+        parentWindow = (Window)parent;
+        wineWindow = (Window)made;
+        resizable_ = resizable;
+        editorKnown = 1;
+        post(SHOW_EDITOR, Writer());
+        placedX = placedY = INT32_MIN;
+        keepEditorInPlace();
+        w = pw > 0 ? pw : 640;
+        h = ph > 0 ? ph : 400;
+        return true;
+    }
+
+    void closeEditor() override {
+        if (!wineWindow)
+            return;
+        Window going = wineWindow;
+        wineWindow = 0;
+        std::string answer;
+        // the host closes the plugin's view and its window. One that doesn't answer is ended: its window,
+        // inside ours, would hold ours when that goes (Windows waits on a child window's own thread)
+        if (!call(CLOSE_EDITOR, Writer(), answer, CLOSE_SECONDS) && !dead && IsWindow((HWND)going))
+            crashed();
+        resizeWanted = false;
+        if (!dead)
+            stateDue = secondsNow();  // (what was changed in it: kept with the next idle())
+    }
+#else
     bool openEditor(uintptr_t parent, void* display, double scale, int& w, int& h) override {
         closeEditor();
         if (!display || !parent)
@@ -495,6 +648,7 @@ public:
         if (!dead)
             stateDue = secondsNow();  // (what was changed in it: kept with the next idle())
     }
+#endif
 
     bool editorOpen() const override { return wineWindow != 0; }
 
@@ -659,6 +813,18 @@ private:
     int placedX = INT32_MIN, placedY = INT32_MIN;
 
     void start(const std::string& path, const std::string& wanted, const std::string& tag) {
+#ifdef _WIN32
+        // the socket: a file in this user's temporary folder (only theirs), else TCP on the loopback (bridge_win.h)
+        std::string dir = util::joinPath(tempFolder(), "tinydaw-plugins");
+        util::makeDirs(dir);
+        socketPath = util::joinPath(dir, tag + ".sock");
+        std::string socketName, why;
+        int listener = listenFor(socketPath, socketName, why);
+        if (listener < 0)
+            throw std::runtime_error(why);
+        if (socketName != socketPath)
+            socketPath.clear();  // (TCP: no file)
+#else
         // the socket: a file in a folder only we can enter ($XDG_RUNTIME_DIR, else the temporary folder)
         const char* runtime = getenv("XDG_RUNTIME_DIR");
         const char* tmp = getenv("TMPDIR");
@@ -669,7 +835,7 @@ private:
         if (lstat(dir.c_str(), &own) != 0 || !S_ISDIR(own.st_mode) || own.st_uid != getuid() || (own.st_mode & 077))
             throw std::runtime_error("The folder for Windows plugins' sockets isn't only Tiny DAW's (" + dir + ")");
         socketPath = util::joinPath(dir, tag + ".sock");
-        unlink(socketPath.c_str());
+        removeName(socketPath);
         int listener = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
         sockaddr_un addr{};
         addr.sun_family = AF_UNIX;
@@ -686,6 +852,7 @@ private:
         }
         const std::string& socketName = socketPath;
         std::string why;
+#endif
         launcher = wine::spawnHost(wine::prefixFor(path), {"--serve", socketName}, -1, why, -1, wine::is32BitPlugin(path));
         if (launcher < 0) {
             close(listener);
@@ -695,9 +862,28 @@ private:
         bool launcherDone = false;
         while (sock < 0) {
             if (readable(listener, 100)) {
+#ifdef _WIN32
+                sock = acceptOne(listener);
+#else
                 sock = accept4(listener, nullptr, nullptr, SOCK_CLOEXEC);
+#endif
                 break;
             }
+#ifdef _WIN32
+            // (Windows: the host itself, our child: ended before it connected, it won't)
+            int code = launcherEnded(launcher);
+            if (code >= 0) {
+                launcher = -1;
+                closeSocket(listener);
+                throw std::runtime_error("The plugin host for " + util::baseName(path) + " ended as it started (exit code " +
+                                         std::to_string(code) + ")");
+            }
+            if (secondsNow() > until) {
+                closeSocket(listener);
+                throw std::runtime_error("The plugin host took too long to start for " + util::baseName(path));
+            }
+            continue;
+#endif
             // (Wine's launcher ends as the host starts, with some status of its own; once it has
             // ended, the host has a while to connect, else Wine couldn't start it)
             if (!launcherDone && launcherEnded(launcher) >= 0) {
@@ -706,7 +892,7 @@ private:
                 until = std::min(until, secondsNow() + 15);
             }
             if (secondsNow() > until) {
-                close(listener);
+                closeSocket(listener);
                 throw std::runtime_error(launcherDone ? "Wine couldn't start the plugin host for " + util::baseName(path) +
                                                             " (try running winecfg once for the prefix " +
                                                             wine::prefixFor(path) + ")"
@@ -714,8 +900,8 @@ private:
                                                             util::baseName(path));
             }
         }
-        close(listener);
-        unlink(socketPath.c_str());  // (connected: the name isn't needed any more)
+        closeSocket(listener);
+        removeName(socketPath);  // (connected: the name isn't needed any more)
         if (sock < 0)
             throw std::runtime_error("The plugin host for " + util::baseName(path) + " didn't connect");
         Header h;
@@ -726,12 +912,13 @@ private:
         pid = hr.i32();
         hostHandle = processHandle(pid);
         if (hr.u32() != VERSION)
-            throw std::runtime_error("tinydaw-wine-host.exe is of another version than Tiny DAW (make builds both)");
+            throw std::runtime_error(util::baseName(wine::hostPath(wine::is32BitPlugin(path))) +
+                                     " is of another version than Tiny DAW (make builds both)");
         std::string answer;
         if (!call(LOAD, Writer().str(path).str(wanted).str(shmName).f64(sampleRate_.load()), answer, LOAD_SECONDS))
-            throw std::runtime_error(dead ? util::baseName(path) + " crashed its Wine host while loading"
+            throw std::runtime_error(dead ? util::baseName(path) + " crashed its " + wine::HOST_NAME + " while loading"
                                           : util::baseName(path) + " took too long to load");
-        shm_unlink(shmName.c_str());  // (the host has it open; nothing is left behind)
+        unlinkShared(shmName);  // (the host has it open; nothing is left behind)
         shmName.clear();
         Reader r(answer);
         bool ok = r.b();
@@ -757,7 +944,7 @@ private:
             size_t sent;
             if (!dead)
                 sendAllWithin(sock, quit.data(), quit.size(), 0, sent);  // (if it fits: a hung host is killed below)
-            close(sock);
+            closeSocket(sock);
             sock = -1;
         }
         // (it ends by itself when told, or when the socket closes; it is waited for, and killed if
@@ -769,17 +956,26 @@ private:
         launcher = -1;
         if (block) {
             block->~AudioBlock();
+#ifdef _WIN32
+            unbindWake(&block->request);
+            unbindWake(&block->done);
+            unmapShared(block);
+#else
             munmap(block, sizeof(AudioBlock));
+#endif
             block = nullptr;
         }
         if (!shmName.empty())
-            shm_unlink(shmName.c_str());
+            unlinkShared(shmName);
         if (!socketPath.empty())
-            unlink(socketPath.c_str());
+            removeName(socketPath);
     }
 
     void died() {
         dead = true;
+#ifdef _WIN32
+        wineWindow = 0;  // (its window went with the host)
+#endif
         if (wineWindow && dpy) {
             wineWindow = 0;  // (Wine's window went with the host)
         }
@@ -948,10 +1144,10 @@ private:
     // do a buffer in its time (an export would go on without it)
     void failIfEnded() {
         if (dead)
-            throw std::runtime_error(name_ + "'s Wine host has ended (the plugin crashed)");
+            throw std::runtime_error(name_ + "'s " + wine::HOST_NAME + " has ended (the plugin crashed)");
         if (lateOffline) {
             lateOffline = false;
-            throw std::runtime_error(name_ + " didn't finish a buffer in time (its Wine host doesn't answer)");
+            throw std::runtime_error(name_ + " didn't finish a buffer in time (its " + wine::HOST_NAME + " doesn't answer)");
         }
     }
 
@@ -1194,6 +1390,21 @@ private:
             }
     }
 
+#ifdef _WIN32
+    // (Windows) a window inside ours moves with it; only the host's failsafe, a window of its own, is put
+    // over ours, where ours is on the screen
+    void keepEditorInPlace() {
+        if (!wineWindow || !parentWindow || GetParent((HWND)wineWindow) == (HWND)parentWindow)
+            return;
+        POINT at{0, 0};
+        ClientToScreen((HWND)parentWindow, &at);
+        if (at.x != placedX || at.y != placedY) {
+            placedX = at.x, placedY = at.y;
+            if (!post(EDITOR_PLACE, Writer().i32(at.x).i32(at.y)))
+                placedX = placedY = INT32_MIN;  // (told again once the host takes messages)
+        }
+    }
+#else
     // XEmbed: Wine's window is told it is embedded in ours (XEMBED_EMBEDDED_NOTIFY). Wine then
     // follows ours as its parent, and a change of place only changes where Windows thinks the
     // window is: its X11 window stays at our corner (else Wine moved it, to its screen place inside
@@ -1245,6 +1456,7 @@ private:
         }
         XFlush(dpy);
     }
+#endif
 };
 
 }  // namespace
@@ -1312,9 +1524,8 @@ int bridgedLateBuffers(Plugin& plugin) {
 std::vector<ClassInfo> bridgedClasses(const std::string& path, std::string& error) {
     std::vector<ClassInfo> result;
     static std::atomic<int> lists{0};
-    const char* tmp = getenv("TMPDIR");
-    std::string list = util::joinPath(tmp && *tmp ? tmp : "/tmp", "tinydaw-classes-" + std::to_string((long)getpid()) +
-                                                                       "-" + std::to_string(++lists) + ".json");
+    std::string list = util::joinPath(tempFolder(), "tinydaw-classes-" + std::to_string((long)ownPid()) + "-" +
+                                                        std::to_string(++lists) + ".json");
     if (!util::writeFile(list, Json::array({Json(path)}).dump())) {
         error = "Cannot write " + list;
         return result;
@@ -1322,16 +1533,20 @@ std::vector<ClassInfo> bridgedClasses(const std::string& path, std::string& erro
     // (its answer comes through fds; life is its lifeline, its stdin: when we let go of our end, done
     // or this process killed (a scan's probe that took too long), it ends, hung or not)
     int fds[2], life[2];
+#ifdef _WIN32
+    auto pipe2 = [](int p[2], int) { return child::pipe(p) ? 0 : -1; };
+    constexpr int O_CLOEXEC = 0;
+#endif
     if (pipe2(fds, O_CLOEXEC) != 0) {
         util::removeFile(list);
-        error = "Cannot start the Wine host";
+        error = std::string("Cannot start the ") + wine::HOST_NAME;
         return result;
     }
     if (pipe2(life, O_CLOEXEC) != 0) {
         close(fds[0]);
         close(fds[1]);
         util::removeFile(list);
-        error = "Cannot start the Wine host";
+        error = std::string("Cannot start the ") + wine::HOST_NAME;
         return result;
     }
     int pid = wine::spawnHost(wine::prefixFor(path), {"--classes", list}, fds[1], error, life[0],
@@ -1343,8 +1558,16 @@ std::vector<ClassInfo> bridgedClasses(const std::string& path, std::string& erro
     double until = secondsNow() + START_SECONDS + LOAD_SECONDS;
     char chunk[4096];
     while (pid > 0 && secondsNow() < until) {
+#ifdef _WIN32
+        int ready = child::readable(fds[0], 200);  // (a pipe: not a socket, nor polled as one)
+        if (ready < 0)
+            break;
+        if (ready == 0)
+            continue;
+#else
         if (!readable(fds[0], 200))
             continue;
+#endif
         ssize_t k = read(fds[0], chunk, sizeof(chunk));
         if (k <= 0)
             break;
@@ -1367,7 +1590,7 @@ std::vector<ClassInfo> bridgedClasses(const std::string& path, std::string& erro
         return result;
     size_t at = output.rfind(PROBE_MARK);
     if (at == std::string::npos) {
-        error = util::baseName(path) + " crashed or hung its Wine host";
+        error = util::baseName(path) + " crashed or hung its " + wine::HOST_NAME;
         return result;
     }
     std::string line = output.substr(at + std::strlen(PROBE_MARK));

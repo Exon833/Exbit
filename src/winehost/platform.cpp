@@ -26,7 +26,11 @@ int watchFd(int, std::function<void()>) { return -1; }
 void unwatchFd(int) {}
 
 std::string homeDir() {
+#ifdef TINYDAW_PLUGIN_HOST
+    const char* home = getenv("USERPROFILE");  // (Windows itself)
+#else
     const char* home = getenv("HOME");
+#endif
     return home && *home ? home : "/";
 }
 

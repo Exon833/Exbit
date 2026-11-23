@@ -215,7 +215,7 @@ void PluginHost::noticeStopped(const std::vector<SlotPtr>& slots) {
         if (!canBe) {
             status(slot->name + " stopped after an error: " + slot->error, 8000);
         } else if (!autoReload || !crashed) {
-            status(slot->name + (plug::bridgedHostEnded(*instance) ? " stopped: its Wine host crashed"
+            status(slot->name + (plug::bridgedHostEnded(*instance) ? " stopped: its " + std::string(wine::HOST_NAME) + " crashed"
                                                                    : " stopped (" + slot->error + ")") +
                        ". Reload it from its effects window or its menu.",
                    8000);
@@ -298,7 +298,7 @@ bool PluginHost::reload(const SlotPtr& slot, std::string& why) {
                                   [&](const std::weak_ptr<PluginSlot>& w) { return w.lock() == slot; }),
                    stopped_.end());
     slotChanged.emit(slot);
-    status("Reloaded " + slot->name + (crashed ? " (its Wine host had crashed)" : " (it had stopped: " + stoppedBy + ")"),
+    status("Reloaded " + slot->name + (crashed ? " (its " + std::string(wine::HOST_NAME) + " had crashed)" : " (it had stopped: " + stoppedBy + ")"),
            6000);
     if (wasOpen) edit(slot, whereOf(slot));
     return true;

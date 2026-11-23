@@ -14,6 +14,13 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#ifndef TINYDAW_WINE_HOST  // (a Windows program: its C runtime's; not Winelib's)
+#include <fcntl.h>
+#include <io.h>
+#endif
+#ifndef TINYDAW_IN_HOST
+#include "plugins/child_win.h"
+#endif
 #else
 #include <fcntl.h>
 #include <poll.h>
@@ -81,6 +88,9 @@ static void say(const Json& entry) {
 }
 
 int runProbe(const std::string& listFile) {
+#if defined(_WIN32) && !defined(TINYDAW_WINE_HOST)
+    _setmode(_fileno(stdout), _O_BINARY);  // ("\n" stays "\n": the finder reads lines)
+#endif
     std::string text;
     if (!util::readFile(listFile, text))
         return 2;
@@ -109,7 +119,7 @@ int runProbe(const std::string& listFile) {
 #endif
 }
 
-#ifndef TINYDAW_WINE_HOST  // (the Wine host only probes: src/winehost)
+#ifndef TINYDAW_IN_HOST  // (the plugin hosts only probe: src/winehost)
 // ===================================================================================== the finder
 
 static double secondsNow() {
@@ -122,9 +132,15 @@ KindFinder::KindFinder(PluginLibrary& lib, Spawner s) : library(lib), spawner(st
     todo = library.unknownFiles();
     total_ = (int)todo.size();
     static std::atomic<int> made{0};
+#ifdef _WIN32
+    const char* tmp = getenv("TEMP");
+    listFile = util::joinPath(tmp && *tmp ? tmp : "C:\\Windows\\Temp", "tinydaw-probe-" +
+                                  std::to_string((long)GetCurrentProcessId()) + "-" + std::to_string(++made) + ".json");
+#else
     const char* tmp = getenv("TMPDIR");
     listFile = util::joinPath(tmp && *tmp ? tmp : "/tmp",
                               "tinydaw-probe-" + std::to_string((long)getpid()) + "-" + std::to_string(++made) + ".json");
+#endif
 }
 
 KindFinder::~KindFinder() {
@@ -134,9 +150,16 @@ KindFinder::~KindFinder() {
 
 int KindFinder::spawnSelf(const std::string& list, int outFd) {
 #ifdef _WIN32
-    (void)list;
-    (void)outFd;
-    return -1;  // (not on Windows yet)
+    // this program again, its output to outFd (its own messages, stderr, to nowhere: as on Linux)
+    wchar_t exe[MAX_PATH * 4];
+    DWORD n = GetModuleFileNameW(nullptr, exe, MAX_PATH * 4);
+    if (!n || n >= MAX_PATH * 4)
+        return -1;
+    int len = WideCharToMultiByte(CP_UTF8, 0, exe, (int)n, nullptr, 0, nullptr, nullptr);
+    std::string path(len, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, exe, (int)n, &path[0], len, nullptr, nullptr);
+    std::string why;
+    return child::spawn(path, {"--probe", list}, -1, outFd, why);
 #else
     char exe[4096];
     ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
@@ -167,7 +190,13 @@ void KindFinder::start(bool useMainLoop) {
 bool KindFinder::poll(int timeoutMs) {
     if (!working())
         return false;
-#ifndef _WIN32
+#ifdef _WIN32
+    if (fd >= 0 && child::readable(fd, std::max(0, timeoutMs)) != 0 && !readAvailable()) {
+        ended();
+        return working();
+    }
+    checkTime();
+#else
     if (fd >= 0) {
         pollfd p{fd, POLLIN, 0};
         if (::poll(&p, 1, std::max(0, timeoutMs)) > 0 && !readAvailable()) {
@@ -194,17 +223,16 @@ void KindFinder::next() {
             finished(found_);
         return;
     }
-#ifdef _WIN32
-    done_ = true;
-    if (finished)
-        finished(found_);
-#else
     Json list = Json::array();
     for (const auto& f : todo)
         list.push(Json(f));
     util::writeFile(listFile, list.dump());
     int fds[2];
+#ifdef _WIN32
+    if (!child::pipe(fds)) {
+#else
     if (pipe2(fds, O_CLOEXEC) != 0) {
+#endif
         done_ = true;
         if (finished)
             finished(found_);
@@ -221,10 +249,20 @@ void KindFinder::next() {
         return;
     }
     fd = fds[0];
-    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
     current.clear();
     buffer.clear();
     deadline = 0;
+#ifdef _WIN32
+    // (a pipe can't be watched by the main loop on Windows: looked at by a timer, its time checked with it)
+    if (mainLoop)
+        timerId = plat::addTimer(50, [this] {
+            if (fd >= 0 && child::readable(fd, 0) != 0 && !readAvailable())
+                ended();
+            else
+                checkTime();
+        }, true);
+#else
+    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
     if (mainLoop) {
         watchId = plat::watchFd(fd, [this] {
             if (!readAvailable())
@@ -237,7 +275,27 @@ void KindFinder::next() {
 
 bool KindFinder::readAvailable() {
 #ifdef _WIN32
-    return false;
+    if (fd < 0)
+        return false;
+    bool open = true;
+    char chunk[4096];
+    for (;;) {  // (what has come, without waiting: read only what the pipe holds)
+        int ready = child::readable(fd, 0);
+        if (ready < 0) {
+            open = false;  // (the end: its writers are gone)
+            break;
+        }
+        if (ready == 0)
+            break;
+        int n = _read(fd, chunk, sizeof(chunk));
+        if (n <= 0) {
+            open = false;
+            break;
+        }
+        buffer.append(chunk, (size_t)n);
+    }
+    read();
+    return open;
 #else
     if (fd < 0)
         return false;
@@ -310,7 +368,18 @@ void KindFinder::forget(const std::string& path) {
 }
 
 void KindFinder::checkTime() {
-#ifndef _WIN32
+#ifdef _WIN32
+    if (deadline > 0 && secondsNow() > deadline) {
+        tooLong();
+        return;
+    }
+    int code;
+    if (pid > 0 && child::finished(pid, code)) {  // (ended, its output maybe still held open by a child of a plugin's)
+        pid = -1;
+        readAvailable();
+        ended();
+    }
+#else
     if (deadline > 0 && secondsNow() > deadline) {
         tooLong();
         return;
@@ -347,7 +416,12 @@ void KindFinder::ended() {
         forget(current);
     }
     closePipe();
-#ifndef _WIN32
+#ifdef _WIN32
+    int code;
+    if (pid > 0 && !child::finished(pid, code))
+        child::kill(pid);  // (its output ended: it is ending, or it closed it and is stopped)
+    pid = -1;
+#else
     if (pid > 0) {  // (its output ended: it is ending, or it closed it and is stopped)
         int status;
         if (waitpid(pid, &status, WNOHANG) != pid) {
@@ -364,7 +438,12 @@ void KindFinder::ended() {
 }
 
 void KindFinder::stopProcess() {
-#ifndef _WIN32
+#ifdef _WIN32
+    if (pid > 0) {
+        child::kill(pid);  // (and waited for: ended() then finds it gone)
+        pid = -1;
+    }
+#else
     if (pid > 0)
         kill(pid, SIGKILL);
 #endif
@@ -378,7 +457,10 @@ void KindFinder::closePipe() {
             plat::removeTimer(timerId);
     }
     watchId = timerId = -1;
-#ifndef _WIN32
+#ifdef _WIN32
+    if (fd >= 0)
+        _close(fd);
+#else
     if (fd >= 0)
         close(fd);
 #endif
@@ -390,7 +472,12 @@ void KindFinder::cancel() {
     todo.clear();
     deadline = 0;
     closePipe();
-#ifndef _WIN32
+#ifdef _WIN32
+    if (pid > 0) {
+        child::kill(pid);
+        pid = -1;
+    }
+#else
     if (pid > 0) {
         kill(pid, SIGKILL);
         int status;
@@ -402,6 +489,6 @@ void KindFinder::cancel() {
     done_ = true;
 }
 
-#endif  // TINYDAW_WINE_HOST
+#endif  // TINYDAW_IN_HOST
 
 }  // namespace plug
