@@ -11,6 +11,12 @@
 
 #include <fcntl.h>
 #include <unistd.h>
+#ifdef _WIN32
+#ifndef O_CLOEXEC
+#define O_CLOEXEC 0  // (Windows: handles aren't inherited unless asked)
+#endif
+#define setenv(name, value, overwrite) ((overwrite) || !getenv(name) ? _putenv_s(name, value) : 0)
+#endif
 
 #include "audio/automation.h"
 #include "audio/file_io.h"
@@ -2155,7 +2161,7 @@ int run(const std::vector<std::string>& files) {
         Loop loop{term, front};
         loop.size();
         loop.lastFrame = plat::now();
-        int input = plat::watchFd(0, [&loop] { loop.keys.feed(loop.term.read(), plat::now()); });
+        term.watch([&loop] { loop.keys.feed(loop.term.read(), plat::now()); });
         loop.keys.feed(term.read(), plat::now());  // (keys typed while the terminal was set up)
         app.nestedLoop = [&loop](const std::function<bool()>& done) { loop.run(done); };
         // work kept by a run that didn't close normally; plugins whose kind isn't known yet (as main.cpp)
@@ -2168,7 +2174,7 @@ int run(const std::vector<std::string>& files) {
         loop.frame();
         loop.run([] { return false; });
         app.nestedLoop = nullptr;
-        plat::unwatchFd(input);
+        term.unwatch();
         if (!window->closing) window->requestClose();
         delete window;
     }

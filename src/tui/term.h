@@ -9,6 +9,7 @@
 // key is let go. Alt+key comes as ESC then the key; a lone ESC is the Escape key once nothing has
 // followed it for ESC_WAIT_S.
 #pragma once
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -54,11 +55,21 @@ public:
     bool light() const { return light_; }
     void write(const std::string& s);
     std::string read();               // what has been typed (without waiting)
+    // fn runs on the main thread when something has been typed (read() it), until unwatch()
+    void watch(std::function<void()> fn);
+    void unwatch();
 
 private:
     bool open_ = false, light_ = false;
     std::string typed_;  // (keys typed while the background was asked: read() gives them first)
+    int watch_ = -1;
+    bool waitInput(int ms);  // something typed within ms
+    void askBackground();    // light_ (OSC 11), the keys typed meanwhile in typed_
 };
+
+// entering the terminal's screen of its own (cursor hidden, no line wrap), and leaving it
+#define TINYDAW_TERM_ENTER "\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[0m\x1b[H\x1b[2J"
+#define TINYDAW_TERM_LEAVE "\x1b[0m\x1b[H\x1b[2J\x1b[?7h\x1b[?25h\x1b[?1049l"
 
 // (tests) a background's lightness from the terminal's answer to OSC 11 ("ESC ] 11 ; rgb:ffff/ffff/ffff BEL") or
 // from COLORFGBG ("0;15": the text's colour, then the background's): 1 light, 0 dark, -1 not told

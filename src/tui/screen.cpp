@@ -2,8 +2,14 @@
 #include "tui/screen.h"
 
 #include <algorithm>
+#ifdef _WIN32
+#include <iterator>
+
+#include "tui/cell_width_table.h"
+#else
 #include <cwchar>
 #include <locale.h>
+#endif
 
 namespace tui {
 
@@ -11,6 +17,13 @@ int cellWidth(char32_t cp) {
     if (cp < 0x7F) return cp >= 0x20 ? 1 : -1;
     if (cp < 0xA0) return -1;  // (DEL, the C1 controls: a terminal would act on them)
     if (cp < 0x300) return 1;
+#ifdef _WIN32
+    // (no wcwidth on Windows: glibc's table, as Windows Terminal and Linux's terminals count them)
+    const CellWidthRange* end = std::end(CELL_WIDTH_RANGES);
+    const CellWidthRange* r = std::lower_bound(std::begin(CELL_WIDTH_RANGES), end, cp,
+                                               [](const CellWidthRange& a, char32_t c) { return a.last < c; });
+    return r != end && r->first <= cp ? r->width : 1;
+#else
     // as the terminal counts them: the C library's table (in a UTF-8 locale of this thread's own, whatever the
     // program's locale is)
     static locale_t utf8 = [] {
@@ -34,6 +47,7 @@ int cellWidth(char32_t cp) {
         (cp >= 0x20000 && cp <= 0x3FFFD))
         return 2;
     return 1;
+#endif
 }
 
 std::string utf8Of(char32_t cp) {

@@ -1,6 +1,7 @@
 // The terminal: keys from bytes, raw mode and its undoing (see term.h)
 #include "tui/term.h"
 
+#ifndef _WIN32  // (the Windows console's Terminal: term_win.cpp)
 #include <fcntl.h>
 #include <langinfo.h>
 #include <poll.h>
@@ -8,6 +9,7 @@
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
+#endif
 
 #include <atomic>
 #include <cctype>
@@ -18,6 +20,7 @@
 #include <cstring>
 
 #include "platform/platform.h"
+#include "tui/screen.h"
 
 namespace tui {
 
@@ -156,6 +159,15 @@ int decodeOne(const std::string& s, Key& out) {
             out = plain(key, count > 1 ? modsOf(params[1]) : 0);
             return len;
         }
+        if (f == 'u') {  // CSI u (fixterms, kitty; the Windows console's keys): code point ; modifiers
+            int cp = params[0], mods = count > 1 ? modsOf(params[1]) : 0;
+            Key k = cp < 0x20 || cp == 0x7F ? control((unsigned char)cp) : character(utf8Of((char32_t)cp));
+            k.mods |= mods;
+            if (mods & (plat::ModCtrl | plat::ModAlt | plat::ModMeta)) k.text.clear();
+            else if ((mods & plat::ModShift) && cp >= 'a' && cp <= 'z') k.text = std::string(1, (char)(cp - 32));
+            out = k;
+            return len;
+        }
         if (f == 'Z') {
             out = plain(plat::Key_Backtab, plat::ModShift);
             return len;
@@ -214,7 +226,64 @@ std::vector<Key> KeyDecoder::take(double now) {
     return out;
 }
 
-// --- the terminal ---
+// --- the terminal (its own on Linux and on Windows: what both do) ---
+
+void Terminal::askBackground() {
+    // its background asked (OSC 11), and DA1 after it, which every terminal answers: that answer ends the wait
+    // for one that doesn't know OSC 11. Keys typed meanwhile are kept for read()
+    write("\x1b]11;?\x1b\\\x1b[c");
+    std::string got;
+    auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
+    for (;;) {
+        int left = (int)std::chrono::duration_cast<std::chrono::milliseconds>(until - std::chrono::steady_clock::now()).count();
+        if (left <= 0 || !waitInput(left)) break;
+        got += read();
+        size_t da = got.find("\x1b[?");
+        if (da != std::string::npos && got.find('c', da) != std::string::npos) break;
+    }
+    int l = lightFromReply(got);
+    light_ = l >= 0 ? l == 1 : lightFromColorFgBg(getenv("COLORFGBG")) == 1;
+    // (the answers taken out: what is left was typed)
+    for (const char* start : {"\x1b]11;", "\x1b[?"}) {
+        size_t a = got.find(start);
+        if (a == std::string::npos) continue;
+        size_t b = start[1] == ']' ? got.find_first_of("\x07\x1b", a + 5) : got.find('c', a);
+        if (b == std::string::npos) b = got.size() - 1;
+        else if (got[b] == '\x1b') b++;  // (ESC \ ends it)
+        got.erase(a, b + 1 - a);
+    }
+    typed_ = got;
+}
+
+int lightFromReply(const std::string& reply) {
+    size_t at = reply.find("\x1b]11;rgb:");
+    if (at == std::string::npos) return -1;
+    double sum = 0;
+    const double weight[3] = {0.299, 0.587, 0.114};
+    const char* p = reply.c_str() + at + 9;
+    for (int i = 0; i < 3; i++) {
+        char* end = nullptr;
+        unsigned long v = strtoul(p, &end, 16);
+        int digits = (int)(end - p);
+        if (digits < 1 || digits > 4) return -1;
+        sum += weight[i] * (double)v / (double)((1ul << (4 * digits)) - 1);
+        p = end + (i < 2 ? 1 : 0);
+        if (i < 2 && *end != '/') return -1;
+    }
+    return sum > 0.5 ? 1 : 0;
+}
+
+int lightFromColorFgBg(const char* value) {
+    if (!value || !*value) return -1;
+    const char* last = strrchr(value, ';');
+    if (!last || !last[1]) return -1;
+    if (!isdigit((unsigned char)last[1])) return -1;  // ("default")
+    int bg = atoi(last + 1);
+    return bg == 7 || bg == 15 ? 1 : 0;
+}
+
+#ifndef _WIN32
+// --- the terminal: Linux's ---
 
 namespace {
 
@@ -223,8 +292,8 @@ std::atomic<bool> g_raw{false};
 std::atomic<bool> g_resized{false};
 
 // (also from signal handlers: write() and tcsetattr() only)
-const char kEnter[] = "\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[0m\x1b[H\x1b[2J";
-const char kLeave[] = "\x1b[0m\x1b[H\x1b[2J\x1b[?7h\x1b[?25h\x1b[?1049l";
+const char kEnter[] = TINYDAW_TERM_ENTER;
+const char kLeave[] = TINYDAW_TERM_LEAVE;
 
 void restore() {
     if (!g_raw.exchange(false)) return;
@@ -273,59 +342,13 @@ bool Terminal::open(std::string& why) {
     }
     open_ = true;
     write(kEnter);
-    // its background asked (OSC 11), and DA1 after it, which every terminal answers: that answer ends the wait
-    // for one that doesn't know OSC 11. Keys typed meanwhile are kept for read()
-    write("\x1b]11;?\x1b\\\x1b[c");
-    std::string got;
-    auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
-    for (;;) {
-        int left = (int)std::chrono::duration_cast<std::chrono::milliseconds>(until - std::chrono::steady_clock::now()).count();
-        struct pollfd p {0, POLLIN, 0};
-        if (left <= 0 || poll(&p, 1, left) <= 0) break;
-        got += read();
-        size_t da = got.find("\x1b[?");
-        if (da != std::string::npos && got.find('c', da) != std::string::npos) break;
-    }
-    int l = lightFromReply(got);
-    light_ = l >= 0 ? l == 1 : lightFromColorFgBg(getenv("COLORFGBG")) == 1;
-    // (the answers taken out: what is left was typed)
-    for (const char* start : {"\x1b]11;", "\x1b[?"}) {
-        size_t a = got.find(start);
-        if (a == std::string::npos) continue;
-        size_t b = start[1] == ']' ? got.find_first_of("\x07\x1b", a + 5) : got.find('c', a);
-        if (b == std::string::npos) b = got.size() - 1;
-        else if (got[b] == '\x1b') b++;  // (ESC \ ends it)
-        got.erase(a, b + 1 - a);
-    }
-    typed_ = got;
+    askBackground();
     return true;
 }
 
-int lightFromReply(const std::string& reply) {
-    size_t at = reply.find("\x1b]11;rgb:");
-    if (at == std::string::npos) return -1;
-    double sum = 0;
-    const double weight[3] = {0.299, 0.587, 0.114};
-    const char* p = reply.c_str() + at + 9;
-    for (int i = 0; i < 3; i++) {
-        char* end = nullptr;
-        unsigned long v = strtoul(p, &end, 16);
-        int digits = (int)(end - p);
-        if (digits < 1 || digits > 4) return -1;
-        sum += weight[i] * (double)v / (double)((1ul << (4 * digits)) - 1);
-        p = end + (i < 2 ? 1 : 0);
-        if (i < 2 && *end != '/') return -1;
-    }
-    return sum > 0.5 ? 1 : 0;
-}
-
-int lightFromColorFgBg(const char* value) {
-    if (!value || !*value) return -1;
-    const char* last = strrchr(value, ';');
-    if (!last || !last[1]) return -1;
-    if (!isdigit((unsigned char)last[1])) return -1;  // ("default")
-    int bg = atoi(last + 1);
-    return bg == 7 || bg == 15 ? 1 : 0;
+bool Terminal::waitInput(int ms) {
+    struct pollfd p {0, POLLIN, 0};
+    return poll(&p, 1, ms) > 0;
 }
 
 void Terminal::close() {
@@ -388,5 +411,13 @@ std::string Terminal::read() {
     }
     return out;
 }
+
+void Terminal::watch(std::function<void()> fn) { watch_ = plat::watchFd(0, std::move(fn)); }
+
+void Terminal::unwatch() {
+    if (watch_ >= 0) plat::unwatchFd(watch_);
+    watch_ = -1;
+}
+#endif  // !_WIN32
 
 }  // namespace tui

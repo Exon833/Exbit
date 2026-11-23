@@ -41,11 +41,11 @@ CXXFLAGS += -std=c++17 $(OPT) -Wall -Wextra -Wno-unused-parameter -Wno-missing-f
             -MMD -MP -Isrc -pthread -DTINYDAW_COMMIT='"$(shell git rev-parse HEAD 2>/dev/null)"'
 LDLIBS   := -ldl -pthread -lm
 
-SRCS  := $(shell find src -name '*.cpp' -not -path 'src/winehost/*' | sort)
+SRCS  := $(shell find src -name '*.cpp' -not -path 'src/winehost/*' -not -name '*_win.cpp' | sort)
 OBJS  := $(SRCS:%.cpp=$(BUILD)/%.o)
 LIB_OBJS := $(filter-out $(BUILD)/src/main.o,$(OBJS))
 
-TEST_SRCS := $(wildcard tests/*.cpp)
+TEST_SRCS := $(filter-out tests/%_win.cpp,$(wildcard tests/*.cpp))
 TEST_BINS := $(TEST_SRCS:tests/%.cpp=$(BUILD)/tests/%)
 
 # test plugins (built from tests/plugins/: a VST2 synth and a VST3 effect, on Tiny DAW's own headers)

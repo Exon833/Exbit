@@ -94,6 +94,19 @@ void testKeys() {
         d.feed("B", 0.002);
         CHECK((d.take(0.003) == std::vector<Key>{key(plat::Key_Down)}));
     }
+    // CSI u (fixterms, kitty; the Windows console's Ctrl+Shift+letter, Ctrl+Enter…): code point ; modifiers
+    CHECK((decode("\x1b[97;6u") == std::vector<Key>{key('A', plat::ModCtrl | plat::ModShift)}));
+    CHECK((decode("\x1b[13;5u") == std::vector<Key>{key(plat::Key_Return, plat::ModCtrl)}));
+    CHECK((decode("\x1b[9;5u") == std::vector<Key>{key(plat::Key_Tab, plat::ModCtrl)}));
+    CHECK((decode("\x1b[97;2u") == std::vector<Key>{key('A', plat::ModShift, "A")}));
+    CHECK((decode("\x1b[97u") == std::vector<Key>{key('A', 0, "a")}));
+    CHECK((decode("\x1b[233;3u") == std::vector<Key>{key(0xE9, plat::ModAlt)}));
+    // ESC ESC: Escape at once (the Windows console's Escape key)
+    {
+        KeyDecoder d;
+        d.feed("\x1b\x1b", 0);
+        CHECK((d.take(0) == std::vector<Key>{key(plat::Key_Escape)}));
+    }
     // a terminal's reply (not a key) is left out; what follows comes through
     CHECK((decode("\x1b[?1;2cq") == std::vector<Key>{key('Q', 0, "q")}));
 }
