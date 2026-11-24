@@ -144,7 +144,12 @@ endif
 # mingw-w64-i686-gcc; MINGW32=... picks another); without it 32-bit plugins say they need it ---
 ifeq ($(WINDOWS),1)
   MINGW64 := $(CXX)
-  MINGW32 ?= $(firstword $(wildcard /mingw32/bin/g++.exe))
+  # (MINGW32 is already set above, to the cross compiler's name that MSYS2 doesn't have: only an empty one is replaced)
+  ifeq ($(strip $(MINGW32)),)
+    MINGW32 := $(firstword $(wildcard /mingw32/bin/g++.exe))
+  endif
+  # its compiler's programs need its own DLLs (libgmp and the rest, 32-bit) first on the PATH, or they fail silently
+  MINGW32_ENV := PATH="$(dir $(MINGW32)):$$$$PATH"
   PLUGIN_HOST := tinydaw-plugin-host.exe
   PLUGIN_HOST32 := tinydaw-plugin-host-32.exe
   HOST_SRCS := $(filter-out src/winehost/d2dfix.cpp src/winehost/dragdrop.cpp,$(WINE_SRCS)) src/winehost/native_win.cpp \
@@ -171,15 +176,15 @@ build/pluginhost/%.o: %.cpp
 	$(CXX) $(HOST_FLAGS) -c $< -o $@
 
 $(PLUGIN_HOST32): $(HOST_SRCS:%.cpp=build/pluginhost32/%.o) build/pluginhost32/manifest.res.o
-	$(MINGW32) -o $@ $^ $(HOST_LIBS)
+	$(MINGW32_ENV) $(MINGW32) -o $@ $^ $(HOST_LIBS)
 
 build/pluginhost32/%.o: %.cpp
 	@mkdir -p $(dir $@)
-	$(MINGW32) $(HOST_FLAGS) -c $< -o $@
+	$(MINGW32_ENV) $(MINGW32) $(HOST_FLAGS) -c $< -o $@
 
 build/pluginhost32/manifest.res.o: src/platform/tinydaw_win.rc src/platform/tinydaw_win.manifest src/platform/tinydaw_win.ico
 	@mkdir -p $(dir $@)
-	$(dir $(MINGW32))windres -I src/platform -O coff -o $@ $<
+	$(MINGW32_ENV) $(dir $(MINGW32))windres -I src/platform -O coff -o $@ $<
 endif
 
 hooks:
@@ -258,7 +263,7 @@ $(BUILD)/tests/%$(EXE): tests/%.cpp $(LIB_OBJS) $(WIN_RES)
 
 # the tests that run on Windows (tools/wintests.sh builds and runs them there)
 WIN_TESTS := test_os test_gfx test_update_check test_icon_win test_model test_project_io test_ui_main test_workers test_midi_win test_wasapi_win \
-             test_tui test_tui_console_win test_plugins_win
+             test_tui test_tui_console_win test_plugins_win test_window_win
 tests-win: $(WIN_TESTS:%=$(BUILD)/tests/%$(EXE)) $(ALL_HOSTS) $(ALL_WIN_TEST)
 	@failed=""; for t in $(WIN_TESTS:%=$(BUILD)/tests/%$(EXE)); do echo "== $$t"; \
 	    TINYDAW_PLUGIN_HOST=$(PLUGIN_HOST) TINYDAW_PLUGIN_HOST32=$(if $(MINGW32),$(PLUGIN_HOST32)) \
@@ -298,11 +303,11 @@ $(WIN_DIR)/TinyTestSynth.dll: tests/plugins/test_vst2_synth.cpp tests/plugins/wi
 # (32-bit: --kill-at gives GetPluginFactory, a __stdcall function, its plain name, as Windows hosts look for it)
 $(WIN_DIR)/TinyTestFx32.vst3: tests/plugins/test_vst3_fx.cpp tests/plugins/win_dnd.h src/plugins/vst3_api.h
 	@mkdir -p $(dir $@)
-	$(MINGW32) $(WIN_FLAGS) -shared -Wl,--kill-at -o $@ $< -lgdi32 -luser32 -lole32 -lshell32 -luuid
+	$(MINGW32_ENV) $(MINGW32) $(WIN_FLAGS) -shared -Wl,--kill-at -o $@ $< -lgdi32 -luser32 -lole32 -lshell32 -luuid
 
 $(WIN_DIR)/TinyTestSynth32.dll: tests/plugins/test_vst2_synth.cpp tests/plugins/win_dnd.h src/plugins/vst2.h
 	@mkdir -p $(dir $@)
-	$(MINGW32) $(WIN_FLAGS) -shared -Wl,--kill-at -o $@ $< -lgdi32 -luser32 -lole32 -lshell32 -luuid
+	$(MINGW32_ENV) $(MINGW32) $(WIN_FLAGS) -shared -Wl,--kill-at -o $@ $< -lgdi32 -luser32 -lole32 -lshell32 -luuid
 
 $(WIN_DIR)/TinyTestInstaller.exe: tests/plugins/test_installer.cpp
 	@mkdir -p $(dir $@)

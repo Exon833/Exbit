@@ -4,6 +4,7 @@
 //                                system needed
 //   tinydaw --probe <listfile>   the background plugin probe's child process (plugins/probe.h): finds
 //                                out the kinds of the plugins listed, without touching the display
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -52,6 +53,15 @@ int main(int argc, char** argv) {
     {
         // the skin is applied by the main window, before it builds anything
         auto* window = new MainWindow();
+        // its first size (1280 x 800 at the interface size: 1920 x 1200 at 150 %) bigger than the screen: made to
+        // fit it, room left for a frame, so that nothing of it is off the screen or under the taskbar
+        Rect screen = app.screenAt(app.cursorPos());
+        int fitW = std::min(window->width(), screen.w * 19 / 20), fitH = std::min(window->height(), screen.h * 19 / 20);
+        if (!screen.empty() && (fitW != window->width() || fitH != window->height())) {
+            util::debugf("main window: %dx%d made %dx%d to fit the screen %dx%d\n", window->width(), window->height(),
+                         fitW, fitH, screen.w, screen.h);
+            window->resizeWindow(fitW, fitH);
+        }
         window->showWindow();
         if (!window->interfaceSizeFits(size))  // (another, smaller screen than it was chosen on)
             window->showStatus("At " + std::to_string(size) +
