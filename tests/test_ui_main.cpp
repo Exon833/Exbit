@@ -11,12 +11,14 @@
 #include "config.h"
 #include "ui/lanes.h"
 #include "ui/scope_view.h"
+#include "core/os.h"
 #include "core/util.h"
 #include "gfx/image.h"
 #include "gfx/painter.h"
 #include "model/project_io.h"
 #include "paths.h"
 #include "ui/autosave.h"
+#include "ui/main_window.h"
 #include "ui/preferences.h"
 #include "ui/templates.h"
 #include "ui/theme.h"
@@ -282,6 +284,70 @@ static void testAutosave() {
     CHECK(!d.offerRecovery());
     CHECK(autosave::leftBehind(root).empty());
     d.close();
+
+    // several Tiny DAWs at once: what one is offering (asking, then opening) is no other's to offer meanwhile
+    {
+        autosave::Autosave e(host(), root, false);
+        e.saveNow();
+        e.wait();
+    }
+    CHECK(autosave::leftBehind(root).size() == 1);
+    int offeredMeanwhile = -1;
+    auto opening = host();
+    opening.openProjectFile = [&](const std::string&) {
+        autosave::Autosave other(host(), root, false);  // (another Tiny DAW starting now)
+        other.answer = 0;
+        offeredMeanwhile = other.offerRecovery() ? 1 : 0;
+        return true;
+    };
+    double before = util::wallClock();
+    std::string kept;
+    {
+        autosave::Autosave f(opening, root, false);
+        f.answer = 0;  // Open it
+        CHECK(f.offerRecovery());
+        CHECK(offeredMeanwhile == 0);
+        kept = f.folder();
+        // opened: its work is this run's autosave from now on (written again at once, dated now), so the old
+        // question doesn't come back, even if this run doesn't end normally either
+        CHECK(f.wait().empty());
+        autosave::Header h;
+        CHECK(autosave::readHeader(kept + "/" + autosave::PROJECT_FILE, h));
+        CHECK(h.savedAt >= before);
+        // (while it runs, no other Tiny DAW can take the folder: not recovered by hand either)
+        autosave::Autosave g(host(), root, false);
+        opened.clear();
+        CHECK(!g.recover(kept, ""));
+        CHECK(opened.empty());
+    }
+    auto again = autosave::leftBehind(root);
+    CHECK(again.size() == 1 && again[0].folder == kept && again[0].header.savedAt >= before);
+    autosave::removeTree(root);
+}
+
+// the window's title names the project by its file's name, however its path was spelled (Windows: "C:\…\x.json"
+// as the command line gives it, "C:/…" from the file chooser)
+static void testTitle() {
+    std::string dir = "build/test-tmp/ui_main/title";
+    util::makeDirs(dir);
+    auto* w = new MainWindow();
+    w->askBeforeClosing = false;
+    std::string file = util::absolutePath(dir + "/Title Song.json");
+    CHECK(w->saveProjectFile(file));
+    CHECK(w->title() == "Title Song.json — Tiny DAW");
+#ifdef _WIN32
+    std::string given = os::nativePath(file);
+#else
+    std::string given = dir + "/./Title Song.json";  // (relative, as a command line may give it)
+#endif
+    CHECK(w->openProjectFile(given));
+    CHECK(w->title() == "Title Song.json — Tiny DAW");
+    CHECK(w->projectPath == file);
+    if (w->projectPath != file) printf("opened as %s, titled %s\n", w->projectPath.c_str(), w->title().c_str());
+    CHECK(w->saveProjectFile(w->projectPath));
+    CHECK(w->title() == "Title Song.json — Tiny DAW");
+    w->requestClose();
+    delete w;
 }
 
 // the master scope's options as kept, what it finds in left and right (combined: their mix; separate:
@@ -382,6 +448,7 @@ int main() {
     testWindowScale();
     testRecent();
     testAutosave();
+    testTitle();
     testScope();
     TEST_MAIN_END();
 }

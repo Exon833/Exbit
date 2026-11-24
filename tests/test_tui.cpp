@@ -20,6 +20,7 @@
 #include "tui/app.h"
 #include "tui/screen.h"
 #include "tui/term.h"
+#include "tui/text_symbols.h"
 #include "config.h"
 #include "ui/main_window.h"
 #include "ui/master_strip.h"
@@ -139,6 +140,27 @@ void testScreen() {
     bool allAscii = true;
     for (char c : ascii) allAscii = allAscii && (unsigned char)c < 0x80;
     CHECK(allAscii);
+    // symbols that have an emoji form (⏮ ✔ ❄ ⚠…: some terminals draw them as colour emoji, two cells wide, over
+    // the next cell): a look-alike that has none where there is one, else the symbol followed by U+FE0E ("as
+    // text"); one cell either way, as the layout counted them
+    Screen e(12, 1);
+    CHECK(columns("⏮[ ]✔❄⚠▶↗©") == 10);
+    CHECK(e.text(0, 0, "⏮[ ]✔❄⚠▶↗©", Style()) == 10);
+    CHECK(e.line(0) == "⇤[ ]✓*!►↗©");
+    Screen none2(1, 1);
+    std::string drawn = e.output(none2, true);
+    CHECK(drawn.find("↗\xef\xb8\x8e") != std::string::npos && drawn.find("©\xef\xb8\x8e") != std::string::npos);
+    CHECK(drawn.find("⏮") == std::string::npos && drawn.find("⇤\xef\xb8\x8e") == std::string::npos);
+    int wrong = 0;
+    for (char32_t c = 0xA0; c < 0x20000; c++) {
+        if (!hasEmojiForm(c)) continue;
+        char32_t t = textForm(c);
+        if (cellWidth(c) < 1 || cellWidth(t) != cellWidth(c) || (t != c && hasEmojiForm(t))) {
+            if (wrong++ < 5) printf("U+%04X: %d cells, its text form U+%04X %d\n", (unsigned)c, cellWidth(c), (unsigned)t, cellWidth(t));
+        }
+    }
+    CHECK(wrong == 0);
+    CHECK(hasEmojiForm(U'⏮') && hasEmojiForm(U'©') && !hasEmojiForm(U'●') && !hasEmojiForm(U'a') && !hasEmojiForm(U'🥁'));
     // colours: the nearest of the 8; menu texts without &
     CHECK(nearestColor("#e03030", Blue) == Red && nearestColor("#30c040", Blue) == Green && nearestColor("", Blue) == Blue);
     char m = 0;
@@ -241,6 +263,7 @@ void testFront() {
           top.find("View") < top.find("Options") && top.find("Untitled") != std::string::npos);
     CHECK(transport.find("Play") != std::string::npos && transport.find("120 BPM") != std::string::npos &&
           transport.find("1.1.1") != std::string::npos);
+    CHECK(transport.find("⇤ [ ]Loop") != std::string::npos);  // (to the start: as text, one cell)
     std::string third = d.screen.line(2) + d.screen.line(3);
     CHECK(third.find("Explorer") != std::string::npos && third.find("Tracks") != std::string::npos);
     CHECK(third.find("Explorer") < third.find("Tracks"));

@@ -84,8 +84,9 @@ public:
     const std::string& folder() const { return folder_; }  // this run's ("" none yet)
     // this run's recovery folder, made (and locked) the first time it is needed ("" if it can't be made)
     std::string ownFolder();
-    // make `folder` this run's (lock it); the one this run had, if any, goes. False if another holds it.
-    bool adopt(const std::string& folder);
+    // make `folder` this run's (lock it, or take `held`: a lock on it this run already holds); the one this run
+    // had, if any, goes. False if another holds it.
+    bool adopt(const std::string& folder, int held = -1);
     void release(bool remove);
 
     // let the autosave being written finish; its error ("" none)
@@ -101,10 +102,13 @@ public:
     void close();
 
     // on start: if a run that didn't end normally kept work, offer to open it (the newest; older ones
-    // are kept for the next start). True if it was opened.
+    // are kept for the next start). True if it was opened. The folder is held (locked) while asking, so
+    // that another Tiny DAW starting meanwhile doesn't offer it too.
     bool offerRecovery();
-    // open the work kept in `folder` (as unsaved changes to `original`, if it had a file)
-    bool recover(const std::string& folder, const std::string& original);
+    // open the work kept in `folder` (as unsaved changes to `original`, if it had a file); `held`: the lock
+    // on it, if this run holds it already. It becomes this run's autosave, written again at once (dated
+    // now: the question about the old one doesn't come back). False if another Tiny DAW holds it.
+    bool recover(const std::string& folder, const std::string& original, int held = -1);
     // (tests and the test script: answers the question without asking: 0 open, 1 discard, 2 not now; -1 ask)
     int answer = -1;
 

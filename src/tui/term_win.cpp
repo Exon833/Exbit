@@ -245,7 +245,8 @@ wchar_t drawable(char32_t cp) {
     static const char32_t like[][2] = {{U'▶', U'►'}, {U'▸', U'►'}, {U'◀', U'◄'}, {U'◂', U'◄'}, {U'▾', U'▼'},
                                        {U'▴', U'▲'}, {U'✓', U'√'}, {U'✔', U'√'}, {U'◉', U'●'}, {U'✕', U'×'},
                                        {U'▮', U'█'}, {U'▇', U'█'}, {U'▆', U'█'}, {U'▅', U'▄'}, {U'▃', U'▄'},
-                                       {U'▂', U'_'}, {U'▁', U'_'}, {U'♩', U'♪'}, {U'↗', U'/'}, {U'↳', U'└'}, {U'⏮', U'«'}};
+                                       {U'▂', U'_'}, {U'▁', U'_'}, {U'♩', U'♪'}, {U'↗', U'/'}, {U'↳', U'└'}, {U'⇤', U'«'},
+                                       {U'⇥', U'»'}};
     for (const auto& l : like)
         if (l[0] == cp && fontHas((wchar_t)l[1])) return (wchar_t)l[1];
     return (wchar_t)asciiOf(cp);
@@ -258,6 +259,9 @@ void Terminal::write(const std::string& s) {
     int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
     std::wstring w((size_t)n, L'\0');
     MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), &w[0], n);
+    // U+FE0E ("as text", after a symbol that has an emoji form: text_symbols.h) left out: a classic console, and
+    // Windows 10's pseudo consoles (ssh, editors' terminals), give it a cell of its own; Windows Terminal ignores it
+    w.erase(std::remove(w.begin(), w.end(), L'\xFE0E'), w.end());
     if (g_fontDc) {
         std::wstring d;
         d.reserve(w.size());

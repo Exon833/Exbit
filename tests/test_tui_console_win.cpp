@@ -172,6 +172,9 @@ void testPicture(Terminal& t, int w, int h, bool exact) {
     s.clear();
     s.box(0, 0, tw, th, style(Cyan), "Tiny DAW");
     s.text(1, 1, "héllo ─│┼█ ▶ 日本", style(Yellow, Default, Bold), tw - 2);
+    // symbols with an emoji form: one cell each, the next one where it was (U+FE0E, sent after © and ™ by
+    // Screen::output, is no cell of its own)
+    s.text(1, 2, "©x™x⏮x✔x", Style(), tw - 2);
     s.text(1, th - 2, std::to_string(tw) + "x" + std::to_string(th), style(Default, Blue, Reverse), tw - 2);
     t.write(s.output(shown, Terminal::utf8()));
     Sleep(50);
@@ -182,6 +185,11 @@ void testPicture(Terminal& t, int w, int h, bool exact) {
         // (a classic console whose font has no ▶ is given its look-alike ►: term_win.cpp)
         size_t tri = want.find("▶");
         if (got != want && tri != std::string::npos) want.replace(tri, std::string("▶").size(), "►");
+        for (const char* like : {"⇤«", "✓√"}) {  // (…and these theirs)
+            std::string sym(like, 3), alt(like + 3);
+            size_t at = want.find(sym);
+            if (got != want && at != std::string::npos) want.replace(at, sym.size(), alt);
+        }
         if (got != want && bad++ < 4) fprintf(stderr, "   %dx%d row %d: got \"%s\" want \"%s\"\n", tw, th, y, got.c_str(), want.c_str());
     }
     CHECK(bad == 0);

@@ -106,6 +106,7 @@ int main() {
     CHECK(util::dirName("C:/x") == "C:/" && util::dirName("C:/") == "C:/" && util::dirName("C:/x/y") == "C:/x");
     CHECK(util::absolutePath("c:\\x\\..\\y\\.\\z") == "C:/y/z");
     CHECK(util::absolutePath("C:/") == "C:/");
+    CHECK(util::baseName("C:\\x\\Song.json") == "Song.json" && util::stem("C:\\x\\Song.json") == "Song");
     CHECK(util::absolutePath("/x").size() == 4 && util::absolutePath("/x")[1] == ':');  // (the current drive)
     CHECK(os::nativePath("C:/a/b") == "C:\\a\\b" && os::portablePath("C:\\a\\b") == "C:/a/b");
     CHECK(os::narrow(os::widen("Grüße Ωmega ♪")) == "Grüße Ωmega ♪");
