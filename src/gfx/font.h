@@ -6,8 +6,10 @@
 // own name table (and on the file name as a fallback). "" means the system's own interface font
 // (Linux: DejaVu Sans, Noto Sans, Liberation Sans… whichever exists; Windows: Segoe UI). A skin's own
 // font files (@font-face) are added by addFamily and found first.
-// Glyphs a font lacks (✕ ▾ ♩ ⟲ 🎹 …) come from fallback fonts (DejaVu Sans, DejaVu Sans Mono,
-// Noto Sans Symbols, Symbola… whichever exist); a glyph nobody has is drawn as a hollow box.
+// Glyphs a font lacks (✕ ▾ ♩ ⟲ 🎹 …) come from fallback fonts: first those shipped in data/fonts (every symbol
+// the interface draws: tools/symbol_fonts.py), then the system's (DejaVu Sans, DejaVu Sans Mono, Noto Sans
+// Symbols, Symbola… whichever exist); a glyph nobody has is drawn as a hollow box. With no font on the system at
+// all, the shipped DejaVu Sans is the interface font too.
 //
 // Glyphs are rendered once per (face, size, glyph, subpixel x offset in quarters, aliased or not) into
 // 8-bit coverage masks and cached. Everything here is for the GUI thread only.
@@ -54,6 +56,8 @@ public:
     size_t hitTest(const std::string& utf8, float x) const;
     // can this font (or a fallback) draw the codepoint?
     bool hasGlyph(uint32_t codepoint) const;
+    // the file the codepoint is drawn from (this font's or a fallback's; "" when nobody has it)
+    std::string glyphFile(uint32_t codepoint) const;
 
     // the interface font set by the skin (theme), and the numbers font
     static Font ui();          // the skin's "ui" font at its size (default: 12 px, 9 pt)
@@ -61,6 +65,8 @@ public:
     // the ui font and its size in px (kept exactly as given: 11.5 px stays 11.5 px), and the numbers font
     static void setDefaults(const std::string& uiFamily, float uiPixels, const std::string& monoFamily);
     static std::vector<std::string> families();  // installed family names, sorted (skin editor)
+    // the folder of the shipped fallback fonts (default "": the program's data/fonts); every font looks them up again
+    static void setShippedFolder(const std::string& dir);
     // a family from a font file (a skin's @font-face): `family` finds it from now on, before the system's fonts
     // of that name, as a face of the weight and style given (whatever the file says). False if the file has no
     // face that can be read (TrueType outlines: .ttf, .ttc, most .otf). Adding the same again changes nothing.

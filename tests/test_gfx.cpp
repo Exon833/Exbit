@@ -5,7 +5,10 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <cctype>
 #include <cstring>
+#include <functional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -940,6 +943,111 @@ static void bench() {
     printf("bench: 2000 translucent vlines %.2f ms\n", ms(t));
 }
 
+// the non-ASCII characters inside the strings of a C++ file (comments skipped, \x escapes decoded)
+static void literalCodePoints(const std::string& s, std::set<uint32_t>& out) {
+    auto add = [&](const std::string& lit) {
+        std::string bytes;
+        for (size_t i = 0; i < lit.size(); i++) {
+            if (lit[i] == '\\' && i + 3 < lit.size() && lit[i + 1] == 'x' && isxdigit((unsigned char)lit[i + 2]) &&
+                isxdigit((unsigned char)lit[i + 3])) {
+                bytes += (char)std::stoi(lit.substr(i + 2, 2), nullptr, 16);
+                i += 3;
+            } else {
+                bytes += lit[i];
+            }
+        }
+        for (size_t i = 0; i < bytes.size();)
+            if (uint32_t cp = utf8Next(bytes, i); cp > 127) out.insert(cp);
+    };
+    size_t i = 0, n = s.size();
+    while (i < n) {
+        if (s.compare(i, 2, "//") == 0) {
+            i = s.find('\n', i);
+        } else if (s.compare(i, 2, "/*") == 0) {
+            i = s.find("*/", i + 2);
+            if (i != std::string::npos) i += 2;
+        } else if (s.compare(i, 2, "R\"") == 0 && s.find('(', i) != std::string::npos) {
+            size_t open = s.find('(', i);
+            std::string end = ")" + s.substr(i + 2, open - i - 2) + "\"";
+            size_t close = s.find(end, open);
+            add(s.substr(open + 1, close == std::string::npos ? std::string::npos : close - open - 1));
+            i = close == std::string::npos ? close : close + end.size();
+        } else if (s[i] == '"' || s[i] == '\'') {
+            size_t j = i + 1;
+            while (j < n && s[j] != s[i] && s[j] != '\n') j += s[j] == '\\' ? 2 : 1;
+            add(s.substr(i + 1, j - i - 1));
+            i = j + 1;
+        } else {
+            i++;
+        }
+        if (i == std::string::npos) break;
+    }
+}
+
+// every symbol the interface draws is in the fonts shipped in data/fonts (so it shows on a machine without DejaVu or
+// Noto, as Windows), and they come right after the interface font, before the system's fallbacks
+static void testShippedFonts() {
+    std::set<uint32_t> used;
+    std::function<void(const std::string&)> walk = [&](const std::string& dir) {
+        for (const util::DirEntry& e : util::listDir(dir)) {
+            std::string p = dir + "/" + e.name;
+            if (e.isDir) {
+                if (p != "src/tui" && p != "src/winehost") walk(p);  // (the terminal draws with its own font)
+            } else if (util::endsWith(p, ".cpp") || util::endsWith(p, ".h")) {
+                std::string text;
+                if (util::readFile(p, text)) literalCodePoints(text, used);
+            }
+        }
+    };
+    walk("src");
+    used.erase(0xFEFF);  // (a byte order mark compared, never drawn)
+    CHECK(used.count(0x25BE) && used.count(0x2715) && used.count(0x23EE));  // ▾ ✕ ⏮: the scan found them
+    Font::setShippedFolder("data/fonts");
+    CHECK(Font::addFamily("Tiny Test Shipped", "data/fonts/DejaVuSans-Symbols.ttf"));
+    Font shipped("Tiny Test Shipped", 12), ui;
+    const std::string uiFile = ui.glyphFile('A');
+    int notShipped = 0, notFirst = 0;
+    for (uint32_t cp : used) {
+        std::string from = shipped.glyphFile(cp), uiFrom = ui.glyphFile(cp);
+        if (from.rfind("data/fonts/", 0) != 0) {
+            notShipped++;
+            printf("  U+%04X is not in data/fonts (from \"%s\"): python3 tools/symbol_fonts.py\n", cp, from.c_str());
+        }
+        if (uiFrom != uiFile && uiFrom.rfind("data/fonts/", 0) != 0) {
+            notFirst++;
+            printf("  U+%04X: the interface font lacks it, drawn from \"%s\", not data/fonts\n", cp, uiFrom.c_str());
+        }
+    }
+    printf("shipped fonts: %zu symbols in the interface's strings, %d not shipped (interface font: %s)\n", used.size(),
+           notShipped, uiFile.c_str());
+    CHECK(used.size() > 40);
+    CHECK(notShipped == 0);
+    CHECK(notFirst == 0);
+    // to look at: each symbol from the shipped fonts alone (as a machine without any symbol font shows it), at 12
+    // and 18 px, dark on light; a box would be one missing
+    {
+        Image img(16 + 30 * 20, 20 + 52 * (int)((used.size() + 19) / 20), Color(255, 255, 255));
+        Painter p(img);
+        int k = 0;
+        for (uint32_t cp : used) {
+            float x = 8 + 30 * (k % 20), y = 22 + 52 * (k / 20);
+            p.drawText(PointF(x, y), u32ToUtf8(std::u32string(1, (char32_t)cp)), shipped, Color(0, 0, 0));
+            p.drawText(PointF(x, y + 24), u32ToUtf8(std::u32string(1, (char32_t)cp)), shipped.withPixelSize(18),
+                       Color(0, 0, 0));
+            k++;
+        }
+        savePng(sampleDir() + "shipped-symbols.png", img);
+    }
+    // what they lack still comes from the system's (🎹 when installed), and an unknown folder ships nothing
+    std::string piano = ui.glyphFile(0x1F3B9);
+    printf("  U+1F3B9 from \"%s\"\n", piano.c_str());
+    CHECK(piano.rfind("data/fonts/", 0) != 0);
+    Font::setShippedFolder("/no/such/folder");
+    CHECK(ui.glyphFile(0x23EE).rfind("data/fonts/", 0) != 0 && ui.width("⏮") > 0);
+    Font::setShippedFolder("data/fonts");
+    CHECK(ui.glyphFile(0x23EE).rfind("data/fonts/", 0) == 0);
+}
+
 int main() {
     auto t = std::chrono::steady_clock::now();
     Font::families();
@@ -949,6 +1057,7 @@ int main() {
     testPng();
     testPainter();
     testFonts();
+    testShippedFonts();
     testUnsmoothed();
     testSvg();
     testSvgAspect();

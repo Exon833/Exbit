@@ -233,7 +233,8 @@ std::string picture(Window& w, const std::string& name) {
     return path;
 }
 
-int windowsSeen = 0, failedButtons = 0, failedOffScreen = 0, failedSane = 0;
+int windowsSeen = 0, failedButtons = 0, failedOffScreen = 0, failedSane = 0, failedFit = 0;
+const std::set<std::string> fitsAtSmallest = {"TempoRangeDialog"};  // (their content fits their smallest unscrolled)
 std::map<std::string, std::string> titles;  // name → what it is
 
 void sweepWindow(Window& win, const std::string& name, const Ctx& ctx) {
@@ -294,6 +295,15 @@ void sweepWindow(Window& win, const std::string& name, const Ctx& ctx) {
         settle(1);
         rep.context = where + " smallest " + sz(mn.x, mn.y);
         rep.picture = pics ? picture(win, where + " smallest") : "";
+        // its content fits its smallest size without scrolling (a wrapped text grows taller there: the minimum then
+        // isn't one); CHECKed for the windows fixed so far, reported for the rest
+        if (win.overflows()) {
+            Point now = windowMinimum(win);
+            rep.add("scrolls-at-smallest", win.type(), win.type() + " \"" + win.title() + "\"",
+                    where + ": at its smallest " + sz(mn.x, mn.y) + " its content needs " + sz(now.x, now.y),
+                    "scrolls|" + name);
+            if (fitsAtSmallest.count(win.type())) failedFit++;
+        }
         audit::checkTree(&win, rep, treeOptions());
         failedButtons += buttonsOffScreen(win, Rect(-100000, -100000, 200000, 200000), where + " smallest");
         bad = 0;
@@ -769,5 +779,6 @@ int main() {
     CHECK(failedOffScreen == 0);
     CHECK(failedButtons == 0);
     CHECK(failedSane == 0);
+    CHECK(failedFit == 0);
     TEST_MAIN_END();
 }
