@@ -89,6 +89,7 @@ bool EditorWindow::attach() {
     auto instance = aload(slot->instance);
     if (!instance || !native()) return false;
     int w = 0, h = 0;
+    double started = ui::App::get().now();
     try {
         if (!instance->hasEditor()) return false;
         if (!instance->openEditor(pluginParent(), native()->nativeDisplay(), 1.0, w, h)) return false;
@@ -96,6 +97,8 @@ bool EditorWindow::attach() {
     } catch (const std::exception&) {
         return false;
     }
+    util::debugf("plugin window: %s made its window in %.2f s (%dx%d%s)\n", slot->name.c_str(),
+                 ui::App::get().now() - started, w, h, resizable ? ", resizable" : "");
     fit(w, h);
     frameId_ = ui::App::get().onFrame([this] { idle(); });
     return true;
