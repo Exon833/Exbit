@@ -390,6 +390,13 @@ static void testOldAndBroken() {
     };
     CHECK(!loadProject(write("x.json", "{\"format\": \"something else\"}"), q, SR, m, err));
     CHECK(err == "This is not a Tiny DAW project file.");
+    // a plugin's path as projects saved on Windows had it, '\' and '/' mixed: read with '/' there
+    SlotPtr mixed = readSlot(Json::parse(R"({"path": "C:/Program Files/Common Files/VST3/X.vst3/Contents\\x86_64-win/X.vst3"})"));
+#ifdef _WIN32
+    CHECK(mixed->path == "C:/Program Files/Common Files/VST3/X.vst3/Contents/x86_64-win/X.vst3");
+#else
+    CHECK(mixed->path.find('\\') != std::string::npos);  // (a Linux file's name may hold one)
+#endif
     CHECK(!loadProject(write("y.json", "not json at all"), q, SR, m, err));
     CHECK(err == "This is not a Tiny DAW project file.");
     CHECK(!loadProject(kDir + "/nothing-here.json", q, SR, m, err));

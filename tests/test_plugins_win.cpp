@@ -160,6 +160,7 @@ Found testScan(const std::string& win, bool bits32) {
         if (util::endsWith(p.path, "TinyTestSynth32.dll")) f.synth32 = p;
     }
     CHECK(f.fx.kind == EFFECT && util::endsWith(f.fx.path, "TinyTestFx.vst3") && f.fx.path.find("x86_64-win") != std::string::npos);
+    CHECK(f.fx.path.find('\\') == std::string::npos);  // (one form: '/', as the program's paths)
     CHECK(f.synth.kind == INSTRUMENT);
     if (bits32) CHECK(f.fx32.kind == EFFECT && f.synth32.kind == INSTRUMENT);
     // the classes in a file, asked of a host started for the purpose
