@@ -544,6 +544,10 @@ void serve(const Incoming& in) {
                                        WS_POPUP | WS_CLIPCHILDREN, sx, sy, 640, 400, nullptr, nullptr,
                                        GetModuleHandleW(nullptr), nullptr);
         int pw = 0, ph = 0;
+        if (const char* slow = getenv("TINYDAW_HOST_TEST_SLOW_EDITOR")) {  // (tests) a plugin slow to make its window
+            fprintf(stderr, "[host] test: the plugin takes %s ms to make its window\n", slow);
+            Sleep((DWORD)atoi(slow));
+        }
         bool ok = editorWindow && plugin->openEditor((uintptr_t)editorWindow, nullptr, scale, pw, ph);
         if (!ok) {
             closeEditor();
