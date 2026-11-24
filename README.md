@@ -588,7 +588,7 @@ Testing aids of the running program (hidden; see `src/ui/test_script.h`):
 
     Makefile
     data/            icons/ (transport buttons), skins/ (default.css and the program's own skins),
-                     templates/ (Recording, Songwriting)
+                     templates/ (Recording, Songwriting), fonts/ (the interface's symbols: tools/symbol_fonts.py)
     docs/skins.md    everything a skin can style: variables, types, parts, states, properties
     docs/development/  the notes the program was ported from Python with
     src/main.cpp     start-up

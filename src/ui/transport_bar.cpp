@@ -199,9 +199,9 @@ TransportBar::TransportBar() {
         if (fillSwingMenu) fillSwingMenu(*m);
     };
     swingButton->show();
-    syncButton = menuButton(left_, "Sync â¾", &syncMenu,
+    syncButton = menuButton(left_, "Sync ▾", &syncMenu,
                             "What the transport follows: Internal (its own), MIDI clock (an input with Clock in, Options "
-                            "â MIDI portsâ¦) or JACK's transport (both ways)");
+                            "→ MIDI ports…) or JACK's transport (both ways)");
     syncMenu->aboutToShow = [this](ui::Menu* m) {
         m->clear();
         if (fillSyncMenu) fillSyncMenu(*m);

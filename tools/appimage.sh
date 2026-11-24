@@ -10,8 +10,9 @@
 # podman or docker (the program is built on an older system: see below).
 # Inside: the program, linked with libstdc++ and libgcc built in, so it needs only the system's C library;
 # X11, ALSA, PulseAudio, JACK, Wine and curl stay as ever: used when installed. The data (skins, icons,
-# templates, presets) is in usr/share/tinydaw, where the program looks (plat::dataDir). The Wine host is put beside
-# the program when it was built (make, with winegcc installed); without it Windows plugins say they need it.
+# templates, presets, the symbol fonts) is in usr/share/tinydaw, where the program looks (plat::dataDir). The Wine
+# host is put beside the program when it was built (make, with winegcc installed); without it Windows plugins say
+# they need it.
 set -eu
 cd "$(git rev-parse --show-toplevel)"
 
@@ -73,7 +74,7 @@ if [ -f tinydaw-wine-host-32.exe ] && [ -f wine32/i386-windows/tinydaw-unix32.dl
     cp tinydaw-wine-host-32.exe "$app/usr/bin/"
     cp -r wine32 "$app/usr/bin/"
 fi
-cp -r data/icons data/skins data/templates data/presets "$app/usr/share/tinydaw/"
+cp -r data/icons data/skins data/templates data/presets data/fonts "$app/usr/share/tinydaw/"
 cp LICENSE LICENSE.md "$app/usr/share/tinydaw/"
 cp data/icons/tinydaw.svg "$app/tinydaw.svg"
 # (.DirIcon must be a PNG: drawn by the program's own renderer, built here, so no converter is needed)

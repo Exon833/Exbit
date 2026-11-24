@@ -21,6 +21,7 @@
 #include "core/os.h"
 #include "core/util.h"
 #include "gfx/ttf_raster.h"
+#include "platform/platform.h"
 
 // ================================================================================================
 // UTF-8
@@ -926,12 +927,23 @@ public:
 
 namespace {
 
+std::string g_shippedDir;  // "" : the program's data/fonts
+std::vector<TtfFont*> g_fallbacks;
+bool g_fallbacksReady = false;
+
+// the fonts shipped with the program first (data/fonts: the interface's symbols, there on any machine), then the
+// system's
 std::vector<TtfFont*>& fallbackFonts(bool& ready) {
-    static std::vector<TtfFont*> v;
-    static bool r = false;
-    ready = r;
-    if (!r) {
-        r = true;
+    std::vector<TtfFont*>& v = g_fallbacks;
+    ready = g_fallbacksReady;
+    if (!g_fallbacksReady) {
+        g_fallbacksReady = true;
+        std::vector<FaceInfo> shipped;
+        std::string dir = g_shippedDir.empty() ? util::joinPath(plat::dataDir(), "fonts") : g_shippedDir;
+        scanDir(dir, shipped, 0);
+        for (const FaceInfo& fi : shipped)
+            if (TtfFont* f = loadFont(fi)) v.push_back(f);
+        if (util::debug()) fprintf(stderr, "font: %zu shipped fallback font(s) in %s\n", v.size(), dir.c_str());
         for (const char* fam : kFallbackFamilies) {
             auto faces = familyFaces(fam);
             if (const FaceInfo* fi = pickStyle(faces, false))
@@ -1009,6 +1021,12 @@ void fillFace(FontFace* face, const std::string& family, bool bold) {
                 for (const FaceInfo* c : defaultFamily(false))
                     if ((face->primary = loadFont(*c))) break;
         }
+    }
+    if (!face->primary) {  // no font on the system at all: the shipped one (it has ASCII and Latin-1)
+        bool ready;
+        std::vector<TtfFont*>& fb = fallbackFonts(ready);
+        if (!fb.empty()) face->primary = fb[0];
+        face->synthBold = bold;
     }
     if (util::debug())
         fprintf(stderr, "font: \"%s\"%s -> %s%s\n", family.c_str(), bold ? " bold" : "",
@@ -1520,6 +1538,18 @@ bool Font::addFamily(const std::string& family, const std::string& path, bool bo
         if (it != faces.end()) fillFace(it->second.get(), family, b);
     }
     return true;
+}
+
+void Font::setShippedFolder(const std::string& dir) {
+    g_shippedDir = dir;
+    g_fallbacks.clear();
+    g_fallbacksReady = false;
+    for (auto& f : resolvedFaces()) fillFace(f.second.get(), f.first.first, f.first.second);  // (looked up again)
+}
+
+std::string Font::glyphFile(uint32_t cp) const {
+    FontFace::Mapped m = face()->lookup(cp);
+    return m.font && m.gid >= 0 ? m.font->path : std::string();
 }
 
 std::vector<std::string> Font::families() {

@@ -192,8 +192,8 @@ TempoRangeDialog::TempoRangeDialog(ui::Window* parent, double lo_, double hi_, b
     autoBox->setCheckedSilently(automatic);
     autoBox->setToolTip("On: the range fits the tempo changes (rounded to tens). Off: Min to Max");
     form->addRow(nullptr, autoBox);
-    auto* hint = add<ui::Label>("Changing a number switches Auto off. Max must be above Min (else: Auto).");
-    hint->setWordWrap(true);
+    // (two lines of its own, not wrapped: as tall at the dialog's smallest as at any width: it fits, unscrolled)
+    auto* hint = add<ui::Label>("Changing a number switches Auto off.\nMax must be above Min (else: Auto).");
     hint->setProperty("hint", "true");
     form->addRow(hint);
     auto off = [this](double) { autoBox->setChecked(false); };
