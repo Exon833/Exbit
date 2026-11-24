@@ -386,6 +386,22 @@ void testMidiFiles() {
     for (size_t i = 0; i < sigs.size() && i < 5; i++) {
         CHECK(sigs[i].beat == expect[i].beat && sigs[i].num == expect[i].num && sigs[i].den == expect[i].den);
     }
+    // onto a new song's time-signature lane, bar by bar: the lane written
+    Timing lane;
+    CHECK(lane.plainSignature() && !t.plainSignature());
+    for (auto& s : sigs) lane.setSignatureNear(s.beat, TimeSig{s.num, s.den});
+    CHECK(lane.sigAtBar(1) == TimeSig({7, 8}) && lane.sigAtBar(2) == TimeSig({7, 8}) && lane.sigAtBar(3) == TimeSig({6, 8}));
+    CHECK(lane.sigAtBar(4) == TimeSig({5, 16}) && lane.sigAtBar(6) == TimeSig({3, 2}) && lane.sigAtBar(7) == TimeSig({4, 4}));
+    CHECK(lane.map()->meters().size() == 5);
+    // inside a bar: to the nearest bar line (from its middle on, the next one)
+    Timing near;
+    CHECK(near.setSignatureNear(5, {3, 4}) == 2);    // (a beat into bar 2: its start)
+    CHECK(near.setSignatureNear(9, {5, 4}) == 4);    // (bar 3 is 3/4 from beat 7: 2 beats into it, the next bar)
+    CHECK(near.sigAtBar(2) == TimeSig({3, 4}) && near.sigAtBar(3) == TimeSig({3, 4}) && near.sigAtBar(4) == TimeSig({5, 4}));
+    size_t n = near.changes.size();
+    CHECK(near.setSignatureNear(15, {5, 4}) == 5 && near.changes.size() == n);  // (the one in force: nothing added)
+    CHECK(near.setSignatureNear(-1, {3, 4}) == 0 && near.setSignatureNear(std::nan(""), {3, 4}) == 0);
+    CHECK(near.changes.size() == n);
     // a damaged one (2^9) reads as 4/4
     std::string bad = bytes;
     size_t k = bad.find(std::string("\xFF\x58\x04\x07\x03", 5));

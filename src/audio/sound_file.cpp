@@ -1385,8 +1385,8 @@ bool readMidiFile(const std::string& path, std::vector<MidiFileNote>& notes, dou
 }
 
 bool readMidiFileBeats(const std::string& path, std::vector<MidiFileNote>& notes, double& lengthBeats,
-                       std::string& error) {
-    return readMidi(path, notes, lengthBeats, error, true);
+                       std::string& error, std::vector<MidiFileSig>* sigs) {
+    return readMidi(path, notes, lengthBeats, error, true, sigs);
 }
 
 bool readMidiFileSignatures(const std::string& path, std::vector<MidiFileSig>& sigs, std::string& error) {

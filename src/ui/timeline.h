@@ -134,6 +134,7 @@
 #include <vector>
 
 #include "audio/engine.h"
+#include "audio/sound_file.h"
 #include "model/clip_edits.h"
 #include "model/model.h"
 #include "model/timebase.h"
@@ -678,7 +679,12 @@ private:
     std::string editTime(const std::function<bool(std::string& note, std::string& error)>& edit, const std::string& done);
     PointF pressPos_;
     bool pastThreshold_ = true;
-    std::map<const Clip*, std::pair<std::vector<Note>, double>> inBeats_;  // loadClip's MIDI files: (notes in beats, beats)
+    struct InBeats {  // loadClip's MIDI file: its notes in beats, its length in beats, its time signatures
+        std::vector<Note> notes;
+        double beats = 0;
+        std::vector<MidiFileSig> sigs;
+    };
+    std::map<const Clip*, InBeats> inBeats_;
     void paintRecording(Painter& p, const std::map<const Track*, int>& tops);
     void automationPress(ui::MouseEvent& e, const Lane& lane);
     void dragPoint(PointF pos, Point globalPos, int mods);

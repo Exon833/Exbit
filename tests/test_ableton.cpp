@@ -773,6 +773,48 @@ static void testSmallSets() {
     ClipPtr c = clipNamed(p, "Hit");
     CHECK(c && c->start == (int64_t)(1.2 * SR) && c->length == (int64_t)(0.5 * SR));
     CHECK(r.masterDb <= 0);
+    // the time signature's automation (an envelope on the main track's TimeSignature): every change on the lane; a
+    // value out of range is 4/4, one inside a bar goes to the nearest bar line. With a tempo ramp running through them
+    {
+        auto replace = [](std::string& s, const std::string& from, const std::string& to) {
+            size_t at = s.find(from);
+            CHECK(at != std::string::npos);
+            if (at != std::string::npos) s.replace(at, from.size(), to);
+        };
+        auto envelope = [](int id, const std::string& events) {
+            return wid("AutomationEnvelope", id, w("EnvelopeTarget", v("PointeeId", id)) + w("Automation", w("Events", events)));
+        };
+        auto e = [](const std::string& tag, double time, double value) {
+            return "<" + tag + " Time=\"" + num(time) + "\" Value=\"" + num(value) + "\" />";
+        };
+        std::string sigSet = liveSet("", 100);
+        replace(sigSet, "<TimeSignature>", "<TimeSignature><AutomationTarget Id=\"8\" />");
+        replace(sigSet, "<Tempo><Manual Value=\"100\" /></Tempo>", "<Tempo><Manual Value=\"100\" /><AutomationTarget Id=\"9\" /></Tempo>");
+        replace(sigSet, "</MainTrack>",
+                w("AutomationEnvelopes", w("Envelopes",
+                    envelope(8, e("EnumEvent", -63072000, 2 + 99 * 2) + e("EnumEvent", 12, 6 + 99 * 3) + e("EnumEvent", 15.5, 9999) +
+                                    e("EnumEvent", 23.5, 2 + 99 * 2) + e("EnumEvent", 25, 4 + 99 * 2)) +
+                    envelope(9, e("FloatEvent", -63072000, 100) + e("FloatEvent", 6, 100) + e("FloatEvent", 18, 160)))) +
+                    "</MainTrack>");
+        writeSet(dir + "/Sigs.als", sigSet);
+        Project sp;
+        ableton::Result sr;
+        CHECK(ableton::convert(dir + "/Sigs.als", kDir + "/out/Sigs/Sigs.json", sp, sr, error));
+        const Timing& t = sp.timing;
+        CHECK(t.sigAtBar(1) == TimeSig({3, 4}) && t.sigAtBar(4) == TimeSig({3, 4}) && t.sigAtBar(5) == TimeSig({7, 8}));
+        CHECK(t.sigAtBar(6) == TimeSig({4, 4}) && t.sigAtBar(7) == TimeSig({4, 4}) && t.sigAtBar(8) == TimeSig({3, 4}));
+        CHECK(t.sigAtBar(9) == TimeSig({5, 4}));  // (beat 25: halfway through bar 8, so bar 9)
+        TempoMapPtr tm = t.map();
+        CHECK(tm->barBeat(4) == 12 && tm->barBeat(5) == 15.5 && tm->barBeat(8) == 26.5);
+        CHECK_NEAR(tm->bpmAtBeat(3), 100, 1e-9);
+        CHECK_NEAR(tm->bpmAtBeat(9), 115, 1e-6);    // (the ramp, 6 → 18: 100 → 160, through bars 5 and 6)
+        CHECK_NEAR(tm->bpmAtBeat(12), 130, 1e-6);
+        CHECK_NEAR(tm->bpmAtBeat(15.5), 147.5, 1e-6);
+        CHECK_NEAR(tm->bpmAtBeat(17), 155, 1e-6);
+        CHECK_NEAR(tm->bpmAtBeat(30), 160, 1e-9);
+        CHECK(t.changeAt(3, 0) && t.changeAt(3, 0)->ramp && t.changeAt(6, 2.5) && !t.changeAt(6, 2.5)->ramp);
+        CHECK(reportHas(sr, "as 2 tempo changes"));
+    }
 
     // a loud mix: the master volume brings its peak under -1 dBFS (whole dB)
     writeSample(dir + "/Loud.wav", 0.5, 100, 1.0);

@@ -305,12 +305,25 @@ void Timeline::rerenderMoved(const std::map<ClipPtr, TrackPtr>& tracksBefore,
 void Timeline::fromBeats(const ClipPtr& clip, int64_t frame) {
     auto it = inBeats_.find(clip.get());
     if (it == inBeats_.end()) return;
-    std::vector<Note> notes = std::move(it->second.first);
-    double beats = it->second.second;
+    std::vector<Note> notes = std::move(it->second.notes);
+    double beats = it->second.beats;
+    std::vector<MidiFileSig> sigs = std::move(it->second.sigs);
     inBeats_.erase(it);
     const Timing& t = project.timing;
     int sr = engine.sr;
     double at = (double)frame / sr;
+    // its time signatures: into an empty project still in 4/4 (a new one); any other keeps its own
+    if (!sigs.empty() && project.clips.empty() && t.plainSignature()) {
+        double beat0 = t.beatAt(at);
+        tempoEdit([&] {
+            for (const MidiFileSig& s : sigs) project.timing.setSignatureNear(beat0 + s.beat, TimeSig{s.num, s.den});
+        });
+        util::debugf("timeline: %s: its %zu time signature(s) taken (bar 1: %s; %zu on the lane)\n", clip->name.c_str(),
+                     sigs.size(), t.sig().text().c_str(), t.map()->meters().size());
+    } else if (!sigs.empty()) {
+        util::debugf("timeline: %s: its %zu time signature(s) left out: the project keeps its own\n", clip->name.c_str(),
+                     sigs.size());
+    }
     double beat0 = t.beatAt(at);
     double perBar = t.barQuartersAt(at);  // (a bar in beats: 3.5 in 7/8)
     for (auto& n : notes) beats = std::max(beats, n.end);

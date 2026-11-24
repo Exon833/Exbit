@@ -441,6 +441,28 @@ bool Timing::moveSignature(int fromBar, int toBar) {
     return true;
 }
 
+int Timing::setSignatureNear(double beat, TimeSig sig) {
+    if (!std::isfinite(beat) || beat < 0) {
+        util::debugf("timing: a time signature %d/%d at beat %g: not placed\n", sig.num, sig.den, beat);
+        return 0;
+    }
+    TempoMapPtr m = map();
+    int bar = m->barAtBeat(beat);  // (0-based)
+    double into = beat - m->barBeat(bar);
+    // inside a bar: to the nearest bar line (from its middle on, the next one)
+    if (into >= m->meterAtBeat(beat).barQuarters() / 2) bar++;
+    if (into > EPSILON) util::debugf("timing: a time signature %d/%d at beat %g (inside a bar) set at bar %d\n", sig.num,
+                                     sig.den, beat, bar + 1);
+    if (bar > 0 && !changeAt(bar + 1, 0) && sigAtBar(bar + 1) == sig) return bar + 1;
+    setSignature(bar + 1, sig);
+    return bar + 1;
+}
+
+bool Timing::plainSignature() const {
+    const std::vector<Meter>& ms = map()->meters();
+    return std::all_of(ms.begin(), ms.end(), [](const Meter& m) { return m.sig() == TimeSig{4, 4}; });
+}
+
 // --- the grid ---
 
 std::optional<Frac> Timing::fixedStep() const {

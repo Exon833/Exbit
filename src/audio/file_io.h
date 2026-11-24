@@ -8,6 +8,7 @@
 #include "audio/synth.h"
 
 struct Timing;
+struct MidiFileSig;
 
 namespace file_io {
 
@@ -25,8 +26,10 @@ bool loadAudio(const std::string& path, AudioPtr& data, int& sampleRate, std::st
 bool loadMidi(const std::string& path, std::vector<Note>& notes, double& lengthSeconds, std::string& error);
 // (notes: start beat, end beat, pitch, velocity; length in beats: the file's end, its last tick) of a MIDI
 // file, in beats (quarter notes) rather than seconds: placed with the song's tempo, its notes land on the
-// song's beats whatever tempo the file was written at. All tracks and channels merged.
-bool loadMidiBeats(const std::string& path, std::vector<Note>& notes, double& lengthBeats, std::string& error);
+// song's beats whatever tempo the file was written at. All tracks and channels merged. Its time signatures
+// too, if `sigs` (sound_file.h)
+bool loadMidiBeats(const std::string& path, std::vector<Note>& notes, double& lengthBeats, std::string& error,
+                   std::vector<MidiFileSig>* sigs = nullptr);
 
 constexpr int MIDI_TICKS = 480;  // per beat (quarter note) in MIDI files written
 struct MidiPart {

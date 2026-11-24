@@ -285,6 +285,11 @@ struct Timing {
     // keeps the signature before it). False if there was none
     bool removeSignature(int bar);
     bool moveSignature(int fromBar, int toBar);  // (≥ 2 both) its signature from one bar to the other
+    // a time signature read from a file at `beat` (quarter notes since 0 s), on the bar line nearest it; one that
+    // keeps the signature in force there (and no change there) adds nothing. Returns the bar (1-based); 0: none
+    // (a beat below 0 or not finite)
+    int setSignatureNear(double beat, TimeSig sig);
+    bool plainSignature() const;  // 4/4 all through (a new project's): no time signature of its own
     std::vector<BeatTime> beatTimes(double t0, double t1) const { return map()->beatTimes(t0, t1); }
     double beatSeconds() const { return 60.0 / bpm; }  // seconds per beat at bar 1 (beatSAt(): anywhere)
 

@@ -41,9 +41,10 @@ bool loadMidi(const std::string& path, std::vector<Note>& notes, double& lengthS
     return true;
 }
 
-bool loadMidiBeats(const std::string& path, std::vector<Note>& notes, double& lengthBeats, std::string& error) {
+bool loadMidiBeats(const std::string& path, std::vector<Note>& notes, double& lengthBeats, std::string& error,
+                   std::vector<MidiFileSig>* sigs) {
     std::vector<MidiFileNote> found;
-    if (!readMidiFileBeats(path, found, lengthBeats, error)) return false;
+    if (!readMidiFileBeats(path, found, lengthBeats, error, sigs)) return false;
     notes.clear();
     notes.reserve(found.size());
     for (auto& n : found) notes.push_back(Note{n.start, n.end, (double)n.pitch, (double)n.velocity});

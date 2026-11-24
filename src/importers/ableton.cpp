@@ -210,6 +210,17 @@ double activeRms(const float* audio, int64_t frames) {
     return loud ? std::sqrt(sum / loud) : 0.0;
 }
 
+// Live's time signature value, (numerator - 1) + 99 · log2(denominator); one out of range (or not a number): 4/4
+TimeSig liveSig(const std::string& value) {
+    char* end = nullptr;
+    long v = std::strtol(value.c_str(), &end, 10);
+    if (end == value.c_str() || v < 0 || v / 99 > 5) {
+        util::debugf("ableton: a time signature value '%s' out of range: read as 4/4\n", value.c_str());
+        return TimeSig{4, 4};
+    }
+    return TimeSig{timing::clampedBeats((int)(v % 99) + 1), 1 << (int)(v / 99)};
+}
+
 // --- reading the set ---
 
 class SetReader {
@@ -224,6 +235,7 @@ public:
     std::map<std::string, std::vector<std::string>> samples;  // file name -> paths, for every audio file in the set's folder
     std::vector<std::pair<double, std::string>> locators;
     std::vector<std::pair<double, double>> tempoEvents;  // the tempo's automation: (beat, BPM), by time
+    std::vector<std::pair<double, TimeSig>> sigChanges;  // the time signature's automation after bar 1: (beat, it), by time
 
     explicit SetReader(const std::string& alsPath) {
         folder = util::dirName(util::absolutePath(alsPath));
@@ -253,19 +265,35 @@ public:
             std::stable_sort(tempoEvents.begin(), tempoEvents.end(),
                              [](const std::pair<double, double>& a, const std::pair<double, double>& b) { return a.first < b.first; });
         }
-        int sig = 201;  // (4/4)
-        const Element* event = nullptr;
-        main->walk([&](const Element& e) {
-            if (e.tag == "EnumEvent") {
-                event = &e;
+        // the time signature's automation: an envelope on the main track's TimeSignature parameter, its EnumEvents
+        // (Time in beats; before Live 10 they sit in the parameter's own ArrangerAutomation); else any EnumEvent
+        std::vector<const Element*> sigEvents;
+        const Element* sigTarget = main->find("DeviceChain/Mixer/TimeSignature/AutomationTarget");
+        if (sigTarget && sigTarget->has("Id")) {
+            std::string id(sigTarget->get("Id"));
+            for (const Element* env : main->findAll("AutomationEnvelopes/Envelopes/AutomationEnvelope"))
+                if (valS(env, "EnvelopeTarget/PointeeId") == id)
+                    for (const Element* ev : env->findAll("Automation/Events/EnumEvent")) sigEvents.push_back(ev);
+        }
+        if (sigEvents.empty()) sigEvents = main->findAll("DeviceChain/Mixer/TimeSignature/ArrangerAutomation/Events/EnumEvent");
+        if (sigEvents.empty())
+            main->walk([&](const Element& e) {
+                if (e.tag != "EnumEvent") return true;
+                sigEvents.push_back(&e);
                 return false;
-            }
-            return true;
-        });
-        if (event) sig = toInt(std::string(event->get("Value")), "EnumEvent");
-        beatsPerBar = ((sig % 99) + 99) % 99 + 1;
-        // (Live's EnumEvent: (numerator - 1) + 99 · log2(denominator))
-        denominator = timing::checkedUnit(1 << std::max(0, std::min(10, sig / 99)), "the Live set's time signature");
+            });
+        TimeSig first;  // (4/4 without any)
+        for (const Element* ev : sigEvents) {
+            double at = ev->has("Time") ? std::strtod(std::string(ev->get("Time")).c_str(), nullptr) : 0;
+            TimeSig sig = liveSig(std::string(ev->get("Value")));
+            if (!std::isfinite(at) || at <= 0) first = sig;  // (Live's first event lies far before the song: bar 1's)
+            else sigChanges.push_back({at, sig});
+        }
+        std::stable_sort(sigChanges.begin(), sigChanges.end(),
+                         [](const std::pair<double, TimeSig>& a, const std::pair<double, TimeSig>& b) { return a.first < b.first; });
+        if (!sigEvents.empty() && sigChanges.size() == sigEvents.size()) first = sigChanges[0].second;  // (none before: the first's)
+        beatsPerBar = first.num;
+        denominator = first.den;
         spb = 60.0 / bpm;
         util::walkFiles(folder, [&](const std::string& path) {
             std::string ext = util::extension(path);
@@ -1445,6 +1473,10 @@ void convertSet(const std::string& als, const std::string& output, Project& proj
     project.timing.bpm = reader.bpm;
     project.timing.beatsPerBar = reader.beatsPerBar;
     project.timing.beatUnit = reader.denominator;
+    for (auto& c : reader.sigChanges) project.timing.setSignatureNear(c.first, c.second);  // (Live's beats: quarter notes)
+    if (!reader.sigChanges.empty())
+        util::debugf("ableton: time signature automation: %zu events -> %zu time signatures\n", reader.sigChanges.size(),
+                     project.timing.map()->meters().size());
     project.timing.publish();
     // clips are prepared as Tiny DAW plays them: through their track's MIDI effects and built-in sampler
     // (the program sets these hooks at start-up; a command-line conversion or a test may not have)
@@ -1815,24 +1847,39 @@ int tempoFromEnvelope(Timing& timing, const std::vector<std::pair<double, double
     timing.beatsPerBar = std::max(1, beatsPerBar);
     timing.beatUnit = timing::checkedUnit(beatUnit, "tempoFromEnvelope");
     timing.ramp = ramps(0);
+    // the time signatures already set from bar 2 on stay: the bars (in quarter notes, as Live counts its beats) are theirs
+    std::vector<TempoChange> sigs;
+    for (const TempoChange& c : timing.changes)
+        if (c.atBar()) sigs.push_back(c);
+    const TempoMap bars(120, timing.beatsPerBar, sigs, false, timing.beatUnit);
     timing.changes.clear();
-    int perBar = std::max(1, beatsPerBar);
-    double barLen = timing.sig().barQuarters().value();  // (a bar in quarter notes, as Live counts its beats)
     double lastBpm = ps[0].bpm;
     bool lastRamps = timing.ramp;
     for (size_t k = 1; k < ps.size(); k++) {
         bool ramp = ramps(k);
         if (ps[k].bpm == lastBpm && !lastRamps && !ramp) continue;  // (no change)
-        int bar = (int)std::floor(ps[k].beat / barLen + 1e-9) + 1;
-        double in = ps[k].beat - (double)(bar - 1) * barLen;
+        int bar = bars.barAtBeat(ps[k].beat);
+        double in = ps[k].beat - bars.barBeat(bar);
         if (in < 1e-9) in = 0;
-        timing.changes.push_back(TempoChange{bar, ps[k].bpm, perBar, in, ramp, timing.beatUnit});
+        TimeSig sig = bars.meterAtBeat(ps[k].beat).sig();
+        timing.changes.push_back(TempoChange{bar + 1, ps[k].bpm, sig.num, in, ramp, sig.den});
         lastBpm = ps[k].bpm;
         lastRamps = ramp;
     }
+    int made = (int)timing.changes.size();
+    // a time signature where no tempo change is: the tempo there as the envelope has it (a ramp through it goes on)
+    for (const Meter& m : bars.meters()) {
+        if (m.bar == 0 || timing.changeAt(m.bar + 1, 0)) continue;
+        size_t k = 0;
+        while (k + 1 < ps.size() && ps[k + 1].beat <= m.beat) k++;
+        bool ramp = ramps(k);
+        double bpm = ramp ? ps[k].bpm + (ps[k + 1].bpm - ps[k].bpm) * (m.beat - ps[k].beat) / (ps[k + 1].beat - ps[k].beat)
+                          : ps[k].bpm;
+        timing.changes.push_back(TempoChange{m.bar + 1, bpm, m.beatsPerBar, 0.0, ramp, m.beatUnit});
+    }
     std::sort(timing.changes.begin(), timing.changes.end());
     timing.publish();
-    return (int)timing.changes.size();
+    return made;
 }
 
 double warpSeconds(const std::vector<std::pair<double, double>>& markers, double beat) {

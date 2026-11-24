@@ -36,16 +36,16 @@ struct MidiFileNote {
 };
 bool readMidiFile(const std::string& path, std::vector<MidiFileNote>& notes, double& lengthSeconds,
                   std::string& error);
-// the same in beats: start and end in quarter notes (ticks / the file's ticks per beat, 480 for SMPTE
-// files), length: the file's last tick in beats
-bool readMidiFileBeats(const std::string& path, std::vector<MidiFileNote>& notes, double& lengthBeats,
-                       std::string& error);
 // the file's time signatures (time_signature meta events, FF 58), in order: where (quarter notes from its
 // start) and num / den; a denominator past 1/32 or a numerator of 0 reads as 4/4 (with a debug message)
 struct MidiFileSig {
     double beat = 0;
     int num = 4, den = 4;
 };
+// the same in beats: start and end in quarter notes (ticks / the file's ticks per beat, 480 for SMPTE
+// files), length: the file's last tick in beats; and its time signatures, if `sigs`
+bool readMidiFileBeats(const std::string& path, std::vector<MidiFileNote>& notes, double& lengthBeats,
+                       std::string& error, std::vector<MidiFileSig>* sigs = nullptr);
 bool readMidiFileSignatures(const std::string& path, std::vector<MidiFileSig>& sigs, std::string& error);
 
 // --- writing MIDI files (type 1) ---

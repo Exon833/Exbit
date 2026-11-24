@@ -409,13 +409,12 @@ ClipPtr Timeline::loadClip(const std::string& path) {
     auto clip = std::make_shared<Clip>();
     clip->name = name;
     if (file_io::isMidi(path)) {  // (in beats: placeClip puts them on the song's beats where it is dropped)
-        std::vector<Note> notes;
-        double beats = 0;
-        if (file_io::loadMidiBeats(path, notes, beats, error)) {
+        InBeats in;
+        if (file_io::loadMidiBeats(path, in.notes, in.beats, error, &in.sigs)) {
             clip->kind = Kind::Midi;
             clip->notes = std::make_shared<const std::vector<Note>>();
             clip->lengthS = 1.0;
-            inBeats_[clip.get()] = {std::move(notes), beats};
+            inBeats_[clip.get()] = std::move(in);
             return clip;
         }
     } else {

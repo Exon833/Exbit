@@ -1306,6 +1306,31 @@ void testMidiClipsAndExport() {
             CHECK(loaded->length == r2.sec(8));
         }
     }
+    // its time signatures: an empty project in 4/4 (a new one) takes them; one with its own, or with clips, keeps its own
+    {
+        Timing written;
+        written.setSignature(1, {3, 4});
+        written.setSignature(3, {7, 8});
+        std::string path = outDir2() + "/sigs.mid", error;
+        CHECK(file_io::saveMidi(path, {{"Part", {{0.0, 1.0, 60, 100}}}}, written, 0, error));
+        Rig fresh;
+        ClipPtr c = fresh.tl->loadClip(path);
+        CHECK(c);
+        if (c) fresh.tl->placeClip(c, 0, fresh.project.addTrack(Kind::Midi));
+        const Timing& ft = fresh.project.timing;
+        CHECK(ft.sigAtBar(1) == TimeSig({3, 4}) && ft.sigAtBar(2) == TimeSig({3, 4}) && ft.sigAtBar(3) == TimeSig({7, 8}));
+        CHECK(c && c->lengthS == 3.0);  // (the file runs to its 7/8 at beat 6: two bars of 3/4 at 120 BPM)
+        Rig own;
+        own.project.timing.setSignature(2, {5, 4});
+        ClipPtr c2 = own.tl->loadClip(path);
+        if (c2) own.tl->placeClip(c2, 0, own.project.addTrack(Kind::Midi));
+        CHECK(own.project.timing.sigAtBar(1) == TimeSig({4, 4}) && own.project.timing.sigAtBar(3) == TimeSig({5, 4}));
+        Rig busy;
+        audioClip(busy.project, busy.project.addTrack(Kind::Audio), 0, 1);
+        ClipPtr c3 = busy.tl->loadClip(path);
+        if (c3) busy.tl->placeClip(c3, 0, busy.project.addTrack(Kind::Midi));
+        CHECK(busy.project.timing.plainSignature());
+    }
     // a removed current track is forgotten
     tl.setCurrentTrack(a1);
     r.project.removeTrack(a1);
