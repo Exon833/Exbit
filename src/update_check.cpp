@@ -11,6 +11,7 @@
 #include <regex>
 
 #include "core/os.h"
+#include "core/util.h"
 
 namespace update_check {
 
@@ -83,6 +84,7 @@ Json fetch(const std::string& url) {
     std::vector<std::string> args = {"curl", "-s", "-L", "--max-time", timeout, "-H",
                                      "Accept: application/vnd.github+json", "-H", agent, "-w", "\n%{http_code}", url};
     // (Windows 10 and later have curl.exe too)
+    util::debugf("update check: asking %s\n", url.c_str());
     int fds[2];
     if (!os::makePipe(fds)) throw FetchError(std::string("could not start curl: ") + std::strerror(errno));
     os::Process child;
@@ -104,14 +106,21 @@ Json fetch(const std::string& url) {
     }
     close(fds[0]);
     int code = os::waitProcess(child);
+    util::debugf("update check: curl exit %d, %zu bytes: %.200s\n", code, out.size(), out.c_str());
     if (code == 127) throw FetchError("curl is not installed (it is needed to check for updates)");
     if (code != 0) throw FetchError(code < 0 ? "curl stopped unexpectedly" : curlProblem(code));
+    return answer(out);
+}
 
+Json answer(const std::string& out) {
     size_t nl = out.rfind('\n');
     std::string statusText = nl == std::string::npos ? out : out.substr(nl + 1);
     std::string body = nl == std::string::npos ? "" : out.substr(0, nl);
     int http = std::atoi(statusText.c_str());
     if (http < 200 || http >= 300) {
+        // (60 requests an hour without an account, counted per network address: every program behind it shares them)
+        if ((http == 403 || http == 429) && body.find("rate limit") != std::string::npos)
+            throw FetchError("GitHub's limit of 60 requests an hour from this network was reached; trying again later", http);
         std::string reason = reasonPhrase(http);
         throw FetchError("HTTP Error " + std::to_string(http) + (reason.empty() ? "" : ": " + reason), http);
     }

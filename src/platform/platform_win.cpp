@@ -1394,7 +1394,12 @@ void init(int argc, char** argv) {
     wc.hInstance = s.inst;
     wc.hCursor = nullptr;  // (WM_SETCURSOR sets the window's own)
     wc.lpszClassName = kClass;
-    wc.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    // the program's own icon (tinydaw_win.rc: 1), Windows' plain one where it isn't built in
+    wc.hIcon = LoadIconW(s.inst, MAKEINTRESOURCEW(1));
+    wc.hIconSm = (HICON)LoadImageW(s.inst, MAKEINTRESOURCEW(1), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
+                                   GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR);
+    util::debugf("platform: window class icon %s\n", wc.hIcon ? "built in" : "missing: Windows' plain one");
+    if (!wc.hIcon) wc.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
     if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
         fprintf(stderr, "Tiny DAW: can't show windows (RegisterClassEx failed: %lu)\n", (unsigned long)GetLastError());
         return;
