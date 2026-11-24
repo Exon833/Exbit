@@ -1,4 +1,4 @@
-// Contrast in every skin (headless; rule 8's worst case for reading the interface): every control in every state,
+// Contrast in every skin (headless; the worst case for reading the interface): every control in every state,
 // the colours the program draws with, the meters, the keyboard focus, the symbols' glyphs, the main window and the
 // newer windows. It fails when a pair is under its WCAG 2.2 threshold:
 //   text against what is behind it 4.5:1; one or two characters (M, S, ●, ✕) and large text 3:1     (1.4.3)

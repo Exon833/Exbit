@@ -1,4 +1,4 @@
-// Worst-case runs (CLAUDE.md, rule 8): each aimed at one thing, done as hard as a user (or a slow machine)
+// Worst-case runs: each aimed at one thing, done as hard as a user (or a slow machine)
 // could do it at once, checking that the program stays whole and its sound stays sound:
 //   - testOverloadedEngine: 256 tracks (audio with volume and pan automation, MIDI with dense notes) played in
 //     small blocks on a thread of its own, while the GUI thread changes every fader, pan, mute and solo, adds

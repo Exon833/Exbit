@@ -1,9 +1,9 @@
-// Worst case for the main window's sizes (CLAUDE.md, rule 8): the window from 1 x 1 to 7680 x 4320 at every
+// Worst case for the main window's sizes: the window from 1 x 1 to 7680 x 4320 at every
 // interface size; every resizable part at its limits at once (the Explorer, every kind of row at its smallest and
 // largest, the timeline zoomed all the way in and out, hundreds of tracks); a menu taller than the screen.
 // Fails on: a crash, negative or absurd geometry, a track panel row's controls cut off or squashed, the Explorer's
 // chosen width lost after the window was narrow, a menu's items out of reach, a layout taking far too long.
-// Pictures of the extremes: build/ui-samples/size-audit/ (look at them: CLAUDE.md rule 18).
+// Pictures of the extremes: build/ui-samples/size-audit/ (look at them).
 #include <chrono>
 #include <cmath>
 #include <cstdio>

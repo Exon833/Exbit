@@ -557,9 +557,12 @@ exits with an error), or `== all tests passed`.
 MIDI) played in small blocks while every fader, mute and solo changes and tracks come and go; the main
 window resized 400 times from 1 x 1 to 4000 x 2500 while the interface size changes; every slider and
 toggle used in every frame while playing and dragging, then all undone and redone; and the terminal UI
-hit with thousands of keys while its screen is resized. `make hooks` makes git run `make test` before
-every push (`tools/pre-push`; `git push --no-verify` skips it once): all of them only then, while working on a
-feature only its own (a push to the `unstable` branch, the webpage or a tag runs none).
+hit with thousands of keys while its screen is resized. `make hooks` makes git test every push
+(`tools/pre-push`; `git push --no-verify` skips it once) with `make test-affected`: only the tests the pushed
+commits reach, picked by `tools/affected_tests.sh` from the compiler's include lists, and every test when a change
+to the build, the tools or the shipped data could reach any of them. `make test-affected BASE=<commit>` does
+the same by hand, and `make test TESTS="build/tests/test_x …"` runs the named ones (a push to the `unstable`
+branch, the webpage or a tag runs none).
 
 `test_parallel` mixes projects with and without worker threads and checks that they sound the same
 bit for bit; with `TINYDAW_PARALLEL_FX=<plugin>` and `TINYDAW_PARALLEL_SYNTH=<plugin>` it plays those
@@ -613,6 +616,11 @@ Testing aids of the running program (hidden; see `src/ui/test_script.h`):
     tools/           manual checks (toolkit demo, platform check, plugin editor check, the mouse
                      in Windows plugins' windows and how quickly they redraw); skins_reference.py (writes
                      docs/skins.md's variables from default.css)
+
+## Credits
+
+Tiny DAW is written by Exon, with [Claude Code](https://claude.com/claude-code) (Anthropic's Claude) writing
+and testing much of the code under Exon's direction.
 
 ## License
 

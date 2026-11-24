@@ -157,7 +157,7 @@ ifeq ($(WINDOWS),1)
   ALL_WIN_TEST := $(WIN_TEST_PLUGINS) $(if $(MINGW32),$(WIN32_TEST_PLUGINS))
 endif
 
-.PHONY: all clean test tests-win hooks appimage publish plugins winehost win-plugins
+.PHONY: all clean test test-affected tests-win hooks appimage publish plugins winehost win-plugins
 
 all: $(TARGET) $(ALL_WINE) $(ALL_HOSTS)
 
@@ -308,10 +308,19 @@ $(WIN_DIR)/TinyTestInstaller.exe: tests/plugins/test_installer.cpp
 	@mkdir -p $(dir $@)
 	$(MINGW64) $(WIN_FLAGS) -o $@ $<
 
+# TESTS= runs only these (test-affected picks them); every test by default
+TESTS ?= $(TEST_BINS)
 test: $(TEST_BINS) $(TEST_PLUGINS) $(ALL_WINE) $(ALL_WIN_TEST)
-	@failed=""; for t in $(TEST_BINS); do echo "== $$t"; \
+	@failed=""; for t in $(TESTS); do echo "== $$t"; \
 	    TINYDAW_TEST_PLUGINS=$(BUILD)/test-plugins TINYDAW_WIN_TEST_PLUGINS=$(WIN_DIR) $$t || failed="$$failed $${t##*/}"; done; \
 	if [ -n "$$failed" ]; then echo "== FAILED:$$failed"; exit 1; fi; echo "== all tests passed"
+
+# only the tests the change from commit BASE reaches (tools/affected_tests.sh); every test if it can't tell
+test-affected: $(TEST_BINS) $(TEST_PLUGINS) $(ALL_WINE) $(ALL_WIN_TEST)
+	@t=$$(tools/affected_tests.sh $(BASE)) || t="$(TEST_BINS)"; \
+	if [ -z "$$t" ]; then echo "== no test reaches this change"; \
+	else echo "== $$(echo $$t | wc -w) of $(words $(TEST_BINS)) tests reach this change"; \
+	    $(MAKE) --no-print-directory test TESTS="$$t"; fi
 
 clean:
 	rm -rf build build-debug tinydaw tinydaw-debug tinydaw.exe tinydaw-debug.exe $(WINE_HOST) $(WINE_HOST).so $(WINE_HOST32) $(WINE_HOST32).so wine32

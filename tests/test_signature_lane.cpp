@@ -4,7 +4,7 @@
 // step that follows the Timebase; saved and loaded; 7/8 and 6/8 blocks drawn as long as their bars. The main
 // window's rows (their ✕ and the View menu's toggles), the terminal's keys (Shift+S, /, Shift+Del), and the worst
 // case: a signature change at every bar for 500 bars, painted zoomed out and in and dragged.
-// Pictures (CLAUDE.md rule 18): build/ui-samples/signature-lane/.
+// Pictures (look at them): build/ui-samples/signature-lane/.
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -405,7 +405,7 @@ void testWindow() {
     }
     w->resizeWindow(1280, 720);
     settle();
-    // every skin (rule 24: contrast; look at them)
+    // every skin (contrast; look at them)
     for (const skin::Skin& s : skin::library()) {
         w->chooseSkin(s);
         settle();

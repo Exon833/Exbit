@@ -64,7 +64,7 @@ private:
 
 // How many workers to use for `wanted` (the user's choice: 0 = automatic, 1 = none (the audio thread
 // alone), n = that many cores in all): the cores this program may use less one (the audio thread), with
-// no other limit (CLAUDE.md, rule 13: every thread the machine has).
+// no other limit (every thread the machine has).
 int workersFor(int wanted);
 // is this thread running a pool's job now? (work that could make a pool of its own doesn't, inside another's)
 bool inJob();

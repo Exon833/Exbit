@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds build/appimage/Tiny-DAW-<version>-x86_64.AppImage, and with --publish makes it a GitHub release
-# (CLAUDE.md, rule 15: one is made and published before every push). The version is the build's time, UTC:
+# (one is made and published before every push). The version is the build's time, UTC:
 # YEAR.MONTH.DAY.HOUR.MINUTE.SECOND (VERSION=... gives another); the release's tag is the same, on HEAD.
 #
 #   tools/appimage.sh             build it (make appimage)
