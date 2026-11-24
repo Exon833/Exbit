@@ -2,6 +2,8 @@
 #include "tui/screen.h"
 
 #include <algorithm>
+
+#include "tui/text_symbols.h"
 #ifdef _WIN32
 #include <iterator>
 
@@ -74,7 +76,10 @@ char asciiOf(char32_t cp) {
     if (cp >= 0x20 && cp < 0x7F) return (char)cp;
     switch (cp) {
     case U'─': case U'━': case U'═': return '-';
-    case U'│': case U'┃': case U'║': return '|';
+    case U'│': case U'┃': case U'║': case U'‖': return '|';
+    case U'⇤': return '<';
+    case U'⇥': return '>';
+    case U'☒': return 'x';
     case U'┌': case U'┐': case U'└': case U'┘': case U'├': case U'┤': case U'┬': case U'┴': case U'┼':
     case U'╔': case U'╗': case U'╚': case U'╝': return '+';
     case U'█': case U'▓': case U'■': return '#';
@@ -158,6 +163,7 @@ void Screen::clear(Style st) { std::fill(cells_.begin(), cells_.end(), Cell{U' '
 void Screen::set(int x, int y, char32_t ch, Style st) {
     Cell* c = at(x, y);
     if (!c) return;
+    ch = textForm(ch);  // (a symbol that has an emoji form: as text, where there is a look-alike)
     int w = cellWidth(ch);
     Cell* next = at(x + 1, y);
     if (w < 1 || (w == 2 && !next)) ch = U' ', w = 1;  // (a control or zero-width character alone; a wide one at the edge)
@@ -276,7 +282,7 @@ std::string Screen::output(Screen& shown, bool utf8, bool light) const {
             }
             // (anything else as wide as it isn't meant to be, a control character: a space)
             char32_t ch = cellWidth(c.ch) != (head ? 2 : 1) ? U' ' : c.ch;
-            if (utf8) out += utf8Of(ch);
+            if (utf8) out += utf8Of(ch) + (hasEmojiForm(ch) ? "\xef\xb8\x8e" : "");  // (U+FE0E: as text)
             else out += asciiOf(ch);
             shown.cells_[i] = c;
             cx = x + 1;
