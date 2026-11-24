@@ -361,7 +361,7 @@ void PluginHost::edit(const SlotPtr& slot, const std::string& where) {
         }
         w->place(window, windowPosition(slot));
         editors[slot.get()] = w;
-        edited = true;
+        openedWith_[slot.get()] = slot->currentState();  // (only a change made in it is a change: changed())
         w->watcher = std::make_unique<automation::TweakWatcher>(slot, project);
         w->picture = Image();
         w->photographed = ui::App::get().now();
@@ -400,7 +400,7 @@ Image PluginHost::pictureOf(ui::Window* w) {
 void PluginHost::watch(ui::Window* win) {
     // now and then while a window is open: the parameters changed in it, and its picture
     withWindow(win, [&](auto* w) {
-        if (w->watcher) w->watcher->poll();
+        if (w->watcher && w->watcher->poll()) edited = true;  // (a knob turned in it)
         double now = ui::App::get().now();
         if (now - w->photographed >= PHOTO_EVERY_S && w->isWindowShown()) {
             w->photographed = now;
@@ -416,6 +416,11 @@ void PluginHost::editorClosed(const SlotPtr& slot) {
     if (it == editors.end()) return;
     ui::Window* win = it->second;
     editors.erase(it);
+    auto opened = openedWith_.find(slot.get());
+    if (opened != openedWith_.end()) {
+        if (!edited && settingsMoved(slot.get(), opened->second)) edited = true;
+        openedWith_.erase(opened);
+    }
     withWindow(win, [&](auto* w) {
         if (w->tickTimer >= 0) {
             ui::App::get().cancelTimer(w->tickTimer);
@@ -424,6 +429,23 @@ void PluginHost::editorClosed(const SlotPtr& slot) {
         notePosition(slot, w->position());
         keepPicture(slot, w->picture);
     });
+}
+
+bool PluginHost::settingsMoved(const PluginSlot* slot, const std::string& opened) const {
+    bool moved = slot->currentState() != opened;
+    if (moved) util::debugf("plugin host: %s's settings changed while its window was open\n", slot->name.c_str());
+    return moved;
+}
+
+bool PluginHost::changed() {
+    for (auto& [slot, opened] : openedWith_)
+        if (!edited && settingsMoved(slot, opened)) edited = true;
+    return edited;
+}
+
+void PluginHost::saved() {
+    edited = false;
+    for (auto& [slot, opened] : openedWith_) opened = slot->currentState();
 }
 
 void PluginHost::closeEditor() {

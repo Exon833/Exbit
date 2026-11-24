@@ -272,7 +272,7 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     ah.hasUnsavedChanges = [this] { return hasUnsavedChanges(); };
     ah.snapshot = [this] { return snapshot(); };
     ah.recordingActive = [this] { return recording->active(); };
-    ah.pluginsEdited = [this] { return plugins->edited; };
+    ah.pluginsEdited = [this] { return plugins->changed(); };
     ah.projectPath = [this] { return projectPath; };
     ah.describe = [this](const std::string& folder, std::map<std::string, std::string>& written,
                          std::vector<project_io::PendingAudio>& toWrite) {
@@ -1702,20 +1702,20 @@ void MainWindow::restorePlugins() {
 // --- projects -------------------------------------------------------------------------------
 
 Json MainWindow::snapshot() {
-    // the project without plugin settings (project_io::describeSlot); a plugin window being
-    // opened counts as a change instead (plugins->edited)
+    // the project without plugin settings (project_io::describeSlot); a plugin whose settings
+    // changed counts as a change instead (plugins->changed())
     return project_io::describe(project, engine.sr, master->settings(), nullptr, false);
 }
 
 void MainWindow::markSaved() {
     // remember the project as it is now, to tell later whether it has unsaved changes
     savedSnapshot = snapshot();
-    plugins->edited = false;
+    plugins->saved();
     std::string name = projectPath.empty() ? "Untitled" : util::baseName(projectPath);
     setTitle(name + " — Tiny DAW");
 }
 
-bool MainWindow::hasUnsavedChanges() { return plugins->edited || !(snapshot() == savedSnapshot); }
+bool MainWindow::hasUnsavedChanges() { return plugins->changed() || !(snapshot() == savedSnapshot); }
 
 bool MainWindow::confirmDiscard() {
     // True if it is fine to replace or close the current project (saving it first if asked). A recording

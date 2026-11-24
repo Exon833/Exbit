@@ -27,7 +27,7 @@
 // THE MAIN WINDOW: makes one PluginHost(this, project, engine, [prefs] { return prefs.vst2List(); }),
 // sets `statusBar` and `autoReload` (Options), calls idle(project.pluginSlots()) every frame, findKinds() 1.5 s after start,
 // closeEditor() / stopFindingKinds() when closing, restore(slots) after opening a project,
-// and reads / clears `edited` for its unsaved-changes check.
+// and asks changed() for its unsaved-changes check, saved() once saved.
 #pragma once
 #include <functional>
 #include <map>
@@ -73,7 +73,7 @@ public:
     std::function<void(const std::string& text, int ms)> showStatus;  // (instead of statusBar, if set)
     // slot -> its open window: an EditorWindow (a plugin's own), or an EffectWindow (a built-in effect)
     std::map<PluginSlot*, ui::Window*> editors;
-    bool edited = false;                          // a plugin window was opened, so its settings may have changed since saving
+    bool edited = false;                          // a plugin's settings changed since saving (in its window, a preset, MIDI learn…)
     ui::Signal<SlotPtr> pictureTaken;             // a new picture of a plugin was kept (the effects windows show it)
     std::unique_ptr<plug::KindFinder> finder;     // the KindFinder at work, if any
     plug::KindFinder::Spawner spawner;            // (tests: how the probe process is started; empty = this program)
@@ -129,6 +129,10 @@ public:
     // the open window of a slot as either kind (null if it has none, or it is the other kind)
     EditorWindow* editorOf(const SlotPtr& slot) const;
     EffectWindow* effectWindowOf(const SlotPtr& slot) const;
+    // have plugins' settings changed since saved()? `edited`, or an open window's plugin whose settings
+    // differ from those it had when its window opened (or when saved, if later)
+    bool changed();
+    void saved();  // (the project was saved: its plugins' settings, as they are now, are the saved ones)
 
 private:
     std::unique_ptr<plug::PluginLibrary> library_;
@@ -136,6 +140,8 @@ private:
     std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
     bool loading_ = false;  // (a plugin is being loaded or reloaded: its "please wait" window lets frames run)
     std::vector<std::weak_ptr<PluginSlot>> stopped_;  // stopped slots already noticed (said once)
+    std::map<const PluginSlot*, std::string> openedWith_;  // slots with a window open: their settings when it opened
+    bool settingsMoved(const PluginSlot* slot, const std::string& opened) const;
     std::vector<std::pair<std::weak_ptr<PluginSlot>, std::vector<double>>> autoReloads_;  // when each was reloaded by itself
     void noticeStopped(const std::vector<SlotPtr>& slots);
     bool autoReloadAllowed(const SlotPtr& slot, double now);
