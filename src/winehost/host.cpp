@@ -496,6 +496,13 @@ void serve(const Incoming& in) {
         std::string error;
         try {
             plugin->setState(component, controller);
+            // (news gathered before it are about the settings it replaced: they'd undo it in Tiny DAW's view)
+            if (!editedNews.empty() || !changedNews.empty())
+                fprintf(stderr, "[host] %zu parameter changes from before the state was set, left out\n",
+                        editedNews.size() + changedNews.size());
+            editedNews.clear();
+            changedNews.clear();
+            for (auto& [id, last] : values) last = plugin->getParam(id);
         } catch (const std::exception& e) {
             ok = false;
             error = e.what();
@@ -537,6 +544,10 @@ void serve(const Incoming& in) {
                                        WS_POPUP | WS_CLIPCHILDREN, sx, sy, 640, 400, nullptr, nullptr,
                                        GetModuleHandleW(nullptr), nullptr);
         int pw = 0, ph = 0;
+        if (const char* slow = getenv("TINYDAW_HOST_TEST_SLOW_EDITOR")) {  // (tests) a plugin slow to make its window
+            fprintf(stderr, "[host] test: the plugin takes %s ms to make its window\n", slow);
+            Sleep((DWORD)atoi(slow));
+        }
         bool ok = editorWindow && plugin->openEditor((uintptr_t)editorWindow, nullptr, scale, pw, ph);
         if (!ok) {
             closeEditor();

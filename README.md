@@ -564,6 +564,12 @@ to the build, the tools or the shipped data could reach any of them. `make test-
 the same by hand, and `make test TESTS="build/tests/test_x …"` runs the named ones (a push to the `unstable`
 branch, the webpage or a tag runs none).
 
+`test_plugin_restore` saves and restores the settings of a real plugin, [Surge XT](https://surge-synthesizer.github.io/)
+1.3.4 (free, GPL-3, by the Surge Synth Team; not shipped with Tiny DAW, and skipped without it): its Linux
+build (`surge-xt-linux-1.3.4-pluginsonly.tar.gz`, unpacked in `~/.local/share/tinydaw-test-plugins/linux`, or
+`TINYDAW_SURGE=<folder>`), its Windows build under Wine (in the prefix `~/.local/share/tinydaw-test-wine`, or
+`TINYDAW_SURGE_WINE=<prefix>`, in `C:\Program Files\Common Files\VST3`), and on Windows the one installed there.
+
 `test_parallel` mixes projects with and without worker threads and checks that they sound the same
 bit for bit; with `TINYDAW_PARALLEL_FX=<plugin>` and `TINYDAW_PARALLEL_SYNTH=<plugin>` it plays those
 plugins (Windows ones too) on the workers instead of the test plugins, and reports whether they do.

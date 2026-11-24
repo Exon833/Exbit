@@ -75,7 +75,7 @@ class TweakWatcher {
 public:
     TweakWatcher(SlotPtr slot, Project& project);
     std::set<std::string> automated() const;  // names of its parameters that automation moves (curves with points)
-    void poll();
+    bool poll();  // true if parameters were changed in its window since the last poll
     SlotPtr slot;
     // --- writing automation (automation_write.cpp): a control of a built-in effect's window held and let go,
     // and edits noted at once (poll() notes the others) ---

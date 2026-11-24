@@ -102,8 +102,8 @@ std::set<std::string> TweakWatcher::automated() const {
     return out;
 }
 
-void TweakWatcher::poll() {
-    if (!usable(slot)) return;
+bool TweakWatcher::poll() {
+    if (!usable(slot)) return false;
     std::vector<uint32_t> edited = aload(slot->instance)->edited();
     modulation::userEdited(project_, slot.get(), edited);  // (knobs turned that modulation moves: their base)
     writeEdits(edited);  // (armed lanes while playing: automation_write.h; after the base above, which it writes)
@@ -125,6 +125,7 @@ void TweakWatcher::poll() {
         if ((int)recent.size() > RECENT) recent.resize(RECENT);
         slot->recent = recent;
     }
+    return !edited.empty();
 }
 
 bool prune(Track& track) {

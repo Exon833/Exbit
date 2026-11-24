@@ -78,6 +78,60 @@ SlotPtr fakeSlot(const std::string& name, const std::string& kind = plug::EFFECT
     return s;
 }
 
+// a plugin whose resizable window starts bigger than any screen (Surge XT at 150 %), and takes the sizes
+// asked of it kept to its own proportions
+struct BigEditor : plug::Plugin {
+    int w = 5000, h = 4000;
+    std::vector<std::pair<int, int>> asked;
+    bool open = false;
+    bool isVst2() const override { return false; }
+    std::string name() const override { return "Big"; }
+    std::string vendor() const override { return ""; }
+    std::string subcategories() const override { return "Fx"; }
+    bool isInstrument() const override { return false; }
+    bool hasSidechain() const override { return false; }
+    int latency() const override { return 0; }
+    double sampleRate() const override { return 48000; }
+    void prepare(double, int) override {}
+    void reset() override {}
+    void setTransport(double, int, int, bool, int64_t, double) override {}
+    void process(const float* const[2], const float* const[2], float* const[2], int) override {}
+    void render(const std::vector<plug::NoteMessage>&, float* const[2], int) override {}
+    void notesOff() override {}
+    bool holding() const override { return false; }
+    std::vector<plug::ParamInfo> parameters() override { return {}; }
+    double getParam(uint32_t) override { return 0; }
+    void setParam(uint32_t, double) override {}
+    std::string paramText(uint32_t, double) override { return ""; }
+    std::vector<uint32_t> edited() override { return {}; }
+    void windowEdit(uint32_t, double) override {}
+    void idle() override {}
+    std::string componentState() override { return "big"; }
+    std::string controllerState() override { return ""; }
+    void setState(const std::string&, const std::string&) override {}
+    bool openEditor(uintptr_t, void*, double, int& ow, int& oh) override {
+        open = true;
+        ow = w, oh = h;
+        return true;
+    }
+    void closeEditor() override { open = false; }
+    bool editorOpen() const override { return open; }
+    bool hasEditor() override { return true; }
+    bool editorResizable() override { return true; }
+    bool wants = false;  // (asks for its own size again: a zoom chosen in it)
+    bool requestedSize(int& ow, int& oh) override {
+        if (!wants) return false;
+        wants = false;
+        ow = w, oh = h;
+        return true;
+    }
+    void editorResized(int& ow, int& oh) override {
+        asked.push_back({ow, oh});
+        double s = std::min((double)ow / 5000, (double)oh / 4000);
+        w = ow = (int)(5000 * s), h = oh = (int)(4000 * s);
+    }
+};
+
 ui::MouseEvent mouse(Point p, int button = plat::LeftButton) {
     ui::MouseEvent e;
     e.pos = p;
@@ -1122,7 +1176,7 @@ void testBuiltinWindows() {
     bass->cables = chain({eq});
     // a built-in effect's window is its EffectWindow, not a plugin's own window
     host.edit(eq, "Bass");
-    CHECK(host.editors.size() == 1 && host.edited);
+    CHECK(host.editors.size() == 1 && !host.changed());  // (opening it changes nothing)
     EffectWindow* w = host.effectWindowOf(eq);
     CHECK(w && !host.editorOf(eq));
     if (w) {
@@ -1241,14 +1295,65 @@ int displayTests() {
         CHECK(closed && !fx->instance->editorOpen());
         ui::App::get().processEvents();
     }
-    // the real thing (shown for a moment, closed at once): titled after the plugin and the track
+    // a resizable window bigger than the screen: made to fit the screen, the plugin asked to take that size
+    {
+        auto big = std::make_shared<BigEditor>();
+        SlotPtr slot = fakeSlot("Big");
+        slot->instance = big;
+        auto* w = new EditorWindow(&main, slot, "Big");  // (not shown: not a photograph)
+        CHECK(w->attach());
+        Rect screen = plat::primaryScreenGeometry();
+        printf("a 5000x4000 window: %dx%d (the screen %dx%d), the plugin asked %d times\n", w->width(), w->height(),
+               screen.w, screen.h, (int)big->asked.size());
+        CHECK(!big->asked.empty() && w->width() < 5000 && w->height() < 4000);
+        CHECK(w->width() == big->w && w->height() == big->h);  // (the size it took)
+        if (!screen.empty()) CHECK(w->width() <= screen.w && w->height() <= screen.h);
+        // shown low on the screen, it grows bigger than the screen (a zoom chosen in it): kept on the screen
+        w->showWindow();
+        ui::App::get().processEvents();
+        Rect area = ui::App::get().screenAt(ui::App::get().cursorPos());
+        w->moveWindow(area.x + area.w / 2, area.bottom() - 120);
+        ui::App::get().processEvents();
+        big->w = 5000, big->h = 4000, big->wants = true;
+        w->idle();
+        ui::App::get().processEvents();
+        Rect outer = w->outerScreenGeometry();
+        area = ui::App::get().screenAt(Point(outer.x + outer.w / 2, outer.y + 16));
+        printf("grown: %dx%d at %d,%d (the screen's free area %dx%d at %d,%d)\n", outer.w, outer.h, outer.x, outer.y, area.w,
+               area.h, area.x, area.y);
+        CHECK(outer.x >= area.x && outer.y >= area.y && outer.right() <= area.right() && outer.bottom() <= area.bottom());
+        w->close();
+        ui::App::get().processEvents();
+        slot->instance.reset();
+    }
+    // the real thing (shown for a moment, closed at once): titled after the plugin and the track. Opened and
+    // closed with nothing changed in it, the project has no changes to save
     host.edit(fx, "Bass");
-    CHECK(host.editors.size() == 1 && host.edited);
+    CHECK(host.editors.size() == 1 && !host.changed());
     if (!host.editors.empty()) {
         ui::Window* w = host.editors.begin()->second;
         CHECK(w->title() == "Tiny Test Fx — Bass");
         ui::App::get().processEvents();
     }
+    host.closeEditor({fx});
+    ui::App::get().processEvents();
+    CHECK(!host.changed());
+    // a knob turned in it: a change, still one once the window is closed (and none once saved)
+    host.edit(fx, "Bass");
+    if (auto instance = aload(fx->instance)) {
+        auto params = instance->parameters();
+        CHECK(!params.empty());
+        if (!params.empty()) instance->windowEdit(params[0].id, instance->getParam(params[0].id) < 0.5 ? 0.9 : 0.1);
+        double until = plat::now() + 3 * plugin_host::TWEAK_MS / 1000.0;
+        ui::App::get().runUntil([&] { return plat::now() > until; });
+    }
+    CHECK(host.changed());
+    host.closeEditor({fx});
+    ui::App::get().processEvents();
+    CHECK(host.changed());
+    host.saved();
+    CHECK(!host.changed());
+    host.edit(fx, "Bass");
     // stopped while open (as a Windows plugin whose host crashed: the test effect stands for one): its
     // window says so, with Reload, which opens it again on the plugin started afresh
     host.reloadable = [](const plug::Plugin&) { return true; };

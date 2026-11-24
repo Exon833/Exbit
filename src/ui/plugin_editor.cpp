@@ -5,6 +5,7 @@
 
 #include "audio/automation.h"
 #include "audio/plugin_audio.h"
+#include "core/util.h"
 #include "plugins/plugin.h"
 #include "plugins/wine.h"
 #include "ui/computer_keyboard.h"
@@ -88,6 +89,7 @@ bool EditorWindow::attach() {
     auto instance = aload(slot->instance);
     if (!instance || !native()) return false;
     int w = 0, h = 0;
+    double started = ui::App::get().now();
     try {
         if (!instance->hasEditor()) return false;
         if (!instance->openEditor(pluginParent(), native()->nativeDisplay(), 1.0, w, h)) return false;
@@ -95,13 +97,41 @@ bool EditorWindow::attach() {
     } catch (const std::exception&) {
         return false;
     }
+    util::debugf("plugin window: %s made its window in %.2f s (%dx%d%s)\n", slot->name.c_str(),
+                 ui::App::get().now() - started, w, h, resizable ? ", resizable" : "");
     fit(w, h);
     frameId_ = ui::App::get().onFrame([this] { idle(); });
     return true;
 }
 
+// A resizable plugin's window bigger than the screen's free area (Surge XT at 150 %: 1710 x 1100, its
+// bottom under the taskbar): the plugin is asked to take a size that fits, room left for a frame, and says
+// the size it takes; the window is never made bigger than the area, whatever it says. (A plugin of a
+// fixed size keeps it: place() puts its top-left on the screen.)
+void EditorWindow::fitScreen(int& w, int& h) {
+    ui::App& app = ui::App::get();
+    Rect by = app.mainWindow ? app.mainWindow->screenGeometry() : Rect(app.cursorPos().x, app.cursorPos().y, 0, 0);
+    Rect area = plat::screenGeometry(Point(app.toScreen(by.x + by.w / 2), app.toScreen(by.y + by.h / 2)));
+    if (area.empty()) area = plat::primaryScreenGeometry();
+    if (area.empty()) return;  // (no screen known: the size the plugin asks for)
+    FrameInsets f = frameInsets();  // (this window's pixels are the screen's: setScale(1))
+    int maxW = std::max(1, area.w * 19 / 20 - f.left - f.right), maxH = std::max(1, area.h * 19 / 20 - f.top - f.bottom);
+    if (w <= maxW && h <= maxH) return;
+    int cw = std::min(w, maxW), ch = std::min(h, maxH);
+    auto instance = aload(slot->instance);
+    try {
+        if (instance && instance->editorOpen()) instance->editorResized(cw, ch);
+    } catch (const std::exception&) {
+    }
+    util::debugf("plugin window: %s asked for %dx%d, the screen has %dx%d: asked to take %dx%d, took %dx%d\n",
+                 slot->name.c_str(), w, h, area.w, area.h, std::min(w, maxW), std::min(h, maxH), cw, ch);
+    w = std::min(cw > 0 ? cw : w, maxW);
+    h = std::min(ch > 0 ? ch : h, maxH);
+}
+
 void EditorWindow::fit(int width, int height) {
     int w = std::max(1, width), h = std::max(1, height);
+    if (resizable && !invisible) fitScreen(w, h);
     fitting = true;
     if (resizable) {
         setMinimumWindowSize(1, 1);
@@ -115,6 +145,21 @@ void EditorWindow::fit(int width, int height) {
     resizeWindow(w, h);
     placePlugin();
     fitting = false;
+    if (resizable && !invisible && isWindowShown()) keepOnScreen();
+}
+
+// a shown window that grew (a zoom chosen in the plugin) moved back onto the screen's free area: Windows
+// leaves it where it was, its bottom under the taskbar (a window manager of Linux mostly does this itself)
+void EditorWindow::keepOnScreen() {
+    Rect inside = screenGeometry(), frame = outerScreenGeometry();
+    if (frame.empty()) frame = inside;
+    Rect area = ui::App::get().screenAt(Point(frame.x + frame.w / 2, frame.y + 16));
+    if (area.empty()) return;
+    int x = std::max(area.x, std::min(frame.x, area.right() - frame.w));
+    int y = std::max(area.y, std::min(frame.y, area.bottom() - frame.h));
+    if (x == frame.x && y == frame.y) return;
+    util::debugf("plugin window: %s moved to %d,%d to stay on the screen\n", slot->name.c_str(), x, y);
+    moveWindow(x + inside.x - frame.x, y + inside.y - frame.y);
 }
 
 void EditorWindow::idle() {
