@@ -1184,6 +1184,26 @@ void Window::setNativeMinimum(int w, int h) {
     native_->setMinimumSize(toDevice(w) + d.left + d.right, toDevice(h) + d.top + d.bottom);
 }
 
+bool Window::followMinimum() {
+    if (opts_.popup || !shown_ || !layout()) return false;
+    Point m = leastSize();
+    if (m == followedMin_) return false;
+    followedMin_ = m;
+    if (native_ && (m.x > 0 || m.y > 0)) setNativeMinimum(m.x, m.y);
+    if (height() >= m.y || isWindowMaximized() || (native_ && native_->isFullScreen())) return false;
+    int h = m.y;
+    if (scrollsWhenSmall()) {  // (never past the screen: below that it scrolls)
+        Rect sg = screenGeometry();
+        Rect scr = App::get().screenAt(Point(sg.x + sg.w / 2, sg.y + sg.h / 2));
+        if (!scr.empty()) h = std::min(h, std::max(1, scr.h - frame_.top - frame_.bottom));
+    }
+    if (h <= height()) return false;
+    util::debugf("window \"%s\": its content needs %d px high at %d wide (was %d): grown\n", title().c_str(), h,
+                 width(), height());
+    resizeWindow(width(), h);
+    return true;
+}
+
 void Window::centerOn(Window* other) {
     Rect area;
     if (other && other->isWindowShown()) area = other->outerScreenGeometry();
@@ -2910,6 +2930,15 @@ void App::scheduleLayout(Widget* w) {
 }
 
 void App::doLayouts() {
+    for (int pass = 0; pass < 3; ++pass) {  // (a window grown to its content's minimum: laid out again)
+        layoutRounds();
+        bool grew = false;
+        for (Window* w : std::vector<Window*>(windows_)) grew |= Widget::alive(w) && w->followMinimum();
+        if (!grew) break;
+    }
+}
+
+void App::layoutRounds() {
     for (int round = 0; round < 16 && !pendingLayouts_.empty(); ++round) {
         std::vector<Widget*> list;
         list.swap(pendingLayouts_);

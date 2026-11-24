@@ -601,6 +601,10 @@ private:
     void applyFrameInsets(bool keepOuter);
     void placeTitleBar();
     void setNativeMinimum(int w, int h);  // (logical, the inside's): the native window's, with the frame
+    // after a layout pass: the native minimum follows the content's (a wrapped text has more lines when narrower),
+    // and the window grows to it, as a window manager keeps a minimum; true when it grew
+    bool followMinimum();
+    Point followedMin_{-1, -1};
     void resizeByHand(Point globalPos);
     Point framePointer() const;        // the pointer on the screen, while moving or resizing by hand
     void frameStateChanged();          // maximized / restored / minimized: states, frame, title bar
@@ -737,6 +741,7 @@ public:
     Widget* popupOwner(Window* popup) const;
     // layouts marked dirty by updateGeometry(): run them now (done before every frame)
     void doLayouts();
+    void layoutRounds();  // (doLayouts' pending layouts, deepest last)
     void scheduleLayout(Widget* w);
     int loopLevel() const { return depth_; }
     Rect screenAt(Point globalPos) const;  // the available area of the screen there

@@ -234,7 +234,7 @@ std::string picture(Window& w, const std::string& name) {
 }
 
 int windowsSeen = 0, failedButtons = 0, failedOffScreen = 0, failedSane = 0, failedFit = 0;
-const std::set<std::string> fitsAtSmallest = {"TempoRangeDialog"};  // (their content fits their smallest unscrolled)
+const std::set<std::string> fitsAtSmallest = {"TempoRangeDialog", "TempoDialog"};  // (their content fits their smallest unscrolled)
 std::map<std::string, std::string> titles;  // name → what it is
 
 void sweepWindow(Window& win, const std::string& name, const Ctx& ctx) {
