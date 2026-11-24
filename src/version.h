@@ -12,6 +12,6 @@
 
 namespace version {
 constexpr const char* COMMIT = TINYDAW_COMMIT;  // the commit this program was built from, or ""
-constexpr const char* REPOSITORY = "ExonSounds/Tiny-DAW";  // on GitHub: its main branch is the program
+constexpr const char* REPOSITORY = "Exon833/Tiny-DAW";  // on GitHub: its main branch is the program
 constexpr const char* VERSION = "0.4";  // (the last numbered version, Tiny DAW 0.4; no longer shown)
 }  // namespace version

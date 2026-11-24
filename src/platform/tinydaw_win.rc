@@ -21,7 +21,7 @@ BEGIN
         BEGIN
             VALUE "ProductName", "Tiny DAW"
             VALUE "FileDescription", "Tiny DAW"
-            VALUE "ProductVersion", "rolling release (GitHub: ExonSounds/Tiny-DAW, main branch)"
+            VALUE "ProductVersion", "rolling release (GitHub: Exon833/Tiny-DAW, main branch)"
             VALUE "FileVersion", "rolling release"
             VALUE "LegalCopyright", "GNU General Public License, version 3"
             VALUE "Comments", "A free, open-source digital audio workstation"

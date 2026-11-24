@@ -267,8 +267,8 @@ static void testUpdateCheck() {
     using namespace update_check;
     CHECK(parse("v0.2.1") == std::vector<int>({0, 2, 1}));  // (the numbered releases' helpers, still there)
     CHECK(isNewer("0.4.1", "0.4") && !isNewer("junk", "0.4"));
-    CHECK(API == "https://api.github.com/repos/ExonSounds/Tiny-DAW");
-    CHECK(PAGE == "https://github.com/ExonSounds/Tiny-DAW");
+    CHECK(API == "https://api.github.com/repos/Exon833/Tiny-DAW");
+    CHECK(PAGE == "https://github.com/Exon833/Tiny-DAW");
     CHECK(CHECK_EVERY_S == 30 * 60);
     // GitHub's times, and how long ago they were
     const double made = 1795013369;  // 2026-11-18 14:49:29 UTC
