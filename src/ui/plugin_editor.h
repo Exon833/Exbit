@@ -77,6 +77,7 @@ private:
     Rect pluginArea() const;    // where that is in the native window (the inside, below our title bar)
     void placePlugin();         // that window to the inside's place and size again
     void fitScreen(int& w, int& h);  // a resizable plugin's size kept to the screen's free area (the plugin asked)
+    void keepOnScreen();             // (shown, grown) moved back onto the screen's free area
     bool sizeChanged_ = false;  // (resized by the user: the plugin is told in idle())
     static plat::WindowOptions options(ui::Window* parent, const std::string& title, bool invisible);
 };

@@ -118,7 +118,13 @@ struct BigEditor : plug::Plugin {
     bool editorOpen() const override { return open; }
     bool hasEditor() override { return true; }
     bool editorResizable() override { return true; }
-    bool requestedSize(int&, int&) override { return false; }
+    bool wants = false;  // (asks for its own size again: a zoom chosen in it)
+    bool requestedSize(int& ow, int& oh) override {
+        if (!wants) return false;
+        wants = false;
+        ow = w, oh = h;
+        return true;
+    }
     void editorResized(int& ow, int& oh) override {
         asked.push_back({ow, oh});
         double s = std::min((double)ow / 5000, (double)oh / 4000);
@@ -1302,6 +1308,20 @@ int displayTests() {
         CHECK(!big->asked.empty() && w->width() < 5000 && w->height() < 4000);
         CHECK(w->width() == big->w && w->height() == big->h);  // (the size it took)
         if (!screen.empty()) CHECK(w->width() <= screen.w && w->height() <= screen.h);
+        // shown low on the screen, it grows bigger than the screen (a zoom chosen in it): kept on the screen
+        w->showWindow();
+        ui::App::get().processEvents();
+        Rect area = ui::App::get().screenAt(ui::App::get().cursorPos());
+        w->moveWindow(area.x + area.w / 2, area.bottom() - 120);
+        ui::App::get().processEvents();
+        big->w = 5000, big->h = 4000, big->wants = true;
+        w->idle();
+        ui::App::get().processEvents();
+        Rect outer = w->outerScreenGeometry();
+        area = ui::App::get().screenAt(Point(outer.x + outer.w / 2, outer.y + 16));
+        printf("grown: %dx%d at %d,%d (the screen's free area %dx%d at %d,%d)\n", outer.w, outer.h, outer.x, outer.y, area.w,
+               area.h, area.x, area.y);
+        CHECK(outer.x >= area.x && outer.y >= area.y && outer.right() <= area.right() && outer.bottom() <= area.bottom());
         w->close();
         ui::App::get().processEvents();
         slot->instance.reset();

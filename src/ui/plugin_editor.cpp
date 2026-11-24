@@ -145,6 +145,21 @@ void EditorWindow::fit(int width, int height) {
     resizeWindow(w, h);
     placePlugin();
     fitting = false;
+    if (resizable && !invisible && isWindowShown()) keepOnScreen();
+}
+
+// a shown window that grew (a zoom chosen in the plugin) moved back onto the screen's free area: Windows
+// leaves it where it was, its bottom under the taskbar (a window manager of Linux mostly does this itself)
+void EditorWindow::keepOnScreen() {
+    Rect inside = screenGeometry(), frame = outerScreenGeometry();
+    if (frame.empty()) frame = inside;
+    Rect area = ui::App::get().screenAt(Point(frame.x + frame.w / 2, frame.y + 16));
+    if (area.empty()) return;
+    int x = std::max(area.x, std::min(frame.x, area.right() - frame.w));
+    int y = std::max(area.y, std::min(frame.y, area.bottom() - frame.h));
+    if (x == frame.x && y == frame.y) return;
+    util::debugf("plugin window: %s moved to %d,%d to stay on the screen\n", slot->name.c_str(), x, y);
+    moveWindow(x + inside.x - frame.x, y + inside.y - frame.y);
 }
 
 void EditorWindow::idle() {
