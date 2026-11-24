@@ -41,6 +41,8 @@ struct FetchError : std::runtime_error {
 // GET url (GitHub's JSON API) -> the parsed answer; throws FetchError
 using FetchFn = std::function<Json(const std::string& url)>;
 Json fetch(const std::string& url);  // with curl, TIMEOUT_S at most
+// curl's output (the body, then the HTTP status on a line of its own) -> the parsed answer; throws FetchError
+Json answer(const std::string& curlOutput);
 
 // (newest version, its page) published on GitHub; version "" (and PAGE) if there is none yet.
 // Throws FetchError when GitHub can't be reached or answers strangely.

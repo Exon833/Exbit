@@ -65,7 +65,7 @@ ifeq ($(WINDOWS),1)
   # static: none of MSYS2's DLLs needed; binmode.o: files the C library opens are binary
   LDLIBS := -static -pthread $(shell $(CXX) -print-file-name=binmode.o) -luser32 -lgdi32 -lshell32 -lole32 \
             -loleaut32 -luuid -limm32 -lwinmm -lavrt -ldwmapi -lshcore -lsynchronization -lws2_32 -lm
-  # the manifest (UTF-8 code page, per-monitor DPI awareness), as a resource
+  # the manifest (UTF-8 code page, per-monitor DPI awareness), the icon and the version details, as resources
   WIN_RES := $(BUILD)/src/platform/tinydaw_win.res.o
 else
   SRCS := $(filter-out %_win.cpp,$(SRCS))
@@ -177,7 +177,7 @@ build/pluginhost32/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(MINGW32) $(HOST_FLAGS) -c $< -o $@
 
-build/pluginhost32/manifest.res.o: src/platform/tinydaw_win.rc src/platform/tinydaw_win.manifest
+build/pluginhost32/manifest.res.o: src/platform/tinydaw_win.rc src/platform/tinydaw_win.manifest src/platform/tinydaw_win.ico
 	@mkdir -p $(dir $@)
 	$(dir $(MINGW32))windres -I src/platform -O coff -o $@ $<
 endif
@@ -232,7 +232,7 @@ build/winehost/%.o: %.cpp
 $(TARGET): $(OBJS) $(WIN_RES)
 	$(CXX) $(LDOPT) -o $@ $^ $(LDLIBS)
 
-$(BUILD)/src/platform/tinydaw_win.res.o: src/platform/tinydaw_win.rc src/platform/tinydaw_win.manifest
+$(BUILD)/src/platform/tinydaw_win.res.o: src/platform/tinydaw_win.rc src/platform/tinydaw_win.manifest src/platform/tinydaw_win.ico
 	@mkdir -p $(dir $@)
 	windres -I src/platform -O coff -o $@ $<
 
@@ -257,7 +257,7 @@ $(BUILD)/tests/%$(EXE): tests/%.cpp $(LIB_OBJS) $(WIN_RES)
 	$(CXX) $(CXXFLAGS) $(LDOPT) -o $@ $< $(LIB_OBJS) $(WIN_RES) $(LDLIBS)
 
 # the tests that run on Windows (tools/wintests.sh builds and runs them there)
-WIN_TESTS := test_os test_gfx test_model test_project_io test_ui_main test_workers test_midi_win test_wasapi_win \
+WIN_TESTS := test_os test_gfx test_update_check test_icon_win test_model test_project_io test_ui_main test_workers test_midi_win test_wasapi_win \
              test_tui test_tui_console_win test_plugins_win
 tests-win: $(WIN_TESTS:%=$(BUILD)/tests/%$(EXE)) $(ALL_HOSTS) $(ALL_WIN_TEST)
 	@failed=""; for t in $(WIN_TESTS:%=$(BUILD)/tests/%$(EXE)); do echo "== $$t"; \
