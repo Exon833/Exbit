@@ -32,6 +32,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -86,6 +87,7 @@ HWND messageWindow = nullptr;
 std::unique_ptr<plug::Plugin> plugin;
 AudioBlock* block = nullptr;
 HANDLE audioThread = nullptr;
+std::atomic<bool> freezeAudio{false};  // (tests: TINYDAW_WINE_TEST_FREEZE=audio)
 
 // --- the plugin's news, collected every idle tick, handed over at IDLE ---
 std::vector<std::pair<uint32_t, double>> editedNews;
@@ -175,6 +177,8 @@ DWORD WINAPI audioMain(LPVOID) {
         if (block->quit.load())
             return 0;
         seen = block->request.load(std::memory_order_acquire);
+        while (freezeAudio)  // (tests) its audio thread hangs: this buffer is never done
+            Sleep(1000);
         double started = tracing ? traceNow() : 0;
         if (tracing && seen < 4)
             fprintf(stderr, "tinydaw-wine-host: buffer %u begins\n", seen);
@@ -429,6 +433,16 @@ void serve(const Incoming& in) {
     case PARAM_TEXT: {
         uint32_t id = r.u32();
         double v = r.f64();
+        // (tests) a plugin that hangs for good: its own thread ("1": nothing is answered any more, its
+        // window frozen) or its audio thread ("audio")
+        if (const char* freeze = getenv("TINYDAW_WINE_TEST_FREEZE")) {
+            fprintf(stderr, "tinydaw-wine-host: test: %s hangs\n", std::strcmp(freeze, "audio") ? "the plugin's thread" : "the audio thread");
+            if (!std::strcmp(freeze, "audio"))
+                freezeAudio = true;
+            else
+                for (;;)
+                    Sleep(1000);
+        }
         if (getenv("TINYDAW_WINE_TEST_MAIN_ENDS"))  // (tests) the main thread ends, as a plugin's crash
             ExitThread(0);                           // on it ended it: the audio thread plays on
         if (getenv("TINYDAW_WINE_TEST_CRASH")) {  // (tests) a plugin's crash: a fault in Windows code on it

@@ -12,6 +12,12 @@
 // crashed) makes process() and render() fail, so the program shows the plugin stopped. Parameter
 // values are kept here as the host last told them, so asking for them costs nothing.
 //
+// The watchdog, a thread of its own (a hung plugin's window inside ours can hold our main thread too):
+// a host that owes an answer (an IDLE, a message it took nothing of, a request it let time out) or a
+// buffer for HANG_SECONDS, saying nothing meanwhile, is hung for good. It is ended, its window going
+// with it; the plugin stops (process() and render() fail: the slot is bypassed, the user is told, and
+// can reload or remove it), not reported as a crash (no automatic reload: it would hang again).
+//
 // Its settings as last known are kept too: what it last gave (a save, an autosave) or was given
 // (setState), refreshed without waiting (asked in idle(), the answer read with the news) when its
 // window closes and a little after changes (KEEP_STATE_SECONDS after the last). Once the host has
@@ -33,6 +39,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdlib>
 #include <cstring>
 #include <map>
@@ -94,6 +101,7 @@ constexpr double BURST_SECONDS = 0.002;  // parameter changes this close to the 
 constexpr double CLOSE_SECONDS = 3;     // its window closing (on our main thread: the desktop thinks a
                                         // program that long unanswering hangs, and may end it)
 constexpr double KEEP_STATE_SECONDS = 2;  // its settings are asked for (to keep) this long after the last change
+constexpr double HANG_SECONDS = 10;     // the watchdog: owing an answer or a buffer this long, saying nothing, it is hung for good
 
 double secondsNow() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -482,7 +490,9 @@ public:
         if (!idleSeq && !dead) {
             // (a hung host is asked again every frame, without waiting: its answer ends the hang)
             idleSeq = ++seq;
-            if (!send(IDLE, idleSeq, "", hung ? 0 : SEND_SECONDS))
+            if (send(IDLE, idleSeq, "", hung ? 0 : SEND_SECONDS))
+                owe();
+            else
                 idleSeq = 0;
         }
         keepEditorInPlace();
@@ -728,6 +738,7 @@ public:
     }
 
     bool hostAlive() const { return !dead; }
+    bool hostHung() const { return hungStop; }  // (the watchdog ended it)
     bool stateIsKnown() const { return stateKnown; }
     // its host ended now (a plugin stopped for a host that is late or hung, about to be started
     // afresh: asked nothing more, its settings are those kept)
@@ -749,6 +760,14 @@ private:
     uint32_t seq = 0, idleSeq = 0;
     double mainThreadLooked = 0;  // (idle: when its main thread was last looked for)
     std::atomic<bool> dead{false};
+    // the watchdog's (watch()): since when the host owes an answer (0: none), a request being waited
+    // for (its buffers may wait for it), the host ended by it
+    std::atomic<double> owedSince{0};
+    std::atomic<bool> inCall{false}, hungStop{false};
+    std::thread watchdog;
+    std::mutex watchLock;
+    std::condition_variable watchWake;
+    bool watchEnd = false;
     bool hung = false;                 // (main thread) it hasn't answered, or taken a message, in time
     bool settingsWaited = false;       // (main thread) a settings request waited its whole limit in this hang
     std::map<uint32_t, double> held;   // parameter changes waiting while it is hung (the last of each)
@@ -933,9 +952,58 @@ private:
         instrument_ = r.b();
         sidechain_ = r.b();
         latency_ = r.i32();
+        watchdog = std::thread([this] { watch(); });
     }
 
+    void watch() {
+        uint32_t undone = 0;   // (the buffer the host hasn't done)
+        double undoneSince = 0;
+        std::unique_lock<std::mutex> lock(watchLock);
+        while (!watchWake.wait_for(lock, std::chrono::milliseconds(250), [this] { return watchEnd; })) {
+            if (dead)
+                return;
+            double now = secondsNow(), owed = owedSince.load();
+            uint32_t asked = block->request.load(std::memory_order_acquire), done = block->done.load(std::memory_order_acquire);
+            if (asked == done || inCall)  // (a request of ours may hold its buffers: a state being loaded)
+                undoneSince = 0;
+            else if (asked != undone || undoneSince == 0)
+                undone = asked, undoneSince = now;
+            // (an answer waiting unread, the main thread busy elsewhere, an export: it did answer)
+            const char* what = owed > 0 && now - owed > HANG_SECONDS && !readable(sock, 0) ? "answered nothing"
+                               : undoneSince > 0 && now - undoneSince > HANG_SECONDS  ? "didn't finish a buffer"
+                                                                                      : nullptr;
+            if (!what)
+                continue;
+            util::debugf("plugin host: %s (host %d) %s for %.0f s: hung, ended by the watchdog\n", name_.c_str(), pid,
+                         what, HANG_SECONDS);
+            hungStop = true;
+            killHost(pid, hostHandle);  // (the main thread finds it ended: its socket closes)
+            return;
+        }
+    }
+
+    void stopWatch() {
+        if (!watchdog.joinable())
+            return;
+        {
+            std::lock_guard<std::mutex> hold(watchLock);
+            watchEnd = true;
+        }
+        watchWake.notify_all();
+        watchdog.join();
+    }
+
+    // the host owes an answer from now, unless it already did
+    void owe() {
+        if (owedSince.load() == 0)
+            owedSince = secondsNow();
+    }
+
+    // the host said something: it owes nothing more than an IDLE still asked
+    void heard() { owedSince = idleSeq ? secondsNow() : 0; }
+
     void shutdown() {
+        stopWatch();  // (before what it looks at goes)
         if (wineWindow)
             closeEditor();
         if (block)
@@ -998,6 +1066,7 @@ private:
             return true;
         if (errno == ETIMEDOUT && sent == 0) {
             hung = true;
+            owe();
         } else {
             if (sent > 0)
                 killHost(pid, hostHandle);
@@ -1061,6 +1130,7 @@ private:
             return list.size();
         if (errno == ETIMEDOUT && sent % each == 0) {
             hung = true;
+            owe();
         } else {
             if (sent % each != 0)
                 killHost(pid, hostHandle);
@@ -1088,12 +1158,19 @@ private:
         uint32_t mine = ++seq;
         if (!send(op, mine, w.data))
             return false;
+        inCall = true;
+        struct Done {
+            std::atomic<bool>& f;
+            ~Done() { f = false; }
+        } done{inCall};
         double until = secondsNow() + seconds;
         for (;;) {
             double left = until - secondsNow();
             if (left <= 0) {
                 hung = true;  // (not waited for again until it says something)
                 settingsWaited = settingsWaited || settings;
+                owe();
+                util::debugf("plugin host: %s didn't answer request %d in %.1f s: hung\n", name_.c_str(), (int)op, seconds);
                 return false;
             }
             if (!readable(sock, (int)std::min(1000.0, left * 1000) + 1)) {
@@ -1110,10 +1187,12 @@ private:
                 return false;
             }
             if (h.seq == mine) {
+                heard();
                 answer.swap(payload);
                 return true;
             }
             news(h, payload);
+            heard();
         }
     }
 
@@ -1138,12 +1217,16 @@ private:
             }
             hung = settingsWaited = false;
             news(h, payload);
+            heard();
         }
     }
 
     // a host that has ended can't play: the plugin is shown stopped; nor one that, offline, didn't
     // do a buffer in its time (an export would go on without it)
     void failIfEnded() {
+        if (hungStop)
+            throw std::runtime_error(name_ + " didn't answer for " + util::fixed(HANG_SECONDS, 0) + " s (its " +
+                                     wine::HOST_NAME + " hung, and was ended)");
         if (dead)
             throw std::runtime_error(name_ + "'s " + wine::HOST_NAME + " has ended (the plugin crashed)");
         if (lateOffline) {
@@ -1504,7 +1587,7 @@ std::string bridgedDropFiles(Plugin& plugin, const std::vector<std::string>& fil
 
 bool bridgedHostEnded(const Plugin& plugin) {
     auto* b = dynamic_cast<const BridgedPlugin*>(&plugin);
-    return b && !b->hostAlive();
+    return b && !b->hostAlive() && !b->hostHung();
 }
 
 void endBridgedHost(Plugin& plugin) {

@@ -6,13 +6,15 @@
 // process of its own: this program again, --probe), each loaded out of process in a host of its own,
 // asked, processed, its settings saved and given back, its window opened inside one of ours (a child
 // window of the host's process) and closed; a host killed, and a plugin that crashes in its host
-// (TINYDAW_WINE_TEST_CRASH): the program goes on, the plugin falls silent, nothing hangs.
+// (TINYDAW_WINE_TEST_CRASH): the program goes on, the plugin falls silent, nothing hangs; and a plugin that
+// hangs for good (TINYDAW_WINE_TEST_FREEZE): our window keeps answering, the watchdog ends its host.
 // The host: TINYDAW_PLUGIN_HOST (…_HOST32), else next to this program.
 //
 // (Windows only; Makefile: test_plugins_win, with the Windows build. TINYDAW_NO_WINDOWS=1: no windows.)
 #include <windows.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -333,6 +335,127 @@ void testCrashes(PluginLibrary& library, const PluginInfo& info) {
     }
 }
 
+// a plugin that hangs for good in its host (TINYDAW_WINE_TEST_FREEZE, from a parameter's text): its own
+// thread ("1"), its window open inside ours (a child window of a hung thread: ours mustn't hang with it),
+// or its audio thread ("audio"). Our window keeps answering (a message sent to it from another thread;
+// moved; our frames), the buffers return within their deadline; the watchdog (bridged.cpp, HANG_SECONDS
+// = 10) ends the host, its window going with it, and the plugin stops: process() fails, saying so (not
+// as a crash); closing, unloading and a fresh load are quick
+void testHang(PluginLibrary& library, const PluginInfo& info) {
+    for (const char* how : {"1", "audio"}) {
+        printf("== a hang (%s): %s\n", std::string(how) == "1" ? "the plugin's thread" : "its audio thread", info.name.c_str());
+        _putenv_s("TINYDAW_WINE_TEST_FREEZE", how);
+        auto p = library.load(info, 48000);
+        _putenv_s("TINYDAW_WINE_TEST_FREEZE", "");
+        int pid = bridgedHostPid(*p);
+        CHECK(pid > 0);
+        HWND ours = nullptr;
+        if (!getenv("TINYDAW_NO_WINDOWS")) {
+            WNDCLASSW wc{};
+            wc.lpfnWndProc = DefWindowProcW;
+            wc.hInstance = GetModuleHandleW(nullptr);
+            wc.lpszClassName = L"TinyDAWTestHang";
+            RegisterClassW(&wc);
+            ours = CreateWindowExW(0, L"TinyDAWTestHang", L"Tiny DAW test: a plugin that hangs", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+                                   1480, 560, 420, 320, nullptr, nullptr, wc.hInstance, nullptr);
+            ShowWindow(ours, SW_SHOW);
+            ShowWindow(ours, SW_SHOW);
+            pump(0.2);
+            int w = 0, h = 0;
+            CHECK(p->openEditor((uintptr_t)ours, nullptr, 1.0, w, h) && GetWindow(ours, GW_CHILD));
+            pump(0.2);
+        }
+        const int N = 512;
+        std::atomic<bool> stop{false};
+        std::atomic<double> longest{0}, slowestAnswer{0};
+        std::atomic<int> buffers{0}, threw{0};
+        std::atomic<bool> probed{false};
+        std::string error;
+        std::thread audio([&] {  // (as the engine's audio thread)
+            Stereo in(N, 0.3f), out(N);
+            while (!stop) {
+                double b0 = secondsNow();
+                try {
+                    p->process(in.in(), nullptr, out.out(), N);
+                } catch (const std::exception& e) {
+                    if (!threw++) error = e.what();
+                }
+                longest = std::max(longest.load(), secondsNow() - b0);
+                buffers++;
+                Sleep(10);
+            }
+        });
+        pump(0.3);
+        std::thread prober([&] {  // (another program asking our window something: answered at once?)
+            while (!stop && ours) {
+                double s0 = secondsNow();
+                DWORD_PTR r = 0;
+                SendMessageTimeoutW(ours, WM_NULL, 0, 0, SMTO_NORMAL, 5000, &r);
+                slowestAnswer = std::max(slowestAnswer.load(), secondsNow() - s0);
+                Sleep(50);
+            }
+            probed = true;
+        });
+        double t0 = secondsNow();
+        p->paramText(0, 0.5);  // (it hangs here)
+        double text = secondsNow() - t0, slowest = 0;
+        for (int i = 0; !threw && secondsNow() - t0 < 25; i++) {  // (our frames)
+            double f0 = secondsNow();
+            p->idle();
+            double f1 = secondsNow();
+            if (ours && i % 20 == 0) SetWindowPos(ours, nullptr, 1480 - i / 20, 560, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            double f2 = secondsNow();
+            pump(0.016);
+            double f3 = secondsNow();
+            if (f3 - f0 > 0.1)
+                printf("   a slow frame at %.2f s: idle() %.3f s, moved %.3f s, its messages %.3f s\n", f0 - t0, f1 - f0,
+                       f2 - f1, f3 - f2);
+            slowest = std::max(slowest, f3 - f0);
+        }
+        double stopped = secondsNow() - t0;
+        stop = true;
+        audio.join();
+        while (!probed) pump(0.01);  // (its last message answered: not waited for here)
+        prober.join();
+        HANDLE h = OpenProcess(SYNCHRONIZE, FALSE, (DWORD)pid);
+        bool gone = !h || WaitForSingleObject(h, 3000) == WAIT_OBJECT_0;
+        if (h) CloseHandle(h);
+        for (int i = 0; i < 10; i++) {  // (the program's next frames: its host found ended)
+            p->idle();
+            pump(0.016);
+        }
+        printf("   the text asked took %.2f s; stopped %.2f s later (%s); our slowest frame %.3f s, our window's slowest "
+               "answer %.3f s, the slowest of %d buffers %.3f s; its host %s\n",
+               text, stopped, error.c_str(), slowest, slowestAnswer.load(), buffers.load(), longest.load(),
+               gone ? "ended" : "STILL THERE");
+        CHECK(text < 2.5);
+        CHECK(threw > 0 && stopped > 9 && stopped < 14);
+        CHECK(error.find("didn't answer for 10 s") != std::string::npos);
+        CHECK(slowest < 0.15 && slowestAnswer < 0.15);
+        CHECK(longest < 0.1);
+        CHECK(gone && !bridgedHostEnded(*p));
+        double c0 = secondsNow();
+        if (ours) {
+            CHECK(!p->editorOpen() && !GetWindow(ours, GW_CHILD));  // (its window went with it)
+            p->closeEditor();
+            DestroyWindow(ours);
+        }
+        p.reset();
+        auto q = library.load(info, 48000);  // (as a reload: a host afresh; Windows may give it the same pid)
+        bool plays = false;
+        std::thread([&] {
+            Stereo in(N, 0.3f), out(N);
+            try {
+                q->process(in.in(), nullptr, out.out(), N);
+                plays = true;
+            } catch (const std::exception&) {
+            }
+        }).join();
+        CHECK(q && bridgedHostPid(*q) > 0 && !bridgedHostEnded(*q) && plays);
+        printf("   closed, unloaded and loaded afresh in %.2f s\n", secondsNow() - c0);
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -376,6 +499,7 @@ int main(int argc, char** argv) {
         if (bits32) testEditor(library, f.fx32);
     }
     testCrashes(library, f.fx);
+    testHang(library, f.fx);
     printf("the program is still here\n");
     TEST_MAIN_END();
 }
