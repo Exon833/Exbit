@@ -598,6 +598,10 @@ Json describeSlot(const PluginSlot& slot, bool states) {
 SlotPtr readSlot(const Json& entry) {
     auto slot = std::make_shared<PluginSlot>();
     slot->path = entry.str("path");
+#ifdef _WIN32
+    // (projects saved on Windows before had backslashes and slashes mixed in it: ".../X.vst3/Contents\\x86_64-win/X.vst3")
+    std::replace(slot->path.begin(), slot->path.end(), '\\', '/');
+#endif
     slot->name = entry.str("name");
     slot->kind = entry.str("kind");
     slot->pluginName = entry.str("plugin_name");

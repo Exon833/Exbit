@@ -135,9 +135,9 @@ std::string loadableFile(const std::string& path) {
         }
 #endif
 #if defined(_WIN32) && defined(__i386__)
-    std::string inner = util::joinPath(util::joinPath(path, "Contents\\x86-win"), util::baseName(path));
+    std::string inner = util::joinPath(util::joinPath(path, "Contents/x86-win"), util::baseName(path));
 #elif defined(_WIN32)
-    std::string inner = util::joinPath(util::joinPath(path, "Contents\\x86_64-win"), util::baseName(path));
+    std::string inner = util::joinPath(util::joinPath(path, "Contents/x86_64-win"), util::baseName(path));
 #else
     std::string inner = vst3Binary(path);
 #endif
