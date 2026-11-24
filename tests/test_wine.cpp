@@ -3095,6 +3095,109 @@ void testDragAndDrop(PluginLibrary& library, const PluginInfo& info) {
 // the Windows builds of the test plugins (make win-plugins), installed in a new prefix by the test
 // installer as Install Windows plugin… runs it, then found, loaded through the Wine host and tested
 // as any installed plugin, and with what they are known to do
+// a plugin that hangs for good in its host (TINYDAW_WINE_TEST_FREEZE, from a parameter's text): its own
+// thread ("1", its window open in ours) or its audio thread ("audio"). Meanwhile our main thread's
+// frames (idle(), our window's events) never wait long, and the audio thread's buffers return within
+// their deadline; the watchdog (bridged.cpp, HANG_SECONDS = 10) ends the host, its window going with
+// it; the plugin stops, the user is told (not as a crash: not reloaded by itself), and a reload plays again
+void testHang(const std::vector<std::string>& folders, const PluginInfo& info) {
+    for (const char* how : {"1", "audio"}) {
+        printf("== a hang (%s): %s\n", std::string(how) == "1" ? "the plugin's thread" : "its audio thread", info.name.c_str());
+        ui::App::get().initHeadless();
+        Project project;
+        audio::Engine engine(project);
+        engine.sr = 48000;
+        ui::Window main;
+        PluginHost host(&main, project, engine);
+        host.folders = folders;
+        host.cachePath = util::joinPath(tempRoot, "hang-cache.json");
+        host.autoReload = true;  // (a hang isn't reloaded by itself all the same)
+        std::vector<std::string> statuses;
+        host.showStatus = [&](const std::string& t, int) { statuses.push_back(t); };
+        setenv("TINYDAW_WINE_TEST_FREEZE", how, 1);
+        SlotPtr slot = host.load(info);
+        unsetenv("TINYDAW_WINE_TEST_FREEZE");
+        CHECK(slot && slot->instance);
+        if (!slot || !slot->instance)
+            return;
+        std::shared_ptr<Plugin> p = aload(slot->instance);
+        int pid = bridgedHostPid(*p);
+        Display* dpy = getenv("TINYDAW_NO_WINDOWS") ? nullptr : XOpenDisplay(nullptr);
+        Window ours = 0;
+        if (dpy) {
+            ours = XCreateSimpleWindow(dpy, DefaultRootWindow(dpy), 40, 40, 400, 300, 0, 0, 0);
+            XMapWindow(dpy, ours);
+            XSync(dpy, False);
+            int w = 0, h = 0;
+            CHECK(p->hasEditor() && p->openEditor((uintptr_t)ours, dpy, 1.0, w, h));
+        }
+        const int N = 512;
+        std::atomic<bool> stop{false};
+        std::atomic<double> longest{0};
+        std::atomic<int> buffers{0};
+        std::thread audio([&] {  // (as the engine's audio thread: the slot's buffers)
+            Stereo in(N, 0.3f), out(N);
+            while (!stop) {
+                double b0 = secondsNow();
+                plugin_audio::processEffect(*slot, in.in(), nullptr, out.out(), N, 48000, {});
+                longest = std::max(longest.load(), secondsNow() - b0);
+                buffers++;
+                usleep((useconds_t)(1e6 * N / 48000));
+            }
+        });
+        usleep(300000);
+        double t0 = secondsNow();
+        p->paramText(0, 0.5);  // (it hangs here)
+        double text = secondsNow() - t0, slowest = 0;
+        while (!slot->failed && secondsNow() - t0 < 25) {  // (our frames)
+            double f0 = secondsNow();
+            host.idle({slot});
+            while (dpy && XPending(dpy)) {
+                XEvent e;
+                XNextEvent(dpy, &e);
+            }
+            slowest = std::max(slowest, secondsNow() - f0);
+            usleep(16000);
+        }
+        double stopped = secondsNow() - t0;
+        host.idle({slot});  // (the user told)
+        stop = true;
+        audio.join();
+        bool gone = false;
+        for (double g0 = secondsNow(); !gone && secondsNow() - g0 < 3; usleep(20000))
+            gone = kill(pid, 0) != 0 || mainThreadGone(pid);
+        printf("   the text asked took %.2f s; stopped %.2f s later (%s); our slowest frame %.3f s, the slowest of %d "
+               "buffers %.3f s; its host %s\n",
+               text, stopped, slot->error.c_str(), slowest, buffers.load(), longest.load(), gone ? "ended" : "STILL THERE");
+        CHECK(text < 2.5);
+        CHECK(slot->failed && stopped > 9 && stopped < 14);
+        CHECK(slot->error.find("didn't answer for 10 s") != std::string::npos);
+        CHECK(slowest < 0.1);
+        CHECK(longest < 0.1);
+        CHECK(gone && !bridgedHostEnded(*p) && host.canReload(slot));
+        CHECK(!statuses.empty() && statuses.back().find("didn't answer") != std::string::npos &&
+              statuses.back().find("Reload it") != std::string::npos);
+        if (dpy) {  // (its window went with it)
+            Window root, parent, *children = nullptr;
+            unsigned count = 0;
+            XQueryTree(dpy, ours, &root, &parent, &children, &count);
+            if (children)
+                XFree(children);
+            CHECK(!p->editorOpen() && count == 0);
+            p->closeEditor();
+            XDestroyWindow(dpy, ours);
+            XCloseDisplay(dpy);
+        }
+        std::string why;
+        double r0 = secondsNow();
+        CHECK(host.reload(slot, why) && !slot->failed && bridgedHostPid(*slot->instance) != pid);
+        CHECK(audioThreadBuffer(*slot));
+        printf("   reloaded in %.2f s: it plays again\n", secondsNow() - r0);
+        p.reset();
+        project.retire(aload(slot->instance));
+    }
+}
+
 void testWindowsTestPlugins(const std::string& prefix) {
     const char* dirEnv = getenv("TINYDAW_WIN_TEST_PLUGINS");  // (make test sets it; else the release build's)
     std::string win = util::absolutePath(dirEnv && *dirEnv ? dirEnv : "build/win-test-plugins");
@@ -3199,6 +3302,7 @@ void testWindowsTestPlugins(const std::string& prefix) {
         if (p) testDragAndDrop(library, *p);
     if (fx) testCrash(library, *fx);
     if (fx32) testCrash(library, *fx32);
+    if (fx) testHang(wine::vst3Folders({prefix}), *fx);
 }
 
 void testInstalled() {

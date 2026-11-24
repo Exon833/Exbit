@@ -133,7 +133,7 @@ std::vector<std::string> bridgedDraggedFiles(Plugin& plugin);
 // files (Unix paths) dropped on a Windows plugin's open window at (x, y) (its pixels): how its host gave
 // them to it ("ole": its drop target, "dropfiles": WM_DROPFILES); "" not taken (or not a Windows plugin)
 std::string bridgedDropFiles(Plugin& plugin, const std::vector<std::string>& files, int x, int y);
-// a Windows plugin whose Wine host has ended (the plugin crashed)
+// a Windows plugin whose Wine host has ended (the plugin crashed; not one the watchdog ended as hung)
 bool bridgedHostEnded(const Plugin& plugin);
 // ends a Windows plugin's Wine host now (one stopped while its host lives on, late or hung: before a reload)
 void endBridgedHost(Plugin& plugin);
