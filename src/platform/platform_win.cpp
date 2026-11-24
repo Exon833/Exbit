@@ -908,10 +908,10 @@ void WinWindow::mouse(Event::Type type, int button, WPARAM w, LPARAM l) {
         enter.buttons = e.buttons;
         if (!emit(enter)) return;
     }
-    HWND self = hwnd_;
-    if (!emit(e)) return;
-    (void)self;
+    // (the last button up: the capture goes first, as X's implicit grab ends with it; a dialog this release opens
+    // and waits on, as "save the changes?" from the close button, would otherwise lose its first click to us)
     if (type == Event::MouseUp && !heldButtons_ && !grabbed_ && GetCapture() == hwnd_) ReleaseCapture();
+    emit(e);
 }
 
 void WinWindow::handleKey(UINT msg, WPARAM w, LPARAM l) {
@@ -984,7 +984,13 @@ LRESULT WinWindow::proc(UINT msg, WPARAM w, LPARAM l) {
             }
             break;
         case WM_NCACTIVATE:
-            if (ownFrame_) return DefWindowProcW(hwnd_, msg, w, -1);  // (-1: Windows draws no frame over ours)
+            // nothing drawn by Windows over ours: with a visual style, DefWindowProc ignores lParam -1 and paints
+            // its "basic" caption over the window (rounded corners take DWM's frame away), as on a plugin window
+            // after the plugin had the keys. TRUE: the activation change goes ahead.
+            if (ownFrame_) {
+                util::debugf("platform: %s, its own frame kept\n", w ? "activated" : "deactivated");
+                return TRUE;
+            }
             break;
         case WM_NCPAINT:
             if (ownFrame_ && !fullscreen_) return 0;
