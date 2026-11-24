@@ -34,6 +34,13 @@ void fail(PluginSlot& slot, const char* what) {
     slot.failed.store(true, std::memory_order_release);
 }
 
+std::string whyStopped(const PluginSlot& slot) {
+    const std::string& e = slot.error;
+    size_t n = slot.name.size();
+    if (n && e.size() > n + 1 && e.compare(0, n, slot.name) == 0 && e[n] == ' ') return e.substr(n + 1);
+    return e;
+}
+
 void syncState(PluginSlot& slot, int sr, int frames) {
     if (!usable(&slot)) return;
     auto inst = aload(slot.instance);

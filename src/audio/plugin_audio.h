@@ -89,6 +89,8 @@ int latency(const PluginSlot& slot);  // frames a plugin holds the sound back, a
 void ensureRate(plug::Plugin& plugin, int sr);
 // mark a slot failed (set error before failed, so whoever sees `failed` can read it)
 void fail(PluginSlot& slot, const char* what);
+// why it failed, to say after its name ("<name> stopped: …"): its error without the name it may begin with
+std::string whyStopped(const PluginSlot& slot);
 
 // An effect's output for its input (2 channels) and sidechain (or null). False if it failed
 // (slot.failed is set; out is left as it is).

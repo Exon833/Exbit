@@ -1225,8 +1225,8 @@ private:
     // do a buffer in its time (an export would go on without it)
     void failIfEnded() {
         if (hungStop)
-            throw std::runtime_error(name_ + " didn't answer for " + util::fixed(HANG_SECONDS, 0) + " s (its " +
-                                     wine::HOST_NAME + " hung, and was ended)");
+            throw std::runtime_error(name_ + " didn't answer for " + util::fixed(HANG_SECONDS, 0) + " s; its " +
+                                     wine::HOST_NAME + " hung, and was ended");
         if (dead)
             throw std::runtime_error(name_ + "'s " + wine::HOST_NAME + " has ended (the plugin crashed)");
         if (lateOffline) {

@@ -165,7 +165,7 @@ void EditorWindow::showStopped() {
     const css::Style& st = computedStyle("stopped");
     setBackground(ui::style::background(st));
     auto* lay = ui::vbox(this, ui::style::px(st, "padding-top", 16), ui::style::px(st, "row-gap", 10));
-    auto* text = add<ui::Label>(slot->name + " stopped" + (slot->error.empty() ? "." : ": " + slot->error) +
+    auto* text = add<ui::Label>(slot->name + " stopped" + (slot->error.empty() ? "." : ": " + plugin_audio::whyStopped(*slot)) +
                                 (reloadable ? "\nReload starts it afresh, with the settings it last had." : ""));
     text->setWordWrap(true);
     lay->addWidget(text);
@@ -185,6 +185,7 @@ void EditorWindow::showStopped() {
     const css::Style& least = computedStyle("stopped");  // (min-width / min-height: the least it is made)
     int minW = ui::style::px(least, "min-width", 360), minH = ui::style::px(least, "min-height", 140);
     if (width() < minW || height() < minH) fit(std::max(width(), minW), std::max(height(), minH));
+    if (resizable) setMinimumWindowSize(minW, minH);  // (narrower, a long word of the reason was cut)
     update();
 }
 
