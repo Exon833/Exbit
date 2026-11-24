@@ -322,7 +322,7 @@ test: $(TEST_BINS) $(TEST_PLUGINS) $(ALL_WINE) $(ALL_WIN_TEST)
 
 # only the tests the change from commit BASE reaches (tools/affected_tests.sh); every test if it can't tell
 test-affected: $(TEST_BINS) $(TEST_PLUGINS) $(ALL_WINE) $(ALL_WIN_TEST)
-	@t=$$(tools/affected_tests.sh $(BASE)) || t="$(TEST_BINS)"; \
+	@t=$$(tools/affected_tests.sh $(BASE)) || t="$(TEST_BINS)"; t=$$(echo $$t); \
 	if [ -z "$$t" ]; then echo "== no test reaches this change"; \
 	else echo "== $$(echo $$t | wc -w) of $(words $(TEST_BINS)) tests reach this change"; \
 	    $(MAKE) --no-print-directory test TESTS="$$t"; fi
