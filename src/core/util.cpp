@@ -275,7 +275,11 @@ std::string dirName(const std::string& path) {
 }
 
 std::string baseName(const std::string& path) {
+#ifdef TINYDAW_WINDOWS
+    size_t i = path.find_last_of("/\\");  // (a path that came in with Windows' own '\\': its name all the same)
+#else
     size_t i = path.find_last_of('/');
+#endif
     return i == std::string::npos ? path : path.substr(i + 1);
 }
 

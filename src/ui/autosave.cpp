@@ -124,9 +124,9 @@ std::string Autosave::ownFolder() {
     return folder_;
 }
 
-bool Autosave::adopt(const std::string& folder) {
+bool Autosave::adopt(const std::string& folder, int held) {
     if (folder == folder_) return true;
-    int fd = lockFolder(folder);
+    int fd = held >= 0 ? held : lockFolder(folder);
     if (fd < 0) return false;  // (in use by another Tiny DAW)
     if (!folder_.empty()) release(true);
     folder_ = folder;
@@ -247,8 +247,14 @@ int askRecovery(ui::Window* parent, const std::string& text, const std::string& 
 
 bool Autosave::offerRecovery() {
     std::vector<LeftBehind> found = leftBehind(root_);
-    if (found.empty()) return false;
-    const LeftBehind& newest = found[0];
+    // the newest one no other Tiny DAW is offering or has opened meanwhile: held while asking
+    size_t at = 0;
+    int fd = -1;
+    for (; at < found.size(); at++)
+        if ((fd = lockFolder(found[at].folder)) >= 0) break;
+    if (fd < 0) return false;
+    const LeftBehind& newest = found[at];
+    util::debugf("autosave: offering %s (%zu kept in all)\n", newest.folder.c_str(), found.size());
     char when[64];
     std::time_t t = (std::time_t)newest.header.savedAt;
     std::strftime(when, sizeof when, "%d %B %Y, %H:%M", std::localtime(&t));
@@ -262,21 +268,35 @@ bool Autosave::offerRecovery() {
         more += "\n\n" + std::to_string(n) + " older one" + (n > 1 ? "s are" : " is") + " also kept, for after this one.";
     }
     int chosen = answer >= 0 ? answer : askRecovery(host_.window, text, more);
-    if (chosen == 1) {
-        removeTree(newest.folder);
-        return false;
+    util::debugf("autosave: %s: %s\n", newest.folder.c_str(), chosen == 0 ? "open it" : chosen == 1 ? "discard it" : "not now");
+    if (chosen == 0) return recover(newest.folder, of, fd);
+    unlockFolder(fd);
+    if (chosen == 1 && !removeTree(newest.folder)) {
+        // (something in it can't be removed now, e.g. a file another program holds open on Windows): its project
+        // file at least goes, so that it isn't offered again; the rest goes at a later start (leftBehind)
+        bool gone = util::removeFile(util::joinPath(newest.folder, PROJECT_FILE));
+        util::debugf("autosave: %s not removed whole; its project file %s\n", newest.folder.c_str(),
+                     gone ? "removed" : "couldn't be removed either");
     }
-    if (chosen != 0) return false;
-    return recover(newest.folder, of);
+    return false;
 }
 
-bool Autosave::recover(const std::string& folder, const std::string& original) {
-    if ((host_.confirmDiscard && !host_.confirmDiscard()) ||
-        !host_.openProjectFile(util::joinPath(folder, PROJECT_FILE)))
+bool Autosave::recover(const std::string& folder, const std::string& original, int held) {
+    int fd = held >= 0 ? held : lockFolder(folder);
+    if (fd < 0) {
+        util::debugf("autosave: %s is held by another Tiny DAW: not opened\n", folder.c_str());
+        if (host_.showMessage) host_.showMessage("That work is open in another Tiny DAW", 8000);
         return false;
-    adopt(folder);  // (its audio files are where the recovered clips' audio comes from)
+    }
+    if ((host_.confirmDiscard && !host_.confirmDiscard()) ||
+        !host_.openProjectFile(util::joinPath(folder, PROJECT_FILE))) {
+        unlockFolder(fd);
+        return false;
+    }
+    adopt(folder, fd);  // (its audio files are where the recovered clips' audio comes from)
     std::string path = !original.empty() && util::isDir(util::dirName(original)) ? original : "";
     if (host_.recovered) host_.recovered(path);
+    saveNow();  // (this run's autosave now, dated now: if this run doesn't end normally either, it is what's offered)
     return true;
 }
 

@@ -1807,7 +1807,10 @@ bool MainWindow::openProjectFile(const std::string& path) {
         return false;
     }
     master->apply(m);
-    projectPath = path;
+    // (the program's own spelling, as the file chooser gives it: absolute, '/' also on Windows, where a command
+    // line gives "C:\…" and the title would show it whole)
+    projectPath = util::absolutePath(path);
+    if (projectPath != path) util::debugf("project: %s opened as %s\n", path.c_str(), projectPath.c_str());
     projectReplaced();
     resetView();
     restorePlugins();
@@ -1815,7 +1818,7 @@ bool MainWindow::openProjectFile(const std::string& path) {
     autosaver->clear();
     markSaved();
     templates::remember(prefs, path);  // (File → Open recent; not backups, recovery files, templates)
-    showStatus("Opened " + path, 5000);
+    showStatus("Opened " + projectPath, 5000);
     project_safety::showMissing(*this);  // (samples not where it names them: find them, or leave them silent)
     return true;
 }
