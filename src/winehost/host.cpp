@@ -496,6 +496,13 @@ void serve(const Incoming& in) {
         std::string error;
         try {
             plugin->setState(component, controller);
+            // (news gathered before it are about the settings it replaced: they'd undo it in Tiny DAW's view)
+            if (!editedNews.empty() || !changedNews.empty())
+                fprintf(stderr, "[host] %zu parameter changes from before the state was set, left out\n",
+                        editedNews.size() + changedNews.size());
+            editedNews.clear();
+            changedNews.clear();
+            for (auto& [id, last] : values) last = plugin->getParam(id);
         } catch (const std::exception& e) {
             ok = false;
             error = e.what();

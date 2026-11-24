@@ -1208,6 +1208,14 @@ public:
             context.projectTimeSamples += n;
             context.projectTimeMusic += n / std::max(1.0, rate) * context.tempo / 60.0;
         }
+        // (the first buffer after a state was set: what it reports may be values from before that
+        // state, left over in the plugin; passed to its window they would undo the state, see setState)
+        if (staleOutputs.exchange(false, std::memory_order_acq_rel) && outputChanges.getParameterCount() > 0) {
+            fprintf(stderr, "[vst3] %s: %d parameter changes from its first buffer after a state was set, not passed "
+                            "on to its window (values from before the state)\n",
+                    info.name.c_str(), (int)outputChanges.getParameterCount());
+            return;
+        }
         for (int32 i = 0; i < outputChanges.getParameterCount(); i++) {  // the plugin's own changes, to its window
             auto* queue = outputChanges.getParameterData(i);
             int32 offset;
@@ -1399,6 +1407,26 @@ public:
             if (!comp.empty()) {
                 auto stream = owned(new MemoryStream(comp));
                 component->setState(stream.get());
+                // changes still on their way, to the processor or to the window, are from before this
+                // state, and would undo it: Surge XT Effects' window sent its defaults when it started
+                // (Windows), and its processor reports, with its next buffer, the values it had before
+                // the state (Linux). Both are left out; only the next buffer's, so a plugin's own changes
+                // come through after it.
+                std::vector<Change> before;
+                size_t dropped = 0;
+                for (ChangeQueue* q : {&fromProcessor, &toProcessor, &toController}) {
+                    q->take(before, true);
+                    dropped += before.size();
+                }
+                {
+                    std::lock_guard<std::mutex> holdEdits(editsLock);  // (and so are its window's edits)
+                    dropped += edits.size();
+                    edits.clear();
+                }
+                if (dropped)
+                    fprintf(stderr, "[vst3] %s: %zu parameter changes from before its state was set, left out\n",
+                            info.name.c_str(), dropped);
+                staleOutputs.store(true, std::memory_order_release);
             }
         }
         if (controller && !comp.empty()) {
@@ -1533,6 +1561,7 @@ private:
     double rate = 48000.0;
     std::atomic<int> latencyFrames{0};
     std::atomic<int> restartFlags{0};
+    std::atomic<bool> staleOutputs{false};  // the next buffer's output changes predate a state just set
     ChangeQueue toProcessor, toController, fromProcessor;
     std::vector<Change> changesNow;
     std::vector<Change> idleChanges;  // (main thread: idle()'s, keeping its room)
