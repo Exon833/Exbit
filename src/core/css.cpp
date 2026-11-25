@@ -34,6 +34,7 @@
 #include <unordered_map>
 
 #include "core/css_internal.h"
+#include "core/css_var_cache.h"
 
 namespace css {
 
@@ -253,6 +254,8 @@ void Engine::setCharWidth(std::function<double(const std::string& family, double
     generation_++;
     root_.reset();
 }
+
+size_t Engine::varCacheHits() const { return varCache_ ? varCache_->hits() : 0; }
 
 void Engine::rebuild() {
     auto index = std::make_shared<Index>();
@@ -529,9 +532,21 @@ Style Engine::computeWith(const Node& node, const Style* parent, const std::stri
         std::string prop(name), val, why;
         bool ok = true;
         uint8_t units = d.units;
+        const VarResolution* resolution = nullptr;
+        VarResolution resolvedOnTheSpot;
         if (d.hasVar) {
-            ok = substitute(d.value, plain, val, why);
-            if (!ok) report(d, why + " ('" + prop + "' is left unset)");
+            // (a node without custom properties of its own shares its parent's, and so the cache's entries for
+            // them; one with its own works its values out here)
+            if (customWin.empty()) {
+                if (!varCache_) varCache_ = std::make_shared<VarCache>();
+                resolution = &varCache_->resolve(d, st.vars_, generation_);
+            } else {
+                resolvedOnTheSpot = resolveVarDeclaration(d, plain);
+                resolution = &resolvedOnTheSpot;
+            }
+            ok = resolution->substituted;
+            val = resolution->substitutedValue;
+            if (!ok) report(d, resolution->substituteProblem + " ('" + prop + "' is left unset)");
         } else {
             val = d.value;
         }
@@ -548,30 +563,14 @@ Style Engine::computeWith(const Node& node, const Style* parent, const std::stri
             continue;
         }
         if (ok && d.hasVar) {
-            Tokens t;
-            tokenize(val, t);
-            units = unitsOf(t, 0, t.size());
-            if (!d.shorthand.empty()) {
-                std::vector<std::pair<std::string, std::string>> out;
-                why = expand(d.shorthand, t, 0, t.size(), out);
-                ok = why.empty();
-                if (ok) {
-                    ok = false;
-                    for (auto& [l, v] : out)
-                        if (l == prop) {
-                            val = std::move(v);
-                            ok = true;
-                        }
-                    if (ok && isCssWide(val)) {
-                        unset(prop);
-                        continue;
-                    }
-                }
-            } else {
-                why = checkValue(prop, t, 0, t.size());
-                ok = why.empty();
+            units = resolution->units;
+            ok = resolution->valid;
+            if (ok && resolution->longhandIsCssWide) {
+                unset(prop);
+                continue;
             }
-            if (!ok) report(d, why + " (after var(); '" + prop + "' is left unset)");
+            if (ok) val = resolution->propertyValue;
+            else report(d, resolution->checkProblem + " (after var(); '" + prop + "' is left unset)");
         }
         if (ok) {
             if (units) unitProps.emplace_back(name, units);

@@ -536,7 +536,42 @@ bool evalLengthPercent(const Tokens& t, size_t b, size_t e, const LenCtx& ctx, d
     return true;
 }
 
+// Reads a plain pixel length ("12px", "-0.5px", or "0"), the form computed styles keep their lengths in, without
+// the tokenizer, with the same arithmetic as its number(); false for anything else (left to the tokenizer).
+static bool plainPixels(std::string_view text, double& px) {
+    if (text == "0") {
+        px = 0;
+        return true;
+    }
+    size_t length = text.size();
+    if (length < 3 || length > 15 || text.compare(length - 2, 2, "px") != 0) return false;  // (15: no overflow)
+    std::string_view number = text.substr(0, length - 2);
+    size_t position = 0;
+    double sign = 1;
+    if (number[0] == '-') {
+        sign = -1;
+        position = 1;
+    }
+    auto isDigit = [&](size_t at) { return at < number.size() && number[at] >= '0' && number[at] <= '9'; };
+    if (!isDigit(position)) return false;
+    double value = 0;
+    while (isDigit(position)) value = value * 10 + (number[position++] - '0');
+    if (position < number.size()) {
+        if (number[position] != '.' || !isDigit(position + 1)) return false;
+        position++;
+        double scale = 0.1;
+        while (isDigit(position)) {
+            value += (number[position++] - '0') * scale;
+            scale *= 0.1;
+        }
+        if (position != number.size()) return false;
+    }
+    px = value * sign;
+    return true;
+}
+
 bool lengthText(std::string_view text, const LenCtx& ctx, double& px) {
+    if (plainPixels(text, px)) return true;
     Tokens t;
     tokenize(text, t);
     return evalLength(t, 0, t.size(), ctx, px);

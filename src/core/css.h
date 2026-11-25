@@ -325,6 +325,10 @@ struct Media {
     double scale = 1;                   // the interface size (1: 100 %): resolution in dppx
 };
 
+namespace detail {
+class VarCache;  // values with var(), worked out once per set of custom properties (css_var_cache.h)
+}
+
 class Engine {
 public:
     // the media @media rules are evaluated against; bumps the generation only if that changes which @media
@@ -362,6 +366,9 @@ public:
     // for ch: the width of "0" in a font (family: the first of the node's font-family, "" none; px: its size).
     // Without one: half the size. Bumps the generation.
     void setCharWidth(std::function<double(const std::string& family, double px)> width);
+    // how many times a value with var() was taken from the cache instead of being worked out again (for tests:
+    // a value is worked out once per declaration and set of variables)
+    size_t varCacheHits() const;
 
 private:
     struct Index;  // the sheets' selectors by their last compound's id / class / type (css.cpp)
@@ -379,6 +386,7 @@ private:
     mutable std::unique_ptr<Style> root_;
     mutable std::vector<Problem> problems_;
     mutable std::set<std::string> reported_;  // (each problem once per set of sheets)
+    mutable std::shared_ptr<detail::VarCache> varCache_;  // (made on first use)
 };
 
 // does any rule of the engine's sheets declare `property` for nodes themselves (not only for parts, ::name)?

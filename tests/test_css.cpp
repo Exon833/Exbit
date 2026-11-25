@@ -367,6 +367,64 @@ void testVariablesShared() {
     CHECK(&copy.variables() == &bs.variables());
 }
 
+// lengthText reads plain pixel values ("12px", the form computed styles keep their lengths in) without the
+// tokenizer; every value, plain or not, must read exactly as the tokenizer reads it
+void testLengthTextExact() {
+    using namespace css::detail;
+    struct Case {
+        const char* text;
+        bool ok;
+        double px;
+    };
+    const Case cases[] = {{"12px", true, 12},      {"12.5px", true, 12.5},    {"-3px", true, -3},    {"+4px", true, 4},
+                          {"0", true, 0},          {"0px", true, 0},          {"1e2px", true, 100},  {"12PX", true, 12},
+                          {"12 px", false, 0},     {" 4px", true, 4},         {"4px ", true, 4},     {".5px", true, 0.5},
+                          {"5.px", false, 0},      {"007px", true, 7},        {"-0px", true, -0.0},  {"12", false, 0},
+                          {"1em", true, 10},       {"calc(2px + 3px)", true, 5}, {"", false, 0}, {"px", false, 0},
+                          {"-px", false, 0},       {"1.2.3px", false, 0},     {"nanpx", false, 0},   {"1e400px", true, 1e300},
+                          {"50%", true, 100}};
+    LenCtx ctx;
+    ctx.em = 10;
+    ctx.percentOf = 200;
+    for (const Case& c : cases) {
+        double px = -999;
+        bool ok = lengthText(c.text, ctx, px);
+        CHECK(ok == c.ok);
+        if (ok && c.ok) CHECK(px == c.px && std::signbit(px) == std::signbit(c.px));
+    }
+    // plain values read the same as through the tokenizer, to the last bit
+    for (const char* text : {"0.1px", "12.345px", "1234567.891px", "-0.3px", "99999999999px", "3.14159px"}) {
+        double plain = -1, tokenized = -2;
+        CHECK(lengthText(text, ctx, plain));
+        Tokens tokens;
+        tokenize(text, tokens);
+        CHECK(evalLength(tokens, 0, tokens.size(), ctx, tokenized));
+        CHECK(plain == tokenized);
+    }
+}
+
+// a value with var() is worked out once per declaration and set of variables, not again for every node that
+// uses it; other variables, or new sheets, work it out again
+void testVarValuesCached() {
+    Sheet s(":root { --fg: red; --pad: 4px }\nPanel { --fg: blue }\nButton { color: var(--fg); padding: var(--pad) 2px }\n");
+    CHECK(s.problems.empty());
+    SimpleNode top("Window");
+    SimpleNode panel("Panel", &top);
+    SimpleNode firstButton("Button", &panel), secondButton("Button", &panel), buttonOnTop("Button", &top);
+    Style panelStyle = s.engine.compute(panel);
+    Style first = s.engine.compute(firstButton, &panelStyle);
+    size_t hitsBefore = s.engine.varCacheHits();
+    Style second = s.engine.compute(secondButton, &panelStyle);
+    CHECK(s.engine.varCacheHits() == hitsBefore + 5);  // (color and padding's four sides: the first button's)
+    CHECK(first.raw("color") == "blue" && second.raw("color") == "blue");
+    CHECK(second.raw("padding-top") == "4px" && second.raw("padding-left") == "2px");
+    Style onTop = s.engine.compute(buttonOnTop);  // (the root's variables: worked out for them)
+    CHECK(onTop.raw("color") == "red");
+    std::vector<Problem> problems;
+    s.engine.setSheets({parse(":root { --fg: green }\nButton { color: var(--fg) }\n", "new.css", problems)});
+    CHECK(s.engine.compute(buttonOnTop).raw("color") == "green");  // (new sheets: nothing kept from the old ones)
+}
+
 void testVariablesAndInheritance() {
     Sheet s(
         ":root { --fg: #102030; --pad: 4px; --both: var(--pad) 6px; --a: var(--b); --b: var(--a); --c: var(--a, 7px);"
@@ -2112,6 +2170,8 @@ int main() {
     testSelectors();
     testVariablesAndInheritance();
     testVariablesShared();
+    testVarValuesCached();
+    testLengthTextExact();
     testValues();
     testShorthands();
     testRecovery();
