@@ -427,14 +427,21 @@ namespace {
 VBox* inputDialogLayout(Dialog& d) {
     return vbox(&d, theme::metric("input-dialog-margin", 12), theme::metric("input-dialog-spacing", 8));
 }
+// the question over the field: a long one wrapped (not a dialog as wide as its text), and kept just above the field
+// when the dialog is made taller
+void addInputQuestion(Dialog& d, VBox* v, const std::string& question) {
+    auto* lab = d.add<Label>(question);
+    lab->setWordWrap(true);
+    lab->setAlignment(AlignLeft | AlignBottom);
+    v->addWidget(lab);
+}
 }  // namespace
 
 bool getText(Window* parent, const std::string& title, const std::string& label, std::string& text) {
     Dialog d(parent, title, 320, 120);
     d.addStyleClass("input-dialog");
     auto* v = inputDialogLayout(d);
-    auto* lab = d.add<Label>(label);
-    v->addWidget(lab);
+    addInputQuestion(d, v, label);
     auto* edit = d.add<LineEdit>(text);
     edit->setMinimumWidth(theme::metric("input-dialog-field-width", 280));
     v->addWidget(edit);
@@ -456,8 +463,7 @@ bool getItem(Window* parent, const std::string& title, const std::string& label,
     Dialog d(parent, title, 320, 120);
     d.addStyleClass("input-dialog");
     auto* v = inputDialogLayout(d);
-    auto* lab = d.add<Label>(label);
-    v->addWidget(lab);
+    addInputQuestion(d, v, label);
     auto* combo = d.add<ComboBox>();
     for (auto& it : items) combo->addItem(it);
     combo->setCurrentIndexSilently(std::max(0, std::min(index, (int)items.size() - 1)));

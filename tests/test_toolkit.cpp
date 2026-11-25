@@ -935,6 +935,30 @@ static void testDialogs() {
     });
     CHECK(getText(&main, "Rename", "Name:", text));
     CHECK(text == "new name");
+    // a long question: wrapped into lines (a dialog of a sensible width), every line shown
+    const std::string longQuestion =
+        "Empty: Tiny DAW's own application. Another: make one at discord.com/developers/applications "
+        "(New Application), then copy its Application ID here.";
+    auto wrappedWhole = [&](const char* what) {
+        App::get().singleShot(30, [&, what] {
+            Window* top = App::get().modalWindow();
+            if (!top) return;
+            App::get().doLayouts();
+            Label* lab = nullptr;
+            for (auto& c : top->children())
+                if (auto* l = dynamic_cast<Label*>(c.get())) lab = l;
+            int room = theme::metric("label-wrap-width", 360) + 2 * theme::metric("input-dialog-margin", 12) + 40;
+            if (top->width() > room) printf("%s with a long question: %d px wide (at most %d)\n", what, top->width(), room);
+            CHECK(top->width() <= room);
+            CHECK(lab && lab->height() >= lab->minimumSizeHint().y && lab->height() > 2 * lab->font().height());
+            key(*top, plat::Key_Escape);
+        });
+    };
+    wrappedWhole("getText");
+    CHECK(!getText(&main, "Discord application ID", longQuestion, text));
+    int chosenItem = 0;
+    wrappedWhole("getItem");
+    CHECK(!getItem(&main, "Choose", longQuestion, {"One", "Two"}, chosenItem));
     main.hideWindow();
 }
 
