@@ -52,7 +52,6 @@
 #include <io.h>
 #include <unistd.h>
 
-#include "plugins/busy_pump_win.h"
 #include "plugins/child_win.h"
 #else
 #include <fcntl.h>
@@ -94,7 +93,6 @@ using namespace bridge;
 constexpr double START_SECONDS = 60;    // Wine starting (the first time in a prefix, it sets it up)
 constexpr double LOAD_SECONDS = 120;    // the plugin loading
 constexpr double CALL_SECONDS = 30;     // any other request
-constexpr double BUSY_PUMP_SECONDS = 0.25;  // (Windows) a wait on the main thread this long keeps it responding
 constexpr double STATE_SECONDS = 120;   // states can be large
 constexpr double TEXT_SECONDS = 2;      // a parameter's text
 constexpr double RESIZE_SECONDS = 2;    // its window's new size (asked on our main thread, as it is dragged)
@@ -1166,27 +1164,8 @@ private:
             ~Done() { f = false; }
         } done{inCall};
         double until = secondsNow() + seconds;
-#ifdef _WIN32
-        // (a long wait on the main thread, as a plugin making its window: the program's windows repainted,
-        // and its messages kept for after, so that Windows doesn't call it not responding: busy_pump_win.h)
-        double started = secondsNow();
-        bool mainThread = plat::isMainThread();
-        std::unique_ptr<BusyPump> pump;
-#endif
         for (;;) {
             double left = until - secondsNow();
-            int slice = 1000;
-#ifdef _WIN32
-            if (!pump && mainThread && secondsNow() - started >= BUSY_PUMP_SECONDS) {
-                util::debugf("plugin host: %s takes long to answer request %d: the program kept responding meanwhile\n",
-                             name_.c_str(), (int)op);
-                pump = std::make_unique<BusyPump>();
-            }
-            if (pump) {
-                pump->pump();
-                slice = 30;
-            }
-#endif
             if (left <= 0) {
                 hung = true;  // (not waited for again until it says something)
                 settingsWaited = settingsWaited || settings;
@@ -1194,7 +1173,7 @@ private:
                 util::debugf("plugin host: %s didn't answer request %d in %.1f s: hung\n", name_.c_str(), (int)op, seconds);
                 return false;
             }
-            if (!readable(sock, (int)std::min((double)slice, left * 1000) + 1)) {
+            if (!readable(sock, (int)std::min(1000.0, left * 1000) + 1)) {
                 if (mainThreadEnded(pid)) {  // (nothing will come)
                     crashed();
                     return false;
