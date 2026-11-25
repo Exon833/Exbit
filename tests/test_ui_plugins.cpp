@@ -38,6 +38,7 @@
 #include "ui/theme.h"
 #include "ui/toolkit/dialogs.h"
 #include "ui/toolkit/menu.h"
+#include "ui/toolkit/style.h"
 
 namespace {
 
@@ -1387,6 +1388,35 @@ int displayTests() {
     return 0;
 }
 
+// a stopped Windows plugin's window: its name said once (a reason, the watchdog's, starts with it too), and
+// never narrower than its stylesheet's min-width, where a long word of the reason was cut
+void testStoppedWindow() {
+    ui::Window main;
+    auto slot = std::make_shared<PluginSlot>();
+    slot->name = "Some Plugin With A Long Name (x64)";
+    slot->error = slot->name + " didn't answer for 10 s; its tinydaw-wine-host.exe hung, and was ended";
+    CHECK(plugin_audio::whyStopped(*slot) == "didn't answer for 10 s; its tinydaw-wine-host.exe hung, and was ended");
+    PluginSlot other;
+    other.name = "Fx";
+    other.error = "Fxy broke";
+    CHECK(plugin_audio::whyStopped(other) == "Fxy broke");
+    auto* w = new EditorWindow(&main, slot, slot->name);
+    w->resizable = true;  // (a plugin that takes any size: no minimum of its own)
+    w->reloadable = true;
+    w->showWindow();
+    w->showStopped();
+    ui::App::get().doLayouts();
+    std::string said;
+    for (auto& c : w->children())
+        if (auto* l = dynamic_cast<ui::Label*>(c.get())) said += l->text();
+    CHECK(said.find(slot->name) == 0 && said.find(slot->name, 1) == std::string::npos);
+    const css::Style& st = w->computedStyle("stopped");
+    CHECK(w->minimumSize().x >= ui::style::px(st, "min-width", 360) &&
+          w->minimumSize().y >= ui::style::px(st, "min-height", 140));
+    w->close();
+    ui::App::get().processEvents();
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -1411,6 +1441,7 @@ int main(int argc, char** argv) {
     testChooser();
     testMixFader();
     testBuiltinWindows();
+    testStoppedWindow();
     const char* display = getenv("DISPLAY");
     if (display && *display && !getenv("TINYDAW_NO_WINDOWS")) {
         std::string cmd = "'" + std::string(argv[0]) + "' --display";

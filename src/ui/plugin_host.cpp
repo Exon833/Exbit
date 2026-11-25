@@ -213,10 +213,10 @@ void PluginHost::noticeStopped(const std::vector<SlotPtr>& slots) {
         stopped_.push_back(slot);
         slotChanged.emit(slot);
         if (!canBe) {
-            status(slot->name + " stopped after an error: " + slot->error, 8000);
+            status(slot->name + " stopped after an error: " + plugin_audio::whyStopped(*slot), 8000);
         } else if (!autoReload || !crashed) {
             status(slot->name + (plug::bridgedHostEnded(*instance) ? " stopped: its " + std::string(wine::HOST_NAME) + " crashed"
-                                                                   : " stopped (" + slot->error + ")") +
+                                                                   : " stopped (" + plugin_audio::whyStopped(*slot) + ")") +
                        ". Reload it from its effects window or its menu.",
                    8000);
         } else if (!autoReloadAllowed(slot, ui::App::get().now())) {
