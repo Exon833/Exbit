@@ -3178,11 +3178,27 @@ void testHang(const std::vector<std::string>& folders, const PluginInfo& info) {
         CHECK(!statuses.empty() && statuses.back().find("didn't answer") != std::string::npos &&
               statuses.back().find("Reload it") != std::string::npos);
         if (dpy) {  // (its window went with it)
-            Window root, parent, *children = nullptr;
-            unsigned count = 0;
-            XQueryTree(dpy, ours, &root, &parent, &children, &count);
-            if (children)
-                XFree(children);
+            // (neither is at once: the bridge sees the host end at its next frame after the host's socket
+            // closes, once the last of its threads has ended, and the X server ends its windows once it finds
+            // their connection closed. Our frames go on meanwhile, as the program's would)
+            auto inOurs = [&] {
+                Window root, parent, *children = nullptr;
+                unsigned count = 0;
+                XQueryTree(dpy, ours, &root, &parent, &children, &count);
+                if (children)
+                    XFree(children);
+                return count;
+            };
+            bool openAtFirst = p->editorOpen();
+            unsigned atFirst = inOurs(), count = atFirst;
+            double w0 = secondsNow();
+            while ((p->editorOpen() || count > 0) && secondsNow() - w0 < 3) {
+                usleep(10000);
+                host.idle({slot});
+                count = inOurs();
+            }
+            printf("   its window gone from ours %.3f s after its host ended (at first: %s, %u windows in ours)\n",
+                   secondsNow() - w0, openAtFirst ? "still open" : "closed", atFirst);
             CHECK(!p->editorOpen() && count == 0);
             p->closeEditor();
             XDestroyWindow(dpy, ours);
