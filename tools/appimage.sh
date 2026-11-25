@@ -66,6 +66,15 @@ rm -rf -- "$app"
 mkdir -p "$app/usr/bin" "$app/usr/share/exbit" "$app/usr/share/applications" "$app/usr/share/icons/hicolor/scalable/apps"
 cp "$out/exbit" "$app/usr/bin/exbit"
 strip --strip-debug "$app/usr/bin/exbit"
+# the Wine host built (or brought up to date) here, so a release never ships a stale one or none; a release made
+# where winegcc is installed refuses to go out without it
+if command -v winegcc >/dev/null 2>&1; then
+    make -j"$(nproc)" winehost >/dev/null
+    if [ "$publish" = 1 ] && [ ! -f exbit-wine-host.exe ]; then
+        echo "the Wine host (exbit-wine-host.exe) didn't build: not published (Windows plugins would not load)" >&2
+        exit 1
+    fi
+fi
 for host in exbit-wine-host.exe exbit-wine-host-32.exe; do
     if [ -f "$host" ] && [ -f "$host.so" ]; then cp "$host" "$host.so" "$app/usr/bin/"; fi
 done
