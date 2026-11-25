@@ -508,10 +508,10 @@ Style Engine::computeWith(const Node& node, const Style* parent, const std::stri
     }
 
     // the properties
-    const std::map<std::string, std::string>& varsNow = customWin.empty() ? st.variables() : vars;
+    const std::map<std::string, std::string>& variablesForProperties = customWin.empty() ? st.variables() : vars;
     VarLookup plain = [&](const std::string& n) -> const std::string* {
-        auto it = varsNow.find(n);
-        return it != varsNow.end() ? &it->second : nullptr;
+        auto it = variablesForProperties.find(n);
+        return it != variablesForProperties.end() ? &it->second : nullptr;
     };
     auto unset = [&](const std::string& prop) {
         if (parent && isInherited(prop)) {
