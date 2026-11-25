@@ -255,6 +255,11 @@ void testFrameEncoding() {
 }
 
 void testText() {
+    // the real program's pace: Discord takes a presence change about every 15 s at most, and retrying sooner
+    // than 30 s after a failure only adds load (the tests below use their own, shorter times)
+    discord_presence::Presence::Timing programTiming;
+    CHECK(programTiming.minimumUpdateSeconds >= 15);
+    CHECK(programTiming.retrySeconds >= 30);
     auto text = discord_presence::describeActivity(3, 2, 0.123, 180ull * 1024 * 1024);
     CHECK(text.details == "3 audio · 2 MIDI lanes");
     CHECK(text.state == "CPU 12 % · RAM 180 MB");
