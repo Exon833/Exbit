@@ -1,15 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
-<!-- Tiny DAW's application icon (the AppImage's, desktop menus'): a dark tile with a level meter's bars -->
-<defs>
-<linearGradient id="tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2f3542"/><stop offset="1" stop-color="#1b1f27"/></linearGradient>
-<linearGradient id="bar" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#3d8ef0"/><stop offset="0.65" stop-color="#47d1a8"/><stop offset="1" stop-color="#f0c23d"/></linearGradient>
-</defs>
-<rect x="8" y="8" width="240" height="240" rx="52" fill="url(#tile)"/>
-<g fill="url(#bar)">
-<rect x="44" y="132" width="24" height="76" rx="6"/>
-<rect x="80" y="84" width="24" height="124" rx="6"/>
-<rect x="116" y="52" width="24" height="156" rx="6"/>
-<rect x="152" y="104" width="24" height="104" rx="6"/>
-<rect x="188" y="148" width="24" height="60" rx="6"/>
-</g>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 576 576">
+  <defs>
+  <linearGradient id="linear-gradient-1" x1="0" y1="576" x2="576" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#004966"/>
+      <stop offset="1" stop-color="#2c0045"/>
+    </linearGradient>
+    <linearGradient id="linear-gradient-2" x1="518.4" y1="57.6" x2="72.253" y2="505.616" gradientUnits="userSpaceOnUse">
+      <stop offset="0.0844" stop-color="#603fff"/>
+      <stop offset="0.499" stop-color="#3e9fdb" data-vc-midpoint="0.4802"/>
+      <stop offset="0.9477" stop-color="#1cffb7"/>
+    </linearGradient>
+  </defs>
+  <title>Tiny DAW</title>
+  <g id="Layer_1" data-name="Layer 1">
+    <path d="M160.035 0 L415.965 0 C504.35 0 576 71.65 576 160.035 L576 415.965 C576 504.35 504.35 576 415.965 576 L160.035 576 C71.65 576 0 504.35 0 415.965 L0 160.035 C0 71.65 71.65 0 160.035 0 Z" fill="url(#linear-gradient-1)"/>
+    <path d="M185.628 57.6 L390.372 57.6 C461.08 57.6 518.4 114.92 518.4 185.628 L518.4 185.628 L57.6 185.628 L57.6 185.628 C57.6 114.92 114.92 57.6 185.628 57.6 Z" fill="url(#linear-gradient-2)"/>
+    <path d="M57.6 390.372 L518.4 390.372 L518.4 390.372 C518.4 461.08 461.08 518.4 390.372 518.4 L185.628 518.4 C114.92 518.4 57.6 461.08 57.6 390.372 Z" fill="url(#linear-gradient-2)"/>
+    <rect x="57.6" y="223.986" width="460.8" height="128.028" fill="url(#linear-gradient-2)"/>
+  </g>
 </svg>
