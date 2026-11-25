@@ -156,6 +156,8 @@ Preferences Preferences::load() {
     p.warpNewFiles = getBool("warp_new_files", p.warpNewFiles);
     p.windowFrames = prefs::ownWindowFrames() ? "own" : "system";
     p.transparency = prefs::transparentWindows();
+    p.discordPresence = getBool("discord_presence", p.discordPresence);
+    p.discordApplicationId = getStr("discord_application_id", p.discordApplicationId);
     auto& sizes = prefs::bufferSizes();
     if (std::find(sizes.begin(), sizes.end(), p.bufferSize) == sizes.end()) p.bufferSize = 0;
     auto& rates = prefs::refreshRates();
@@ -208,6 +210,8 @@ Preferences Preferences::load() {
     p.known_["warp_new_files"] = Json(p.warpNewFiles);
     p.known_["window_frames"] = Json(p.windowFrames);
     p.known_["transparency"] = Json(p.transparency);
+    p.known_["discord_presence"] = Json(p.discordPresence);
+    p.known_["discord_application_id"] = Json(p.discordApplicationId);
     return p;
 }
 
@@ -268,4 +272,6 @@ void Preferences::save() const {
     put("warp_new_files", warpNewFiles);
     put("window_frames", windowFrames);
     put("transparency", transparency);
+    put("discord_presence", discordPresence);
+    put("discord_application_id", discordApplicationId);
 }

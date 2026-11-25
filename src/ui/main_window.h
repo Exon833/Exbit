@@ -54,6 +54,9 @@ class Timeline;
 class TrackRenderer;
 class TransportBar;
 class UpdateChecker;
+namespace discord_presence {
+class Presence;
+}
 namespace commands {
 class Registry;
 }
@@ -229,6 +232,15 @@ public:
     void setTransparency(bool on);   // Options → Window frames → Transparency
     void offerTransparency();        // …enabled only while a compositing manager runs
     void addMidiOptions(ui::Menu* menu); // Options: Recording offset…, MIDI input…, Computer keyboard
+    // --- Discord status (main_window_discord.cpp; core/discord_presence.h) ---
+    std::unique_ptr<discord_presence::Presence> discordPresence;  // null if its thread couldn't start
+    ui::Action* discordStateAction = nullptr;  // Options → Discord status: the line saying how it goes (never chosen)
+    void addDiscordOptions(ui::Menu* menu);    // Options → Discord status: Show in Discord, Application ID…
+    void startDiscordPresence();               // (at the start) the presence thread, as the settings say
+    void chooseDiscordApplicationId();         // Options → Discord status → Application ID…
+    void configureDiscordPresence();           // the presence on or off, with the ID chosen (else Tiny DAW's own)
+    void showDiscordState();                   // the state line's text, as the presence is now
+    void feedDiscordPresence(double cpuLoad);  // (the CPU timer) the lanes and the load, for Discord's text
 
     // --- skins ---
     void fillSkinMenu();
