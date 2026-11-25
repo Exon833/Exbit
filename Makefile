@@ -263,7 +263,7 @@ $(BUILD)/tests/%$(EXE): tests/%.cpp $(LIB_OBJS) $(WIN_RES)
 
 # the tests that run on Windows (tools/wintests.sh builds and runs them there)
 WIN_TESTS := test_os test_gfx test_update_check test_icon_win test_model test_project_io test_ui_main test_workers test_midi_win test_wasapi_win \
-             test_tui test_tui_console_win test_plugins_win test_window_win test_plugin_restore
+             test_tui test_tui_console_win test_plugins_win test_window_win test_plugin_restore test_discord_presence
 tests-win: $(WIN_TESTS:%=$(BUILD)/tests/%$(EXE)) $(ALL_HOSTS) $(ALL_WIN_TEST)
 	@failed=""; for t in $(WIN_TESTS:%=$(BUILD)/tests/%$(EXE)); do echo "== $$t"; \
 	    TINYDAW_PLUGIN_HOST=$(PLUGIN_HOST) TINYDAW_PLUGIN_HOST32=$(if $(MINGW32),$(PLUGIN_HOST32)) \

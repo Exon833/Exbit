@@ -17,6 +17,7 @@
 #include "audio/plugin_audio.h"
 #include "audio/sampler.h"
 #include "config.h"
+#include "core/discord_presence.h"  // (MainWindow::discordPresence is destroyed here)
 #include "core/util.h"
 #include "model/project_io.h"
 #include "model/timebase.h"
@@ -239,6 +240,7 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     connectControls();
     startTimers();
     applyMeterOptions();
+    startDiscordPresence();  // (off unless chosen in Options → Discord status)
     updates = std::make_unique<UpdateChecker>();  // the notice under the master row: is there a newer version?
     updates->done.connect([this](const update_check::Result& r) { master->showUpdate(r); });
     if (!getenv("TINYDAW_NO_UPDATE_CHECK")) {  // (hidden: tests leave GitHub alone)
@@ -741,6 +743,7 @@ void MainWindow::buildOptionsMenu() {
             status->followHints(on);
         })->tooltip = "The status bar at the bottom shows what the control under the mouse does (the first line "
                       "of its tooltip)";
+    addDiscordOptions(menu);  // Discord status: Show in Discord, Application ID…
     menu->addSeparator();
 
     ui::Menu* refresh = menu->addMenu("Screen &refresh");
@@ -1992,6 +1995,7 @@ void MainWindow::onCpuTimer() {
     double cur = 0, avg = 0;
     if (engine.isOpen() && engine.cpu.read(config::CPU_AVERAGE_SECONDS, cur, avg)) load = std::make_pair(cur, avg);
     cpuMonitor->showLoad(load, engine.cpu.late);
+    feedDiscordPresence(load ? load->second : -1);
     {  // each track's share of a core (the monitor's tooltip; the rows' bars: Options → CPU per track)
         std::vector<const Track*> known;
         for (auto& t : *project.tracks) known.push_back(t.get());

@@ -416,6 +416,16 @@ machine's glibc or newer).
     TINYDAW_DEBUG=0 ./tinydaw         # without the diagnostics on the terminal
     ./tinydaw --tui [song.json]       # in the terminal, by the keyboard alone
 
+**Discord status** (off by default): Options → Discord status → Show in Discord (in the window and in
+`--tui`) lets the Discord program running on the same computer show your friends that you use Tiny DAW,
+with two lines of text: how many audio and MIDI lanes the project has (`3 audio · 2 MIDI lanes`), and the
+audio CPU load and Tiny DAW's memory (`CPU 12 % · RAM 180 MB`), updated at most every 15 seconds. It
+talks to Discord's local connection itself (no Discord library), under Tiny DAW's own Discord application,
+whose name Discord shows above the text. Application ID… takes the ID of another application instead
+(make one at discord.com/developers/applications, New Application, and copy its Application ID). Discord
+not running, or the connection lost, is tried again every 30 seconds without a word (the reason shows in
+the menu's Status line and the debug output); turned off or on quitting, the status is cleared.
+
 **In the terminal** (`--tui`): the whole program in a terminal, worked by the keyboard alone, with
 nothing but a sound driver (ALSA, or none at all, to edit) installed: no window system, no mouse, no fonts, and any terminal
 down to a bare Linux text console (8 colours; ASCII lines when the locale isn't UTF-8). It is laid
