@@ -330,7 +330,7 @@ void Engine::checkVarUses() const {
                 if (d.custom) elsewhere.insert(d.name);
         }
     }
-    const std::map<std::string, std::string>& vars = root().vars_;
+    const std::map<std::string, std::string>& vars = root().variables();
     VarLookup lookup = [&](const std::string& n) -> const std::string* {
         auto it = vars.find(n);
         return it != vars.end() ? &it->second : nullptr;
@@ -443,8 +443,10 @@ Style Engine::computeWith(const Node& node, const Style* parent, const std::stri
         if (reported_.insert(p.text()).second) problems_.push_back(std::move(p));
     };
 
-    // custom properties: the node's own on top of the inherited ones, var() resolved depth first
-    std::map<std::string, std::string>& vars = st.vars_;
+    // custom properties: the node's own on top of the inherited ones, var() resolved depth first; a copy only
+    // when it has some (else it shares its parent's)
+    std::map<std::string, std::string> vars;
+    if (!customWin.empty() && st.vars_) vars = *st.vars_;
     std::map<std::string, const Decl*> pending;
     for (const auto& [name, d] : customWin) {
         std::string key(name);
@@ -506,9 +508,10 @@ Style Engine::computeWith(const Node& node, const Style* parent, const std::stri
     }
 
     // the properties
+    const std::map<std::string, std::string>& varsNow = customWin.empty() ? st.variables() : vars;
     VarLookup plain = [&](const std::string& n) -> const std::string* {
-        auto it = vars.find(n);
-        return it != vars.end() ? &it->second : nullptr;
+        auto it = varsNow.find(n);
+        return it != varsNow.end() ? &it->second : nullptr;
     };
     auto unset = [&](const std::string& prop) {
         if (parent && isInherited(prop)) {
@@ -631,6 +634,7 @@ Style Engine::computeWith(const Node& node, const Style* parent, const std::stri
         uint8_t u = (d->hasVar ? (maybeUnits(it->second) ? (uint8_t)(URem | UVw | UVh) : 0) : d->units) & (URem | UVw | UVh);
         if (u) ownUnits(it->second, u);
     }
+    if (!customWin.empty()) st.vars_ = std::make_shared<const std::map<std::string, std::string>>(std::move(vars));
     auto ls = st.props_.find("letter-spacing");
     if (ls != st.props_.end() && win.count("letter-spacing") && (mentions(ls->second, "em") || mentions(ls->second, "%"))) {
         LenCtx ctx;

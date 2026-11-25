@@ -346,6 +346,27 @@ void testSelectors() {
     CHECK(std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() < 0.5);
 }
 
+// a style that sets no custom property shares its parent's (thousands of widgets, one map, not a copy each);
+// one that sets its own gets a copy, and the parent's stays as it was
+void testVariablesShared() {
+    Sheet s(":root { --fg: red; --pad: 4px }\nPanel { --fg: blue }\nButton { color: var(--fg) }\n");
+    CHECK(s.problems.empty());
+    const Style& root = s.engine.root();
+    SimpleNode top("Window");
+    SimpleNode panel("Panel", &top);
+    SimpleNode button("Button", &panel);
+    Style ps = s.engine.compute(panel);
+    Style bs = s.engine.compute(button, &ps);
+    CHECK(&bs.variables() == &ps.variables());
+    CHECK(&ps.variables() != &root.variables());
+    CHECK(ps.variable("--fg") == std::string("blue"));
+    CHECK(root.variable("--fg") == std::string("red"));
+    CHECK(bs.variable("--pad") == std::string("4px"));
+    CHECK(bs.raw("color") == "blue");
+    Style copy = bs;  // (a copy of a style shares them too)
+    CHECK(&copy.variables() == &bs.variables());
+}
+
 void testVariablesAndInheritance() {
     Sheet s(
         ":root { --fg: #102030; --pad: 4px; --both: var(--pad) 6px; --a: var(--b); --b: var(--a); --c: var(--a, 7px);"
@@ -2090,6 +2111,7 @@ int main() {
     testColors();
     testSelectors();
     testVariablesAndInheritance();
+    testVariablesShared();
     testValues();
     testShorthands();
     testRecovery();

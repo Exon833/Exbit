@@ -295,7 +295,7 @@ public:
     // backdrop-filter: blur(<length>)'s length in px (0: none, not set, or another filter)
     double backdropBlur() const;
     // every custom property's value (--name -> text, var() resolved)
-    const std::map<std::string, std::string>& variables() const { return vars_; }
+    const std::map<std::string, std::string>& variables() const;
     std::optional<std::string> variable(const std::string& name) const;  // "--lane" or "lane"
 
     // What a user of the style works out from it once (ui/toolkit/style.h: a box's colours, borders and radius),
@@ -314,7 +314,8 @@ public:
 
     // (Engine fills these)
     std::map<std::string, std::string> props_;  // property -> resolved text
-    std::map<std::string, std::string> vars_;
+    // (shared, never changed once made: a style without custom properties of its own has its parent's)
+    std::shared_ptr<const std::map<std::string, std::string>> vars_;
     double emPx_ = 12;                           // the node's font size in px, for em
 };
 

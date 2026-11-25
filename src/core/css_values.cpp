@@ -952,13 +952,18 @@ std::string hex(const Rgba& c) {
 }
 
 // --- Style's getters ---
+const std::map<std::string, std::string>& Style::variables() const {
+    static const std::map<std::string, std::string> none;
+    return vars_ ? *vars_ : none;
+}
+
 bool Style::has(const std::string& property) const {
-    if (property.compare(0, 2, "--") == 0) return vars_.count(property) != 0;
+    if (property.compare(0, 2, "--") == 0) return variables().count(property) != 0;
     return props_.count(property) != 0;
 }
 
 std::string Style::raw(const std::string& property) const {
-    const auto& m = property.compare(0, 2, "--") == 0 ? vars_ : props_;
+    const auto& m = property.compare(0, 2, "--") == 0 ? variables() : props_;
     auto it = m.find(property);
     return it != m.end() ? it->second : std::string();
 }
@@ -1069,8 +1074,9 @@ std::string unquote(const std::string& value) {
 }
 
 std::optional<std::string> Style::variable(const std::string& name) const {
-    auto it = vars_.find(name.compare(0, 2, "--") == 0 ? name : "--" + name);
-    if (it == vars_.end()) return std::nullopt;
+    const auto& vars = variables();
+    auto it = vars.find(name.compare(0, 2, "--") == 0 ? name : "--" + name);
+    if (it == vars.end()) return std::nullopt;
     return it->second;
 }
 
