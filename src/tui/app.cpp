@@ -1896,7 +1896,10 @@ void Front::drawMenus(Screen& s) {
             shown.push_back((int)acts.size());
             keyW = std::max(keyW, 8);
         }
-        int mw = std::min(s.width() - 2, textW + keyW + 2), mh = std::min(s.height() - y - 1, (int)shown.size() + 2);
+        // (too low for all its entries, as a submenu opened near the bottom is: moved up, under the menu bar at most)
+        int want = (int)shown.size() + 2;
+        y = std::max(1, std::min(y, s.height() - 1 - want));
+        int mw = std::min(s.width() - 2, textW + keyW + 2), mh = std::min(s.height() - y - 1, want);
         if (x + mw > s.width()) x = std::max(0, s.width() - mw);
         s.fill(x, y, mw, mh, U' ', kMenu);
         s.box(x, y, mw, mh, kMenu, barMenu < 0 && level == 0 ? "Menu" : "");

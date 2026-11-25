@@ -345,6 +345,15 @@ void testFront() {
     d.keys({key('O', plat::ModAlt, "o"), key('D', 0, "d")});
     d.picture("discord-menu");
     CHECK(d.shows("Show in Discord") && d.shows("Application ID") && d.shows("Status: Off"));
+    // a submenu opened low on a short terminal (the smallest the main window takes): moved up, its entries shown
+    {
+        Screen small(60, 14);
+        f.draw(small);
+        std::string shown = small.lines();
+        std::ofstream(OUT + "/discord-menu-60x14.txt") << shown;
+        CHECK(shown.find("Show in Discord") != std::string::npos && shown.find("Application ID") != std::string::npos &&
+              shown.find("Status: Off") != std::string::npos);
+    }
     d.keys(std::vector<Key>{key('A', 0, "a"), key('A', plat::ModCtrl)} + typed(" 1234 ") + std::vector<Key>{key(plat::Key_Return)});
     CHECK(w->prefs.discordApplicationId == "1234" && !w->prefs.discordPresence);
     CHECK(Preferences::load().discordApplicationId == "1234");
