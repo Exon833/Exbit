@@ -102,13 +102,17 @@ Point Label::sizeHint() const {
         float w = 0;
         for (auto& l : lines) w = std::max(w, f.width(l));
         float wrapW = (float)theme::metric("label-wrap-width", 360);  // (a wrapped text's widest line)
+        int n = (int)lines.size();
         if (wrap_ && w > wrapW) {
             lines = wrapLines(text_, f, wrapW);
             w = 0;
             for (auto& l : lines) w = std::max(w, f.width(l));
+            // (laid out wider than that: its lines at its width, fewer, so no empty line under it; narrower, more:
+            // minimumSizeHint's)
+            n = width() > wrapW ? wrappedLines(width()) : (int)lines.size();
         }
         h.x = std::max(h.x, (int)std::ceil(w));
-        h.y = std::max(h.y, linesHeight(f, (int)lines.size()));
+        h.y = std::max(h.y, linesHeight(f, n));
     }
     style::Insets pad = style::insets(computedStyle(), "padding");
     h.x += 2 * margin + pad.w();

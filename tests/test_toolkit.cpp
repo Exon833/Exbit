@@ -137,7 +137,27 @@ static void testSignalsAndKeys() {
     CHECK(KeySequence::parse("Ctrl++").matches(plus));
 }
 
+// a wrapped text laid out wider than the wrap width: as tall as its lines there, no empty line under it (a dialog's
+// paragraphs had one between them)
+static void testWrappedLabelHeight() {
+    Window w(plat::WindowOptions{});
+    w.resizeWindow(700, 300);
+    auto* v = vbox(&w, 0, 0);
+    auto* l = w.add<Label>("Tiny DAW didn't close normally last time. It kept your changes to Song.json.");
+    l->setWordWrap(true);
+    v->addWidget(l);
+    auto* one = w.add<Label>("One line");  // (not wrapped: one line's height)
+    v->addWidget(one);
+    v->addStretch(1);
+    w.relayout();
+    App::get().doLayouts();  // (laid out again once it knows its width, as before every frame)
+    CHECK(Font(l->font()).width(l->text()) > theme::metric("label-wrap-width", 360));  // (two lines at the wrap width)
+    CHECK(Font(l->font()).width(l->text()) < l->width());                              // (one at its own)
+    CHECK(l->height() == one->height());
+}
+
 static void testLayouts() {
+    testWrappedLabelHeight();
     Window w(plat::WindowOptions{});
     w.resizeWindow(400, 100);
     auto* h = hbox(&w, 10, 5);
