@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <tuple>
 
+#include "core/format_marker.h"
 #include "core/json.h"
 #include "core/util.h"
 #include "platform/platform.h"
@@ -466,8 +467,8 @@ int onApply(std::function<void()> fn) {
 bool cssFromJson(const std::string& jsonText, const std::string& fallbackName, std::string& out, std::string& error) {
     std::string perr;
     Json data = Json::parse(jsonText, &perr);
-    if (!data.isObject() || !data["format"].isString() || data["format"].toString() != "exbit-skin") {
-        error = "Not a Exbit skin.";
+    if (!data.isObject() || !data["format"].isString() || !format_marker::isFormat(data["format"].toString(), "exbit-skin")) {
+        error = "Not an Exbit skin.";
         return false;
     }
     const Json& n = data["name"];

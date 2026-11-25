@@ -65,6 +65,7 @@
 #include "plugins/probe.h"
 #include "winehost/d2dfix.h"
 #include "winehost/dragdrop.h"
+#include "core/program_environment.h"
 
 using namespace bridge;
 
@@ -149,7 +150,7 @@ int linuxPid() {
 #endif
 }
 
-bool tracing = getenv("EXBIT_WINE_TRACE") != nullptr;
+bool tracing = environment::readProgramVariable("WINE_TRACE") != nullptr;
 
 double traceNow() {
     timespec t{};
@@ -435,7 +436,7 @@ void serve(const Incoming& in) {
         double v = r.f64();
         // (tests) a plugin that hangs for good: its own thread ("1": nothing is answered any more, its
         // window frozen) or its audio thread ("audio")
-        if (const char* freeze = getenv("EXBIT_WINE_TEST_FREEZE")) {
+        if (const char* freeze = environment::readProgramVariable("WINE_TEST_FREEZE")) {
             fprintf(stderr, "exbit-wine-host: test: %s hangs\n", std::strcmp(freeze, "audio") ? "the plugin's thread" : "the audio thread");
             if (!std::strcmp(freeze, "audio"))
                 freezeAudio = true;
@@ -443,9 +444,9 @@ void serve(const Incoming& in) {
                 for (;;)
                     Sleep(1000);
         }
-        if (getenv("EXBIT_WINE_TEST_MAIN_ENDS"))  // (tests) the main thread ends, as a plugin's crash
+        if (environment::readProgramVariable("WINE_TEST_MAIN_ENDS"))  // (tests) the main thread ends, as a plugin's crash
             ExitThread(0);                           // on it ended it: the audio thread plays on
-        if (getenv("EXBIT_WINE_TEST_CRASH")) {  // (tests) a plugin's crash: a fault in Windows code on it
+        if (environment::readProgramVariable("WINE_TEST_CRASH")) {  // (tests) a plugin's crash: a fault in Windows code on it
             using StrlenFn = size_t(WINAPI*)(const char*);
             HMODULE crt = LoadLibraryW((LPCWSTR)u"ucrtbase.dll");
             const char* volatile nothing = nullptr;  // (not seen through by the compiler)
@@ -544,7 +545,7 @@ void serve(const Incoming& in) {
                                        WS_POPUP | WS_CLIPCHILDREN, sx, sy, 640, 400, nullptr, nullptr,
                                        GetModuleHandleW(nullptr), nullptr);
         int pw = 0, ph = 0;
-        if (const char* slow = getenv("EXBIT_HOST_TEST_SLOW_EDITOR")) {  // (tests) a plugin slow to make its window
+        if (const char* slow = environment::readProgramVariable("HOST_TEST_SLOW_EDITOR")) {  // (tests) a plugin slow to make its window
             fprintf(stderr, "[host] test: the plugin takes %s ms to make its window\n", slow);
             Sleep((DWORD)atoi(slow));
         }
@@ -778,7 +779,7 @@ DWORD WINAPI dragClock(LPVOID) {
 }
 
 void startTestDrag() {
-    if (!getenv("EXBIT_WINE_TEST_DRAG"))
+    if (!environment::readProgramVariable("WINE_TEST_DRAG"))
         return;
     dragTick = 0;
     dragTarget = nullptr;
@@ -803,7 +804,7 @@ void dragStep() {
     if (!dragTarget) {
         quietPointer();
         int x = 0, y = 0;
-        sscanf(getenv("EXBIT_WINE_TEST_DRAG"), "%d,%d", &x, &y);
+        sscanf(environment::readProgramVariable("WINE_TEST_DRAG"), "%d,%d", &x, &y);
         POINT p{x, y};
         HWND h = editorWindow;
         for (int depth = 0; depth < 16; depth++) {  // (the deepest window under the point)
@@ -820,7 +821,7 @@ void dragStep() {
     int y0 = 0;
     {
         int x = 0, y = 0;
-        sscanf(getenv("EXBIT_WINE_TEST_DRAG"), "%d,%d", &x, &y);
+        sscanf(environment::readProgramVariable("WINE_TEST_DRAG"), "%d,%d", &x, &y);
         POINT p{x, y};
         MapWindowPoints(editorWindow, dragTarget, &p, 1);
         y0 = (int)p.y;
@@ -981,7 +982,7 @@ int classesMain(const std::string& listFile) {
     std::string me = std::string(CLASSES_PID_MARK) + std::to_string((long)linuxPid()) + "\n";
     fwrite(me.data(), 1, me.size(), stdout);
     fflush(stdout);
-    if (getenv("EXBIT_WINE_TEST_HANG"))  // (tests) a plugin that hangs while it is listed
+    if (environment::readProgramVariable("WINE_TEST_HANG"))  // (tests) a plugin that hangs while it is listed
         for (;;)
             Sleep(1000);
     std::string text;

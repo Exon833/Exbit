@@ -16,6 +16,7 @@
 
 #include "core/util.h"
 #include "platform/platform.h"
+#include "core/program_environment.h"
 
 extern char** environ;
 
@@ -170,7 +171,7 @@ bool executable(const std::string& p) { return !p.empty() && access(p.c_str(), X
 }  // namespace
 
 std::string winePath() {
-    if (const char* env = getenv("EXBIT_WINE"))
+    if (const char* env = environment::readProgramVariable("WINE"))
         if (*env)
             return executable(env) ? env : "";
     if (const char* path = getenv("PATH"))
@@ -185,7 +186,7 @@ std::string winePath() {
 }
 
 std::string hostPath(bool bits32) {
-    if (const char* env = getenv(bits32 ? "EXBIT_WINE_HOST32" : "EXBIT_WINE_HOST"))
+    if (const char* env = environment::readProgramVariable(bits32 ? "WINE_HOST32" : "WINE_HOST"))
         if (*env)
             return util::fileExists(env) ? env : "";
     std::string exe = plat::executableDir();
@@ -664,7 +665,7 @@ void preferGlx(const std::string& prefix) {
     static std::mutex once;
     static std::vector<std::string> done;
     std::lock_guard<std::mutex> hold(once);
-    if (prefix.empty() || getenv("EXBIT_WINE_EGL") || std::find(done.begin(), done.end(), prefix) != done.end())
+    if (prefix.empty() || environment::readProgramVariable("WINE_EGL") || std::find(done.begin(), done.end(), prefix) != done.end())
         return;
     done.push_back(prefix);
     std::string reg;

@@ -41,6 +41,7 @@
 #include "ui/plugin_editor.h"
 #include "ui/plugin_host.h"
 #include "ui/toolkit/widget.h"
+#include "core/program_environment.h"
 
 #define Font XFontId  // (X11's Font against Exbit's)
 #include <X11/Xlib.h>
@@ -491,7 +492,7 @@ void testEditor(Plugin& p, const std::string& label) {
         distinct = colours();
     }
     double drawnSeconds = secondsNow() - t0;
-    if (const char* shots = getenv("EXBIT_WINE_SHOTS")) {  // (pictures of the windows, to look at)
+    if (const char* shots = environment::readProgramVariable("WINE_SHOTS")) {  // (pictures of the windows, to look at)
         std::string file = util::joinPath(shots, util::replaceAll(label, " ", "_") + ".png");
         XSync(dpy, False);
         run("import -window " + std::to_string((unsigned long)ours) + " '" + file + "' 2>/dev/null");
@@ -720,7 +721,7 @@ void testCrash(PluginLibrary& library, const PluginInfo& info) {
     // (with a display: its window opened and closed, after which its settings are kept, without
     // being asked, with the next idle(); a save after the crash then gets them)
     bool kept = false;
-    Display* dpy = getenv("EXBIT_NO_WINDOWS") ? nullptr : XOpenDisplay(nullptr);
+    Display* dpy = environment::readProgramVariable("NO_WINDOWS") ? nullptr : XOpenDisplay(nullptr);
     if (dpy) {
         CHECK(!bridgedStateKnown(*p));
         Window ours = XCreateSimpleWindow(dpy, DefaultRootWindow(dpy), 40, 40, 400, 300, 0, 0, 0);
@@ -926,10 +927,10 @@ void testReload(const std::vector<std::string>& folders, const PluginInfo& info)
 // holds EXBIT_WINE_ONLY, else the first FabFilter one; the instrument likewise (Twin 3 is quick);
 // big states from Serum 2 when it is there. Only the stress scenarios run then. ---
 
-bool stressLong() { return getenv("EXBIT_WINE_STRESS_LONG") != nullptr; }
+bool stressLong() { return environment::readProgramVariable("WINE_STRESS_LONG") != nullptr; }
 
 bool stressWanted(const std::string& name) {
-    const char* s = getenv("EXBIT_WINE_STRESS");
+    const char* s = environment::readProgramVariable("WINE_STRESS");
     if (!s)
         return false;
     std::string list = std::string(",") + s + ",";
@@ -2636,7 +2637,7 @@ struct ResizeRig {
         return d;
     }
     void shoot(const std::string& name) {
-        if (const char* shots = getenv("EXBIT_WINE_SHOTS")) {
+        if (const char* shots = environment::readProgramVariable("WINE_SHOTS")) {
             XSync(dpy, False);
             run("import -window " + std::to_string((unsigned long)ours) + " '" +
                 util::joinPath(shots, util::replaceAll(name, " ", "_") + ".png") + "' 2>/dev/null");
@@ -2847,7 +2848,7 @@ void stressResize(PluginLibrary& library, const PluginInfo& info, Display* dpy) 
 }
 
 void stress(PluginLibrary& library, const std::vector<PluginInfo>& windows) {
-    const char* only = getenv("EXBIT_WINE_ONLY");
+    const char* only = environment::readProgramVariable("WINE_ONLY");
     const PluginInfo *effect = nullptr, *instrument = nullptr, *big = nullptr;
     for (const auto& p : windows) {
         bool fits = only ? util::containsNoCase(p.name, only) : util::containsNoCase(p.path, "FabFilter");
@@ -2915,7 +2916,7 @@ void stress(PluginLibrary& library, const std::vector<PluginInfo>& windows) {
         printf("   Wine processes of those listings left 1.5 s after: %d\n", left);
         CHECK(left == 0);
     }
-    bool windowsOk = !getenv("EXBIT_NO_WINDOWS") && getenv("DISPLAY");
+    bool windowsOk = !environment::readProgramVariable("NO_WINDOWS") && getenv("DISPLAY");
     if (stressWanted("mainends")) {
         stressMainEnds(library, *first, "EXBIT_WINE_TEST_MAIN_ENDS");
         stressMainEnds(library, *first, "EXBIT_WINE_TEST_CRASH");
@@ -3040,7 +3041,7 @@ void testDirect2DFixes(const std::string& prefix) {
 // file "<file>.seen-vst3/2"), and a MIDI file the synth drags out of its window (its Volume set to
 // 0.123, the test plugins' cue) comes to Exbit as a Unix path
 void testDragAndDrop(PluginLibrary& library, const PluginInfo& info) {
-    if (getenv("EXBIT_NO_WINDOWS") || !getenv("DISPLAY")) return;
+    if (environment::readProgramVariable("NO_WINDOWS") || !getenv("DISPLAY")) return;
     auto p = library.load(info, 48000);
     Display* dpy = XOpenDisplay(nullptr);
     if (!dpy) return;
@@ -3122,7 +3123,7 @@ void testHang(const std::vector<std::string>& folders, const PluginInfo& info) {
             return;
         std::shared_ptr<Plugin> p = aload(slot->instance);
         int pid = bridgedHostPid(*p);
-        Display* dpy = getenv("EXBIT_NO_WINDOWS") ? nullptr : XOpenDisplay(nullptr);
+        Display* dpy = environment::readProgramVariable("NO_WINDOWS") ? nullptr : XOpenDisplay(nullptr);
         Window ours = 0;
         if (dpy) {
             ours = XCreateSimpleWindow(dpy, DefaultRootWindow(dpy), 40, 40, 400, 300, 0, 0, 0);
@@ -3215,7 +3216,7 @@ void testHang(const std::vector<std::string>& folders, const PluginInfo& info) {
 }
 
 void testWindowsTestPlugins(const std::string& prefix) {
-    const char* dirEnv = getenv("EXBIT_WIN_TEST_PLUGINS");  // (make test sets it; else the release build's)
+    const char* dirEnv = environment::readProgramVariable("WIN_TEST_PLUGINS");  // (make test sets it; else the release build's)
     std::string win = util::absolutePath(dirEnv && *dirEnv ? dirEnv : "build/win-test-plugins");
     std::string installer = util::joinPath(win, "TinyTestInstaller.exe");
     if (!util::fileExists(installer)) {
@@ -3264,7 +3265,7 @@ void testWindowsTestPlugins(const std::string& prefix) {
         CHECK(fx32 && fx32->kind == EFFECT && wine::is32BitPlugin(fx32->path));
         CHECK(synth32 && synth32->kind == INSTRUMENT && wine::is32BitPlugin(synth32->path));
     }
-    bool editors = !getenv("EXBIT_NO_WINDOWS") && getenv("DISPLAY");
+    bool editors = !environment::readProgramVariable("NO_WINDOWS") && getenv("DISPLAY");
     for (const auto& p : found) testPlugin(library, p, editors && p.name != "Tiny Test Single");  // (it has no window)
     // what they are known to do, through the bridge: the effect is its input 64 frames late (×1 at the
     // default gain), the synth sounds while a note is held
@@ -3322,7 +3323,7 @@ void testWindowsTestPlugins(const std::string& prefix) {
 }
 
 void testInstalled() {
-    if (getenv("EXBIT_NO_WINE")) {
+    if (environment::readProgramVariable("NO_WINE")) {
         printf("(EXBIT_NO_WINE: the installed Windows plugins aren't tested)\n");
         return;
     }
@@ -3332,7 +3333,7 @@ void testInstalled() {
         return;
     }
     std::vector<std::string> folders;
-    if (const char* f = getenv("EXBIT_WINE_PLUGINS"))
+    if (const char* f = environment::readProgramVariable("WINE_PLUGINS"))
         folders.push_back(f);
     else
         folders = wine::vst3Folders({wine::defaultPrefix()});
@@ -3375,15 +3376,15 @@ void testInstalled() {
         if (p.kind.empty())
             printf("   kind NOT found: %s [%s]\n", p.name.c_str(), p.path.c_str());
     }
-    if (getenv("EXBIT_WINE_STRESS")) {
+    if (environment::readProgramVariable("WINE_STRESS")) {
         stress(library, windows);
         return;
     }
-    const char* only = getenv("EXBIT_WINE_ONLY");
-    bool editors =!getenv("EXBIT_NO_WINDOWS") && getenv("DISPLAY");
+    const char* only = environment::readProgramVariable("WINE_ONLY");
+    bool editors =!environment::readProgramVariable("NO_WINDOWS") && getenv("DISPLAY");
     // every one with EXBIT_WINE_ALL=1 (or EXBIT_WINE_ONLY); else the first effect and the first
     // instrument (the whole lot takes minutes)
-    bool all = getenv("EXBIT_WINE_ALL") != nullptr;
+    bool all = environment::readProgramVariable("WINE_ALL") != nullptr;
     bool effectDone = false, instrumentDone = false;
     for (const auto& p : windows) {
         if (only && !util::containsNoCase(p.name, only))
@@ -3415,7 +3416,7 @@ int main() {
     testPrefixArch();
     testWinePrograms();
     testSetupWithoutWine();
-    if (!getenv("EXBIT_NO_WINE") && !wine::winePath().empty() && !wine::hostPath().empty()) {
+    if (!environment::readProgramVariable("NO_WINE") && !wine::winePath().empty() && !wine::hostPath().empty()) {
         std::string made = testSetupWithWine();
         if (!made.empty()) {
             testDirect2DFixes(made);
@@ -3424,7 +3425,7 @@ int main() {
     }
     testFiles();
     testPrefixAsVst2Folder();
-    if (stressWanted("focus") && !getenv("EXBIT_NO_WINDOWS") && getenv("DISPLAY"))
+    if (stressWanted("focus") && !environment::readProgramVariable("NO_WINDOWS") && getenv("DISPLAY"))
         stressFocus();
     testInstalled();
     run("rm -rf '" + tempRoot + "'");

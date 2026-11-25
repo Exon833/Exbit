@@ -25,6 +25,7 @@
 #include "model/model.h"
 #include "plugins/plugin.h"
 #include "core/util.h"
+#include "core/program_environment.h"
 
 namespace {
 
@@ -479,8 +480,8 @@ void testPluginsOnWorkers() {
     std::string dir = util::absolutePath(check::testDir());
     std::string fx = dir + "/TinyTestFx.vst3", synth = dir + "/TinyTestSynth.so";
     // EXBIT_PARALLEL_FX / _SYNTH: other plugins to try (e.g. Windows ones through Wine), by hand
-    if (const char* e = getenv("EXBIT_PARALLEL_FX")) fx = e;
-    if (const char* e = getenv("EXBIT_PARALLEL_SYNTH")) synth = e;
+    if (const char* e = environment::readProgramVariable("PARALLEL_FX")) fx = e;
+    if (const char* e = environment::readProgramVariable("PARALLEL_SYNTH")) synth = e;
     Project one, many;
     buildPluginProject(one, fx, synth);
     buildPluginProject(many, fx, synth);
@@ -492,7 +493,7 @@ void testPluginsOnWorkers() {
     auto a = mixAll(one, nullptr, {256, 300}, SR * 2);
     auto b = mixAll(many, &pool, {256, 300}, SR * 2);
     int64_t d = differing(a, b);
-    bool strict = !getenv("EXBIT_PARALLEL_FX") && !getenv("EXBIT_PARALLEL_SYNTH");
+    bool strict = !environment::readProgramVariable("PARALLEL_FX") && !environment::readProgramVariable("PARALLEL_SYNTH");
     if (strict) CHECK(d == 0);  // (other plugins needn't be deterministic: only reported)
     printf("plugins on workers: %lld of %zu samples differ, loudest %.3f\n", (long long)d, a.size(), loudest(b));
     CHECK(loudest(b) > 0.01);

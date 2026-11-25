@@ -25,6 +25,8 @@
 #include <mutex>
 #include <thread>
 
+#include "core/folder_migration.h"
+#include "core/old_name.h"
 #include "core/os.h"
 #include "core/util.h"
 #include "gfx/svg.h"
@@ -1682,7 +1684,9 @@ std::string homeDir() {
 
 std::string configDir() {
     std::string base = knownFolder(FOLDERID_RoamingAppData, "APPDATA");
-    std::string dir = (base.empty() ? homeDir() : base) + "/Exbit";
+    if (base.empty()) base = homeDir();
+    // (made under the old name: moved, or that one used if it can't be)
+    std::string dir = folder_migration::useNewFolderOrMoveOldOne(base + "/Exbit", base + "/" + old_name::FOLDER);
     if (!util::isDir(dir)) util::makeDirs(dir);
     return dir;
 }

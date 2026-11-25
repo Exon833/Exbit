@@ -465,6 +465,12 @@ The program finds its data (`data/icons`, `data/skins`, `data/templates`) next t
 (or in `../share/exbit`). Settings are kept in `~/.config/Exbit`; your skins, templates, plugin
 pictures, the plugin cache and crash recovery in `~/.local/share/Exbit` (`$XDG_DATA_HOME`).
 
+Exbit was called Tiny DAW before. Its folders under that name (`~/.config/TinyDAW`,
+`~/.local/share/TinyDAW`, `%APPDATA%\TinyDAW`) are moved to the new ones on the first start (copied if
+they can't be moved, and used as they are if neither works); its projects, presets, synth patches,
+skins and `.tinydaw.zip` archives open as before, and each `EXBIT_*` variable below is also read
+under its old name, `TINYDAW_*`.
+
 **Plugins**: Linux VST3 bundles (`X.vst3/Contents/x86_64-linux/X.so`) from `~/.vst3`,
 `/usr/lib/vst3`, `/usr/local/lib/vst3`, and Linux VST2 `.so` plugins from the folders chosen in
 Options → VST2 plugin folders (the usual ones: `~/.vst`, `/usr/lib/vst`, `/usr/local/lib/vst`,

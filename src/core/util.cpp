@@ -24,13 +24,14 @@
 #include <set>
 
 #include "platform/platform.h"
+#include "core/program_environment.h"
 
 namespace util {
 
 namespace {
 bool& debugFlag() {
     static bool on = [] {
-        const char* v = getenv("EXBIT_DEBUG");
+        const char* v = environment::readProgramVariable("DEBUG");
         return !v || std::strcmp(v, "0") != 0;
     }();
     return on;

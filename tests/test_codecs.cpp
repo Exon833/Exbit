@@ -21,6 +21,7 @@
 
 #include "audio/codecs.h"
 #include "check.h"
+#include "core/program_environment.h"
 
 // hooks defined in mp3.cpp / vorbis.cpp for these tests
 void mp3TestImdct36(const float* in18, float* out36);
@@ -1641,7 +1642,7 @@ bool readFile(const std::string& path, std::vector<uint8_t>& d) {
 void testSystemFiles() {
     std::vector<std::string> files;
     findFiles("/usr/share/sounds", files, 0);
-    if (const char* extra = getenv("EXBIT_TEST_AUDIO")) findFiles(extra, files, 0);
+    if (const char* extra = environment::readProgramVariable("TEST_AUDIO")) findFiles(extra, files, 0);
     int decoded = 0;
     for (auto& path : files) {
         std::vector<uint8_t> d;

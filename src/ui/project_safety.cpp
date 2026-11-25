@@ -54,7 +54,7 @@ bool saveArchive(MainWindow& w) {
     std::string start = w.projectPath.empty() ? std::string("Untitled")
                                               : util::joinPath(util::dirName(w.projectPath), util::stem(w.projectPath));
     std::string path = ui::files::saveFile(&w, "Save as archive", start + collect::ARCHIVE_EXTENSION,
-                                           "Exbit archive (*.exbit.zip)");
+                                           "Exbit archive (*" + std::string(collect::ARCHIVE_EXTENSION) + ")");
     if (path.empty()) return false;
     if (!collect::isArchive(path)) path += collect::ARCHIVE_EXTENSION;
     if (!w.engine.isOpen())  // (as saving: the plugins' settings as they are now)

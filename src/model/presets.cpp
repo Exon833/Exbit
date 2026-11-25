@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "core/format_marker.h"
 #include "audio/automation.h"
 #include "audio/modulation.h"
 #include "audio/patch.h"
@@ -125,7 +126,7 @@ bool isTrackPresetFile(const std::string& path) {
     std::string text;
     if (!util::readFile(path, text)) return false;
     Json data = Json::parse(text);
-    return data.isObject() && data.str("format") == project_io::FORMAT && data.str("preset") == TRACK;
+    return data.isObject() && format_marker::isFormat(data.str("format"), project_io::FORMAT) && data.str("preset") == TRACK;
 }
 
 bool rename(const std::string& path, const std::string& newName, std::string& newPath, std::string& error) {
@@ -224,7 +225,7 @@ bool readEffect(const std::string& path, std::string& state, std::string& plugin
         return false;
     }
     Json data = Json::parse(text);
-    if (!data.isObject() || data.str("format") != FORMAT || data.str("kind") != "effect") {
+    if (!data.isObject() || !format_marker::isFormat(data.str("format"), FORMAT) || data.str("kind") != "effect") {
         error = path + " is not an effect preset.";
         return false;
     }

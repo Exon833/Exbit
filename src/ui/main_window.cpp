@@ -68,6 +68,7 @@
 #include "ui/update_notice.h"
 #include "ui/widgets.h"
 #include "model/warping.h"
+#include "core/program_environment.h"
 
 using ui::App;
 
@@ -142,7 +143,7 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     plugins = std::make_unique<PluginHost>(this, project, engine, [this] { return prefs.vst2List(); });
     plugins->autoReload = prefs.reloadCrashedPlugins;
     // (hidden, for testing: more VST3 folders, separated by ':')
-    if (const char* extra = getenv("EXBIT_VST3_PATH")) {
+    if (const char* extra = environment::readProgramVariable("VST3_PATH")) {
         plugins->folders = plug::defaultFolders();
         for (auto& f : wine::vst3Folders(wine::prefixes())) plugins->folders.push_back(f);
         for (auto& f : util::split(extra, ':'))
@@ -243,7 +244,7 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     startDiscordPresence();  // (off unless chosen in Options → Discord status)
     updates = std::make_unique<UpdateChecker>();  // the notice under the master row: is there a newer version?
     updates->done.connect([this](const update_check::Result& r) { master->showUpdate(r); });
-    if (!getenv("EXBIT_NO_UPDATE_CHECK")) {  // (hidden: tests leave GitHub alone)
+    if (!environment::readProgramVariable("NO_UPDATE_CHECK")) {  // (hidden: tests leave GitHub alone)
         updates->start();  // now, and every half hour (never installing anything: update_check.h)
         updateTimer_ = App::get().every(update_check::CHECK_EVERY_S * 1000, [this] { updates->start(); });
     }
@@ -1787,7 +1788,8 @@ bool MainWindow::startFromTemplate(const std::string& path) {
 void MainWindow::openProject() {
     if (!confirmDiscard()) return;
     std::string path = ui::files::openFile(this, "Open project", "",
-                                           "Exbit project (*.json *.exbit.zip);;Exbit archive (*.exbit.zip)");
+                                           "Exbit project (*.json " + collect::archivePatterns() + ");;Exbit archive (" +
+                                               collect::archivePatterns() + ")");
     if (path.empty()) return;
     if (collect::isArchive(path)) project_safety::openArchive(*this, path);  // (unpacked first)
     else openProjectFile(path);

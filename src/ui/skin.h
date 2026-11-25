@@ -74,8 +74,9 @@ int onApply(std::function<void()> fn);
 void removeOnApply(int id);
 
 // --- skins of earlier versions (JSON) ---
-// A JSON skin ({"format": "exbit-skin", "name", "colors": {name: "#rrggbb[aa]"}, "fonts": {ui, ui_size,
-// mono}}) as a stylesheet; false and `error` if it isn't one. What can't be kept is noted in comments.
+// A JSON skin ({"format": "exbit-skin", or the same under the program's old name: core/format_marker.h; "name",
+// "colors": {name: "#rrggbb[aa]"}, "fonts": {ui, ui_size, mono}}) as a stylesheet; false and `error` if it
+// isn't one. What can't be kept is noted in comments.
 bool cssFromJson(const std::string& jsonText, const std::string& fallbackName, std::string& css, std::string& error);
 // Each JSON skin in `dir` becomes a stylesheet beside it (unless one of that file name is there already) and
 // is moved into its "old JSON skins" folder; returns the paths of the stylesheets written.

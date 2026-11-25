@@ -20,6 +20,7 @@
 #include <time.h>
 #include <cstdio>
 
+#include "core/format_marker.h"
 #include "audio/file_io.h"
 #include "audio/md5.h"
 #include "audio/midi_effects.h"
@@ -992,8 +993,8 @@ bool keepBackup(const std::string& path, std::string& backupPath, std::string& e
         return false;
     }
     Json data = Json::parse(text);
-    if (!data.isObject() || data.str("format") != FORMAT)
-        return true;  // (not a Exbit project: saving over it is the user's choice, but it isn't ours to keep)
+    if (!data.isObject() || !format_marker::isFormat(data.str("format"), FORMAT))
+        return true;  // (not an Exbit project: saving over it is the user's choice, but it isn't ours to keep)
     std::string base = data["base"].isString() && !data["base"].toString().empty() ? data["base"].toString() : ".";
     data.set("base", Json(normRelative(util::joinPath("..", base))));
     std::string folder = backupsFolder(path);
@@ -1327,8 +1328,8 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
     }
     std::string parseError;
     Json data = Json::parse(text, &parseError);
-    if (!data.isObject() || data.str("format") != FORMAT) {
-        error = "This is not a Exbit project file.";
+    if (!data.isObject() || !format_marker::isFormat(data.str("format"), FORMAT)) {
+        error = "This is not an Exbit project file.";
         return false;
     }
     std::string base = util::dirName(util::absolutePath(path));

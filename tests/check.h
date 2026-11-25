@@ -6,11 +6,13 @@
 #include <cstdlib>
 #include <string>
 
+#include "core/program_environment.h"
+
 namespace check {
 inline int& failures() { static int n = 0; return n; }
 inline int& passes() { static int n = 0; return n; }
 inline const char* testDir() {  // the test plugins' folder (make test sets it)
-    const char* d = getenv("EXBIT_TEST_PLUGINS");
+    const char* d = environment::readProgramVariable("TEST_PLUGINS");
     return d ? d : "build/test-plugins";
 }
 // Tests leave GitHub alone: each main window would ask it for updates, and its 60 questions an hour per network

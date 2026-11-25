@@ -1,5 +1,6 @@
 // Drag and drop between a plugin's window and Exbit (see dragdrop.h).
 #include "winehost/dragdrop.h"
+#include "core/program_environment.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -15,7 +16,7 @@ typedef HRESULT(WINAPI* DoDragDropFn)(void* data, void* source, DWORD okEffects,
 DoDragDropFn realDoDragDrop = nullptr;
 std::mutex lock;
 std::vector<std::string> dragged;  // (under `lock`)
-bool tracing = getenv("EXBIT_WINE_TRACE") != nullptr;
+bool tracing = environment::readProgramVariable("WINE_TRACE") != nullptr;
 
 std::u16string wide(const char* s) {
     std::u16string out;

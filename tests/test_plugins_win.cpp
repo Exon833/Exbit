@@ -31,6 +31,7 @@
 #include "plugins/plugin.h"
 #include "plugins/probe.h"
 #include "plugins/wine.h"
+#include "core/program_environment.h"
 
 using namespace plug;
 
@@ -276,7 +277,7 @@ void testEditor(PluginLibrary& library, const PluginInfo& info) {
            plugin ? (int)IsWindowVisible(plugin) : 0, plugin && (GetWindowLongW(plugin, GWL_STYLE) & WS_VISIBLE) ? "shown" : "hidden",
            IsWindowVisible(ours) ? "shown" : "hidden");
     CHECK(r.right - r.left == w && r.bottom - r.top == h);
-    if (const char* shot = getenv("EXBIT_SHOT_PAUSE")) pump(atof(shot));  // (a moment to look at it: tests by hand)
+    if (const char* shot = environment::readProgramVariable("SHOT_PAUSE")) pump(atof(shot));  // (a moment to look at it: tests by hand)
     // ours moved: the plugin's goes with it (a child window), nothing to tell the host
     SetWindowPos(ours, nullptr, 200, 150, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
     p->idle();
@@ -351,7 +352,7 @@ void testHang(PluginLibrary& library, const PluginInfo& info) {
         int pid = bridgedHostPid(*p);
         CHECK(pid > 0);
         HWND ours = nullptr;
-        if (!getenv("EXBIT_NO_WINDOWS")) {
+        if (!environment::readProgramVariable("NO_WINDOWS")) {
             WNDCLASSW wc{};
             wc.lpfnWndProc = DefWindowProcW;
             wc.hInstance = GetModuleHandleW(nullptr);
@@ -477,7 +478,7 @@ int main(int argc, char** argv) {
     util::makeDirs(tempRoot);
     testCommandLine();
     testFolders();
-    const char* dirEnv = getenv("EXBIT_WIN_TEST_PLUGINS");
+    const char* dirEnv = environment::readProgramVariable("WIN_TEST_PLUGINS");
     std::string win = dirEnv && *dirEnv ? dirEnv : "build/win-test-plugins";
     if (!util::fileExists(util::joinPath(win, "TinyTestFx.vst3")) || wine::hostPath(false).empty()) {
         printf("(no test plugins in %s, or no exbit-plugin-host.exe: the plugins weren't tested)\n", win.c_str());
@@ -494,7 +495,7 @@ int main(int argc, char** argv) {
         testFx(library, f.fx32);
         testSynth(library, f.synth32);
     }
-    if (!getenv("EXBIT_NO_WINDOWS")) {
+    if (!environment::readProgramVariable("NO_WINDOWS")) {
         testEditor(library, f.fx);
         testEditor(library, f.synth);
         if (bits32) testEditor(library, f.fx32);

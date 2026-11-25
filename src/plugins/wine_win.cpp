@@ -15,6 +15,7 @@
 #include "core/util.h"
 #include "platform/platform.h"
 #include "plugins/child_win.h"
+#include "core/program_environment.h"
 
 namespace wine {
 
@@ -72,7 +73,7 @@ std::string wineVersion(const std::string&) { return ""; }
 int wineMajor(const std::string&) { return 0; }
 
 std::string hostPath(bool bits32) {
-    if (const char* env = getenv(bits32 ? "EXBIT_PLUGIN_HOST32" : "EXBIT_PLUGIN_HOST"))
+    if (const char* env = environment::readProgramVariable(bits32 ? "PLUGIN_HOST32" : "PLUGIN_HOST"))
         if (*env) return util::fileExists(env) ? env : "";
     std::string p = util::joinPath(plat::executableDir(), bits32 ? "exbit-plugin-host-32.exe" : "exbit-plugin-host.exe");
     return util::fileExists(p) ? p : "";

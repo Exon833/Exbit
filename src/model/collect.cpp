@@ -7,6 +7,7 @@
 
 #include <unistd.h>
 
+#include "core/old_name.h"
 #include "core/util.h"
 #include "importers/zip.h"
 
@@ -54,9 +55,11 @@ std::string describe(const Summary& s) {
 
 bool isArchive(const std::string& path) { return util::endsWith(util::lower(path), ".zip"); }
 
+std::string archivePatterns() { return std::string("*") + ARCHIVE_EXTENSION + " *" + old_name::ARCHIVE_EXTENSION; }
+
 std::string archiveStem(const std::string& path) {
     std::string name = util::baseName(path);
-    for (const char* ext : {ARCHIVE_EXTENSION, ".zip"})
+    for (const char* ext : {ARCHIVE_EXTENSION, old_name::ARCHIVE_EXTENSION, ".zip"})
         if (util::endsWith(util::lower(name), ext)) return name.substr(0, name.size() - strlen(ext));
     return util::stem(path);
 }

@@ -1,4 +1,4 @@
-// Converts an Ableton Live set (.als) into a Exbit project, as closely as Exbit allows
+// Converts an Ableton Live set (.als) into an Exbit project, as closely as Exbit allows
 // (importers/ableton.py): File → Import Ableton Live set… (ui/ableton_import.h).
 //
 // What carries over: the tempo and time signature, markers (locators), every track (name, colour, fader,

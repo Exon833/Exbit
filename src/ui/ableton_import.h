@@ -1,4 +1,4 @@
-// File → Import Ableton Live set…: an .als turned into a Exbit project (importers/ableton.h), saved where
+// File → Import Ableton Live set…: an .als turned into an Exbit project (importers/ableton.h), saved where
 // the user picks, then opened, with a list of what was approximated or left out (ui/ableton_import.py).
 //
 // The main window's menu entry ("&Import Ableton Live set…", after "Open a &backup…") calls

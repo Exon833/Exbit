@@ -1,4 +1,4 @@
-// Converts an Ableton Live set (.als) into a Exbit project (importers/ableton.py; see ableton.h).
+// Converts an Ableton Live set (.als) into an Exbit project (importers/ableton.py; see ableton.h).
 #include "importers/ableton.h"
 
 #include <algorithm>
@@ -1536,7 +1536,7 @@ void convertSet(const std::string& als, const std::string& output, Project& proj
         returns.push_back(track);
     }
 
-    // group tracks: a Exbit group each, a bus (model.h GROUP BUSES) with the group's own effects, fader, pan,
+    // group tracks: an Exbit group each, a bus (model.h GROUP BUSES) with the group's own effects, fader, pan,
     // mute and sends, nested as in Live
     auto groupTracks = reader.groups();
     std::map<std::string, GroupPtr> madeGroups;

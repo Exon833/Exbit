@@ -30,6 +30,7 @@
 #include "ui/toolkit/menu.h"
 #include "ui/toolkit/widget.h"
 #include "plugins/plugin.h"
+#include "core/program_environment.h"
 
 namespace {
 
@@ -417,8 +418,8 @@ void testWindow() {
 // Wine, by hand) has a knob moved by a Macro through the mixer: its parameter and its sound follow
 void testPluginKnob() {
     std::string path = util::absolutePath(check::testDir()) + "/TinyTestFx.vst3", name = "Gain";
-    if (const char* e = getenv("EXBIT_MOD_PLUGIN")) path = e;
-    if (const char* e = getenv("EXBIT_MOD_PARAM")) name = e;
+    if (const char* e = environment::readProgramVariable("MOD_PLUGIN")) path = e;
+    if (const char* e = environment::readProgramVariable("MOD_PARAM")) name = e;
     std::string error;
     auto loaded = plug::Plugin::load(path, "", error);
     if (!loaded) {

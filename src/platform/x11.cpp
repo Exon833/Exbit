@@ -28,6 +28,8 @@
 //   Display or their own connections. Events for windows we don't know are ignored. X errors
 //   are logged, never fatal.
 #include "platform/platform.h"
+#include "core/folder_migration.h"
+#include "core/old_name.h"
 #include "gfx/svg.h"
 
 #include <algorithm>
@@ -2810,7 +2812,8 @@ std::string homeDir() {
 std::string configDir() {
     const char* x = getenv("XDG_CONFIG_HOME");
     std::string base = (x && *x == '/') ? std::string(x) : homeDir() + "/.config";
-    std::string dir = base + "/Exbit";
+    // (made under the old name: moved, or that one used if it can't be)
+    std::string dir = folder_migration::useNewFolderOrMoveOldOne(base + "/Exbit", base + "/" + old_name::FOLDER);
     if (!isDir(dir)) makeDirs(dir);
     return dir;
 }

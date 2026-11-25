@@ -50,6 +50,7 @@
 #include <vector>
 
 #include "winehost/d2dfix.h"
+#include "core/program_environment.h"
 
 // (64-bit only: the fixes read x64 thread contexts and are for 64-bit plugins, Serum 2 and Quanta 2;
 // the 32-bit host, exbit-wine-host-32.exe, leaves Wine's Direct2D as it is: the stubs at the end)
@@ -227,7 +228,7 @@ void addRef(void* object) {
 const Matrix IDENTITY = {1, 0, 0, 1, 0, 0};
 
 void firstCall(const char* what, bool& said) {
-    if (!said && getenv("EXBIT_WINE_TRACE"))
+    if (!said && environment::readProgramVariable("WINE_TRACE"))
         fprintf(stderr, "exbit-wine-host: first %s\n", what);
     said = true;
 }
@@ -667,7 +668,7 @@ LONG WINAPI findFamily(void* collection, const char16_t* name, UINT* index, BOOL
     if (known)
         return 0;
     LONG hr = wineFindFamily(collection, name, index, exists);
-    if (hr >= 0 && getenv("EXBIT_WINE_TRACE")) {  // (each name once per collection: what fonts a plugin asks for)
+    if (hr >= 0 && environment::readProgramVariable("WINE_TRACE")) {  // (each name once per collection: what fonts a plugin asks for)
         std::string n;
         for (const char16_t* c = name; *c; c++)
             n += *c < 128 ? (char)*c : '?';
@@ -1013,7 +1014,7 @@ LONG WINAPI closeBounded(void* sink) {
     bool gaveUp = endlessPaths.load() != endless;
     hold.unlock();
     takeRecord(sink, gaveUp);
-    if (gaveUp && getenv("EXBIT_WINE_TRACE"))
+    if (gaveUp && environment::readProgramVariable("WINE_TRACE"))
         fprintf(stderr, "exbit-wine-host: a path Wine's Direct2D recursed on without end: not filled\n");
     return result;
 }
@@ -1028,8 +1029,8 @@ void fixWineDirect2D() {
     if (!d2d)
         return;  // (no plugin here draws with Direct2D; asked again when one is loaded)
     tried = true;
-    bool trace = getenv("EXBIT_WINE_TRACE") != nullptr;
-    if (getenv("EXBIT_WINE_D2D_AS_IS") || !wineBuiltin(d2d))
+    bool trace = environment::readProgramVariable("WINE_TRACE") != nullptr;
+    if (environment::readProgramVariable("WINE_D2D_AS_IS") || !wineBuiltin(d2d))
         return;
     using CreateFactory = HRESULT_(WINAPI*)(int type, const Guid* iid, const void* options, void** factory);
     using CreateD3D = HRESULT_(WINAPI*)(void* adapter, int driver, HMODULE software, UINT flags, const int* levels,
@@ -1105,8 +1106,8 @@ void fixWineDirect2D() {
             for (int i : {SINK_SET_FILL_MODE, SINK_BEGIN, SINK_ADD_LINES, SINK_ADD_BEZIERS, SINK_END, SINK_ADD_LINE,
                           SINK_ADD_BEZIER, SINK_ADD_QUAD, SINK_ADD_QUADS, SINK_ADD_ARC})
                 pointsHere = pointsHere && inside(d2d, sinks[i]);
-            nudging = !getenv("EXBIT_WINE_FILL_AS_IS");
-            dumpDir = getenv("EXBIT_WINE_DUMP_PATHS");
+            nudging = !environment::readProgramVariable("WINE_FILL_AS_IS");
+            dumpDir = environment::readProgramVariable("WINE_DUMP_PATHS");
             if (pointsHere && (nudging || dumpDir)) {
                 patch(sinks, SINK_SET_FILL_MODE, (void*)setFillMode, (void**)&wineSetFillMode);
                 patch(sinks, SINK_BEGIN, (void*)beginFigure, (void**)&wineBeginFigure);
@@ -1122,7 +1123,7 @@ void fixWineDirect2D() {
                     fprintf(stderr, "exbit-wine-host: Direct2D paths' points %s\n",
                             nudging ? "nudged off exact lines" : "recorded");
             }
-            if (inside(d2d, sinks[SINK_CLOSE]) && !getenv("EXBIT_WINE_PATHS_AS_IS")) {
+            if (inside(d2d, sinks[SINK_CLOSE]) && !environment::readProgramVariable("WINE_PATHS_AS_IS")) {
                 d2dModule = d2d;
                 AddVectoredExceptionHandler(1, closerRanOut);
                 patch(sinks, SINK_CLOSE, (void*)closeBounded, (void**)&wineClose);
@@ -1153,7 +1154,7 @@ void forgetLayerBitmaps() {
     LeaveCriticalSection_(layersLock);
     for (auto& b : going)
         releaseBitmap(b);
-    if (getenv("EXBIT_WINE_TRACE"))
+    if (environment::readProgramVariable("WINE_TRACE"))
         fprintf(stderr, "exbit-wine-host: %zu layer bitmaps let go; %zu contexts with %zu layers still pushed\n",
                 going.size(), contexts, pushed);
 }
@@ -1171,8 +1172,8 @@ void fixWineDxgi() {
     if (!dxgi)
         return;
     tried = true;
-    bool trace = getenv("EXBIT_WINE_TRACE") != nullptr;
-    if (getenv("EXBIT_WINE_D2D_AS_IS") || !wineBuiltin(dxgi))
+    bool trace = environment::readProgramVariable("WINE_TRACE") != nullptr;
+    if (environment::readProgramVariable("WINE_D2D_AS_IS") || !wineBuiltin(dxgi))
         return;  // (DXVK's dxgi has its own)
     using CreateFactory1 = LONG(WINAPI*)(const Guid* iid, void** factory);
     auto create = (CreateFactory1)GetProcAddress(dxgi, "CreateDXGIFactory1");
@@ -1215,8 +1216,8 @@ void fixWineDirectWrite() {
     if (!dwrite)
         return;
     tried = true;
-    bool trace = getenv("EXBIT_WINE_TRACE") != nullptr;
-    if (getenv("EXBIT_WINE_D2D_AS_IS") || !wineBuiltin(dwrite))
+    bool trace = environment::readProgramVariable("WINE_TRACE") != nullptr;
+    if (environment::readProgramVariable("WINE_D2D_AS_IS") || !wineBuiltin(dwrite))
         return;
     using CreateFactory = LONG(WINAPI*)(int type, const Guid* iid, void** factory);
     auto create = (CreateFactory)GetProcAddress(dwrite, "DWriteCreateFactory");

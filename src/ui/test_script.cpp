@@ -26,6 +26,7 @@
 #include "ui/timeline.h"
 #include "ui/toolkit/dialogs.h"
 #include "ui/toolkit/menu.h"
+#include "core/program_environment.h"
 
 using ui::App;
 
@@ -520,10 +521,10 @@ Runner* runner = nullptr;
 
 void startFromEnvironment(MainWindow* window) {
     std::vector<std::string> lines;
-    if (const char* shotPath = getenv("EXBIT_SCREENSHOT")) {
-        const char* n = getenv("EXBIT_SCREENSHOT_FRAMES");
+    if (const char* shotPath = environment::readProgramVariable("SCREENSHOT")) {
+        const char* n = environment::readProgramVariable("SCREENSHOT_FRAMES");
         lines = {"frames " + std::string(n ? n : "60"), std::string("shot ") + shotPath, "quit"};
-    } else if (const char* script = getenv("EXBIT_SCRIPT")) {
+    } else if (const char* script = environment::readProgramVariable("SCRIPT")) {
         std::ifstream f(script);
         if (!f) {
             fprintf(stderr, "Exbit: can't read the script %s\n", script);

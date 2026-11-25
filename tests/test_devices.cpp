@@ -11,6 +11,7 @@
 
 #include "audio/devices.h"
 #include "check.h"
+#include "core/program_environment.h"
 
 using namespace audio;
 
@@ -102,7 +103,7 @@ int main() {
     // --- ALSA: 48 kHz, 256 frames, 0.5 s of silence ---
     {
         std::vector<std::string> candidates = {"default", "pipewire", "pulse"};
-        if (const char* e = getenv("EXBIT_TEST_ALSA_DEVICE")) candidates = {e};
+        if (const char* e = environment::readProgramVariable("TEST_ALSA_DEVICE")) candidates = {e};
         StreamConfig cfg;
         cfg.driverType = "ALSA";
         cfg.sampleRate = 48000;

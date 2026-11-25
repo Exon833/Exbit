@@ -39,8 +39,10 @@ Summary summary(const std::string& jsonPath, const Project& project, const std::
 std::string describe(const Summary& s);
 
 constexpr const char* ARCHIVE_EXTENSION = ".exbit.zip";
-bool isArchive(const std::string& path);  // its name ends in .exbit.zip (or .zip)
-std::string archiveStem(const std::string& path);  // "a/Song.exbit.zip" -> "Song"
+bool isArchive(const std::string& path);  // its name ends in .exbit.zip (or .zip: the program's old name's too)
+std::string archiveStem(const std::string& path);  // "a/Song.exbit.zip" -> "Song" (an old name's archive too)
+// the file chooser's patterns for archives: "*.exbit.zip", and the extension of the program's old name
+std::string archivePatterns();
 
 // the project and all its samples as one archive at `zipPath` (the project itself unchanged)
 bool saveArchive(const std::string& zipPath, Project& project, int sr, const project_io::MasterSettings& master,

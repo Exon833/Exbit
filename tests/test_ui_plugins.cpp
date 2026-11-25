@@ -39,6 +39,7 @@
 #include "ui/toolkit/dialogs.h"
 #include "ui/toolkit/menu.h"
 #include "ui/toolkit/style.h"
+#include "core/program_environment.h"
 
 namespace {
 
@@ -1443,7 +1444,7 @@ int main(int argc, char** argv) {
     testBuiltinWindows();
     testStoppedWindow();
     const char* display = getenv("DISPLAY");
-    if (display && *display && !getenv("EXBIT_NO_WINDOWS")) {
+    if (display && *display && !environment::readProgramVariable("NO_WINDOWS")) {
         std::string cmd = "'" + std::string(argv[0]) + "' --display";
         int rc = system(cmd.c_str());
         CHECK(rc == 0);

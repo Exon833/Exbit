@@ -10,6 +10,9 @@
 #include "plugins/library.h"
 #include "plugins/plugin.h"
 #include "plugins/wine.h"
+#include "core/old_name.h"
+#include "core/program_environment.h"
+#include "core/util.h"
 
 using namespace plug;
 
@@ -19,19 +22,26 @@ std::string home() {
     return h ? h : "";
 }
 
+// ~/.local/share/exbit-<name>, or the folder set up under the program's old name when only that one is there
+std::string sharedTestFolder(const std::string& name) {
+    std::string current = home() + "/.local/share/exbit-" + name;
+    std::string old = home() + "/.local/share/" + old_name::NAME_PREFIX + name;
+    return !util::isDir(current) && util::isDir(old) ? old : current;
+}
+
 std::string surgeFolder() {
-    if (const char* d = getenv("EXBIT_SURGE")) return d;
+    if (const char* d = environment::readProgramVariable("SURGE")) return d;
 #ifdef _WIN32
     const char* common = getenv("CommonProgramFiles");
     return std::string(common ? common : "C:/Program Files/Common Files") + "/VST3";
 #else
-    return home() + "/.local/share/exbit-test-plugins/linux";
+    return sharedTestFolder("test-plugins") + "/linux";
 #endif
 }
 
 std::string surgeWinePrefix() {
-    if (const char* d = getenv("EXBIT_SURGE_WINE")) return d;
-    return home() + "/.local/share/exbit-test-wine";
+    if (const char* d = environment::readProgramVariable("SURGE_WINE")) return d;
+    return sharedTestFolder("test-wine");
 }
 
 bool exists(const std::string& file) {

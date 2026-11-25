@@ -1026,7 +1026,11 @@ static void testPaths() {
     CHECK(paths::dataDir() == "/tmp/xdg-test/Exbit");
     CHECK(paths::dataDir("templates") == "/tmp/xdg-test/Exbit/templates");
     unsetenv("XDG_DATA_HOME");
-    CHECK(util::endsWith(paths::dataDir(), "/.local/share/Exbit"));
+    // (in a home of its own: the real one's data folder, made under the program's old name, isn't moved by a test)
+    std::string realHome = getenv("HOME") ? getenv("HOME") : "";
+    setenv("HOME", "/tmp/home-test", 1);
+    CHECK(paths::dataDir() == "/tmp/home-test/.local/share/Exbit");
+    setenv("HOME", realHome.c_str(), 1);
 #endif
     paths::setDataDir(util::absolutePath(kDir + "/data"));
     CHECK(paths::makeDataDir("skins") == util::absolutePath(kDir + "/data/skins") &&

@@ -6,6 +6,7 @@
 
 #include "audio/live.h"
 #include "audio/sampler.h"
+#include "core/format_marker.h"
 #include "core/util.h"
 #include "model/model.h"
 #include "paths.h"
@@ -277,7 +278,7 @@ bool load(const std::string& path, Patch& out, std::string& error) {
         return false;
     }
     Json j = Json::parse(text, &error);
-    if (!j.isObject() || j.str("format") != FORMAT) {
+    if (!j.isObject() || !format_marker::isFormat(j.str("format"), FORMAT)) {
         if (error.empty()) error = path + " is not a synth preset";
         return false;
     }

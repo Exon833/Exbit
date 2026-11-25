@@ -6,6 +6,7 @@
 #include "check.h"
 #include "core/os.h"
 #include "update_check.h"
+#include "core/program_environment.h"
 
 int main() {
     using update_check::FetchError;
@@ -34,7 +35,7 @@ int main() {
         CHECK(e.status == 0);
     }
     // every test (check.h) leaves GitHub alone
-    CHECK(check::noUpdateCheck && getenv("EXBIT_NO_UPDATE_CHECK"));
+    CHECK(check::noUpdateCheck && environment::readProgramVariable("NO_UPDATE_CHECK"));
     // the system's curl starts from the program (Windows 10 and later: System32\curl.exe)
     os::Process p;
     int err = 0;

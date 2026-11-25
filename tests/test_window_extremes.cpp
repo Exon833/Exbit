@@ -43,6 +43,7 @@
 #include "ui/toolkit/dialogs.h"
 #include "ui/toolkit/menu.h"
 #include "ui/toolkit/widget.h"
+#include "core/program_environment.h"
 
 using namespace ui;
 
@@ -79,7 +80,7 @@ struct Ctx {
     bool full() const { return pw == 1920; }  // the size sweep (smallest, smaller, maximised, back)
     // (pictures take most of the time: a few contexts, every one with EXBIT_EXTREMES_PICTURES=all)
     bool pictures() const {
-        static bool all = getenv("EXBIT_EXTREMES_PICTURES") != nullptr;
+        static bool all = environment::readProgramVariable("EXTREMES_PICTURES") != nullptr;
         return all || (percent == 100 && pw == 1920) || (percent == 200 && pw == 800) || (percent == 150 && pw == 1024);
     }
 };
@@ -741,7 +742,7 @@ int main() {
     util::makeDirs(OUT + "/tmp");
     settings::setPath(OUT + "/tmp/settings.json");
     App& app = App::get();
-    const char* only = getenv("EXBIT_EXTREMES_ONLY");  // (a name's part: only those windows, while fixing)
+    const char* only = environment::readProgramVariable("EXTREMES_ONLY");  // (a name's part: only those windows, while fixing)
     std::vector<Ctx> ctxs;
     for (int pct : {100, 75, 150, 200})
         for (auto [pw, ph] : std::vector<std::pair<int, int>>{{1920, 1080}, {3840, 2160}, {1024, 600}, {800, 480}})
