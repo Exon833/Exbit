@@ -240,7 +240,7 @@ public:
     void chooseDiscordApplicationId();         // Options → Discord status → Application ID…
     void configureDiscordPresence();           // the presence on or off, with the ID chosen (else Exbit's own)
     void showDiscordState();                   // the state line's text, as the presence is now
-    void feedDiscordPresence(double cpuLoad);  // (the CPU timer) the lanes and the load, for Discord's text
+    void feedDiscordPresence(double cpuLoad);  // (the CPU timer) the lanes, the load and when the project was made, for Discord
 
     // --- skins ---
     void fillSkinMenu();

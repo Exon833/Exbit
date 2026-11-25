@@ -5,11 +5,13 @@
 #include <unistd.h>
 
 #include <cmath>
+#include <ctime>
 #include <string>
 #include <vector>
 
 #include "audio/sound_file.h"
 #include "check.h"
+#include "core/file_birth_time.h"
 #include "core/json.h"
 #include "core/util.h"
 #include "model/project_io.h"
@@ -211,8 +213,9 @@ static void testRoundTrip() {
     CHECK(util::readFile(path, text));
     const Json j = Json::parse(text);
     CHECK((keys(j) == std::vector<std::string>{"format", "version", "master", "tracks_made", "timing", "markers", "groups",
-                                               "tracks", "clips", "master_effects", "master_cables", "audio_files"}));
-    // (and, after the Python program's keys, each audio file's size and sound: to find it again if it goes missing)
+                                               "tracks", "clips", "master_effects", "master_cables", "created",
+                                               "audio_files"}));
+    // (and, after the Python program's keys, when the project was made and each audio file's size and sound: to find it again if it goes missing)
     CHECK(j["audio_files"].size() == 3 && j["audio_files"]["Song_audio/drums.wav"].num("size", -1) == util::fileSize(b.c1->sourcePath));
     CHECK(j.str("format") == "exbit-project" && j["version"].toInt() == 1);
     CHECK(text.find("\"master\": {\n    \"volume_db\": -6,\n    \"mute\": true\n  }") != std::string::npos);
@@ -566,6 +569,52 @@ static void testFadeShapesAndPreFader() {
     CHECK(w.tracks.size() == 2 && w.tracks[0]->sends.size() == 1 && !w.tracks[0]->sends[0].preFader);
 }
 
+// when a project was made: set for a new one, saved as "created" (ISO-8601, UTC) and read back, kept by saving
+// again and by saving elsewhere; an older file without it takes the file's own creation time
+static void testCreatedTime() {
+    int64_t before = (int64_t)std::time(nullptr);
+    Project made;
+    CHECK(made.createdUnixSeconds >= before && made.createdUnixSeconds <= (int64_t)std::time(nullptr));
+    made.createdUnixSeconds = 1764072000;  // 2025-11-25 12:00:00 UTC
+    Json described = describe(made, SR, {});
+    CHECK(described["created"].toString() == "2025-11-25T12:00:00Z");
+
+    std::string path = kDir + "/Created.json", err;
+    MasterSettings master;
+    CHECK(saveProject(path, made, SR, master, err));
+    Project loaded;
+    CHECK(loadProject(path, loaded, SR, master, err));
+    CHECK(loaded.createdUnixSeconds == 1764072000);
+    // saved again (a track more) and saved elsewhere ("Save as"): the same time
+    loaded.addTrack(Kind::Midi);
+    CHECK(saveProject(path, loaded, SR, master, err));
+    std::string elsewhere = kDir + "/CreatedElsewhere.json";
+    CHECK(saveProject(elsewhere, loaded, SR, master, err));
+    Project again, other;
+    CHECK(loadProject(path, again, SR, master, err) && again.createdUnixSeconds == 1764072000);
+    CHECK(loadProject(elsewhere, other, SR, master, err) && other.createdUnixSeconds == 1764072000);
+    // cleared (File → New): made now
+    other.clear();
+    CHECK(other.createdUnixSeconds >= before);
+
+    // an older file without "created": the file's own creation time (else when it was last changed)
+    std::string older = kDir + "/NoCreated.json";
+    util::writeFile(older, R"({"format": "exbit-project", "version": 1, "tracks": [], "clips": []})");
+    int64_t fileMade = file_birth_time::fileBirthTime(older);
+    CHECK(fileMade >= before - 2 && fileMade <= (int64_t)std::time(nullptr) + 2);
+    Project old;
+    old.createdUnixSeconds = 5;
+    CHECK(loadProject(older, old, SR, master, err));
+    CHECK(old.createdUnixSeconds == fileMade);
+    // a "created" that isn't a time: the file's time too
+    util::writeFile(older, R"({"format": "exbit-project", "version": 1, "tracks": [], "clips": [], "created": "soon"})");
+    CHECK(loadProject(older, old, SR, master, err) && old.createdUnixSeconds > 0);
+    // no file: nothing known (0); a project not known to be made at a time saves no "created"
+    CHECK(file_birth_time::fileBirthTime(kDir + "/nothing-here.json") == 0);
+    made.createdUnixSeconds = 0;
+    CHECK(!describe(made, SR, {}).has("created"));
+}
+
 int main() {
     util::makeDirs(kDir);
     clearDir(kDir);
@@ -573,5 +622,6 @@ int main() {
     testOldAndBroken();
     testParts();
     testFadeShapesAndPreFader();
+    testCreatedTime();
     TEST_MAIN_END();
 }

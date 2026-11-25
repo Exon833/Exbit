@@ -206,7 +206,8 @@ std::string ago(double then, double now) {
     if (s < 60) return "just now";
     if (s < 3600) return n(s / 60, "minute");
     if (s < 86400) return n(s / 3600, "hour");
-    if (s < 30 * 86400) return n(s / 86400, "day");
+    if (s < 7 * 86400) return n(s / 86400, "day");
+    if (s < 30 * 86400) return n(s / (7 * 86400), "week");
     if (s < 365 * 86400) return n(s / (30.44 * 86400), "month");
     return n(s / (365.25 * 86400), "year");
 }

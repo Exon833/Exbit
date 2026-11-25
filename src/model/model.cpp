@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <ctime>
 #include <set>
 
 #include "audio/stretch.h"
@@ -469,6 +470,7 @@ void Project::clear() {
     markers = std::vector<Marker>{};
     midiLinks.clear();
     keyFocusLocked = false;
+    createdUnixSeconds = (int64_t)std::time(nullptr);  // (a new project: made now)
 }
 
 void Project::forgetGoneTracks() {

@@ -29,6 +29,7 @@
 #include "core/util.h"
 #include "model/clip_envelope.h"
 #include "model/pad_tracks.h"
+#include "model/project_created.h"
 #include "model/routing.h"
 
 namespace project_io {
@@ -947,6 +948,7 @@ Json describe(const Project& project, int sr, const MasterSettings& master, Audi
         {"master_effects", masterEffects},
         {"master_cables", describeCables(*project.masterCables, *project.masterEffects, all)},
     });
+    if (project.createdUnixSeconds > 0) out.set("created", Json(project_created::isoText(project.createdUnixSeconds)));
     if (project.keyFocusLocked) out.set("key_focus_lock", Json(true));  // (only then: other projects save as before)
     if (!project.midiLinks.empty()) {  // (MIDI controller links: only then, so other projects save as before)
         Json links = describeMidiLinks(project);
@@ -1737,6 +1739,7 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
         project.setMarkers(markers);
         project.midiLinks = midiLinks;
         project.keyFocusLocked = data.flag("key_focus_lock", false);  // (Lock keyboard focus: midi_input.h)
+        project.createdUnixSeconds = project_created::readCreated(data, path);
         master = MasterSettings::fromJson(field(data, "master"));
         return true;
     } catch (const Damaged& d) {

@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 
 #include "audio/automation.h"
 #include "audio/automation_write.h"
@@ -241,7 +242,7 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     connectControls();
     startTimers();
     applyMeterOptions();
-    startDiscordPresence();  // (off unless chosen in Options → Discord status)
+    startDiscordPresence();  // (on unless turned off in Options → Discord status)
     updates = std::make_unique<UpdateChecker>();  // the notice under the master row: is there a newer version?
     updates->done.connect([this](const update_check::Result& r) { master->showUpdate(r); });
     if (!environment::readProgramVariable("NO_UPDATE_CHECK")) {  // (hidden: tests leave GitHub alone)
@@ -1779,6 +1780,7 @@ bool MainWindow::startFromTemplate(const std::string& path) {
     // a new, untitled project made from the template at `path` (Save asks where to keep it)
     if (!openProjectFile(path)) return false;
     projectPath.clear();
+    project.createdUnixSeconds = (int64_t)std::time(nullptr);  // (a new project: made now, not when the template was)
     markSaved();  // (unchanged until you change it: nothing to ask about)
     setTitle("Untitled — Exbit");
     showStatus("New project from the template " + util::stem(path), 5000);

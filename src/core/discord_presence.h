@@ -1,11 +1,13 @@
-// Discord Rich Presence: while Exbit runs (and Options → Discord status is on), Discord shows how many audio
-// and MIDI lanes the project has, the audio CPU load and the program's RAM, as two lines of text (no pictures).
+// Discord Rich Presence: while Exbit runs (and Options → Discord status is on, as it is unless turned off),
+// Discord shows two lines of text (no pictures), in two pages that take turns every pageSeconds:
+//   1. "3 audio · 2 MIDI lanes" / "CPU 12 % · RAM 180 MB": the project's lanes, the audio CPU load, the RAM;
+//   2. "github.com/Exon833/Exbit" / "Project created 3 hours ago" (the second line left out when that isn't known).
 //
 // A background thread does all the talking (discord_ipc.h): the GUI only hands it the numbers. It connects,
-// says hello (opcode 0 with the application ID; Discord answers READY), then sends SET_ACTIVITY whenever the
-// text changed, at most once every minimumUpdateSeconds (Discord limits how often presence may change). It
-// answers Discord's pings, and when Discord isn't running, refuses the ID or goes away, it notes that in the
-// debug output and tries again retrySeconds later, quietly. Turned off or destroyed, it clears the activity
+// says hello (opcode 0 with the application ID; Discord answers READY), then sends SET_ACTIVITY at each page
+// turn and whenever the shown page's text changed, at most once every minimumUpdateSeconds (Discord limits how
+// often presence may change). It answers Discord's pings, and when Discord isn't running, refuses the ID or
+// goes away, it notes that in the debug output and tries again retrySeconds later, quietly. Turned off or destroyed, it clears the activity
 // and closes the connection. An empty application ID means nothing is ever sent.
 #pragma once
 #include <atomic>
@@ -38,13 +40,19 @@ struct ActivityText {
 // shown as 0 %); residentBytes: the program's RAM
 ActivityText describeActivity(int audioLanes, int midiLanes, double cpuLoad, uint64_t residentBytes);
 
-// the JSON of a SET_ACTIVITY command for this process; activity null: the activity cleared
+// the second page: details the project's GitHub page ("github.com/" + version::REPOSITORY), state how long before
+// `nowUnixSeconds` the project was made ("Project created 3 hours ago"); createdUnixSeconds 0 (not known): no state
+ActivityText describeProjectPage(int64_t createdUnixSeconds, int64_t nowUnixSeconds);
+
+// the JSON of a SET_ACTIVITY command for this process; activity null: the activity cleared; an empty line is left
+// out (Discord refuses empty text)
 std::string setActivityCommand(long processId, const ActivityText* activity, const std::string& nonce);
 
 class Presence {
 public:
     struct Timing {
         double minimumUpdateSeconds = 15;  // presence changes at most this often
+        double pageSeconds = 15;           // each page shows this long before the other takes its turn
         double retrySeconds = 30;          // after a failed or lost connection, the next try
         int handshakeTimeoutMilliseconds = 3000;  // the longest wait for READY
         int writeTimeoutMilliseconds = 1000;      // the longest wait to write a frame
@@ -67,6 +75,8 @@ public:
     void configure(bool enabled, const std::string& applicationId);
     // (GUI thread, cheap: it only stores them) the numbers to show
     void setUsage(int audioLanes, int midiLanes, double cpuLoad);
+    // (GUI thread, cheap) when the current project was made, for the second page (0: not known)
+    void setProjectCreated(int64_t createdUnixSeconds);
 
     enum class State { Off, NoApplicationId, Connecting, Connected, WaitingToRetry };
     State state() const { return state_.load(); }
@@ -85,6 +95,7 @@ private:
     std::string applicationId_;
     int audioLanes_ = 0, midiLanes_ = 0;
     double cpuLoad_ = -1;
+    int64_t projectCreated_ = 0;
     bool stopping_ = false;
     std::atomic<State> state_{State::Off};
     std::string lastFailure_;  // (under lock_) why the last try failed, for stateText()

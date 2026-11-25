@@ -675,6 +675,8 @@ public:
     Timing timing;
     List<Marker> markers;           // by time
     std::vector<MidiLink> midiLinks;  // MIDI controller links (ui/midi_learn.h; GUI thread only)
+    int64_t createdUnixSeconds = 0;  // when the project was made (seconds since the epoch; 0: not known): now after
+                                     // clear(); saved as "created" (model/project_created.h)
     bool keyFocusLocked = false;    // Lock keyboard focus (ui/midi_input.h KEYBOARD FOCUS): selecting tracks leaves it; saved
 
     void forgetGoneTracks();        // unplug sidechain cables from tracks that are gone (and sends to returns)

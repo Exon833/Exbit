@@ -339,9 +339,9 @@ void testFront() {
     d.keys({key(plat::Key_F2)});
     CHECK(f.menuOpen() && f.barMenu < 0);
     d.keys({key(plat::Key_Escape)});
-    // Options → Discord status: off by default, the status said; another application ID typed in (kept off here,
-    // so a Discord running on this computer is never talked to)
-    CHECK(!w->prefs.discordPresence && w->prefs.discordApplicationId.empty());
+    // Options → Discord status: on by default (nothing saved), yet tests never talk to a Discord running on this
+    // computer (EXBIT_NO_DISCORD, set by tests/check.h): the status says Off; another application ID typed in
+    CHECK(w->prefs.discordPresence && w->prefs.discordApplicationId.empty());
     d.keys({key('O', plat::ModAlt, "o"), key('D', 0, "d")});
     d.picture("discord-menu");
     CHECK(d.shows("Show in Discord") && d.shows("Application ID") && d.shows("Status: Off"));
@@ -355,9 +355,20 @@ void testFront() {
               shown.find("Status: Off") != std::string::npos);
     }
     d.keys(std::vector<Key>{key('A', 0, "a"), key('A', plat::ModCtrl)} + typed(" 1234 ") + std::vector<Key>{key(plat::Key_Return)});
-    CHECK(w->prefs.discordApplicationId == "1234" && !w->prefs.discordPresence);
+    CHECK(w->prefs.discordApplicationId == "1234" && w->prefs.discordPresence);
     CHECK(Preferences::load().discordApplicationId == "1234");
     CHECK(w->discordPresence && w->discordPresence->state() == discord_presence::Presence::State::Off);
+    // turned off and saved: it stays off when the settings are read again (only a missing setting means on)
+    {
+        Preferences saved = Preferences::load();
+        CHECK(saved.discordPresence);
+        saved.discordPresence = false;
+        saved.save();
+        CHECK(!Preferences::load().discordPresence);
+        saved.discordPresence = true;
+        saved.save();
+        CHECK(Preferences::load().discordPresence);
+    }
     if (f.menuOpen()) d.keys({key(plat::Key_Escape), key(plat::Key_Escape)});
 
     // saving: Ctrl+S, the program's file chooser as text, a name typed

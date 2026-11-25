@@ -279,7 +279,8 @@ static void testUpdateCheck() {
     CHECK(ago(made, made + 30) == "just now" && ago(made, made - 600) == "just now");  // (a wrong clock: never negative)
     CHECK(ago(made, made + 60) == "1 minute ago" && ago(made, made + 59 * 60 + 59) == "59 minutes ago");
     CHECK(ago(made, made + 3600) == "1 hour ago" && ago(made, made + 5 * 3600 + 10) == "5 hours ago");
-    CHECK(ago(made, made + 86400) == "1 day ago" && ago(made, made + 29 * 86400) == "29 days ago");
+    CHECK(ago(made, made + 86400) == "1 day ago" && ago(made, made + 6 * 86400) == "6 days ago");
+    CHECK(ago(made, made + 7 * 86400) == "1 week ago" && ago(made, made + 29 * 86400) == "4 weeks ago");
     CHECK(ago(made, made + 31 * 86400) == "1 month ago" && ago(made, made + 200 * 86400) == "6 months ago");
     CHECK(ago(made, made + 366 * 86400) == "1 year ago" && ago(made, made + 3 * 366 * 86400) == "3 years ago");
     const std::string commit = "0123456789abcdef0123456789abcdef01234567";

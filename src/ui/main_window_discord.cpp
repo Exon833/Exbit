@@ -1,9 +1,10 @@
 // The main window (main_window.h): Options → Discord status, and the numbers handed to the presence thread
-// (core/discord_presence.h). Off by default: turned on, it tells Discord (and so your Discord friends) what
-// you are working on.
+// (core/discord_presence.h). On unless turned off (an explicit "off" saved stays off): it tells Discord (and so
+// your Discord friends) what you are working on. EXBIT_NO_DISCORD keeps it off whatever the setting (tests).
 #include <system_error>
 
 #include "core/discord_presence.h"
+#include "core/program_environment.h"
 #include "core/util.h"
 #include "ui/main_window.h"
 #include "ui/toolkit/dialogs.h"
@@ -14,8 +15,9 @@ void MainWindow::addDiscordOptions(ui::Menu* menu) {
             prefs.discordPresence = on;
             prefs.save();
             configureDiscordPresence();
-        })->tooltip = "Discord (running on this computer) shows your friends that you use Exbit: how many audio "
-                      "and MIDI lanes the project has, the audio CPU load and Exbit's memory";
+        })->tooltip = "Discord (running on this computer) shows your friends that you use Exbit, in two pages that "
+                      "take turns: how many audio and MIDI lanes the project has, the audio CPU load and Exbit's "
+                      "memory; then Exbit's GitHub page and how long ago the project was created";
     discord->addAction("&Application ID…", [this] { chooseDiscordApplicationId(); })->tooltip =
         "Exbit's own Discord application unless you enter the ID of another (made in Discord's developer "
         "portal): Discord shows its name above the text";
@@ -38,8 +40,8 @@ void MainWindow::startDiscordPresence() {
 }
 
 void MainWindow::configureDiscordPresence() {
-    if (discordPresence)
-        discordPresence->configure(prefs.discordPresence, discord_presence::effectiveApplicationId(prefs.discordApplicationId));
+    bool shown = prefs.discordPresence && !environment::readProgramVariable("NO_DISCORD");
+    if (discordPresence) discordPresence->configure(shown, discord_presence::effectiveApplicationId(prefs.discordApplicationId));
     showDiscordState();
 }
 
@@ -69,4 +71,5 @@ void MainWindow::feedDiscordPresence(double cpuLoad) {
         if (track->kind == Kind::Midi) midiLanes++;
     }
     discordPresence->setUsage(audioLanes, midiLanes, cpuLoad);
+    discordPresence->setProjectCreated(project.createdUnixSeconds);  // (another project opened or made: its own)
 }

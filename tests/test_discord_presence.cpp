@@ -1,9 +1,10 @@
 // Discord Rich Presence (core/discord_presence.h, core/discord_ipc.h) against a fake Discord: a Unix socket
 // on Linux, a named pipe on Windows. The frames' bytes, the handshake, SET_ACTIVITY's text, the rate limit,
 // ping / pong, a close and the reconnect after it, a refused handshake, and the off and empty-ID states
-// sending nothing.
+// sending nothing. The second page (the GitHub link, how long ago the project was made) and the pages taking turns.
 #include <chrono>
 #include <cstdlib>
+#include <ctime>
 #include <string>
 #include <thread>
 
@@ -12,6 +13,7 @@
 #include "core/discord_presence.h"
 #include "core/json.h"
 #include "core/process_memory.h"
+#include "version.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -260,6 +262,8 @@ void testText() {
     discord_presence::Presence::Timing programTiming;
     CHECK(programTiming.minimumUpdateSeconds >= 15);
     CHECK(programTiming.retrySeconds >= 30);
+    // the pages take turns at the rate limit's pace: each shows at least that long
+    CHECK(programTiming.pageSeconds == programTiming.minimumUpdateSeconds);
     auto text = discord_presence::describeActivity(3, 2, 0.123, 180ull * 1024 * 1024);
     CHECK(text.details == "3 audio · 2 MIDI lanes");
     CHECK(text.state == "CPU 12 % · RAM 180 MB");
@@ -326,6 +330,7 @@ discord_presence::Presence::Options fastOptions(const std::string& endpoint) {
     options.timing.retrySeconds = 0.3;
     options.timing.handshakeTimeoutMilliseconds = 2000;
     options.timing.writeTimeoutMilliseconds = 1000;
+    options.timing.pageSeconds = 1000;  // (one page only, unless a test says otherwise)
 #ifdef _WIN32
     options.endpoints = {endpoint};
 #else
@@ -479,11 +484,96 @@ void testNoDiscord(const std::string& endpoint) {
     CHECK(presence.stateText().find("Discord") != std::string::npos);
 }
 
+// the second page: the project's GitHub page (from version::REPOSITORY), and how long ago the project was made
+void testProjectPage() {
+    const int64_t now = 1800000000, minute = 60, hour = 3600, day = 86400;
+    auto stateFor = [&](int64_t secondsAgo) { return discord_presence::describeProjectPage(now - secondsAgo, now).state; };
+    CHECK(discord_presence::describeProjectPage(now, now).details == "github.com/" + std::string(version::REPOSITORY));
+    CHECK(discord_presence::describeProjectPage(now, now).details == "github.com/Exon833/Exbit");
+    CHECK(stateFor(0) == "Project created just now");
+    CHECK(stateFor(59) == "Project created just now");
+    CHECK(stateFor(-30) == "Project created just now");  // (a clock set back)
+    CHECK(stateFor(60) == "Project created 1 minute ago");
+    CHECK(stateFor(119) == "Project created 1 minute ago");
+    CHECK(stateFor(120) == "Project created 2 minutes ago");
+    CHECK(stateFor(5 * minute) == "Project created 5 minutes ago");
+    CHECK(stateFor(hour - 1) == "Project created 59 minutes ago");
+    CHECK(stateFor(hour) == "Project created 1 hour ago");
+    CHECK(stateFor(2 * hour - 1) == "Project created 1 hour ago");
+    CHECK(stateFor(3 * hour) == "Project created 3 hours ago");
+    CHECK(stateFor(23 * hour) == "Project created 23 hours ago");
+    CHECK(stateFor(24 * hour) == "Project created 1 day ago");
+    CHECK(stateFor(2 * day) == "Project created 2 days ago");
+    CHECK(stateFor(6 * day) == "Project created 6 days ago");
+    CHECK(stateFor(7 * day) == "Project created 1 week ago");
+    CHECK(stateFor(14 * day - 1) == "Project created 1 week ago");
+    CHECK(stateFor(21 * day) == "Project created 3 weeks ago");
+    CHECK(stateFor(29 * day) == "Project created 4 weeks ago");
+    CHECK(stateFor(30 * day) == "Project created 1 month ago");
+    CHECK(stateFor(31 * day) == "Project created 1 month ago");
+    CHECK(stateFor(4 * 31 * day) == "Project created 4 months ago");
+    CHECK(stateFor(364 * day) == "Project created 11 months ago");
+    CHECK(stateFor(365 * day) == "Project created 1 year ago");
+    CHECK(stateFor(3 * 365 * day + day) == "Project created 3 years ago");
+    // not known when it was made: no second line at all (Discord shows the link alone)
+    auto unknown = discord_presence::describeProjectPage(0, now);
+    CHECK(unknown.details == "github.com/Exon833/Exbit" && unknown.state.empty());
+    Json command = Json::parse(discord_presence::setActivityCommand(42, &unknown, "n3"));
+    CHECK(command["args"]["activity"]["details"].toString() == "github.com/Exon833/Exbit");
+    CHECK(!command["args"]["activity"].has("state"));
+}
+
+// the two pages take turns, each shown at least pageSeconds; a page comes back even when its text is the same as
+// the last time it was shown, and within a page only a change is sent
+void testPagesTakeTurns(const std::string& endpoint) {
+    FakeDiscord discord;
+    CHECK(discord.listen(endpoint));
+    auto options = fastOptions(endpoint);
+    options.timing.minimumUpdateSeconds = 0.3;
+    options.timing.pageSeconds = 1.5;
+    discord_presence::Presence presence(options);
+    presence.setUsage(3, 2, 0.12);
+    presence.setProjectCreated((int64_t)std::time(nullptr) - 3 * 3600 - 10);
+    presence.configure(true, "123456789");
+    CHECK(discord.accept(3000));
+    CHECK(discord.shakeHands("123456789"));
+    uint32_t opcode = 99;
+    Json command;
+    auto details = [&] { return command["args"]["activity"]["details"].toString(); };
+    auto state = [&] { return command["args"]["activity"]["state"].toString(); };
+    auto secondsSince = [](Clock::time_point then) { return std::chrono::duration<double>(Clock::now() - then).count(); };
+
+    CHECK(discord.readFrame(opcode, command, 3000));
+    auto firstPageAt = Clock::now();
+    CHECK(details() == "3 audio · 2 MIDI lanes" && state() == "CPU 12 % · RAM 180 MB");
+    // within the page: a change is sent (after minimumUpdateSeconds), the same text again is not
+    presence.setUsage(4, 2, 0.12);
+    CHECK(discord.readFrame(opcode, command, 1000));
+    CHECK(details() == "4 audio · 2 MIDI lanes");
+    CHECK(secondsSince(firstPageAt) < 1.2);
+    // the second page, pageSeconds after the first was shown
+    CHECK(discord.readFrame(opcode, command, 3000));
+    auto secondPageAt = Clock::now();
+    CHECK(secondsSince(firstPageAt) >= 1.3);
+    CHECK(details() == "github.com/Exon833/Exbit" && state() == "Project created 3 hours ago");
+    // the first page again, its text unchanged since it was last shown: sent all the same
+    CHECK(discord.readFrame(opcode, command, 3000));
+    auto thirdPageAt = Clock::now();
+    CHECK(secondsSince(secondPageAt) >= 1.3);
+    CHECK(details() == "4 audio · 2 MIDI lanes" && state() == "CPU 12 % · RAM 180 MB");
+    // when it was made isn't known: the second page has the link alone
+    presence.setProjectCreated(0);
+    CHECK(discord.readFrame(opcode, command, 3000));
+    CHECK(secondsSince(thirdPageAt) >= 1.3);
+    CHECK(details() == "github.com/Exon833/Exbit" && !command["args"]["activity"].has("state"));
+}
+
 }  // namespace
 
 int main() {
     testFrameEncoding();
     testText();
+    testProjectPage();
 #ifdef _WIN32
     std::string runtimeFolder;
     std::string endpoint = "\\\\.\\pipe\\exbit-test-discord-ipc-" + std::to_string(thisProcessId());
@@ -502,6 +592,7 @@ int main() {
     testClearsOnQuit(endpoint);
     testRefusedHandshakeIsRetried(endpoint);
     testNoDiscord(endpoint);
+    testPagesTakeTurns(endpoint);
 #ifndef _WIN32
     rmdir(runtimeFolder.c_str());
 #endif

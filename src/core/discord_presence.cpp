@@ -3,12 +3,15 @@
 
 #include <chrono>
 #include <cmath>
+#include <ctime>
 #include <unistd.h>
 
 #include "core/discord_ipc.h"
 #include "core/json.h"
 #include "core/process_memory.h"
 #include "core/util.h"
+#include "update_check.h"
+#include "version.h"
 
 namespace discord_presence {
 
@@ -21,13 +24,20 @@ ActivityText describeActivity(int audioLanes, int midiLanes, double cpuLoad, uin
             "CPU " + std::to_string(cpuPercent) + " % · RAM " + std::to_string(megabytes) + " MB"};
 }
 
+ActivityText describeProjectPage(int64_t createdUnixSeconds, int64_t nowUnixSeconds) {
+    std::string made = createdUnixSeconds > 0
+                           ? "Project created " + update_check::ago((double)createdUnixSeconds, (double)nowUnixSeconds)
+                           : std::string();
+    return {"github.com/" + std::string(version::REPOSITORY), made};
+}
+
 std::string setActivityCommand(long processId, const ActivityText* activity, const std::string& nonce) {
     Json arguments = Json::object();
     arguments["pid"] = Json(processId);
     if (activity) {
         Json shown = Json::object();
-        shown["details"] = Json(activity->details);
-        shown["state"] = Json(activity->state);
+        if (!activity->details.empty()) shown["details"] = Json(activity->details);
+        if (!activity->state.empty()) shown["state"] = Json(activity->state);
         arguments["activity"] = shown;
     }
     Json command = Json::object();
@@ -91,6 +101,11 @@ void Presence::setUsage(int audioLanes, int midiLanes, double cpuLoad) {
     cpuLoad_ = cpuLoad;
 }
 
+void Presence::setProjectCreated(int64_t createdUnixSeconds) {
+    std::lock_guard<std::mutex> guard(lock_);
+    projectCreated_ = createdUnixSeconds;
+}
+
 std::string Presence::stateText() const {
     switch (state_.load()) {
         case State::Off: return "Off";
@@ -123,6 +138,8 @@ void Presence::run() {
     ActivityText lastSent;
     bool sentOnThisConnection = false, sentEver = false;
     Clock::time_point lastSentAt{}, nextTry = Clock::now();
+    int shownPage = 0;  // 0: the lanes and the load; 1: the GitHub link and the project's age
+    Clock::time_point shownPageSince{};
     std::string lastLoggedFailure;
 
     auto nextNonce = [&] { return "exbit-" + std::to_string(processId) + "-" + std::to_string(++nonceCount); };
@@ -212,6 +229,7 @@ void Presence::run() {
         std::string applicationId;
         int audioLanes, midiLanes;
         double cpuLoad;
+        int64_t projectCreated;
         {
             std::lock_guard<std::mutex> guard(lock_);
             enabled = enabled_;
@@ -220,6 +238,7 @@ void Presence::run() {
             audioLanes = audioLanes_;
             midiLanes = midiLanes_;
             cpuLoad = cpuLoad_;
+            projectCreated = projectCreated_;
         }
         if (stopping) {
             leave();
@@ -262,11 +281,18 @@ void Presence::run() {
             failed(why.empty() ? "The connection to Discord was lost" : why);
             continue;
         }
-        // the activity, when it changed and the rate limit allows
+        // the activity, when the rate limit allows: the other page once this one was shown pageSeconds (even if
+        // its text is the same as when it was last shown), else this page's text when it changed
         double sinceLastSent = sentEver ? std::chrono::duration<double>(Clock::now() - lastSentAt).count() : 1e9;
         if (sinceLastSent >= timing.minimumUpdateSeconds) {
-            ActivityText text = describeActivity(audioLanes, midiLanes, cpuLoad, options_.readResidentBytes());
-            if (!sentOnThisConnection || text != lastSent) {
+            bool pageTurns = sentOnThisConnection &&
+                             std::chrono::duration<double>(Clock::now() - shownPageSince).count() >= timing.pageSeconds;
+            if (pageTurns) shownPage = 1 - shownPage;
+            ActivityText text = shownPage == 0
+                                    ? describeActivity(audioLanes, midiLanes, cpuLoad, options_.readResidentBytes())
+                                    : describeProjectPage(projectCreated, (int64_t)std::time(nullptr));
+            if (!sentOnThisConnection || pageTurns || text != lastSent) {
+                if (!sentOnThisConnection || pageTurns) shownPageSince = Clock::now();
                 if (!connection.sendFrame(discord_ipc::FRAME, setActivityCommand(processId, &text, nextNonce()),
                                           timing.writeTimeoutMilliseconds)) {
                     failed("Discord didn't take the activity");

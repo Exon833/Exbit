@@ -3,6 +3,7 @@
 // controls go to build/ui-samples/main/.
 #include <cmath>
 #include <cstdio>
+#include <ctime>
 #include <string>
 
 #include "audio/engine.h"
@@ -350,6 +351,30 @@ static void testTitle() {
     delete w;
 }
 
+// when the project was made: the empty start-up project now; an opened one as it was saved; one started from a
+// template, or File → New, now again
+static void testProjectCreatedTime() {
+    std::string dir = "build/test-tmp/ui_main/created";
+    util::makeDirs(dir);
+    int64_t before = (int64_t)std::time(nullptr);
+    auto* w = new MainWindow();
+    w->askBeforeClosing = false;
+    CHECK(w->project.createdUnixSeconds >= before && w->project.createdUnixSeconds <= (int64_t)std::time(nullptr));
+    w->project.createdUnixSeconds = 1000000000;  // (2001)
+    std::string file = util::absolutePath(dir + "/Made.json");
+    CHECK(w->saveProjectFile(file));
+    CHECK(w->openProjectFile(file));
+    CHECK(w->project.createdUnixSeconds == 1000000000);
+    CHECK(w->startFromTemplate(file));
+    CHECK(w->project.createdUnixSeconds >= before);
+    CHECK(w->openProjectFile(file));
+    CHECK(w->project.createdUnixSeconds == 1000000000);
+    w->newProject();
+    CHECK(w->project.createdUnixSeconds >= before);
+    w->requestClose();
+    delete w;
+}
+
 // the master scope's options as kept, what it finds in left and right (combined: their mix; separate:
 // each), its menu, and that the master's audio is kept for it only while it is shown
 static void testScope() {
@@ -449,6 +474,7 @@ int main() {
     testRecent();
     testAutosave();
     testTitle();
+    testProjectCreatedTime();
     testScope();
     TEST_MAIN_END();
 }

@@ -62,7 +62,7 @@ struct Result {
 // GitHub's times ("2026-11-18T14:49:29Z", or with an offset: "…+02:00") as seconds since the epoch; 0 if not one
 double parseTime(const std::string& iso);
 // how long before `now` `then` was (seconds since the epoch): "just now", "5 minutes ago", "1 hour ago", "3 days ago",
-// "2 months ago", "1 year ago"; a time in the future (a wrong clock) is "just now"
+// "2 weeks ago", "2 months ago", "1 year ago"; a time in the future (a wrong clock) is "just now"
 std::string ago(double then, double now);
 // the commit this build came from (version::COMMIT) if it is a full commit id, else ""
 std::string builtFrom();

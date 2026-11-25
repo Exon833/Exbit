@@ -416,10 +416,13 @@ machine's glibc or newer).
     EXBIT_DEBUG=0 ./exbit         # without the diagnostics on the terminal
     ./exbit --tui [song.json]       # in the terminal, by the keyboard alone
 
-**Discord status** (off by default): Options → Discord status → Show in Discord (in the window and in
-`--tui`) lets the Discord program running on the same computer show your friends that you use Exbit,
-with two lines of text: how many audio and MIDI lanes the project has (`3 audio · 2 MIDI lanes`), and the
-audio CPU load and Exbit's memory (`CPU 12 % · RAM 180 MB`), updated at most every 15 seconds. It
+**Discord status** (on by default; turn it off in Options → Discord status → Show in Discord, in the window
+and in `--tui`, and it stays off) lets the Discord program running on the same computer show your friends
+that you use Exbit, with two lines of text in two pages that take turns every 15 seconds: how many audio
+and MIDI lanes the project has (`3 audio · 2 MIDI lanes`) with the audio CPU load and Exbit's memory
+(`CPU 12 % · RAM 180 MB`); then Exbit's GitHub page (`github.com/Exon833/Exbit`) with how long ago the
+project was created (`Project created 3 hours ago`). A project remembers when it was created in its file;
+one saved before that takes its file's creation time. Discord's text changes at most every 15 seconds. It
 talks to Discord's local connection itself (no Discord library), under Exbit's own Discord application,
 whose name Discord shows above the text. Application ID… takes the ID of another application instead
 (make one at discord.com/developers/applications, New Application, and copy its Application ID). Discord
@@ -600,6 +603,7 @@ Testing aids of the running program (hidden; see `src/ui/test_script.h`):
 | `EXBIT_SCRIPT=<file>` | drives the program from a script: clicks, keys, typing, menus, tracks, files, plugins, playing, undo, templates, autosave, screenshots |
 | `EXBIT_VST3_PATH=<dir>[:<dir>…]` | more VST3 folders besides the standard ones (e.g. `build/test-plugins`) |
 | `EXBIT_NO_UPDATE_CHECK=1` | doesn't ask GitHub whether there are newer commits |
+| `EXBIT_NO_DISCORD=1` | never talks to Discord, whatever Options → Discord status says |
 | `EXBIT_WINE=<wine>`, `EXBIT_WINE_HOST=<…/exbit-wine-host.exe>` | another Wine, another Wine host |
 | `EXBIT_WINE_TRACE=1` | (on with the diagnostics above) the Wine host prints which window gets the keys and clicks, slow audio buffers, its corrections, the font families a plugin asks for (found or not) |
 | `EXBIT_WINE_EGL=1` | doesn't switch the Wine host's OpenGL to GLX |

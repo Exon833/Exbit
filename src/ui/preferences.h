@@ -75,7 +75,7 @@ struct Preferences {
     bool warpNewFiles = false;              // Options → Warp new audio files: dropped in, their tempo detected and warp on
     std::string windowFrames = "own";       // Options → Window frames: "own" (drawn by Exbit, as the skin says) or "system"
     bool transparency = true;               // Options → Window frames → Transparency: windows may be see-through
-    bool discordPresence = false;           // Options → Discord status → Show in Discord (off: it tells Discord what you do)
+    bool discordPresence = true;            // Options → Discord status → Show in Discord (on unless turned off and saved)
     std::string discordApplicationId;       // …the Discord application's ID (made in Discord's developer portal); "" = none
 
     std::vector<std::string> vst2List() const;

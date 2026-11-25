@@ -18,6 +18,9 @@ inline const char* testDir() {  // the test plugins' folder (make test sets it)
 // Tests leave GitHub alone: each main window would ask it for updates, and its 60 questions an hour per network
 // address are shared with the real program (spent, the program says "Couldn't check")
 inline const bool noUpdateCheck = setenv("EXBIT_NO_UPDATE_CHECK", "1", 0) == 0;
+// and Discord alone: Discord status is on by default, and a Discord running on this computer would show what a
+// test does to its friends (tests/test_discord_presence.cpp talks to a fake Discord of its own)
+inline const bool noDiscord = setenv("EXBIT_NO_DISCORD", "1", 0) == 0;
 }  // namespace check
 
 #define CHECK(cond)                                                                 \

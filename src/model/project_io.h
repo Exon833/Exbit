@@ -42,6 +42,9 @@
 // as "<name> <date> <time>.json" (the newest BACKUPS_KEPT). Their audio stays in the project's audio
 // folder, which saving never deletes from, so a backup opens as it was.
 //
+// When the project was made: "created", ISO-8601 in UTC (model/project_created.h); kept by every save, and a file
+// without it (saved before it was kept) takes its own creation time.
+//
 // Recovery (autosave): describeRecovery() describes the project with every audio file named by an
 // absolute path, and lists the audio that isn't saved anywhere yet (recordings, imported files), to be
 // written into the recovery folder by writeRecovery() on a worker thread. Nothing in the project changes.
