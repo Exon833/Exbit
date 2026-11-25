@@ -270,11 +270,6 @@ tests-win: $(WIN_TESTS:%=$(BUILD)/tests/%$(EXE)) $(ALL_HOSTS) $(ALL_WIN_TEST)
 	    TINYDAW_WIN_TEST_PLUGINS=$(WIN_DIR) $$t || failed="$$failed $${t##*/}"; done; \
 	if [ -n "$$failed" ]; then echo "== FAILED:$$failed"; exit 1; fi; echo "== all tests passed"
 
-# (tools/appimage.sh: the AppImage's .DirIcon, drawn by the program's own SVG renderer)
-$(BUILD)/tools/svg2png: tools/svg2png.cpp $(LIB_OBJS)
-	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $(LDOPT) -o $@ $< $(LIB_OBJS) $(LDLIBS)
-
 plugins: $(TEST_PLUGINS)
 
 $(BUILD)/test-plugins/TinyTestSynth.so: tests/plugins/test_vst2_synth.cpp src/plugins/vst2.h

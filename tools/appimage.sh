@@ -77,9 +77,8 @@ fi
 cp -r data/icons data/skins data/templates data/presets data/fonts "$app/usr/share/tinydaw/"
 cp LICENSE LICENSE.md "$app/usr/share/tinydaw/"
 cp data/icons/tinydaw.svg "$app/tinydaw.svg"
-# (.DirIcon must be a PNG: drawn by the program's own renderer, built here, so no converter is needed)
-make -j"$(nproc)" build/tools/svg2png >/dev/null
-build/tools/svg2png data/icons/tinydaw.svg "$app/.DirIcon" 256
+# (.DirIcon must be a PNG: a plain grey placeholder for now; a real icon replaces that file under the same name)
+cp tools/appimage-icon-placeholder.png "$app/.DirIcon"
 cp data/icons/tinydaw.svg "$app/usr/share/icons/hicolor/scalable/apps/tinydaw.svg"
 cat > "$app/tinydaw.desktop" <<EOF
 [Desktop Entry]
