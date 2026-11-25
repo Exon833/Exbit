@@ -2,10 +2,8 @@
 // the manifest (1: CREATEPROCESS_MANIFEST_RESOURCE_ID, 24: RT_MANIFEST)
 1 24 "tinydaw_win.manifest"
 
-// the icon (Explorer, the taskbar, and the window class: platform_win.cpp loads it as 1): data/icons/tinydaw.svg drawn
-// at 16-256 px, PNG images in an ICO (Windows Vista and later). After changing the SVG, remake it:
-//   for n in 16 20 24 32 40 48 64 256; do rsvg-convert -w $n -h $n data/icons/tinydaw.svg -o $n.png; done
-//   and pack them (the ICO format: a 6-byte header, a 16-byte entry per image, then the PNGs)
+// the icon (Explorer, the taskbar, and the window class: platform_win.cpp loads it as 1): a placeholder, a plain
+// grey square at 16 and 32 px (PNG images in an ICO). A real icon replaces the file under the same name.
 1 ICON "tinydaw_win.ico"
 
 // what Explorer's Properties > Details shows (a rolling release: no version numbers, the main branch is the program)
