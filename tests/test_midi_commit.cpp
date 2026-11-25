@@ -248,7 +248,7 @@ void testBypassSavedLoaded() {
     p.clips = std::vector<ClipPtr>{a, b};
     song_scale::reprepare(p, SR);
     CHECK(midi_commit::commit(p, SR, t, {a}, false).clips == 1);
-    std::string path = TMP + "/bypass.tinydaw", error;
+    std::string path = TMP + "/bypass.exbit", error;
     project_io::MasterSettings master;
     CHECK(project_io::saveProject(path, p, SR, master, error));
     Project q;
@@ -271,9 +271,9 @@ void testBypassSavedLoaded() {
     // an older file (neither written): all on, nothing committed
     std::string older = std::regex_replace(text, std::regex(",\\s*\"(bypass|effects_committed)\": true"), "");
     CHECK(older.find("bypass") == std::string::npos && older.find("effects_committed") == std::string::npos);
-    std::ofstream(TMP + "/older.tinydaw") << older;
+    std::ofstream(TMP + "/older.exbit") << older;
     Project o;
-    CHECK(project_io::loadProject(TMP + "/older.tinydaw", o, SR, m2, error));
+    CHECK(project_io::loadProject(TMP + "/older.exbit", o, SR, m2, error));
     bool allOn = !o.tracks.empty();
     for (auto& e : o.tracks[0]->midiEffects) allOn = allOn && !e.bypass;
     CHECK(allOn && !o.clipsOn(o.tracks[0])[0]->effectsCommitted);

@@ -1,5 +1,5 @@
 // Reading and writing sound files, and reading MIDI files (the stand-in for soundfile and mido).
-// Everything here is Tiny DAW's own code: WAV / RF64 / AIFF / AIFF-C reading, a complete FLAC
+// Everything here is Exbit's own code: WAV / RF64 / AIFF / AIFF-C reading, a complete FLAC
 // decoder (RFC 9639) and a FLAC encoder, WAV writing, and a Standard MIDI File reader. MP3 and Ogg
 // Vorbis are decoded by audio/mp3.cpp and audio/vorbis.cpp (codecs.h); the decoder is picked by the
 // file's contents, never by its name.

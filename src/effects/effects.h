@@ -1,4 +1,4 @@
-// The built-in effects that come with Tiny DAW (daw/audio/effects.py's listing and create(), with
+// The built-in effects that come with Exbit (daw/audio/effects.py's listing and create(), with
 // the effects of the program's effects/ folder): EQ, Chorus, Compressor, Multi-band compressor,
 // Gate, Reverb, Limiter, Saturation, Bit-crusher, Delay, Utility, Filter Motion, Phaser / Flanger,
 // Tremolo / Pan.

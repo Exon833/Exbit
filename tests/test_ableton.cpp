@@ -401,7 +401,7 @@ static void testFullSet() {
     std::string als = dir + "/Song.als";
     writeSet(als, liveSet(tracks, 120, 201, {{8, "Chorus"}, {16, ""}}));
 
-    std::string output = kDir + "/out/Song (Tiny DAW)/Song.json";
+    std::string output = kDir + "/out/Song (Exbit)/Song.json";
     Project project;
     ableton::Result result;
     std::string error;
@@ -548,7 +548,7 @@ static void testFullSet() {
         CHECK_NEAR(crush["mix"].toDouble(), 70, 1e-6);
     }
     CHECK(reportHas(result, "Drums: a rack with 2 parallel chains: only its first is carried over"));
-    CHECK(reportHas(result, "Drums: not carried over (no such effect in Tiny DAW): AutoFilter"));
+    CHECK(reportHas(result, "Drums: not carried over (no such effect in Exbit): AutoFilter"));
     // the return's reverb
     CHECK(returns[0]->effects.size() == 1 && returns[0]->effects[0]->path == "builtin:reverb");
     if (returns[0]->effects.size() == 1) {
@@ -916,11 +916,11 @@ static void testParts() {
     CHECK_NEAR(env[SR / 4], 0.5, 0.01);
     CHECK(env[SR / 2 + SR / 20] < 0.5 && env[SR / 2 + SR / 20] > 0.001);
     CHECK(env[SR / 2 + SR / 5] == 0);
-    // the project proposed for a set: "<stem> (Tiny DAW)/<stem>.json" next to the set's folder when that is there
-    CHECK(ableton_import::proposedOutput("/nowhere/Sets/Song.als") == "/nowhere/Song (Tiny DAW).json");
-    util::makeDirs(kDir + "/prop/Song (Tiny DAW)");
+    // the project proposed for a set: "<stem> (Exbit)/<stem>.json" next to the set's folder when that is there
+    CHECK(ableton_import::proposedOutput("/nowhere/Sets/Song.als") == "/nowhere/Song (Exbit).json");
+    util::makeDirs(kDir + "/prop/Song (Exbit)");
     CHECK(ableton_import::proposedOutput(kDir + "/prop/Set/Song.als") ==
-          util::absolutePath(kDir + "/prop/Song (Tiny DAW)/Song.json"));
+          util::absolutePath(kDir + "/prop/Song (Exbit)/Song.json"));
 }
 
 int main() {

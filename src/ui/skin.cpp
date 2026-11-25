@@ -466,8 +466,8 @@ int onApply(std::function<void()> fn) {
 bool cssFromJson(const std::string& jsonText, const std::string& fallbackName, std::string& out, std::string& error) {
     std::string perr;
     Json data = Json::parse(jsonText, &perr);
-    if (!data.isObject() || !data["format"].isString() || data["format"].toString() != "tinydaw-skin") {
-        error = "Not a Tiny DAW skin.";
+    if (!data.isObject() || !data["format"].isString() || data["format"].toString() != "exbit-skin") {
+        error = "Not a Exbit skin.";
         return false;
     }
     const Json& n = data["name"];
@@ -507,7 +507,7 @@ bool cssFromJson(const std::string& jsonText, const std::string& fallbackName, s
                 left.push_back(kv.first + ": not a colour (" + kv.second.dump() + ")");
     }
     out = "/* " + commentSafe(name) +
-          ": a skin of Tiny DAW, made from a JSON skin of an earlier version. It is put on top of the program's\n"
+          ": a skin of Exbit, made from a JSON skin of an earlier version. It is put on top of the program's\n"
           "   own default.css: it changes the variables it names. docs/skins.md lists all there is to style. */\n\n"
           ":root {\n    --skin-name: " +
           quoted(name) + ";\n" + fonts + (fonts.empty() ? "" : "\n") + cols + "}\n";
@@ -550,8 +550,8 @@ std::string makeCopy(const Skin& s, const std::string& name, std::string& error)
     }
     std::string header = "/* " + commentSafe(name) + ": your own skin" +
                          (s.name.empty() ? std::string() : ", made from " + commentSafe(s.name)) +
-                         ". It is put on top of Tiny DAW's own\n"
-                         "   default.css: change any variable or rule here, save, and Tiny DAW shows it at once.\n"
+                         ". It is put on top of Exbit's own\n"
+                         "   default.css: change any variable or rule here, save, and Exbit shows it at once.\n"
                          "   docs/skins.md lists every variable, selector, part and property there is. */\n\n";
     std::string path = util::joinPath(userDir(), fileName(name));
     SkinFiles files;  // (its images, fonts and imports: into a folder of its own beside it)
@@ -599,7 +599,7 @@ bool importFrom(const std::string& path, Skin& out, std::vector<std::string>& pr
 }
 
 bool importSkin(ui::Window* parent, const std::function<void(const Skin&)>& choose) {
-    std::string path = ui::files::openFile(parent, "Import skin", "", "Tiny DAW skin (*.css)");
+    std::string path = ui::files::openFile(parent, "Import skin", "", "Exbit skin (*.css)");
     if (path.empty()) return false;
     Skin s;
     std::vector<std::string> problems;
@@ -644,7 +644,7 @@ bool exportTo(const Skin& s, const std::string& path, std::string& error) {
 }
 
 std::string exportSkin(ui::Window* parent, const Skin& s) {
-    std::string path = ui::files::saveFile(parent, "Export skin", fileName(s.name), "Tiny DAW skin (*.css)");
+    std::string path = ui::files::saveFile(parent, "Export skin", fileName(s.name), "Exbit skin (*.css)");
     if (path.empty()) return "";
     if (util::extension(path) != ".css") path += ".css";
     std::string err;

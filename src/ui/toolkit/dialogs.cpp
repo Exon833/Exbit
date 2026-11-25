@@ -15,7 +15,7 @@ namespace ui {
 
 plat::WindowOptions Dialog::makeOptions(Window* parent, const std::string& title, int w, int h) {
     plat::WindowOptions o;
-    o.title = title.empty() ? std::string("Tiny DAW") : title;
+    o.title = title.empty() ? std::string("Exbit") : title;
     o.w = w;
     o.h = h;
     o.dialog = true;

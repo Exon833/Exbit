@@ -1,10 +1,10 @@
 {
-  // the module's description, as the SDK's moduleinfotool writes it (Tiny DAW reads the comments and trailing commas too)
+  // the module's description, as the SDK's moduleinfotool writes it (Exbit reads the comments and trailing commas too)
   "Name": "TinyTestFx",
   "Version": "1.0.0",
   "Factory Info": {
-    "Vendor": "Tiny DAW Tests",
-    "URL": "https://example.invalid/tinydaw",
+    "Vendor": "Exbit Tests",
+    "URL": "https://example.invalid/exbit",
     "E-Mail": "",
     "Flags": {
       "Unicode": true,
@@ -18,7 +18,7 @@
       "CID": "7D1A3B0111224A3B8C4D5E6F10203040",
       "Category": "Audio Module Class",
       "Name": "Tiny Test Fx",
-      "Vendor": "Tiny DAW Tests",
+      "Vendor": "Exbit Tests",
       "Version": "1.0.0",
       "SDKVersion": "VST 3.7.9",
       "Sub Categories": [
@@ -33,7 +33,7 @@
       "CID": "7D1A3B0211224A3B8C4D5E6F10203040",
       "Category": "Component Controller Class",
       "Name": "Tiny Test Fx Controller",
-      "Vendor": "Tiny DAW Tests",
+      "Vendor": "Exbit Tests",
       "Version": "1.0.0",
       "SDKVersion": "VST 3.7.9",
       "Sub Categories": [],
@@ -45,7 +45,7 @@
       "CID": "7D1A3B0311224A3B8C4D5E6F10203040",
       "Category": "Audio Module Class",
       "Name": "Tiny Test Single",
-      "Vendor": "Tiny DAW Tests",
+      "Vendor": "Exbit Tests",
       "Version": "1.0.0",
       "SDKVersion": "VST 3.7.9",
       "Sub Categories": [

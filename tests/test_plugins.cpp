@@ -113,7 +113,7 @@ void testVst3Classes() {
     if (classes.size() == 2) {
         CHECK(classes[0].name == "Tiny Test Fx");
         CHECK(classes[0].subcategories == "Fx|Dynamics");
-        CHECK(classes[0].vendor == "Tiny DAW Tests");  // (the class says none: the factory's)
+        CHECK(classes[0].vendor == "Exbit Tests");  // (the class says none: the factory's)
         CHECK(classes[0].version == "1.0.0");
         CHECK(!classes[0].instrument);
         CHECK(classes[1].name == "Tiny Test Single");
@@ -137,7 +137,7 @@ void testVst3Fx() {
     }
     CHECK(!p->isVst2());
     CHECK(p->name() == "Tiny Test Fx");
-    CHECK(p->vendor() == "Tiny DAW Tests");
+    CHECK(p->vendor() == "Exbit Tests");
     CHECK(p->subcategories() == "Fx|Dynamics");
     CHECK(!p->isInstrument());
     CHECK(p->hasSidechain());
@@ -325,7 +325,7 @@ void testVst2() {
     CHECK(classes.size() == 1);
     if (classes.size() == 1) {
         CHECK(classes[0].name == "Tiny Test Synth");
-        CHECK(classes[0].vendor == "Tiny DAW Tests");
+        CHECK(classes[0].vendor == "Exbit Tests");
         CHECK(classes[0].instrument);
         CHECK(classes[0].subcategories == "Instrument");
         CHECK(classes[0].version == "100");
@@ -547,7 +547,7 @@ void testLibrary() {
     CHECK(cache[f.vst2 + "/NotVst2.so"]["plugins"].size() == 0);
     CHECK_NEAR(cache[synth].num("mtime", 0), util::fileMtime(synth), 0);
 
-    // the kind finder, its probe forked from this test (as `tinydaw --probe <list>` would run)
+    // the kind finder, its probe forked from this test (as `exbit --probe <list>` would run)
     int progressCalls = 0, finishedWith = -1;
     KindFinder finder(lib, [](const std::string& list, int outFd) {
         fflush(stdout);
@@ -797,7 +797,7 @@ int main() {
         CHECK(false);
         TEST_MAIN_END();
     }
-    char tmpl[] = "/tmp/tinydaw-plugin-test-XXXXXX";
+    char tmpl[] = "/tmp/exbit-plugin-test-XXXXXX";
     tempRoot = mkdtemp(tmpl);
     testParamChanges();
     testPaths();

@@ -126,7 +126,7 @@ PluginChoiceNeeded::PluginChoiceNeeded(std::vector<std::string> n)
       names(std::move(n)) {}
 
 std::string loadableFile(const std::string& path) {
-#ifndef TINYDAW_IN_HOST
+#ifndef EXBIT_IN_HOST
     if (util::isDir(path) && !util::fileExists(vst3Binary(path)))  // (64-bit, else 32-bit: in a host for it)
         for (const char* arch : {"Contents/x86_64-win", "Contents/x86-win"}) {
             std::string windows = util::joinPath(util::joinPath(path, arch), util::baseName(path));

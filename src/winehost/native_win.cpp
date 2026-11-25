@@ -1,6 +1,6 @@
-// tinydaw-plugin-host.exe on Windows itself (see host.cpp): what d2dfix.cpp and dragdrop.cpp do for
+// exbit-plugin-host.exe on Windows itself (see host.cpp): what d2dfix.cpp and dragdrop.cpp do for
 // Wine isn't needed there. Windows draws with its own Direct2D, DXGI and DirectWrite; drags between
-// the plugin's window and Tiny DAW's are Windows' own (OLE), from window to window: nothing for the
+// the plugin's window and Exbit's are Windows' own (OLE), from window to window: nothing for the
 // host to pass on.
 #include "winehost/d2dfix.h"
 #include "winehost/dragdrop.h"

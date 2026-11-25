@@ -1,7 +1,7 @@
-# Porting the features of Tiny-DAW-Linux into the C++ program
+# Porting the features of Exbit-Linux into the C++ program
 
-The C++ program (`cpp/`) is a port of Tiny DAW 0.4 (`daw/` in this repository). The project went on as
-**Tiny-DAW-Linux** (rolling release), with ~30 feature commits and ~16 000 changed lines. A clone is at:
+The C++ program (`cpp/`) is a port of Exbit 0.4 (`daw/` in this repository). The project went on as
+**Exbit-Linux** (rolling release), with ~30 feature commits and ~16 000 changed lines. A clone is at:
 
     /tmp/claude-1000/-home-martins-Desktop-Tiny-DAW--claude-worktrees-project-recreation-cpp-7c1273/d3237c99-b885-495e-8335-30a949e2fd2b/scratchpad/TinyDAW-Linux
 

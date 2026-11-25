@@ -6,7 +6,7 @@
 
 #include "core/util.h"
 #include "plugins/library.h"
-#ifndef TINYDAW_IN_HOST
+#ifndef EXBIT_IN_HOST
 #include "plugins/wine.h"
 #endif
 
@@ -37,7 +37,7 @@ std::unique_ptr<Plugin> Plugin::load(const std::string& path, const std::string&
         error = "There is no built-in effect " + path.substr(8) + " (its script is not in the effects folder)";
         return nullptr;
     }
-#ifndef TINYDAW_IN_HOST
+#ifndef EXBIT_IN_HOST
     if (wine::isWindowsPlugin(path))  // (a Windows plugin: through Wine, in a host of its own; on Windows, every one)
         return loadBridged(path, name, error);
 #endif
@@ -76,7 +76,7 @@ bool unpackState(const std::string& blob, std::string& component, std::string& c
     return juceSplit(blob, component, controller);
 }
 
-// --- JUCE's states (Tiny DAW up to 0.3.1) ---
+// --- JUCE's states (Exbit up to 0.3.1) ---
 
 static const uint32_t JUCE_MAGIC = 0x21324356;  // "VC2!"
 static const char JUCE_ALPHABET[] = ".ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+";

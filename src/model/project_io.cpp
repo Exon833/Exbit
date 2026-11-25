@@ -200,7 +200,7 @@ void prepareSafely(Clip& clip, int sr) {
         clip.prepare(sr);
     } catch (const std::exception& e) {
         if (clip.kind != Kind::Midi) throw;
-        fprintf(stderr, "Tiny DAW: %s couldn't be rendered (%s); it is silent until changed\n", clip.name.c_str(),
+        fprintf(stderr, "Exbit: %s couldn't be rendered (%s); it is silent until changed\n", clip.name.c_str(),
                 e.what());
         clip.played = clip.notes;
         auto silent = std::make_shared<AudioBuffer>();
@@ -993,7 +993,7 @@ bool keepBackup(const std::string& path, std::string& backupPath, std::string& e
     }
     Json data = Json::parse(text);
     if (!data.isObject() || data.str("format") != FORMAT)
-        return true;  // (not a Tiny DAW project: saving over it is the user's choice, but it isn't ours to keep)
+        return true;  // (not a Exbit project: saving over it is the user's choice, but it isn't ours to keep)
     std::string base = data["base"].isString() && !data["base"].toString().empty() ? data["base"].toString() : ".";
     data.set("base", Json(normRelative(util::joinPath("..", base))));
     std::string folder = backupsFolder(path);
@@ -1328,7 +1328,7 @@ bool loadProject(const std::string& path, Project& project, int sr, MasterSettin
     std::string parseError;
     Json data = Json::parse(text, &parseError);
     if (!data.isObject() || data.str("format") != FORMAT) {
-        error = "This is not a Tiny DAW project file.";
+        error = "This is not a Exbit project file.";
         return false;
     }
     std::string base = util::dirName(util::absolutePath(path));

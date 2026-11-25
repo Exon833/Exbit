@@ -1,7 +1,7 @@
 // A plugin's settings survive a save and reopen: the state given to a fresh instance is the one it
 // keeps, through its first buffers too (Surge XT Effects reset its effect once it first processed).
-// Needs Surge XT 1.3.4, skipped without it: Linux's (TINYDAW_SURGE: the folder holding "Surge XT Effects.vst3"),
-// Windows' under Wine (TINYDAW_SURGE_WINE: the prefix holding it in Common Files/VST3), and Windows' own.
+// Needs Surge XT 1.3.4, skipped without it: Linux's (EXBIT_SURGE: the folder holding "Surge XT Effects.vst3"),
+// Windows' under Wine (EXBIT_SURGE_WINE: the prefix holding it in Common Files/VST3), and Windows' own.
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -20,18 +20,18 @@ std::string home() {
 }
 
 std::string surgeFolder() {
-    if (const char* d = getenv("TINYDAW_SURGE")) return d;
+    if (const char* d = getenv("EXBIT_SURGE")) return d;
 #ifdef _WIN32
     const char* common = getenv("CommonProgramFiles");
     return std::string(common ? common : "C:/Program Files/Common Files") + "/VST3";
 #else
-    return home() + "/.local/share/tinydaw-test-plugins/linux";
+    return home() + "/.local/share/exbit-test-plugins/linux";
 #endif
 }
 
 std::string surgeWinePrefix() {
-    if (const char* d = getenv("TINYDAW_SURGE_WINE")) return d;
-    return home() + "/.local/share/tinydaw-test-wine";
+    if (const char* d = getenv("EXBIT_SURGE_WINE")) return d;
+    return home() + "/.local/share/exbit-test-wine";
 }
 
 bool exists(const std::string& file) {

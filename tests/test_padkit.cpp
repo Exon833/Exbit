@@ -337,7 +337,7 @@ static void testSaveLoadAndUndo() {
         CHECK(q.tracks[0]->playsPadKit());
     }
     // a project saved before Pad Kits opens as it was
-    std::string old = R"({"format": "tinydaw-project", "version": 1, "sample_rate": 48000, "groups": [],
+    std::string old = R"({"format": "exbit-project", "version": 1, "sample_rate": 48000, "groups": [],
         "tracks": [{"name": "MIDI 1", "kind": "midi", "muted": false, "soloed": false, "volume_db": 0,
                     "needs_instrument": false, "effects": [], "cables": [["in", "out"]]}], "clips": []})";
     std::string oldPath = kDir + "/Old.json";

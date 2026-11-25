@@ -586,7 +586,7 @@ static void testTerminal() {
 int main() {
     util::makeDirs(TMP);
     setenv("XDG_DATA_HOME", (TMP + "/data").c_str(), 1);
-    setenv("TINYDAW_NO_UPDATE_CHECK", "1", 1);
+    setenv("EXBIT_NO_UPDATE_CHECK", "1", 1);
     settings::setPath(TMP + "/settings.json");
     plat::initWithoutDisplay();
     ui::App::get().initHeadless();

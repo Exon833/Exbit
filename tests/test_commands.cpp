@@ -539,7 +539,7 @@ void testTerminal() {
 }  // namespace
 
 int main() {
-    setenv("TINYDAW_NO_UPDATE_CHECK", "1", 1);
+    setenv("EXBIT_NO_UPDATE_CHECK", "1", 1);
     plat::initWithoutDisplay();
     ui::App::get().initHeadless();
     util::makeDirs(TMP);

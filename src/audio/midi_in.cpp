@@ -24,7 +24,7 @@
 
 namespace midi_in {
 #ifndef _WIN32
-TINYDAW_ALSA(TINYDAW_ALSA_USE)  // (loaded by openSeq, which everything here starts from)
+EXBIT_ALSA(EXBIT_ALSA_USE)  // (loaded by openSeq, which everything here starts from)
 
 namespace {
 
@@ -52,7 +52,7 @@ std::string portName(snd_seq_client_info_t* c, snd_seq_port_info_t* p) {
            std::to_string(snd_seq_port_info_get_client(p)) + ":" + std::to_string(snd_seq_port_info_get_port(p));
 }
 
-constexpr const char* OWN_CLIENT = "Tiny DAW";  // our own clients (any Tiny DAW's): never offered
+constexpr const char* OWN_CLIENT = "Exbit";  // our own clients (any Exbit's): never offered
 
 // the inputs (readable ports) or outputs (writable ports) of the other clients
 std::vector<PortInfo> listPorts(snd_seq_t* seq, bool outputs = false) {
@@ -149,7 +149,7 @@ std::string stableName(const std::string& port) {
 
 namespace {
 
-// One sequencer client per direction (each handle used by one thread: the reader's, the sender's), both "Tiny DAW":
+// One sequencer client per direction (each handle used by one thread: the reader's, the sender's), both "Exbit":
 // "MIDI in" is subscribed to every input chosen (events tell their source apart), and messages go from "MIDI out"
 // straight to each output chosen (addressed: no subscription needed). The reader also hears the system's
 // announcements: a port came or went.

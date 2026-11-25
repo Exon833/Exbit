@@ -1,11 +1,11 @@
 build/
 build-debug/
-tinydaw
-tinydaw-debug
-tinydaw-wine-host.exe
-tinydaw-wine-host.exe.so
-tinydaw-wine-host-32.exe
-tinydaw-wine-host-32.exe.so
+exbit
+exbit-debug
+exbit-wine-host.exe
+exbit-wine-host.exe.so
+exbit-wine-host-32.exe
+exbit-wine-host-32.exe.so
 wine32/
 build-appimage/
 build-appimage-native/

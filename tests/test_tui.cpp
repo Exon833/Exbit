@@ -1,4 +1,4 @@
-// tinydaw --tui (tui/): the terminal's keys decoded from what terminals send (the Linux console's and
+// exbit --tui (tui/): the terminal's keys decoded from what terminals send (the Linux console's and
 // xterm's sequences), the picture's output (only changed cells; ASCII without UTF-8), and the front end
 // over the headless main window: its layout, the keys of each part, the menus, the program's dialogs as
 // text worked by keys (a nested loop fed from a list, as the terminal's loop is), rendering, effects
@@ -375,7 +375,7 @@ void testFront() {
     bool sawChooser = false;
     app.nestedLoop = [&](const std::function<bool()>& done) {
         d.f->draw(d.screen);
-        sawChooser = d.shows("Open project") && d.shows("File name") && d.shows("Tiny DAW project");  // (wherever it starts)
+        sawChooser = d.shows("Open project") && d.shows("File name") && d.shows("Exbit project");  // (wherever it starts)
         std::ofstream(OUT + "/open-dialog.txt") << d.screen.lines();
         d.queue.push_back(key(plat::Key_Escape));
         d.step(done);

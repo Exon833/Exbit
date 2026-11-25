@@ -30,7 +30,7 @@ static std::string affected(const fs::path& root, const std::string& files) {
 }
 
 int main() {
-    fs::path root = fs::temp_directory_path() / ("tinydaw-affected-" + std::to_string(::getpid()));
+    fs::path root = fs::temp_directory_path() / ("exbit-affected-" + std::to_string(::getpid()));
     fs::remove_all(root);
     // x.cpp is used by y.cpp; test_p includes y.h only; test_q includes z.h only
     put(root / "build/src/a/x.d", "build/src/a/x.o: src/a/x.cpp src/a/x.h\n");

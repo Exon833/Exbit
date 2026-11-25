@@ -12,7 +12,7 @@
 
 namespace audio {
 namespace detail {
-TINYDAW_ALSA(TINYDAW_ALSA_USE)  // (loaded by the three entry points at the end: none is called before)
+EXBIT_ALSA(EXBIT_ALSA_USE)  // (loaded by the three entry points at the end: none is called before)
 void raiseThreadPriority();
 bool alsaDeviceInfo(const std::string& id, DeviceInfo& out, bool input);
 
@@ -268,7 +268,7 @@ bool setupPcm(snd_pcm_t* pcm, const std::string& dev, int& channels, int& rate, 
         }
     }
     if (!found) {
-        error = "\"" + dev + "\" takes no sample format Tiny DAW can write (float, 32, 24 or 16 bit)";
+        error = "\"" + dev + "\" takes no sample format Exbit can write (float, 32, 24 or 16 bit)";
         return false;
     }
     unsigned ch = (unsigned)channels;

@@ -155,7 +155,7 @@ static void testZlib() {
     {
         std::vector<uint8_t> z = unhex(k_zlibdyn), out;
         CHECK(zlibInflate(z.data(), z.size(), out));
-        std::string expect = "Tiny DAW inflate test: ";
+        std::string expect = "Exbit inflate test: ";
         for (int i = 0; i < 50; i++) expect += "abcabcabd";
         for (int i = 0; i < 256; i++) expect += (char)i;
         CHECK(std::string(out.begin(), out.end()) == expect);
@@ -841,7 +841,7 @@ static void samples() {
         for (float pt : {9.f, 12.f}) {
             for (bool bold : {false, true}) {
                 Font f = Font::fromPoints("DejaVu Sans", pt, bold);
-                p.drawText(PointF(8, y), "Tiny DAW: Track 1 - Audio, Mixer, 120.00 BPM 4/4 (Qq gjpy)", f, fg);
+                p.drawText(PointF(8, y), "Exbit: Track 1 - Audio, Mixer, 120.00 BPM 4/4 (Qq gjpy)", f, fg);
                 y += f.lineSpacing() + 2;
             }
         }

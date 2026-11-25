@@ -1,4 +1,4 @@
-// tinydaw --tui: MIDI in and out by the keyboard alone. Options → MIDI ports… drawn as text (each port "[x]" on or
+// exbit --tui: MIDI in and out by the keyboard alone. Options → MIDI ports… drawn as text (each port "[x]" on or
 // "[ ]" off, Space ticks the row chosen, a port missing "— not connected"), Clock in / Clock out ticked for the row
 // chosen; the transport's Sync control (Up/Down, Enter its menu); a MIDI track's menu's MIDI input; the External
 // synth window. Ports come from a fake backend (no MIDI device needed). Pictures go to build/ui-samples/tui/.

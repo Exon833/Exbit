@@ -1,4 +1,4 @@
-// Setting up Windows plugins from inside Tiny DAW: a new Wine prefix (Options → Wine prefixes → New
+// Setting up Windows plugins from inside Exbit: a new Wine prefix (Options → Wine prefixes → New
 // prefix…) and running a plugin's installer in one (Options → Install Windows plugin…). plugins/wine.h
 // starts the Wine processes; these are the windows around them. Each waits with a progress window
 // that keeps the program responsive (the processes run on their own; nothing blocks the main loop).

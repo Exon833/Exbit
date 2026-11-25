@@ -3,7 +3,7 @@
 //     playback), a transient double-clicked into a marker, a marker right-clicked away; painted;
 //   - Warp from here (the clip menu); Options → Warp new audio files (a "128bpm" file dropped in: warped);
 //   - the main window's tempo change re-renders warped clips (twice as long at half the tempo), undo puts it back;
-//   - tinydaw --tui: Warp… is in the clip's F2 menu; its dialog drawn as text, the markers' list moved by ←/→
+//   - exbit --tui: Warp… is in the clip's F2 menu; its dialog drawn as text, the markers' list moved by ←/→
 //     (by the grid), Del removing one, OK applying it.
 #include <cmath>
 #include <fstream>

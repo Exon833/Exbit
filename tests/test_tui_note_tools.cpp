@@ -1,4 +1,4 @@
-// tinydaw --tui: the MIDI editor's note tools by the keyboard alone. F2 in the editor opens the tools' menu,
+// exbit --tui: the MIDI editor's note tools by the keyboard alone. F2 in the editor opens the tools' menu,
 // Tools… the panel as a dialog drawn as text (Enter applies, Esc cancels: nothing left applied); K then Enter
 // splits at the keyboard's cursor, P selects the cursor's row, Ctrl+J joins; the hints at the bottom and the F1
 // list name them. Pictures of the screen go to build/ui-samples/tui/.

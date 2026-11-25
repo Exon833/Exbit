@@ -267,7 +267,7 @@ std::string ident(const Widget* w) {
     if (!t.empty()) d += " \"" + audit::shortText(t, 24) + "\"";
     Window* win = w->window();
     std::string wt = win ? (win->title().empty() ? win->type() : win->title()) : "";
-    if (wt.find("Tiny DAW") != std::string::npos) wt = "main";
+    if (wt.find("Exbit") != std::string::npos) wt = "main";
     return audit::shortText(wt, 30) + " › " + d;
 }
 

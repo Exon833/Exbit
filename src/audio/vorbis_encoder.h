@@ -1,4 +1,4 @@
-// Ogg Vorbis encoder (Tiny DAW's own) — what File → Render writes as "OGG Vorbis".
+// Ogg Vorbis encoder (Exbit's own) — what File → Render writes as "OGG Vorbis".
 //
 // Vorbis I as the specification lays it out, with the choices libvorbis makes in spirit: blocks of
 // 2048 samples, and of 256 around transients (no pre-echo); a psychoacoustic model (tonal and noise

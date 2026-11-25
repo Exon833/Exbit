@@ -81,7 +81,7 @@ std::vector<LeftBehind> leftBehind(const std::string& root) {
         std::string folder = util::joinPath(root, e.name);
         if (!e.isDir) continue;
         int fd = lockFolder(folder);
-        if (fd < 0) continue;  // (another Tiny DAW running now holds it, or it can't be looked at)
+        if (fd < 0) continue;  // (another Exbit running now holds it, or it can't be looked at)
         unlockFolder(fd);
         Header h;
         if (!readHeader(util::joinPath(folder, PROJECT_FILE), h)) removeTree(folder);  // (nothing in it worth keeping)
@@ -127,7 +127,7 @@ std::string Autosave::ownFolder() {
 bool Autosave::adopt(const std::string& folder, int held) {
     if (folder == folder_) return true;
     int fd = held >= 0 ? held : lockFolder(folder);
-    if (fd < 0) return false;  // (in use by another Tiny DAW)
+    if (fd < 0) return false;  // (in use by another Exbit)
     if (!folder_.empty()) release(true);
     folder_ = folder;
     lockFd_ = fd;
@@ -247,7 +247,7 @@ int askRecovery(ui::Window* parent, const std::string& text, const std::string& 
 
 bool Autosave::offerRecovery() {
     std::vector<LeftBehind> found = leftBehind(root_);
-    // the newest one no other Tiny DAW is offering or has opened meanwhile: held while asking
+    // the newest one no other Exbit is offering or has opened meanwhile: held while asking
     size_t at = 0;
     int fd = -1;
     for (; at < found.size(); at++)
@@ -260,7 +260,7 @@ bool Autosave::offerRecovery() {
     std::strftime(when, sizeof when, "%d %B %Y, %H:%M", std::localtime(&t));
     const std::string& of = newest.header.recoveryOf;
     std::string what = !of.empty() ? "your changes to " + util::baseName(of) : "an unsaved project";
-    std::string text = "Tiny DAW didn't close normally last time. It kept " + what + ", as it was at " + when + " (" +
+    std::string text = "Exbit didn't close normally last time. It kept " + what + ", as it was at " + when + " (" +
                        plural(newest.header.tracks, "track") + ", " + plural(newest.header.clips, "clip") + ").";
     std::string more = "Open it now? You can then save it.";
     if (found.size() > 1) {
@@ -284,8 +284,8 @@ bool Autosave::offerRecovery() {
 bool Autosave::recover(const std::string& folder, const std::string& original, int held) {
     int fd = held >= 0 ? held : lockFolder(folder);
     if (fd < 0) {
-        util::debugf("autosave: %s is held by another Tiny DAW: not opened\n", folder.c_str());
-        if (host_.showMessage) host_.showMessage("That work is open in another Tiny DAW", 8000);
+        util::debugf("autosave: %s is held by another Exbit: not opened\n", folder.c_str());
+        if (host_.showMessage) host_.showMessage("That work is open in another Exbit", 8000);
         return false;
     }
     if ((host_.confirmDiscard && !host_.confirmDiscard()) ||

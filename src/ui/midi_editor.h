@@ -514,7 +514,7 @@ public:
     std::set<int> notesIn(const RectF& box) const;  // the (shown) notes touching a box of roll pixels
     void startCopyDrag(Point pos, int index);       // Ctrl+drag went past the threshold
     void nudge(int key, bool shift, int mods);      // the arrow keys
-    // THE KEYBOARD'S CURSOR (the keyboard alone, tinydaw --tui): a note time and a pitch. While no note is
+    // THE KEYBOARD'S CURSOR (the keyboard alone, exbit --tui): a note time and a pitch. While no note is
     // selected the arrows move it (a grid step, a row; it sounds the pitch); Enter selects the note there, or puts
     // one there a grid step long (selected: the arrows then move it, ',' '.' make it shorter or longer, '+' '-'
     // change its velocity); Esc lets the notes go, the arrows move the cursor again. Starts at the selection

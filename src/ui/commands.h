@@ -1,5 +1,5 @@
 // Every command of the program in one list, each bound to keys you choose (Options → Keyboard shortcuts…) and
-// found by typing (the command palette: Ctrl+Shift+P; tinydaw --tui: Ctrl+P).
+// found by typing (the command palette: Ctrl+Shift+P; exbit --tui: Ctrl+P).
 //
 // - The menu bar's entries are walked as they are (with their submenus): nothing lists them by hand, so a menu
 //   entry added anywhere is a command at once. Each one's id is its menu path in English, without the &
@@ -137,7 +137,7 @@ private:
 
 // a menu entry's text as the id has it: no &, nothing after a tab, trimmed
 std::string plainText(const std::string& text);
-// a key sequence the terminal (tinydaw --tui) gets: what text consoles send (tui/term.h), less the terminal
+// a key sequence the terminal (exbit --tui) gets: what text consoles send (tui/term.h), less the terminal
 // front end's own keys (F1, F2, F6, F10, F12, Tab, Ctrl+P, Ctrl+Q)
 bool terminalSends(const ui::KeySequence& k);
 bool sameKey(const ui::KeySequence& a, const ui::KeySequence& b);

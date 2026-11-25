@@ -1,4 +1,4 @@
-// tinydaw --tui: the whole program in a terminal, by the keyboard alone (no mouse, no window system:
+// exbit --tui: the whole program in a terminal, by the keyboard alone (no mouse, no window system:
 // a bare text console with an audio driver is enough).
 //
 // It is the graphical program's own main window, built without a display (the toolkit headless: its

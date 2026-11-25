@@ -31,7 +31,7 @@ int millisecondsLeft(Clock::time_point deadline) {
     return left > 0 ? (int)left : 0;
 }
 
-// a stand-in for the Discord program: it listens where Tiny DAW looks, takes one client at a time, and reads
+// a stand-in for the Discord program: it listens where Exbit looks, takes one client at a time, and reads
 // and writes frames byte by byte as Discord does (not with the code under test)
 class FakeDiscord {
 public:
@@ -45,7 +45,7 @@ public:
                                  PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 65536, 65536, 0, nullptr);
         return pipe_ != INVALID_HANDLE_VALUE;
     }
-    // waits for Tiny DAW to connect
+    // waits for Exbit to connect
     bool accept(int timeoutMilliseconds) {
         OVERLAPPED overlapped{};
         overlapped.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -66,7 +66,7 @@ public:
         clientConnected_ = connected;
         return connected;
     }
-    // what Tiny DAW wrote, within the time given; false if it closed the connection or wrote nothing
+    // what Exbit wrote, within the time given; false if it closed the connection or wrote nothing
     bool readMore(int timeoutMilliseconds) {
         auto deadline = Clock::now() + std::chrono::milliseconds(timeoutMilliseconds);
         for (;;) {
@@ -106,7 +106,7 @@ public:
         CloseHandle(overlapped.hEvent);
         return ok && written == bytes.size();
     }
-    // hangs up on Tiny DAW (after it has read what was written)
+    // hangs up on Exbit (after it has read what was written)
     void dropClient() {
         if (clientConnected_) FlushFileBuffers(pipe_);
         DisconnectNamedPipe(pipe_);
@@ -135,14 +135,14 @@ private:
         snprintf(address.sun_path, sizeof address.sun_path, "%s", path_.c_str());
         return listener_ >= 0 && bind(listener_, (sockaddr*)&address, sizeof address) == 0 && ::listen(listener_, 4) == 0;
     }
-    // waits for Tiny DAW to connect
+    // waits for Exbit to connect
     bool accept(int timeoutMilliseconds) {
         pollfd waiting{listener_, POLLIN, 0};
         if (poll(&waiting, 1, timeoutMilliseconds) != 1) return false;
         client_ = ::accept(listener_, nullptr, nullptr);
         return client_ >= 0;
     }
-    // what Tiny DAW wrote, within the time given; false if it closed the connection or wrote nothing
+    // what Exbit wrote, within the time given; false if it closed the connection or wrote nothing
     bool readMore(int timeoutMilliseconds) {
         pollfd waiting{client_, POLLIN, 0};
         if (client_ < 0 || poll(&waiting, 1, timeoutMilliseconds) != 1) return false;
@@ -155,7 +155,7 @@ private:
     bool writeBytes(const std::string& bytes) {
         return client_ >= 0 && send(client_, bytes.data(), bytes.size(), MSG_NOSIGNAL) == (ssize_t)bytes.size();
     }
-    // hangs up on Tiny DAW
+    // hangs up on Exbit
     void dropClient() {
         if (client_ >= 0) close(client_);
         client_ = -1;
@@ -174,7 +174,7 @@ private:
 #endif
 
 public:
-    // one frame from Tiny DAW within the time given (decoded here by hand: little-endian opcode and length)
+    // one frame from Exbit within the time given (decoded here by hand: little-endian opcode and length)
     bool readFrame(uint32_t& opcode, Json& body, int timeoutMilliseconds) {
         auto deadline = Clock::now() + std::chrono::milliseconds(timeoutMilliseconds);
         for (;;) {
@@ -191,21 +191,21 @@ public:
             if (!readMore(millisecondsLeft(deadline))) return false;
         }
     }
-    // a frame to Tiny DAW (encoded by hand)
+    // a frame to Exbit (encoded by hand)
     bool writeFrame(uint32_t opcode, const std::string& json) {
         std::string bytes;
         for (uint32_t value : {opcode, (uint32_t)json.size()})
             for (int shift = 0; shift < 32; shift += 8) bytes += (char)((value >> shift) & 0xff);
         return writeBytes(bytes + json);
     }
-    // waits until Tiny DAW closes its end (frames written before that are skipped)
+    // waits until Exbit closes its end (frames written before that are skipped)
     bool waitForClientToClose(int timeoutMilliseconds) {
         auto deadline = Clock::now() + std::chrono::milliseconds(timeoutMilliseconds);
         while (Clock::now() < deadline)
             if (!readMore(millisecondsLeft(deadline))) return Clock::now() < deadline;
         return false;
     }
-    // the handshake Tiny DAW sends, answered with READY, as Discord does
+    // the handshake Exbit sends, answered with READY, as Discord does
     bool shakeHands(const std::string& expectedApplicationId) {
         uint32_t opcode = 99;
         Json hello;
@@ -277,7 +277,7 @@ void testText() {
     CHECK(cleared["cmd"].toString() == "SET_ACTIVITY" && cleared["args"]["pid"].toInt() == 42);
     CHECK(cleared["args"]["activity"].isNull());
 
-    // the application ID: Tiny DAW's own unless the setting names another; none at all if the default were cleared
+    // the application ID: Exbit's own unless the setting names another; none at all if the default were cleared
     CHECK(!discord_presence::DEFAULT_APPLICATION_ID.empty());
     CHECK(discord_presence::effectiveApplicationId("") == discord_presence::DEFAULT_APPLICATION_ID);
     CHECK(discord_presence::effectiveApplicationId("  \t") == discord_presence::DEFAULT_APPLICATION_ID);
@@ -400,7 +400,7 @@ void testTalksToDiscord(const std::string& endpoint) {
     CHECK(discord.readFrame(opcode, command, 2000));
     CHECK(opcode == discord_ipc::PONG && command["ping"].toInt() == 17);
 
-    // Discord closes: Tiny DAW comes back by itself, says hello again and sends its activity again
+    // Discord closes: Exbit comes back by itself, says hello again and sends its activity again
     CHECK(discord.writeFrame(discord_ipc::CLOSE, "{\"code\":1000,\"message\":\"bye\"}"));
     discord.dropClient();
     CHECK(discord.accept(3000));
@@ -434,7 +434,7 @@ void testClearsOnQuit(const std::string& endpoint) {
     {
         discord_presence::Presence presence(fastOptions(endpoint));
         presence.setUsage(1, 1, 0.5);
-        presence.configure(true, discord_presence::effectiveApplicationId(""));  // (the setting empty: Tiny DAW's own)
+        presence.configure(true, discord_presence::effectiveApplicationId(""));  // (the setting empty: Exbit's own)
         CHECK(discord.accept(3000));
         CHECK(discord.shakeHands(discord_presence::DEFAULT_APPLICATION_ID));
         CHECK(discord.readFrame(opcode, command, 3000));
@@ -486,11 +486,11 @@ int main() {
     testText();
 #ifdef _WIN32
     std::string runtimeFolder;
-    std::string endpoint = "\\\\.\\pipe\\tinydaw-test-discord-ipc-" + std::to_string(thisProcessId());
+    std::string endpoint = "\\\\.\\pipe\\exbit-test-discord-ipc-" + std::to_string(thisProcessId());
 #else
     // a runtime folder of its own, so the real Discord (if it runs here) is never talked to
     const char* tmp = getenv("TMPDIR");
-    std::string pattern = std::string(tmp && *tmp ? tmp : "/tmp") + "/tinydaw-discord-XXXXXX";
+    std::string pattern = std::string(tmp && *tmp ? tmp : "/tmp") + "/exbit-discord-XXXXXX";
     std::string runtimeFolder = mkdtemp(&pattern[0]) ? pattern : "";
     CHECK(!runtimeFolder.empty());
     setenv("XDG_RUNTIME_DIR", runtimeFolder.c_str(), 1);

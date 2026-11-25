@@ -17,7 +17,7 @@ const std::vector<int>& refreshRates();
 const std::vector<int>& interfaceSizes();
 // the interface size chosen (%, one of interfaceSizes()), read before the program's window exists
 int interfaceScale();
-// Options → Window frames: Tiny DAW's own (true) or the system's, read before the program's window exists
+// Options → Window frames: Exbit's own (true) or the system's, read before the program's window exists
 bool ownWindowFrames();
 // Options → Window frames → Transparency (on by default), read before the program's window exists
 bool transparentWindows();
@@ -73,7 +73,7 @@ struct Preferences {
     std::string ghostNotes = "all";         // the MIDI editor shows other clips' notes: "all" tracks, this "track", or "off"
     bool statusHints = true;                // Options → Hints in the status bar: the first line of the tooltip under the pointer
     bool warpNewFiles = false;              // Options → Warp new audio files: dropped in, their tempo detected and warp on
-    std::string windowFrames = "own";       // Options → Window frames: "own" (drawn by Tiny DAW, as the skin says) or "system"
+    std::string windowFrames = "own";       // Options → Window frames: "own" (drawn by Exbit, as the skin says) or "system"
     bool transparency = true;               // Options → Window frames → Transparency: windows may be see-through
     bool discordPresence = false;           // Options → Discord status → Show in Discord (off: it tells Discord what you do)
     std::string discordApplicationId;       // …the Discord application's ID (made in Discord's developer portal); "" = none

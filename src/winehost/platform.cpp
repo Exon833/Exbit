@@ -26,7 +26,7 @@ int watchFd(int, std::function<void()>) { return -1; }
 void unwatchFd(int) {}
 
 std::string homeDir() {
-#ifdef TINYDAW_PLUGIN_HOST
+#ifdef EXBIT_PLUGIN_HOST
     const char* home = getenv("USERPROFILE");  // (Windows itself)
 #else
     const char* home = getenv("HOME");
@@ -36,7 +36,7 @@ std::string homeDir() {
 
 std::string configDir() {
     const char* xdg = getenv("XDG_CONFIG_HOME");
-    std::string dir = util::joinPath(xdg && *xdg ? xdg : util::joinPath(homeDir(), ".config"), "TinyDAW");
+    std::string dir = util::joinPath(xdg && *xdg ? xdg : util::joinPath(homeDir(), ".config"), "Exbit");
     util::makeDirs(dir);
     return dir;
 }

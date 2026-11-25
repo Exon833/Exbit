@@ -143,7 +143,7 @@ static void testWrappedLabelHeight() {
     Window w(plat::WindowOptions{});
     w.resizeWindow(700, 300);
     auto* v = vbox(&w, 0, 0);
-    auto* l = w.add<Label>("Tiny DAW didn't close normally last time. It kept your changes to Song.json.");
+    auto* l = w.add<Label>("Exbit didn't close normally last time. It kept your changes to Song.json.");
     l->setWordWrap(true);
     v->addWidget(l);
     auto* one = w.add<Label>("One line");  // (not wrapped: one line's height)
@@ -937,7 +937,7 @@ static void testDialogs() {
     CHECK(text == "new name");
     // a long question: wrapped into lines (a dialog of a sensible width), every line shown
     const std::string longQuestion =
-        "Empty: Tiny DAW's own application. Another: make one at discord.com/developers/applications "
+        "Empty: Exbit's own application. Another: make one at discord.com/developers/applications "
         "(New Application), then copy its Application ID here.";
     auto wrappedWhole = [&](const char* what) {
         App::get().singleShot(30, [&, what] {
@@ -992,7 +992,7 @@ static void testFileDialog() {
         type(*top, "song");
         key(*top, plat::Key_Return);
     });
-    got = files::saveFile(&main, "Save project", abs + "/Untitled.json", "Tiny DAW project (*.json)");
+    got = files::saveFile(&main, "Save project", abs + "/Untitled.json", "Exbit project (*.json)");
     CHECK(got == abs + "/song.json");
     main.hideWindow();
 }
@@ -2446,7 +2446,7 @@ static void testClassicControlParts() {
 }
 
 // ------------------------------------------------------------------------------------------
-// Tiny DAW's own window frames (App::ownFrames), forced on without a display: the title bar above the inside,
+// Exbit's own window frames (App::ownFrames), forced on without a display: the title bar above the inside,
 // the border around both; what the inside sees doesn't change; the buttons, a double click, the menu, dragging
 // the bar and the edges; :active / :inactive; the stylesheets' sizes and colours; the option turned off
 namespace {

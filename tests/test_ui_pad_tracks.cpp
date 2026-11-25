@@ -1,4 +1,4 @@
-// Pads on their own tracks in the windows (model/pad_tracks.h), headless, and in the terminal (tinydaw --tui): the
+// Pads on their own tracks in the windows (model/pad_tracks.h), headless, and in the terminal (exbit --tui): the
 // Pad Kit window's pad menu (Output ▸ The kit / Its own track, Pads to tracks), the track's instrument menu (Pads
 // to tracks), a pad track's row menu (Input: <kit> pad N ▸ Back to the kit; Bounce in place refused), its tooltip,
 // and the same by keys: the instrument menu's Pads to tracks, the pad menu (F2) choosing Output, the pad tracks in

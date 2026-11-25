@@ -10,12 +10,12 @@ namespace check {
 inline int& failures() { static int n = 0; return n; }
 inline int& passes() { static int n = 0; return n; }
 inline const char* testDir() {  // the test plugins' folder (make test sets it)
-    const char* d = getenv("TINYDAW_TEST_PLUGINS");
+    const char* d = getenv("EXBIT_TEST_PLUGINS");
     return d ? d : "build/test-plugins";
 }
 // Tests leave GitHub alone: each main window would ask it for updates, and its 60 questions an hour per network
 // address are shared with the real program (spent, the program says "Couldn't check")
-inline const bool noUpdateCheck = setenv("TINYDAW_NO_UPDATE_CHECK", "1", 0) == 0;
+inline const bool noUpdateCheck = setenv("EXBIT_NO_UPDATE_CHECK", "1", 0) == 0;
 }  // namespace check
 
 #define CHECK(cond)                                                                 \

@@ -1394,8 +1394,8 @@ void testStoppedWindow() {
     ui::Window main;
     auto slot = std::make_shared<PluginSlot>();
     slot->name = "Some Plugin With A Long Name (x64)";
-    slot->error = slot->name + " didn't answer for 10 s; its tinydaw-wine-host.exe hung, and was ended";
-    CHECK(plugin_audio::whyStopped(*slot) == "didn't answer for 10 s; its tinydaw-wine-host.exe hung, and was ended");
+    slot->error = slot->name + " didn't answer for 10 s; its exbit-wine-host.exe hung, and was ended";
+    CHECK(plugin_audio::whyStopped(*slot) == "didn't answer for 10 s; its exbit-wine-host.exe hung, and was ended");
     PluginSlot other;
     other.name = "Fx";
     other.error = "Fxy broke";
@@ -1443,7 +1443,7 @@ int main(int argc, char** argv) {
     testBuiltinWindows();
     testStoppedWindow();
     const char* display = getenv("DISPLAY");
-    if (display && *display && !getenv("TINYDAW_NO_WINDOWS")) {
+    if (display && *display && !getenv("EXBIT_NO_WINDOWS")) {
         std::string cmd = "'" + std::string(argv[0]) + "' --display";
         int rc = system(cmd.c_str());
         CHECK(rc == 0);

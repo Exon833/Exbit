@@ -1,4 +1,4 @@
-/* 90s: a skin of Tiny DAW with the look of the mid-90s desktop (1995–1998), control by control: the silver-grey
+/* 90s: a skin of Exbit with the look of the mid-90s desktop (1995–1998), control by control: the silver-grey
    face, black text, white fields and lists, two-ring bevels in four exact tones (raised buttons, sunken fields), a
    navy selection, square corners, 16 px scroll bars on a dithered track, and small, unsmoothed text. It is put on top
    of default.css: it sets the variables, then changes the rules that draw the bevels. The glyphs (check mark,
@@ -933,7 +933,7 @@ EditorWindow::stopped { background-color: #c0c0c0; }
 HistoryWindow::undone { color: #808080; }
 
 /* ============================================================================================================
-   Window frames (Options → Window frames → Tiny DAW's own): the window's 2 px raised bevel, a pixel of the face, the
+   Window frames (Options → Window frames → Exbit's own): the window's 2 px raised bevel, a pixel of the face, the
    18 px caption: navy fading to light blue, the title in white bold on the left (inactive: grey fading to light
    grey), and 16 × 14 raised buttons 2 px from its top and right, silver with black signs (90s/), the close button
    2 px apart. No hover (the era had none); pressed: sunken, the sign a pixel down and right.

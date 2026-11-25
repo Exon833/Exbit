@@ -7,10 +7,10 @@
 // while running moves the playhead.
 //
 // JACK (JackFollower over a JackTransport: the real one is JACK MIDI's client, midi_jack.cpp; tests use a fake).
-// Both ways, looked at every frame: what Tiny DAW did since (played, stopped, moved its playhead) is done to JACK's
+// Both ways, looked at every frame: what Exbit did since (played, stopped, moved its playhead) is done to JACK's
 // transport (start, stop, locate), and what JACK's did (another app started it, or located) is done here; while
-// both roll, Tiny DAW's playhead follows JACK's when they part by more than JACK_TOLERANCE_S. When another app is
-// JACK's timebase master its tempo (BBT) is followed; otherwise Tiny DAW is (conditional) timebase master and tells
+// both roll, Exbit's playhead follows JACK's when they part by more than JACK_TOLERANCE_S. When another app is
+// JACK's timebase master its tempo (BBT) is followed; otherwise Exbit is (conditional) timebase master and tells
 // the others its tempo map as bars, beats and ticks (fillBBT).
 #pragma once
 #include <cstdint>
@@ -28,7 +28,7 @@ namespace midi_sync {
 enum class Mode { Internal, MidiClock, Jack };
 const char* modeName(Mode m);              // "Internal", "MIDI clock", "JACK" (shown; saved)
 Mode modeFrom(const std::string& name);    // (unknown: Internal)
-constexpr double JACK_TOLERANCE_S = 0.1;   // the playheads may part by this much before Tiny DAW's is moved
+constexpr double JACK_TOLERANCE_S = 0.1;   // the playheads may part by this much before Exbit's is moved
 constexpr double TICKS_PER_BEAT = 1920.0;  // BBT's ticks
 
 // what the transport is to do
@@ -60,7 +60,7 @@ struct JackState {
     double bpm = 0;
 };
 
-// what Tiny DAW needs of JACK's transport
+// what Exbit needs of JACK's transport
 class JackTransport {
 public:
     virtual ~JackTransport() = default;

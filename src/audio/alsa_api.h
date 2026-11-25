@@ -1,8 +1,8 @@
-// libasound, the ALSA functions Tiny DAW calls (audio/devices_alsa.cpp, audio/midi_in.cpp): loaded with dlopen
+// libasound, the ALSA functions Exbit calls (audio/devices_alsa.cpp, audio/midi_in.cpp): loaded with dlopen
 // the first time a device or MIDI port is looked for (alsa::load), never linked, so the program starts where
 // it isn't installed (then: no ALSA devices or MIDI inputs, and PulseAudio or JACK if they are there). As
 // platform/x11_api.h: the real header gives the types; each pointer has its function's name, and the files
-// calling them bring the names into their own namespace (TINYDAW_ALSA(TINYDAW_ALSA_USE)), where they hide the
+// calling them bring the names into their own namespace (EXBIT_ALSA(EXBIT_ALSA_USE)), where they hide the
 // header's declarations. A function newly called must be added to the list (the link fails until it is).
 #pragma once
 #include <string>
@@ -10,7 +10,7 @@
 #include <alsa/asoundlib.h>
 
 // (the *_alloca macros call the *_sizeof functions)
-#define TINYDAW_ALSA(F) \
+#define EXBIT_ALSA(F) \
     F(snd_lib_error_set_handler) F(snd_strerror) F(snd_device_name_hint) F(snd_device_name_get_hint) \
     F(snd_device_name_free_hint) \
     F(snd_pcm_open) F(snd_pcm_close) F(snd_pcm_start) F(snd_pcm_prepare) F(snd_pcm_drop) F(snd_pcm_resume) \
@@ -33,11 +33,11 @@
     F(snd_seq_port_info_get_type) F(snd_seq_port_info_get_capability)
 
 namespace alsa {
-#define TINYDAW_ALSA_DECLARE(f) extern decltype(&::f) f;
-TINYDAW_ALSA(TINYDAW_ALSA_DECLARE)
-#undef TINYDAW_ALSA_DECLARE
+#define EXBIT_ALSA_DECLARE(f) extern decltype(&::f) f;
+EXBIT_ALSA(EXBIT_ALSA_DECLARE)
+#undef EXBIT_ALSA_DECLARE
 // libasound.so.2 and every function found (once; later calls give the first answer); false, and why, if not
 bool load(std::string& why);
 }  // namespace alsa
 
-#define TINYDAW_ALSA_USE(f) using alsa::f;
+#define EXBIT_ALSA_USE(f) using alsa::f;

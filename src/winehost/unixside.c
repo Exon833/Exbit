@@ -1,5 +1,5 @@
 // The Linux side of the 32-bit Wine host built as a plain Windows program (unixside.h):
-// tinydaw-unix32.so, a Unix library Wine loads into the host's process for tinydaw-unix32.dll
+// exbit-unix32.so, a Unix library Wine loads into the host's process for exbit-unix32.dll
 // (unix32.c), which hands it a LinuxCall. Linux code in a 64-bit process, given 32-bit pointers.
 #define _GNU_SOURCE
 #include <errno.h>
@@ -36,7 +36,7 @@ static int64_t connectUnix(const char* path) {
     return fd;
 }
 
-// as host.cpp's realtime(): a little below Tiny DAW's own audio thread, which waits for this one
+// as host.cpp's realtime(): a little below Exbit's own audio thread, which waits for this one
 static int64_t realtime(void) {
     int lo = sched_get_priority_min(SCHED_FIFO), hi = sched_get_priority_max(SCHED_FIFO);
     struct sched_param sp = {.sched_priority = lo + 69 < hi ? lo + 69 : hi};

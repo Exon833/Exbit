@@ -2,7 +2,7 @@ Copyright 2022 The Noto Project Authors (https://github.com/notofonts/symbols)
 Copyright 2022 Google LLC. All Rights Reserved. (Noto Sans Math, https://github.com/notofonts/math)
 
 NotoSansSymbols-Symbols.ttf holds a few glyphs of Noto Sans Symbols 2.003, Noto Sans Symbols 2 2.008 and
-Noto Sans Math 3.000, merged into one file (tools/symbol_fonts.py) and named "Noto Sans Symbols Tiny DAW".
+Noto Sans Math 3.000, merged into one file (tools/symbol_fonts.py) and named "Noto Sans Symbols Exbit".
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:

@@ -1,7 +1,7 @@
 // Options → Wine prefixes: the Wine prefixes Windows plugins are found in (plugins/wine.h). In each,
 // Windows VST3 plugins are found in C:\Program Files\Common Files\VST3; Windows VST2 plugins in
 // the folders chosen in Options → VST2 plugin folders (which offers their usual folders in these
-// prefixes). Each Windows plugin then runs in Tiny DAW's own Wine host, in its prefix.
+// prefixes). Each Windows plugin then runs in Exbit's own Wine host, in its prefix.
 // Remembered between runs (Preferences::winePrefixes; until chosen, the default prefix ~/.wine).
 //
 // THE MAIN WINDOW: WinePrefixesDialog d(this, prefs.wineList()); if (d.exec()) { prefs.setWineList(

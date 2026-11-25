@@ -1,11 +1,11 @@
-// The JACK Audio Connection Kit's C client API, as far as Tiny DAW uses it (the "JACK" driver type,
+// The JACK Audio Connection Kit's C client API, as far as Exbit uses it (the "JACK" driver type,
 // devices_jack.cpp).
 //
 // Declared here from the API's public behaviour (the functions a JACK client calls, their
 // arguments, and the numbers of the flags and options passed), for interoperability with the JACK
 // server and PipeWire's JACK. It is not JACK's own headers, which needn't be installed: the
 // library, libjack.so.0, is loaded with dlopen when JACK is first asked for and is never linked, so
-// the program starts and runs where JACK isn't installed at all. Only what Tiny DAW calls is here.
+// the program starts and runs where JACK isn't installed at all. Only what Exbit calls is here.
 #pragma once
 #include <cstddef>
 #include <cstdint>

@@ -1,4 +1,4 @@
-// Tests for Tiny DAW's MP3 and Ogg Vorbis decoders (src/audio/mp3.cpp, src/audio/vorbis.cpp).
+// Tests for Exbit's MP3 and Ogg Vorbis decoders (src/audio/mp3.cpp, src/audio/vorbis.cpp).
 //
 // No reference encoder or decoder is available, so:
 //  1. the building blocks are checked against their direct formulas (IMDCTs, the polyphase
@@ -6,7 +6,7 @@
 //  2. small encoders written here (an MP3 Layer III/Layer I encoder and an Ogg Vorbis encoder,
 //     only as complete as these tests need) produce streams of known signals, which are decoded
 //     and compared with the signal (SNR, level and frequency of a sine, length, alignment);
-//  3. any .ogg/.oga/.mp3 files found in /usr/share/sounds (or $TINYDAW_TEST_AUDIO) are decoded as
+//  3. any .ogg/.oga/.mp3 files found in /usr/share/sounds (or $EXBIT_TEST_AUDIO) are decoded as
 //     a sanity check, and damaged streams must not crash the decoders.
 #include <dirent.h>
 #include <sys/stat.h>
@@ -1078,7 +1078,7 @@ struct Encoder {
         BitsLE b;
         b.put(3, 8);
         for (const char* c = "vorbis"; *c; ++c) b.put(*c, 8);
-        const char* vendor = "Tiny DAW test encoder";
+        const char* vendor = "Exbit test encoder";
         b.put((uint32_t)strlen(vendor), 32);
         for (const char* c = vendor; *c; ++c) b.put(*c, 8);
         b.put(0, 32);
@@ -1641,7 +1641,7 @@ bool readFile(const std::string& path, std::vector<uint8_t>& d) {
 void testSystemFiles() {
     std::vector<std::string> files;
     findFiles("/usr/share/sounds", files, 0);
-    if (const char* extra = getenv("TINYDAW_TEST_AUDIO")) findFiles(extra, files, 0);
+    if (const char* extra = getenv("EXBIT_TEST_AUDIO")) findFiles(extra, files, 0);
     int decoded = 0;
     for (auto& path : files) {
         std::vector<uint8_t> d;

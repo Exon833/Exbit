@@ -289,7 +289,7 @@ int main(int argc, char** argv) {
     // --- the visible demo window ---
     Demo demo;
     WindowOptions o;
-    o.title = "Tiny DAW platform check — ✓ UTF-8";
+    o.title = "Exbit platform check — ✓ UTF-8";
     o.w = 320;
     o.h = 200;
     o.minW = 200;

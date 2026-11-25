@@ -1,8 +1,8 @@
-// Start Tiny DAW (main.py):  tinydaw [project.json | audio and MIDI files to add...]
+// Start Exbit (main.py):  exbit [project.json | audio and MIDI files to add...]
 //
-//   tinydaw --tui [...]          the same in the terminal, by the keyboard alone (tui/app.h): no window
+//   exbit --tui [...]          the same in the terminal, by the keyboard alone (tui/app.h): no window
 //                                system needed
-//   tinydaw --probe <listfile>   the background plugin probe's child process (plugins/probe.h): finds
+//   exbit --probe <listfile>   the background plugin probe's child process (plugins/probe.h): finds
 //                                out the kinds of the plugins listed, without touching the display
 #include <algorithm>
 #include <cstdio>
@@ -26,18 +26,18 @@
 int main(int argc, char** argv) {
     if (argc >= 2 && std::strcmp(argv[1], "--probe") == 0) {
         if (argc < 3) {
-            fprintf(stderr, "usage: tinydaw --probe <listfile>\n");
+            fprintf(stderr, "usage: exbit --probe <listfile>\n");
             return 2;
         }
         return plug::runProbe(argv[2]);
     }
     if (argc >= 2 && (std::strcmp(argv[1], "--help") == 0 || std::strcmp(argv[1], "-h") == 0)) {
-        printf("usage: tinydaw [--tui] [project.json | audio and MIDI files to add...]\n"
+        printf("usage: exbit [--tui] [project.json | audio and MIDI files to add...]\n"
                "  --tui  run in the terminal, by the keyboard alone (no window system needed)\n");
         return 0;
     }
     if (argc >= 2 && std::strcmp(argv[1], "--tui") == 0) return tui::run(std::vector<std::string>(argv + 2, argv + argc));
-    if (util::debug()) setenv("TINYDAW_WINE_TRACE", "1", 0);  // (the Wine host's diagnostics too)
+    if (util::debug()) setenv("EXBIT_WINE_TRACE", "1", 0);  // (the Wine host's diagnostics too)
 
     ui::App& app = ui::App::get();
     app.init(argc, argv);
@@ -45,7 +45,7 @@ int main(int argc, char** argv) {
     // Options → Interface size: everything drawn this much bigger or smaller (plugins' windows aside)
     int size = prefs::interfaceScale();
     app.setScale(size / 100.f);
-    // Options → Window frames: Tiny DAW's own (drawn as the skin says) or the window manager's
+    // Options → Window frames: Exbit's own (drawn as the skin says) or the window manager's
     app.setOwnFrames(prefs::ownWindowFrames());
     // Options → Window frames → Transparency: see-through windows while a compositing manager runs
     app.setTransparency(prefs::transparentWindows());

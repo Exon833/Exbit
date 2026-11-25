@@ -78,7 +78,7 @@ void MainWindow::setSync(midi_sync::Mode mode) {
     transport->fit();
     util::debugf("sync: %s\n", name.c_str());
     if (mode == midi_sync::Mode::Jack && midiInput && !midiInput->hub.useJack())
-        showStatus("Sync: JACK needs a JACK server running (jackd, or PipeWire's JACK): Tiny DAW follows its own "
+        showStatus("Sync: JACK needs a JACK server running (jackd, or PipeWire's JACK): Exbit follows its own "
                    "transport until there is one",
                    6000);
     if (mode == midi_sync::Mode::MidiClock && midiInput) {
@@ -117,7 +117,7 @@ void MainWindow::midiFrame() {
         if (!jack) return;
         if (!jack->master() && now - jackMasterAt_ >= JACK_MASTER_RETRY_S) {
             jackMasterAt_ = now;
-            jack->setMaster(&project.timing);  // (Tiny DAW's tempo map as JACK's BBT, unless another app tells its own)
+            jack->setMaster(&project.timing);  // (Exbit's tempo map as JACK's BBT, unless another app tells its own)
         }
         midi_sync::JackFollower::Host h;
         h.sr = engine.sr;

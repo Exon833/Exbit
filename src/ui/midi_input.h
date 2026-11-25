@@ -1,4 +1,4 @@
-// Playing MIDI keyboards into Tiny DAW (the GUI half of daw/ui/midi_input.py; the ports are audio/midi_ports.h,
+// Playing MIDI keyboards into Exbit (the GUI half of daw/ui/midi_input.py; the ports are audio/midi_ports.h,
 // the sustain pedal audio/midi_in.h): Options → MIDI ports… chooses the inputs listened to, several at once
 // (`hub`: remembered by their stable names in the preferences, Preferences::midiPorts).
 //

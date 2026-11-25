@@ -125,7 +125,7 @@ void Presence::run() {
     Clock::time_point lastSentAt{}, nextTry = Clock::now();
     std::string lastLoggedFailure;
 
-    auto nextNonce = [&] { return "tinydaw-" + std::to_string(processId) + "-" + std::to_string(++nonceCount); };
+    auto nextNonce = [&] { return "exbit-" + std::to_string(processId) + "-" + std::to_string(++nonceCount); };
     // a try that failed (or a connection that broke): said once in the debug output, tried again later
     auto failed = [&](const std::string& why) {
         connection.close();

@@ -43,7 +43,7 @@ std::string describe(const std::vector<Key>& ks) {
     return s;
 }
 
-// the keys these records make, through the console and the Terminal (as tinydaw --tui reads them)
+// the keys these records make, through the console and the Terminal (as exbit --tui reads them)
 std::vector<Key> typed(Terminal& t, std::vector<INPUT_RECORD> recs, bool withUps = true) {
     if (withUps) {
         std::vector<INPUT_RECORD> all;
@@ -170,7 +170,7 @@ void testPicture(Terminal& t, int w, int h, bool exact) {
     if (tw != w || th != h) fprintf(stderr, "   the console is %dx%d (wanted %dx%d)\n", tw, th, w, h);
     Screen s(tw, th), shown(1, 1);
     s.clear();
-    s.box(0, 0, tw, th, style(Cyan), "Tiny DAW");
+    s.box(0, 0, tw, th, style(Cyan), "Exbit");
     s.text(1, 1, "héllo ─│┼█ ▶ 日本", style(Yellow, Default, Bold), tw - 2);
     // symbols with an emoji form: one cell each, the next one where it was (U+FE0E, sent after © and ™ by
     // Screen::output, is no cell of its own)
@@ -291,7 +291,7 @@ int main(int argc, char** argv) {
         return 3;
     }
     if (mode == "--here") return runTests(true);
-    if (mode == "--demo") {  // (by hand: the keys typed and the size, drawn as tinydaw --tui draws; Ctrl+Q ends it)
+    if (mode == "--demo") {  // (by hand: the keys typed and the size, drawn as exbit --tui draws; Ctrl+Q ends it)
         Terminal t;
         std::string why;
         if (!t.open(why)) return fprintf(stderr, "%s\n", why.c_str()), 1;
@@ -302,7 +302,7 @@ int main(int argc, char** argv) {
             int w, h;
             t.size(w, h);
             Screen s(w, h);
-            s.box(0, 0, w, h, style(Cyan), "Tiny DAW console check");
+            s.box(0, 0, w, h, style(Cyan), "Exbit console check");
             s.text(2, 1, std::to_string(w) + "x" + std::to_string(h) + "  héllo ─│┼█ ▶ 日本 🎵", style(Yellow, Default, Bold), w - 4);
             s.text(2, 2, "type keys; Ctrl+Q ends", style(Default, Blue, Reverse), w - 4);
             s.text(2, 3, "…●▼▸♪♩▶▲↗·▾█─→×✕◀░▄│»¦▮■▌▇▆▅▃▂▁═┘└┐┌┃✔✓◉◄►▓▒▐╝╚╗╔║┼┴┬┤├━⏮↳↓", Style(), w - 4);

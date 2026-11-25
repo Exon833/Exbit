@@ -1,4 +1,4 @@
-// The VST 3 plugin binary interface, as far as Tiny DAW needs it to host plugins (and as far as its
+// The VST 3 plugin binary interface, as far as Exbit needs it to host plugins (and as far as its
 // test plugin needs it to be one).
 //
 // Declared here from the interface's public behaviour, for interoperability: the COM-style

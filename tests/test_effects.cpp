@@ -131,7 +131,7 @@ void testFactory() {
         auto fx = create(info.path(), error);
         CHECK(fx && error.empty());
         if (!fx) continue;
-        CHECK(fx->id() == info.id && fx->name() == info.name && fx->vendor() == "Tiny DAW");
+        CHECK(fx->id() == info.id && fx->name() == info.name && fx->vendor() == "Exbit");
         CHECK(!fx->hasEditor() && !fx->isInstrument() && !fx->isVst2() && fx->subcategories() == "Fx");
         CHECK(fx->sampleRate() == 48000);
         bool side = info.id == "compressor" || info.id == "gate" || info.id == "filter_motion" ||

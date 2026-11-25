@@ -2,7 +2,7 @@
 // drawn by hand. Nothing else to set: press and drag across it to draw (the points between two moves joined, so
 // a quick stroke leaves no gaps); what is drawn is heard at once.
 //
-// The keyboard (and tinydaw --tui, where the wave is drawn as text): Left / Right the point (Shift: 16 at a
+// The keyboard (and exbit --tui, where the wave is drawn as text): Left / Right the point (Shift: 16 at a
 // time), Home / End the first / last, Up / Down its value by a 32nd (Shift: a 256th).
 //
 // Styles (default.css): WaveCanvas (background-color, color: the wave's line), ::grid (color: the centre line

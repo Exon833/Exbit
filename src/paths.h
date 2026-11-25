@@ -1,6 +1,6 @@
 // Where the program keeps your own files (paths.py): skins, plugin pictures, the cache, recovery
-// files, your templates. One folder: $XDG_DATA_HOME/TinyDAW, or ~/.local/share/TinyDAW (Windows:
-// %APPDATA%\TinyDAW). Settings stay in plat::configDir().
+// files, your templates. One folder: $XDG_DATA_HOME/Exbit, or ~/.local/share/Exbit (Windows:
+// %APPDATA%\Exbit). Settings stay in plat::configDir().
 #pragma once
 #include <string>
 

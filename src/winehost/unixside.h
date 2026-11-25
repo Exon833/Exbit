@@ -1,11 +1,11 @@
-// The 32-bit Wine host built as a plain Windows program (TINYDAW_WINE_PE: with MinGW, where Wine is
+// The 32-bit Wine host built as a plain Windows program (EXBIT_WINE_PE: with MinGW, where Wine is
 // built only for WoW64 and has no 32-bit Unix part for winegcc -m32): its Linux calls.
 //
 // Windows code can't make a Linux syscall under Wine (Wine's syscall dispatch takes one for an NT
-// call), so the host's few Linux calls (the socket to Tiny DAW, the audio thread's futex, its
+// call), so the host's few Linux calls (the socket to Exbit, the audio thread's futex, its
 // realtime priority, its Linux process id) go to a Linux library of its own, unixside.c
-// (wine32/x86_64-unix/tinydaw-unix32.so), through Wine's way for a builtin DLL into its Unix part:
-// unix32.c (wine32/i386-windows/tinydaw-unix32.dll). Wine finds both through WINEDLLPATH=<the host's
+// (wine32/x86_64-unix/exbit-unix32.so), through Wine's way for a builtin DLL into its Unix part:
+// unix32.c (wine32/i386-windows/exbit-unix32.dll). Wine finds both through WINEDLLPATH=<the host's
 // folder>/wine32 (plugins/wine.cpp sets it), and the host loads the DLL by its path. The fds are
 // Linux ones, held as ints; the calls keep their Linux meaning (bridge.h is the same code).
 //
@@ -38,7 +38,7 @@ static_assert(sizeof(LinuxCall) == 40, "LinuxCall");
 _Static_assert(sizeof(struct LinuxCall) == 40, "LinuxCall");
 #endif
 
-#if defined(__cplusplus) && defined(TINYDAW_WINE_PE)
+#if defined(__cplusplus) && defined(EXBIT_WINE_PE)
 #include <windows.h>
 
 #include <cerrno>
@@ -67,11 +67,11 @@ inline int64_t call(LinuxCall c) {
     static Fn fn = [] {
         std::u16string dll(1024, u'\0');
         dll.resize(GetModuleFileNameW(nullptr, &dll[0], (DWORD)dll.size()));
-        dll = dll.substr(0, dll.find_last_of(u'\\') + 1) + u"wine32\\i386-windows\\tinydaw-unix32.dll";
+        dll = dll.substr(0, dll.find_last_of(u'\\') + 1) + u"wine32\\i386-windows\\exbit-unix32.dll";
         HMODULE m = LoadLibraryW(dll.c_str());
-        Fn f = m ? (Fn)GetProcAddress(m, "tinydaw_unix_call") : nullptr;
+        Fn f = m ? (Fn)GetProcAddress(m, "exbit_unix_call") : nullptr;
         if (!f)
-            fprintf(stderr, "tinydaw-wine-host-32: its Linux side (wine32/ next to it, through WINEDLLPATH) "
+            fprintf(stderr, "exbit-wine-host-32: its Linux side (wine32/ next to it, through WINEDLLPATH) "
                             "can't be loaded\n");
         return f;
     }();

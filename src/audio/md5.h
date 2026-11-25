@@ -1,5 +1,5 @@
 // MD5 (RFC 1321): the checksum FLAC keeps of its decoded audio, and the fingerprint
-// project_io.cpp uses to recognise identical audio. Tiny DAW's own, header-only.
+// project_io.cpp uses to recognise identical audio. Exbit's own, header-only.
 #pragma once
 #include <algorithm>
 #include <cstdint>

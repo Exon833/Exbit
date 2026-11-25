@@ -59,7 +59,7 @@
 
 namespace project_io {
 
-constexpr const char* FORMAT = "tinydaw-project";
+constexpr const char* FORMAT = "exbit-project";
 constexpr int VERSION = 1;
 constexpr int BACKUPS_KEPT = 10;  // backups kept next to a project (the oldest go)
 
@@ -96,7 +96,7 @@ struct Backup {
 std::vector<Backup> backups(const std::string& jsonPath);
 // Before saving over the project at `path`: keep the file as it is now in its backups folder (unless the
 // newest backup already holds the same), with "base" pointing back to the project's folder; the oldest
-// beyond `kept` go. `backupPath`: the backup's path, or "" (no file there, or not a Tiny DAW project).
+// beyond `kept` go. `backupPath`: the backup's path, or "" (no file there, or not a Exbit project).
 // False (and `error`) if it couldn't be kept. The main window calls it before saveProject() over a file
 // (File → Save), and asks whether to save anyway when it fails.
 bool keepBackup(const std::string& path, std::string& backupPath, std::string& error, int kept = BACKUPS_KEPT);

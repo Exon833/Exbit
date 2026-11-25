@@ -1,7 +1,7 @@
 // Finding out whether plugins are instruments or effects, without the user loading each one
 // (daw/audio/plugin_probe.py, and ui/plugin_host.py's KindFinder).
 //
-// Run as its own process (`tinydaw --probe <list.json>`: main.cpp calls runProbe()), so a plugin
+// Run as its own process (`exbit --probe <list.json>`: main.cpp calls runProbe()), so a plugin
 // that crashes or hangs while it is looked at can't take the program down with it. The list is the
 // plugin files whose kind isn't known yet (a JSON array of paths). For each, one line goes to stdout
 // as it starts ({"start": path}) and one when it is done ({"path": path, "classes": [[name, kind],
@@ -22,7 +22,7 @@
 
 namespace plug {
 
-constexpr const char* PROBE_MARK = "\x1eTINYDAW ";
+constexpr const char* PROBE_MARK = "\x1e" "EXBIT ";
 constexpr int PROBE_TIMEOUT_S = 30;  // a plugin taking longer than this to be looked at is given up on
 
 // INSTRUMENT, EFFECT, or "" if a plugin's VST3 sub-categories don't say

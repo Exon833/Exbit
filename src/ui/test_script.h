@@ -2,9 +2,9 @@
 // paths (the same ones the X events take), and photographs its windows. Not part of the Python
 // program; nothing of it runs unless one of these is set:
 //
-//   TINYDAW_SCREENSHOT=<file.png>   after TINYDAW_SCREENSHOT_FRAMES frames (default 60) saves a
+//   EXBIT_SCREENSHOT=<file.png>   after EXBIT_SCREENSHOT_FRAMES frames (default 60) saves a
 //                                   picture of the main window and quits (without asking)
-//   TINYDAW_SCRIPT=<file>           runs the script's commands, one per line ('#' comments):
+//   EXBIT_SCRIPT=<file>           runs the script's commands, one per line ('#' comments):
 //
 //     wait <ms>                       frames <n>
 //     target main | top | tooltip | <part of a window title>   (the window that clicks and shots go to;

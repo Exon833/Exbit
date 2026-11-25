@@ -65,13 +65,13 @@ void fillSyncMenu(ui::Menu& menu, midi_sync::Mode current, std::function<void(mi
         midi_sync::Mode mode;
         const char* tip;
     };
-    for (Item it : {Item{midi_sync::Mode::Internal, "Tiny DAW's own tempo and transport"},
+    for (Item it : {Item{midi_sync::Mode::Internal, "Exbit's own tempo and transport"},
                     Item{midi_sync::Mode::MidiClock,
                          "Follow the MIDI clock of the input with Clock in (Options \xe2\x86\x92 MIDI ports\xe2\x80\xa6): its tempo, "
                          "Start, Stop and song position"},
                     Item{midi_sync::Mode::Jack,
                          "Follow and drive JACK's transport: start, stop and locate both ways; JACK's tempo when another "
-                         "app is its timebase master, else Tiny DAW's"}}) {
+                         "app is its timebase master, else Exbit's"}}) {
         auto mode = it.mode;
         Action* a = menu.addCheckable(midi_sync::modeName(mode), mode == current, [choose, mode](bool) {
             if (choose) choose(mode);
@@ -88,7 +88,7 @@ MidiPortsDialog::MidiPortsDialog(Window* parent, midi_ports::Hub& hub) : Dialog(
     if (g_host.engine && g_host.engine->driverType == "JACK") hub_.useJack();  // (JACK MIDI's ports too)
     hub_.rescan();
     FormLayout* f = styleRoom(form(this, 11, 6), computedStyle());
-    Label* about = add<Label>("Every MIDI port Tiny DAW can listen to and play into. Ticked: on (Space ticks the row "
+    Label* about = add<Label>("Every MIDI port Exbit can listen to and play into. Ticked: on (Space ticks the row "
                               "chosen). What the inputs play goes to the selected MIDI track, or to the tracks set to "
                               "listen to one of them (a track's menu: MIDI input).");
     about->setWordWrap(true);

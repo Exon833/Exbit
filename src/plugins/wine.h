@@ -1,4 +1,4 @@
-// Windows plugins on Linux, through Wine (no yabridge: Tiny DAW's own host, src/winehost, and
+// Windows plugins on Linux, through Wine (no yabridge: Exbit's own host, src/winehost, and
 // plugins/bridged.cpp; the protocol is plugins/bridge.h).
 //
 // Wine prefixes are where Windows programs (and plugins) are installed: a folder holding drive_c
@@ -11,7 +11,7 @@
 //     …\Common Files\VST2, …\Common Files\Steinberg\VST2). A .dll outside every prefix runs in the
 //     first one.
 // Each plugin then runs in a Wine host process of its own, in the plugin's prefix: 64-bit plugins in
-// tinydaw-wine-host.exe, 32-bit ones in tinydaw-wine-host-32.exe (in a 64-bit prefix through Wine's
+// exbit-wine-host.exe, 32-bit ones in exbit-wine-host-32.exe (in a 64-bit prefix through Wine's
 // WoW64; also in a 32-bit-only prefix). 32-bit plugins are looked for in Program Files (x86) too.
 #pragma once
 #include <map>
@@ -24,9 +24,9 @@
 namespace wine {
 
 // On Windows itself (plugins/wine_win.cpp) there is no Wine: no prefixes are found, nothing of Wine's is
-// started, and the hosts are tinydaw-plugin-host.exe (-32.exe), started directly; Windows plugins are every
+// started, and the hosts are exbit-plugin-host.exe (-32.exe), started directly; Windows plugins are every
 // plugin there (a 64-bit one with no 64-bit host is loaded in the program itself, a failsafe).
-#ifdef TINYDAW_WINDOWS
+#ifdef EXBIT_WINDOWS
 constexpr const char* HOST_NAME = "plugin host";  // (in messages: "its plugin host has ended")
 #else
 constexpr const char* HOST_NAME = "Wine host";
@@ -61,7 +61,7 @@ bool looksWindows(const std::string& path);
 std::string prefixArch(const std::string& prefix);
 
 // --- Wine and the host ---
-std::string winePath();   // the wine program: $TINYDAW_WINE, else wine on the PATH, else /opt/wine-*/bin/wine ("" none)
+std::string winePath();   // the wine program: $EXBIT_WINE, else wine on the PATH, else /opt/wine-*/bin/wine ("" none)
 // the wine program to run in this prefix: the one chosen for it (setWinePrograms), else the one of the
 // Bottles bottle it is (its runner), else the one of the Lutris game it is the prefix of (its Wine
 // version), else winePath(); "" none. A runner that is missing gives winePath() (and wineSource says so).
@@ -78,8 +78,8 @@ std::map<std::string, std::string> winePrograms();
 std::string wineVersion(const std::string& wine);
 // its major version (11 for "wine-11.22"; 0 unknown)
 int wineMajor(const std::string& version);
-constexpr int TESTED_WINE_MAJOR = 11;  // the Wine Tiny DAW's host is tested with (older: a warning, not a refusal)
-// tinydaw-wine-host.exe (bits32: tinydaw-wine-host-32.exe): $TINYDAW_WINE_HOST (…_HOST32), else next
+constexpr int TESTED_WINE_MAJOR = 11;  // the Wine Exbit's host is tested with (older: a warning, not a refusal)
+// exbit-wine-host.exe (bits32: exbit-wine-host-32.exe): $EXBIT_WINE_HOST (…_HOST32), else next
 // to the program ("" none)
 std::string hostPath(bool bits32 = false);
 // can Windows plugins run here? if not, why (for the error a load gives)

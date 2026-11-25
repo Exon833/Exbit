@@ -125,7 +125,7 @@ bool openArchive(const std::string& zipPath, const std::string& folder, std::str
             (project.empty() || util::stem(n) == archiveStem(zipPath)))
             project = n;
     if (project.empty()) {
-        error = "This archive holds no Tiny DAW project.";
+        error = "This archive holds no Exbit project.";
         return false;
     }
     std::vector<std::string> files;

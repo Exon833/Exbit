@@ -1,12 +1,12 @@
-// Drag and drop between a plugin's window and Tiny DAW (the Wine host; dragdrop.cpp).
+// Drag and drop between a plugin's window and Exbit (the Wine host; dragdrop.cpp).
 //
 // Out: a plugin drags files out of its window with ole32's DoDragDrop (MIDI or audio a drum machine
 // or a chord tool made). Wine's drag runs between Wine's own windows only, so the loaded modules'
 // imports of DoDragDrop are pointed at the host's: a drag of files (CF_HDROP) is taken at once (the
-// plugin is told they were copied) and the files, as Unix paths, are kept for Tiny DAW, which goes on
+// plugin is told they were copied) and the files, as Unix paths, are kept for Exbit, which goes on
 // dragging them under the pointer (takeDraggedFiles; IDLE's news). Other drags go to Wine's own.
 //
-// In: files Tiny DAW dropped on the plugin's window are handed to the window under that point as
+// In: files Exbit dropped on the plugin's window are handed to the window under that point as
 // Windows does: to its OLE drop target (RegisterDragDrop; DragEnter, DragOver, Drop with a data
 // object holding the files as CF_HDROP), else, for a window that accepts files, as WM_DROPFILES.
 #pragma once

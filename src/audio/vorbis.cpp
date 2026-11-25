@@ -1,4 +1,4 @@
-// Ogg Vorbis decoder (Tiny DAW's own), written from the Vorbis I specification and RFC 3533 (Ogg).
+// Ogg Vorbis decoder (Exbit's own), written from the Vorbis I specification and RFC 3533 (Ogg).
 //
 // The structure is the usual one (as in the public-domain stb_vorbis): Ogg pages are parsed and
 // their CRCs checked, packets reassembled from the lacing values (also across pages), the first

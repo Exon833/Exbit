@@ -1,12 +1,12 @@
 // Windows plugins through Wine (plugins/wine.h, plugins/bridged.cpp, src/winehost): Wine prefixes,
 // telling Windows plugin files apart, the library finding them; then, where Wine, the Wine host and
 // Windows plugins are installed, every Windows plugin found (in the default prefix's VST3 folder,
-// or TINYDAW_WINE_PLUGINS=<folder>) loaded in its host, asked, processed, its state saved and given
-// back, a second instance given the state, and (unless TINYDAW_NO_WINDOWS=1) its window opened in
+// or EXBIT_WINE_PLUGINS=<folder>) loaded in its host, asked, processed, its state saved and given
+// back, a second instance given the state, and (unless EXBIT_NO_WINDOWS=1) its window opened in
 // an X11 window of ours and looked at; one is crashed on purpose. By default only the first effect
-// and the first instrument (a minute); TINYDAW_WINE_ALL=1 tests every one, TINYDAW_WINE_ONLY=<text>
-// those whose name holds it, TINYDAW_NO_WINE=1 none; TINYDAW_WINE_SHOTS=<folder> saves pictures of
-// their windows. TINYDAW_WINE_STRESS=all|<list> runs only the bridge's stress scenarios instead
+// and the first instrument (a minute); EXBIT_WINE_ALL=1 tests every one, EXBIT_WINE_ONLY=<text>
+// those whose name holds it, EXBIT_NO_WINE=1 none; EXBIT_WINE_SHOTS=<folder> saves pictures of
+// their windows. EXBIT_WINE_STRESS=all|<list> runs only the bridge's stress scenarios instead
 // (hosts killed and hung, many at once, odd buffers, states, rate changes, offline, windows; see
 // stress() below).
 #include <signal.h>
@@ -42,7 +42,7 @@
 #include "ui/plugin_host.h"
 #include "ui/toolkit/widget.h"
 
-#define Font XFontId  // (X11's Font against Tiny DAW's)
+#define Font XFontId  // (X11's Font against Exbit's)
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/extensions/Xrandr.h>
@@ -440,7 +440,7 @@ void testEditor(Plugin& p, const std::string& label) {
         printf("   (no X display: window not tested)\n");
         return;
     }
-    // (Tiny DAW's own Xlib, which the plugin window's code calls: loaded when its window system
+    // (Exbit's own Xlib, which the plugin window's code calls: loaded when its window system
     // starts, which this test doesn't start)
     std::string why;
     CHECK(xlib::load(why));
@@ -491,7 +491,7 @@ void testEditor(Plugin& p, const std::string& label) {
         distinct = colours();
     }
     double drawnSeconds = secondsNow() - t0;
-    if (const char* shots = getenv("TINYDAW_WINE_SHOTS")) {  // (pictures of the windows, to look at)
+    if (const char* shots = getenv("EXBIT_WINE_SHOTS")) {  // (pictures of the windows, to look at)
         std::string file = util::joinPath(shots, util::replaceAll(label, " ", "_") + ".png");
         XSync(dpy, False);
         run("import -window " + std::to_string((unsigned long)ours) + " '" + file + "' 2>/dev/null");
@@ -720,7 +720,7 @@ void testCrash(PluginLibrary& library, const PluginInfo& info) {
     // (with a display: its window opened and closed, after which its settings are kept, without
     // being asked, with the next idle(); a save after the crash then gets them)
     bool kept = false;
-    Display* dpy = getenv("TINYDAW_NO_WINDOWS") ? nullptr : XOpenDisplay(nullptr);
+    Display* dpy = getenv("EXBIT_NO_WINDOWS") ? nullptr : XOpenDisplay(nullptr);
     if (dpy) {
         CHECK(!bridgedStateKnown(*p));
         Window ours = XCreateSimpleWindow(dpy, DefaultRootWindow(dpy), 40, 40, 400, 300, 0, 0, 0);
@@ -921,15 +921,15 @@ void testReload(const std::vector<std::string>& folders, const PluginInfo& info)
     project.retire(aload(slot->instance));
 }
 
-// --- stress (TINYDAW_WINE_STRESS=all, or a list of: many, kill, stop, buffers, state, rate,
-// offline, notes, classes, editor, texts, reopen, focus, resize (every plugin: see stressResize); TINYDAW_WINE_STRESS_LONG=1 for longer loops). The effect: the first whose name
-// holds TINYDAW_WINE_ONLY, else the first FabFilter one; the instrument likewise (Twin 3 is quick);
+// --- stress (EXBIT_WINE_STRESS=all, or a list of: many, kill, stop, buffers, state, rate,
+// offline, notes, classes, editor, texts, reopen, focus, resize (every plugin: see stressResize); EXBIT_WINE_STRESS_LONG=1 for longer loops). The effect: the first whose name
+// holds EXBIT_WINE_ONLY, else the first FabFilter one; the instrument likewise (Twin 3 is quick);
 // big states from Serum 2 when it is there. Only the stress scenarios run then. ---
 
-bool stressLong() { return getenv("TINYDAW_WINE_STRESS_LONG") != nullptr; }
+bool stressLong() { return getenv("EXBIT_WINE_STRESS_LONG") != nullptr; }
 
 bool stressWanted(const std::string& name) {
-    const char* s = getenv("TINYDAW_WINE_STRESS");
+    const char* s = getenv("EXBIT_WINE_STRESS");
     if (!s)
         return false;
     std::string list = std::string(",") + s + ",";
@@ -977,11 +977,11 @@ Leftovers leftovers() {
         l.fds++;
     }
     std::string me = std::to_string((long)getpid());
-    l.shm = countDir("/dev/shm", "tinydaw-wine-" + me + "-");
+    l.shm = countDir("/dev/shm", "exbit-wine-" + me + "-");
     const char* runtime = getenv("XDG_RUNTIME_DIR");
-    std::string sockDir = util::joinPath(runtime && *runtime ? runtime : "/tmp", "tinydaw-wine-" + std::to_string((long)getuid()));
+    std::string sockDir = util::joinPath(runtime && *runtime ? runtime : "/tmp", "exbit-wine-" + std::to_string((long)getuid()));
     l.sockets = countDir(sockDir, me + "-");
-    std::string mark = "tinydaw-wine-" + std::to_string((long)getuid()) + "/" + me + "-";
+    std::string mark = "exbit-wine-" + std::to_string((long)getuid()) + "/" + me + "-";
     for (const auto& e : util::listDir("/proc")) {
         const std::string& f = e.name;
         if (f.empty() || !std::isdigit((unsigned char)f[0]))
@@ -1001,7 +1001,7 @@ Leftovers leftovers() {
     return l;
 }
 
-// after unloading: the processes end (Tiny DAW gives them 3 s, away from the main thread), and
+// after unloading: the processes end (Exbit gives them 3 s, away from the main thread), and
 // nothing is left over (what `before` didn't have)
 bool cleanAfter(const Leftovers& before, double seconds = 6) {
     double until = secondsNow() + seconds;
@@ -1170,7 +1170,7 @@ void stressMany(PluginLibrary& library, const PluginInfo& info) {
     CHECK(cleanAfter(before));
 }
 
-// a host killed (SIGKILL) mid-buffer and mid-request: Tiny DAW's side returns at once, doesn't
+// a host killed (SIGKILL) mid-buffer and mid-request: Exbit's side returns at once, doesn't
 // crash, knows (process() throws, as for any plugin that fails: the slot shows it stopped), and
 // nothing is left over
 void stressKill(PluginLibrary& library, const PluginInfo& info) {
@@ -2016,19 +2016,19 @@ void stressNotes(PluginLibrary& library, const PluginInfo& info) {
 
 // (F06) the Wine host listing a file's plugins (--classes) for the scan's probe process: the probe
 // process given up on (KindFinder kills it after PROBE_TIMEOUT_S) while the host hangs (the host's
-// test hook TINYDAW_WINE_TEST_HANG: stuck as a plugin loading; a SIGSTOPped one couldn't see its
+// test hook EXBIT_WINE_TEST_HANG: stuck as a plugin loading; a SIGSTOPped one couldn't see its
 // lifeline go); the host must not stay behind
 void stressClasses(const PluginInfo& info) {
     printf("== stress: the host listing %s's plugins, hung, its probe process killed\n", info.name.c_str());
     fflush(stdout);
     pid_t child = fork();
     if (child == 0) {
-        setenv("TINYDAW_WINE_TEST_HANG", "1", 1);  // (the host hangs as a plugin stuck loading: its lifeline still runs)
+        setenv("EXBIT_WINE_TEST_HANG", "1", 1);  // (the host hangs as a plugin stuck loading: its lifeline still runs)
         std::string error;
         bridgedClasses(info.path, error);
         _exit(0);
     }
-    std::string mark = "tinydaw-classes-" + std::to_string((long)child) + "-";
+    std::string mark = "exbit-classes-" + std::to_string((long)child) + "-";
     auto hostsOf = [&] {
         std::vector<int> found;
         for (const auto& e : util::listDir("/proc")) {
@@ -2046,7 +2046,7 @@ void stressClasses(const PluginInfo& info) {
     while (host < 0 && secondsNow() < until) {
         hosts = hostsOf();
         for (int pid : hosts)
-            if (util::trim(procFile(pid, "comm")) == "tinydaw-wine-ho")
+            if (util::trim(procFile(pid, "comm")) == "exbit-wine-host")  // (comm: the first 15 characters)
                 host = pid;
         usleep(20000);
     }
@@ -2148,7 +2148,7 @@ void stressTexts(PluginLibrary& library, const PluginInfo& info, Display* dpy) {
 }
 
 // knobs turned while the plugin plays with its window open (Serum 2's WT POS: Wine's Direct2D
-// crashed its window's thread, and closing its window then held Tiny DAW's main thread until it was
+// crashed its window's thread, and closing its window then held Exbit's main thread until it was
 // killed). First one knob, 60 times a second (WT POS where there is one); then the worst case: every
 // knob and switch at once, each frame (the read-only, hidden and program-change ones left alone). The
 // host keeps answering, the main thread is never held long, the sound stays numbers, and the window
@@ -2249,15 +2249,15 @@ void stressKnob(PluginLibrary& library, const PluginInfo& info, Display* dpy) {
     CHECK(alive);
 }
 
-// Serum 2's WT POS knob turned by hand, its window open, while it plays (TINYDAW_WINE_TEST_DRAG: the
+// Serum 2's WT POS knob turned by hand, its window open, while it plays (EXBIT_WINE_TEST_DRAG: the
 // host presses the window's left button there and moves it up and down, as messages; the pointer
 // never moves). Wine's Direct2D recursed without end filling a path of its wavetable view, ~30 s
 // into this, every time: the plugin crashed. Now it plays on, its window answers, and closes
 void stressDrag(PluginLibrary& library, const PluginInfo& info, Display* dpy) {
     printf("== stress: %s's WT POS turned by hand for 45 s while it plays\n", info.name.c_str());
-    setenv("TINYDAW_WINE_TEST_DRAG", "101,293", 1);  // (Serum 2's WT POS of oscillator A; read as the host starts)
+    setenv("EXBIT_WINE_TEST_DRAG", "101,293", 1);  // (Serum 2's WT POS of oscillator A; read as the host starts)
     auto p = loadOrFail(library, info);
-    unsetenv("TINYDAW_WINE_TEST_DRAG");
+    unsetenv("EXBIT_WINE_TEST_DRAG");
     if (!p)
         return;
     p->prepare(48000, 512);
@@ -2289,13 +2289,13 @@ void stressDrag(PluginLibrary& library, const PluginInfo& info, Display* dpy) {
 }
 
 // a host whose main thread ends while its process goes on (as when a plugin crashed on it and Wine
-// couldn't unwind the host's frames; TINYDAW_WINE_TEST_MAIN_ENDS ends it on a parameter's text):
+// couldn't unwind the host's frames; EXBIT_WINE_TEST_MAIN_ENDS ends it on a parameter's text):
 // found out within a second, the plugin reported as crashed, nothing held long, nothing left over.
-// And a plugin's crash itself, in Windows code on the main thread (TINYDAW_WINE_TEST_CRASH: Serum 2
+// And a plugin's crash itself, in Windows code on the main thread (EXBIT_WINE_TEST_CRASH: Serum 2
 // in Wine's Direct2D): the host ends at once, saying where
 void stressMainEnds(PluginLibrary& library, const PluginInfo& info, const char* hook) {
     printf("== stress: %s's host %s\n", info.name.c_str(),
-           std::string(hook) == "TINYDAW_WINE_TEST_CRASH" ? "crashes on its main thread" : "loses its main thread");
+           std::string(hook) == "EXBIT_WINE_TEST_CRASH" ? "crashes on its main thread" : "loses its main thread");
     Leftovers before = leftovers();
     setenv(hook, "1", 1);
     auto p = loadOrFail(library, info);
@@ -2368,7 +2368,7 @@ void stressReopen(PluginLibrary& library, const PluginInfo& info, Display* dpy) 
     CHECK(perRound < 20);
 }
 
-// (F10) a plat window embedding an XEmbed client (as Tiny DAW's plugin window embeds Wine's):
+// (F10) a plat window embedding an XEmbed client (as Exbit's plugin window embeds Wine's):
 // the client's XEMBED_REQUEST_FOCUS gives it the X focus; the focus leaving our window tells it
 // XEMBED_WINDOW_DEACTIVATE; our window focused again gives it back. A child window of our own on a
 // second connection stands for Wine's; the requests are synthetic (XSendEvent: no XTest, no mouse),
@@ -2384,7 +2384,7 @@ void stressFocus() {
         void onEvent(plat::Window*, const plat::Event&) override {}
     } listener;
     plat::WindowOptions opts;
-    opts.title = "Tiny DAW test (XEmbed focus)";
+    opts.title = "Exbit test (XEmbed focus)";
     opts.w = 200, opts.h = 150;
     opts.offscreen = true;
     auto win = plat::Window::create(opts, &listener);
@@ -2474,8 +2474,8 @@ void stressFocus() {
     pump();
 }
 
-// --- resizing (TINYDAW_WINE_STRESS=resize: every Windows plugin, or those of TINYDAW_WINE_ONLY) ---
-// Tiny DAW's own plugin window (EditorWindow, as PluginHost opens it) with the plugin's in it, sized
+// --- resizing (EXBIT_WINE_STRESS=resize: every Windows plugin, or those of EXBIT_WINE_ONLY) ---
+// Exbit's own plugin window (EditorWindow, as PluginHost opens it) with the plugin's in it, sized
 // as a window manager does when the edge is dragged (the window's X11 size changed from outside:
 // ConfigureNotify -> EditorWindow::resized -> EDITOR_RESIZED -> the plugin's answer -> fit). Sizes
 // asked: bigger, smaller than any plugin takes, odd ones, a fast drag (many in a row, no frame
@@ -2544,7 +2544,7 @@ Drawn looked(Display* dpy, Window ours, int w, int h, int oldW, int oldH) {
 }
 
 struct ResizeRig {
-    Display* dpy;  // (ours, to look: not the one Tiny DAW's windows are on)
+    Display* dpy;  // (ours, to look: not the one Exbit's windows are on)
     SlotPtr slot;
     Plugin& p;
     EditorWindow* win = nullptr;
@@ -2556,7 +2556,7 @@ struct ResizeRig {
     ResizeRig(Display* d, SlotPtr s) : dpy(d), slot(std::move(s)), p(*slot->instance) {}
 
     bool open() {
-        win = new EditorWindow(nullptr, slot, "Tiny DAW test (resize)");
+        win = new EditorWindow(nullptr, slot, "Exbit test (resize)");
         if (!win->attach()) {
             win->close();
             win = nullptr;
@@ -2636,7 +2636,7 @@ struct ResizeRig {
         return d;
     }
     void shoot(const std::string& name) {
-        if (const char* shots = getenv("TINYDAW_WINE_SHOTS")) {
+        if (const char* shots = getenv("EXBIT_WINE_SHOTS")) {
             XSync(dpy, False);
             run("import -window " + std::to_string((unsigned long)ours) + " '" +
                 util::joinPath(shots, util::replaceAll(name, " ", "_") + ".png") + "' 2>/dev/null");
@@ -2783,7 +2783,7 @@ void stressResize(PluginLibrary& library, const PluginInfo& info, Display* dpy) 
     } else {
         // the window manager is told it can't be resized (min = max); asked anyway, it stays
         ask("bigger (not resizable)", w0 + 100, h0 + 60);
-        // (Tiny DAW doesn't ask such a plugin; asked anyway, through the bridge: what it answers)
+        // (Exbit doesn't ask such a plugin; asked anyway, through the bridge: what it answers)
         int nw = w0 + 100, nh = h0 + 60, cw = 0, ch = 0;
         p->editorResized(nw, nh);
         rig.frames(0.3);
@@ -2847,7 +2847,7 @@ void stressResize(PluginLibrary& library, const PluginInfo& info, Display* dpy) 
 }
 
 void stress(PluginLibrary& library, const std::vector<PluginInfo>& windows) {
-    const char* only = getenv("TINYDAW_WINE_ONLY");
+    const char* only = getenv("EXBIT_WINE_ONLY");
     const PluginInfo *effect = nullptr, *instrument = nullptr, *big = nullptr;
     for (const auto& p : windows) {
         bool fits = only ? util::containsNoCase(p.name, only) : util::containsNoCase(p.path, "FabFilter");
@@ -2858,7 +2858,7 @@ void stress(PluginLibrary& library, const std::vector<PluginInfo>& windows) {
         if (util::containsNoCase(p.name, "Serum 2") && p.kind == INSTRUMENT)
             big = &p;
     }
-    if (!instrument)  // (TINYDAW_WINE_ONLY named an effect)
+    if (!instrument)  // (EXBIT_WINE_ONLY named an effect)
         for (const auto& p : windows)
             if (p.kind == INSTRUMENT && util::containsNoCase(p.path, "FabFilter"))
                 instrument = &p;
@@ -2909,16 +2909,16 @@ void stress(PluginLibrary& library, const std::vector<PluginInfo>& windows) {
         int left = 0;
         for (const auto& e : util::listDir("/proc"))
             if (!e.name.empty() && std::isdigit((unsigned char)e.name[0]) &&
-                procFile(std::atoi(e.name.c_str()), "cmdline").find("tinydaw-classes-" + std::to_string((long)getpid()) + "-") !=
+                procFile(std::atoi(e.name.c_str()), "cmdline").find("exbit-classes-" + std::to_string((long)getpid()) + "-") !=
                     std::string::npos)
                 left++;
         printf("   Wine processes of those listings left 1.5 s after: %d\n", left);
         CHECK(left == 0);
     }
-    bool windowsOk = !getenv("TINYDAW_NO_WINDOWS") && getenv("DISPLAY");
+    bool windowsOk = !getenv("EXBIT_NO_WINDOWS") && getenv("DISPLAY");
     if (stressWanted("mainends")) {
-        stressMainEnds(library, *first, "TINYDAW_WINE_TEST_MAIN_ENDS");
-        stressMainEnds(library, *first, "TINYDAW_WINE_TEST_CRASH");
+        stressMainEnds(library, *first, "EXBIT_WINE_TEST_MAIN_ENDS");
+        stressMainEnds(library, *first, "EXBIT_WINE_TEST_CRASH");
     }
     if (windowsOk && stressWanted("drag"))
         if (Display* dpy = XOpenDisplay(nullptr)) {
@@ -2973,7 +2973,7 @@ void stress(PluginLibrary& library, const std::vector<PluginInfo>& windows) {
 }
 
 // the kinds of the library's plugin files not known yet, from the probe (through the host), as
-// `tinydaw --probe <list>` does; how many were found
+// `exbit --probe <list>` does; how many were found
 int findKinds(PluginLibrary& library) {
     auto unknown = library.unknownFiles();
     if (unknown.empty()) return 0;
@@ -3013,7 +3013,7 @@ std::string hostSays(const std::string& prefix, const std::string& env, const st
 }
 
 // the host's corrections to Wine's Direct2D, on what Serum 2 really draws: a waveform display's
-// flat line, filled (written by TINYDAW_WINE_DUMP_PATHS): Wine recurses on it without end as it is
+// flat line, filled (written by EXBIT_WINE_DUMP_PATHS): Wine recurses on it without end as it is
 // given (its points all in line), and fills it once they are nudged; and outlines split where they
 // turn back sharper than Direct2D's mitre limit (a waveform's peaks: spikes in Wine), left whole
 // elsewhere, with points a nudge put off a line merged again
@@ -3023,7 +3023,7 @@ void testDirect2DFixes(const std::string& prefix) {
         printf("(no %s: Direct2D's fixes not tested)\n", fixture.c_str());
         return;
     }
-    std::string asGiven = hostSays(prefix, "TINYDAW_WINE_FILL_AS_IS=1", "--path-test-file '" + fixture + "'");
+    std::string asGiven = hostSays(prefix, "EXBIT_WINE_FILL_AS_IS=1", "--path-test-file '" + fixture + "'");
     std::string nudged = hostSays(prefix, "", "--path-test-file '" + fixture + "'");
     CHECK(asGiven.find("as given): Close() answered 80004005") != std::string::npos);  // (still Wine's bug)
     CHECK(nudged.find("nudged): Close() answered 00000000") != std::string::npos);
@@ -3038,9 +3038,9 @@ void testDirect2DFixes(const std::string& prefix) {
 // drag and drop through the Wine host, with the plugin's window open in one of ours: a file dropped
 // on it reaches it (the VST3 effect's OLE drop target, the VST2 synth's WM_DROPFILES: each marks the
 // file "<file>.seen-vst3/2"), and a MIDI file the synth drags out of its window (its Volume set to
-// 0.123, the test plugins' cue) comes to Tiny DAW as a Unix path
+// 0.123, the test plugins' cue) comes to Exbit as a Unix path
 void testDragAndDrop(PluginLibrary& library, const PluginInfo& info) {
-    if (getenv("TINYDAW_NO_WINDOWS") || !getenv("DISPLAY")) return;
+    if (getenv("EXBIT_NO_WINDOWS") || !getenv("DISPLAY")) return;
     auto p = library.load(info, 48000);
     Display* dpy = XOpenDisplay(nullptr);
     if (!dpy) return;
@@ -3095,7 +3095,7 @@ void testDragAndDrop(PluginLibrary& library, const PluginInfo& info) {
 // the Windows builds of the test plugins (make win-plugins), installed in a new prefix by the test
 // installer as Install Windows plugin… runs it, then found, loaded through the Wine host and tested
 // as any installed plugin, and with what they are known to do
-// a plugin that hangs for good in its host (TINYDAW_WINE_TEST_FREEZE, from a parameter's text): its own
+// a plugin that hangs for good in its host (EXBIT_WINE_TEST_FREEZE, from a parameter's text): its own
 // thread ("1", its window open in ours) or its audio thread ("audio"). Meanwhile our main thread's
 // frames (idle(), our window's events) never wait long, and the audio thread's buffers return within
 // their deadline; the watchdog (bridged.cpp, HANG_SECONDS = 10) ends the host, its window going with
@@ -3114,15 +3114,15 @@ void testHang(const std::vector<std::string>& folders, const PluginInfo& info) {
         host.autoReload = true;  // (a hang isn't reloaded by itself all the same)
         std::vector<std::string> statuses;
         host.showStatus = [&](const std::string& t, int) { statuses.push_back(t); };
-        setenv("TINYDAW_WINE_TEST_FREEZE", how, 1);
+        setenv("EXBIT_WINE_TEST_FREEZE", how, 1);
         SlotPtr slot = host.load(info);
-        unsetenv("TINYDAW_WINE_TEST_FREEZE");
+        unsetenv("EXBIT_WINE_TEST_FREEZE");
         CHECK(slot && slot->instance);
         if (!slot || !slot->instance)
             return;
         std::shared_ptr<Plugin> p = aload(slot->instance);
         int pid = bridgedHostPid(*p);
-        Display* dpy = getenv("TINYDAW_NO_WINDOWS") ? nullptr : XOpenDisplay(nullptr);
+        Display* dpy = getenv("EXBIT_NO_WINDOWS") ? nullptr : XOpenDisplay(nullptr);
         Window ours = 0;
         if (dpy) {
             ours = XCreateSimpleWindow(dpy, DefaultRootWindow(dpy), 40, 40, 400, 300, 0, 0, 0);
@@ -3215,7 +3215,7 @@ void testHang(const std::vector<std::string>& folders, const PluginInfo& info) {
 }
 
 void testWindowsTestPlugins(const std::string& prefix) {
-    const char* dirEnv = getenv("TINYDAW_WIN_TEST_PLUGINS");  // (make test sets it; else the release build's)
+    const char* dirEnv = getenv("EXBIT_WIN_TEST_PLUGINS");  // (make test sets it; else the release build's)
     std::string win = util::absolutePath(dirEnv && *dirEnv ? dirEnv : "build/win-test-plugins");
     std::string installer = util::joinPath(win, "TinyTestInstaller.exe");
     if (!util::fileExists(installer)) {
@@ -3264,7 +3264,7 @@ void testWindowsTestPlugins(const std::string& prefix) {
         CHECK(fx32 && fx32->kind == EFFECT && wine::is32BitPlugin(fx32->path));
         CHECK(synth32 && synth32->kind == INSTRUMENT && wine::is32BitPlugin(synth32->path));
     }
-    bool editors = !getenv("TINYDAW_NO_WINDOWS") && getenv("DISPLAY");
+    bool editors = !getenv("EXBIT_NO_WINDOWS") && getenv("DISPLAY");
     for (const auto& p : found) testPlugin(library, p, editors && p.name != "Tiny Test Single");  // (it has no window)
     // what they are known to do, through the bridge: the effect is its input 64 frames late (×1 at the
     // default gain), the synth sounds while a note is held
@@ -3322,8 +3322,8 @@ void testWindowsTestPlugins(const std::string& prefix) {
 }
 
 void testInstalled() {
-    if (getenv("TINYDAW_NO_WINE")) {
-        printf("(TINYDAW_NO_WINE: the installed Windows plugins aren't tested)\n");
+    if (getenv("EXBIT_NO_WINE")) {
+        printf("(EXBIT_NO_WINE: the installed Windows plugins aren't tested)\n");
         return;
     }
     std::string why;
@@ -3332,7 +3332,7 @@ void testInstalled() {
         return;
     }
     std::vector<std::string> folders;
-    if (const char* f = getenv("TINYDAW_WINE_PLUGINS"))
+    if (const char* f = getenv("EXBIT_WINE_PLUGINS"))
         folders.push_back(f);
     else
         folders = wine::vst3Folders({wine::defaultPrefix()});
@@ -3375,15 +3375,15 @@ void testInstalled() {
         if (p.kind.empty())
             printf("   kind NOT found: %s [%s]\n", p.name.c_str(), p.path.c_str());
     }
-    if (getenv("TINYDAW_WINE_STRESS")) {
+    if (getenv("EXBIT_WINE_STRESS")) {
         stress(library, windows);
         return;
     }
-    const char* only = getenv("TINYDAW_WINE_ONLY");
-    bool editors =!getenv("TINYDAW_NO_WINDOWS") && getenv("DISPLAY");
-    // every one with TINYDAW_WINE_ALL=1 (or TINYDAW_WINE_ONLY); else the first effect and the first
+    const char* only = getenv("EXBIT_WINE_ONLY");
+    bool editors =!getenv("EXBIT_NO_WINDOWS") && getenv("DISPLAY");
+    // every one with EXBIT_WINE_ALL=1 (or EXBIT_WINE_ONLY); else the first effect and the first
     // instrument (the whole lot takes minutes)
-    bool all = getenv("TINYDAW_WINE_ALL") != nullptr;
+    bool all = getenv("EXBIT_WINE_ALL") != nullptr;
     bool effectDone = false, instrumentDone = false;
     for (const auto& p : windows) {
         if (only && !util::containsNoCase(p.name, only))
@@ -3409,13 +3409,13 @@ void testInstalled() {
 int main() {
     setvbuf(stdout, nullptr, _IOLBF, 0);
     plat::isMainThread();  // (this is the main thread: the bridge tells offline rendering by it)
-    char tmpl[] = "/tmp/tinydaw-wine-test-XXXXXX";
+    char tmpl[] = "/tmp/exbit-wine-test-XXXXXX";
     tempRoot = mkdtemp(tmpl);
     testPrefixes();
     testPrefixArch();
     testWinePrograms();
     testSetupWithoutWine();
-    if (!getenv("TINYDAW_NO_WINE") && !wine::winePath().empty() && !wine::hostPath().empty()) {
+    if (!getenv("EXBIT_NO_WINE") && !wine::winePath().empty() && !wine::hostPath().empty()) {
         std::string made = testSetupWithWine();
         if (!made.empty()) {
             testDirect2DFixes(made);
@@ -3424,7 +3424,7 @@ int main() {
     }
     testFiles();
     testPrefixAsVst2Folder();
-    if (stressWanted("focus") && !getenv("TINYDAW_NO_WINDOWS") && getenv("DISPLAY"))
+    if (stressWanted("focus") && !getenv("EXBIT_NO_WINDOWS") && getenv("DISPLAY"))
         stressFocus();
     testInstalled();
     run("rm -rf '" + tempRoot + "'");

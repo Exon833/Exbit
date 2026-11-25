@@ -48,7 +48,7 @@ struct PluginInfo {
     std::string label() const {
         if (isBuiltinPath(path))
             return name + "  (built-in)";
-#ifdef TINYDAW_WINDOWS
+#ifdef EXBIT_WINDOWS
         std::string windows = is32Bit() ? "  (32-bit)" : "";  // (on Windows every plugin is a Windows one)
 #else
         std::string windows = looksWindows() ? (is32Bit() ? "  (Windows, 32-bit)" : "  (Windows)") : "";
@@ -132,7 +132,7 @@ std::string stateOf(Plugin& plugin);
 // throws std::invalid_argument("unknown plugin state")
 void setState(Plugin& plugin, const std::string& state);
 
-// States saved by Tiny DAW versions up to 0.3.1, which hosted plugins through pedalboard (JUCE): a
+// States saved by Exbit versions up to 0.3.1, which hosted plugins through pedalboard (JUCE): a
 // VST3 plugin's state was JUCE's binary XML, "VC2!" + length + XML holding the processor's state
 // (<IComponent>) and the window's (<IEditController>), each in JUCE's own base64 ("<byte
 // count>.<characters>", six bits per character, lowest bits first).

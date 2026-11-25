@@ -1,4 +1,4 @@
-// VST2 plugins in Tiny DAW's plugin host (the port of native/vst2plugin.cpp), with the same methods
+// VST2 plugins in Exbit's plugin host (the port of native/vst2plugin.cpp), with the same methods
 // as the VST3 ones (plugin.h), so the program treats both alike.
 //
 // A VST2 plugin is a shared library (Linux: a .so; Windows: a DLL) whose "VSTPluginMain" (or older
@@ -36,7 +36,7 @@
 #include "plugins/plugin.h"
 #include "plugins/vst2.h"
 #include "plugins/winlib.h"
-#ifndef TINYDAW_IN_HOST
+#ifndef EXBIT_IN_HOST
 #include "plugins/wine.h"
 #endif
 
@@ -581,9 +581,9 @@ vst2::intptr VST2_CALL host_callback(vst2::Effect* effect, int32_t opcode, int32
         case vst2::host::GET_AUTOMATION_STATE:
             return 1;  // (off)
         case vst2::host::GET_VENDOR_STRING:
-            return copy("Tiny DAW");
+            return copy("Exbit");
         case vst2::host::GET_PRODUCT_STRING:
-            return copy("Tiny DAW");
+            return copy("Exbit");
         case vst2::host::GET_VENDOR_VERSION:
             return 1;
         case vst2::host::GET_LANGUAGE:
@@ -770,7 +770,7 @@ std::unique_ptr<Plugin> loadVst2(const std::string& path, std::string& error) {
 }
 
 std::vector<ClassInfo> vst2Classes(const std::string& path, std::string& error) {
-#ifndef TINYDAW_IN_HOST
+#ifndef EXBIT_IN_HOST
     if (wine::isWindowsPlugin(path))  // (a Windows plugin: asked through Wine; on Windows, of its own host)
         return bridgedClasses(path, error);
 #endif

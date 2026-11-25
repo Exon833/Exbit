@@ -1,6 +1,6 @@
 // A check of Windows plugins' windows under Wine (not built by default): does the mouse land where
 // it is in the plugin's window, wherever that window is on the screen? (Wine works out the mouse's
-// place in a window from where it believes the window is; Tiny DAW tells its host where it really
+// place in a window from where it believes the window is; Exbit tells its host where it really
 // is, plugins/bridged.cpp.)
 //
 // Opens a plugin's window in an X11 window of ours at one place on the screen, double-clicks (with

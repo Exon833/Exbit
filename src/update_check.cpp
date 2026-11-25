@@ -79,7 +79,7 @@ std::string curlProblem(int code) {
 
 Json fetch(const std::string& url) {
     // curl -s -L --max-time 8 -H … -w "\n%{http_code}" url: the body, then the status on a line of its own
-    std::string agent = "User-Agent: Tiny-DAW";
+    std::string agent = "User-Agent: Exbit";
     std::string timeout = std::to_string(TIMEOUT_S);
     std::vector<std::string> args = {"curl", "-s", "-L", "--max-time", timeout, "-H",
                                      "Accept: application/vnd.github+json", "-H", agent, "-w", "\n%{http_code}", url};

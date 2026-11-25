@@ -1,13 +1,13 @@
-// The few parts of the Win32 API that Tiny DAW's Wine host (src/winehost) and its plugin hosts
-// (plugins/vst3host.cpp, vst2host.cpp, built for Windows) use: Tiny DAW's own declaration of them,
+// The few parts of the Win32 API that Exbit's Wine host (src/winehost) and its plugin hosts
+// (plugins/vst3host.cpp, vst2host.cpp, built for Windows) use: Exbit's own declaration of them,
 // from the API's public documentation, so the host builds with winegcc alone (Wine's own headers
 // aren't needed). Only for that build: it is on the include path of src/winehost and nothing else.
 //
 // The host is Linux code (built with g++, linked by winegcc against Wine's DLLs), so every Win32
 // function and callback is declared with Windows' calling convention: x64's (WINAPI = ms_abi) for the
-// 64-bit host, __stdcall for the 32-bit one (tinydaw-wine-host-32.exe); the pointer-sized types follow
+// 64-bit host, __stdcall for the 32-bit one (exbit-wine-host-32.exe); the pointer-sized types follow
 // the build. Wide strings are UTF-16 (WCHAR = char16_t; wchar_t stays the Linux 32-bit one). Where Wine
-// has no 32-bit Unix part, the 32-bit host is built with MinGW instead (TINYDAW_WINE_PE), on the same
+// has no 32-bit Unix part, the 32-bit host is built with MinGW instead (EXBIT_WINE_PE), on the same
 // declarations.
 #pragma once
 #include <cstddef>
@@ -132,7 +132,7 @@ WINAPI HANDLE CreateThread(void* security, SIZE_T stack, LPTHREAD_START_ROUTINE 
 WINAPI DWORD WaitForSingleObject(HANDLE handle, DWORD ms);
 #define STACK_SIZE_PARAM_IS_A_RESERVATION 0x00010000u
 WINAPI BOOL CloseHandle(HANDLE handle);
-// (a file's pages shared: the 32-bit host built as a Windows program maps Tiny DAW's /dev/shm block)
+// (a file's pages shared: the 32-bit host built as a Windows program maps Exbit's /dev/shm block)
 WINAPI HANDLE CreateFileW(LPCWSTR name, DWORD access, DWORD share, void* security, DWORD how, DWORD flags,
                           HANDLE templateFile);
 WINAPI HANDLE CreateFileMappingW(HANDLE file, void* security, DWORD protect, DWORD sizeHigh, DWORD sizeLow,
@@ -170,7 +170,7 @@ WINAPI BOOL K32EnumProcessModules(HANDLE process, HMODULE* modules, DWORD size, 
 #define THREAD_PRIORITY_TIME_CRITICAL 15
 
 // Wine's own (kernel32): a Unix path's DOS name ("Z:\…", "C:\…"), allocated on the process heap
-#ifdef TINYDAW_WINE_PE  // (MinGW's kernel32 has no Wine exports: taken from Wine's at run time)
+#ifdef EXBIT_WINE_PE  // (MinGW's kernel32 has no Wine exports: taken from Wine's at run time)
 inline LPWSTR wine_get_dos_file_name(LPCSTR unixName) {
     static auto fn = (LPWSTR(WINAPI*)(LPCSTR))GetProcAddress(GetModuleHandleW(u"kernel32.dll"), "wine_get_dos_file_name");
     return fn ? fn(unixName) : nullptr;
@@ -360,7 +360,7 @@ WINAPI HWND WindowFromPoint(POINT point);
 WINAPI LONG GetWindowLongW(HWND hwnd, int index);
 WINAPI BOOL ScreenToClient(HWND hwnd, POINT* point);
 // Wine's own (kernel32): a DOS path's Unix name, allocated on the process heap
-#ifdef TINYDAW_WINE_PE
+#ifdef EXBIT_WINE_PE
 inline char* wine_get_unix_file_name(LPCWSTR dosName) {
     static auto fn = (char*(WINAPI*)(LPCWSTR))GetProcAddress(GetModuleHandleW(u"kernel32.dll"), "wine_get_unix_file_name");
     return fn ? fn(dosName) : nullptr;

@@ -1,4 +1,4 @@
-// The VST 2.4 plugin binary interface, as far as Tiny DAW needs it to host plugins.
+// The VST 2.4 plugin binary interface, as far as Exbit needs it to host plugins.
 //
 // Declared here from the interface's public behaviour (how plugins and hosts talk: the plugin's
 // structure, the numbers of the commands passed each way), for interoperability. It is not
@@ -12,7 +12,7 @@ using intptr = std::intptr_t;
 struct Effect;
 
 // the calling convention of every function passed each way: Windows plugins use __cdecl, which on
-// 64-bit Windows is Microsoft's x64 convention (Tiny DAW's Wine host, Linux code, must say so)
+// 64-bit Windows is Microsoft's x64 convention (Exbit's Wine host, Linux code, must say so)
 #ifdef _WIN32
 #define VST2_CALL __cdecl
 #else
@@ -36,7 +36,7 @@ struct Effect {
     SetParameterFunction set_parameter;
     GetParameterFunction get_parameter;
     int32_t programs, parameters, inputs, outputs, flags;
-    intptr host_reserved[2];  // (the host's own: Tiny DAW keeps its plugin object here)
+    intptr host_reserved[2];  // (the host's own: Exbit keeps its plugin object here)
     int32_t initial_delay;  // frames of latency
     int32_t real_qualities, off_qualities;
     float io_ratio;

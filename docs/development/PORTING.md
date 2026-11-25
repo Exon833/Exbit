@@ -1,4 +1,4 @@
-# Tiny DAW in C++ — how the port is organised (read this first)
+# Exbit in C++ — how the port is organised (read this first)
 
 The Python program (repository root: `main.py`, `daw/`, `native/`) is the specification. The C++
 program in `cpp/` does everything it does, with **no third-party libraries and nothing fetched**:
@@ -37,8 +37,8 @@ of the VST3 interfaces — no Steinberg SDK). One `make` in `cpp/` builds the wh
 6. **The look.** Flat, as `daw/ui/theme.py`'s stylesheet: plain fills in the skin's colours
    (`theme::c("name")`, `theme::shades()`), hover lightens, lit/checked = accent, corners
    `theme::radius()`. Fonts: `theme::uiFont()` (9 pt), `theme::monoFont(pt)`.
-7. **Linux first.** Paths: settings and caches in `plat::configDir()` (`~/.config/TinyDAW`, the
-   Windows program's `%APPDATA%\TinyDAW`). Plugins: VST3 in `~/.vst3`, `/usr/lib/vst3`,
+7. **Linux first.** Paths: settings and caches in `plat::configDir()` (`~/.config/Exbit`, the
+   Windows program's `%APPDATA%\Exbit`). Plugins: VST3 in `~/.vst3`, `/usr/lib/vst3`,
    `/usr/local/lib/vst3` (bundles `X.vst3/Contents/x86_64-linux/X.so`); VST2 `.so` files in the
    folders chosen in Options → VST2 plugin folders (usual: `~/.vst`, `/usr/lib/vst`,
    `/usr/local/lib/vst`, `/usr/lib/lxvst`). Audio driver types: ALSA, PulseAudio.
@@ -49,7 +49,7 @@ of the VST3 interfaces — no Steinberg SDK). One `make` in `cpp/` builds the wh
 ## Layout of src/
 
 ```
-main.cpp                 start: tinydaw [project.json | audio and MIDI files...]; --probe <list> (plugin types)
+main.cpp                 start: exbit [project.json | audio and MIDI files...]; --probe <list> (plugin types)
 config.h                 daw/config.py
 core/                    json (json module), util (files, paths, strings), settings (QSettings)
 gfx/                     geom (Color…), image (+PNG, zlib), painter (QPainter), font (TrueType), svg

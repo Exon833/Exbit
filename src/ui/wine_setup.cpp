@@ -126,7 +126,7 @@ bool installPlugin(ui::Window* parent, const std::vector<std::string>& prefixes,
     return waitFor(parent, pid, title,
                    "Installing " + util::baseName(installer) + " in " + prefix +
                        "…\n\nAnswer the installer in its own windows (for VST3, keep its usual folder, C:\\Program "
-                       "Files\\Common Files\\VST3). Tiny DAW looks for the new plugins when it ends.",
+                       "Files\\Common Files\\VST3). Exbit looks for the new plugins when it ends.",
                    code);
 }
 

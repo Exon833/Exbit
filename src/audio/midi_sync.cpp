@@ -97,7 +97,7 @@ void JackFollower::tick(JackTransport& t, const Host& h, double now) {
         int64_t moved = (int64_t)((now - at_) * h.sr);
         bool jackMoved = s.rolling != rolling_ || std::llabs(jf - (jack_ + (rolling_ ? moved : 0))) > tol;
         bool weMoved = playing != playing_ || std::llabs(pos - (pos_ + (playing_ ? moved : 0))) > tol;
-        if (weMoved && !jackMoved) {  // Tiny DAW drives JACK
+        if (weMoved && !jackMoved) {  // Exbit drives JACK
             if (std::llabs(pos - jf) > tol) {
                 util::debugf("sync: JACK located to %.3f s\n", (double)pos / h.sr);
                 t.locate((int64_t)std::llround((double)pos * s.rate / h.sr));
@@ -106,10 +106,10 @@ void JackFollower::tick(JackTransport& t, const Host& h, double now) {
                 util::debugf("sync: JACK %s\n", playing ? "started" : "stopped");
                 playing ? t.start() : t.stop();
             }
-        } else if (jackMoved) {  // JACK drives Tiny DAW
+        } else if (jackMoved) {  // JACK drives Exbit
             if (std::llabs(jf - pos) > tol) h.seek(jf);
             if (s.rolling != playing) {
-                util::debugf("sync: JACK %s, so does Tiny DAW\n", s.rolling ? "rolls" : "stopped");
+                util::debugf("sync: JACK %s, so does Exbit\n", s.rolling ? "rolls" : "stopped");
                 s.rolling ? h.play() : h.stop();
             }
         } else if (s.rolling && playing && std::llabs(jf - pos) > tol) {

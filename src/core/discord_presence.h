@@ -1,4 +1,4 @@
-// Discord Rich Presence: while Tiny DAW runs (and Options → Discord status is on), Discord shows how many audio
+// Discord Rich Presence: while Exbit runs (and Options → Discord status is on), Discord shows how many audio
 // and MIDI lanes the project has, the audio CPU load and the program's RAM, as two lines of text (no pictures).
 //
 // A background thread does all the talking (discord_ipc.h): the GUI only hands it the numbers. It connects,
@@ -19,7 +19,7 @@
 
 namespace discord_presence {
 
-// Tiny DAW's own application in Discord's developer portal: Discord shows its name ("Tiny DAW") above the text.
+// Exbit's own application in Discord's developer portal: Discord shows its name ("Exbit") above the text.
 // Used when the setting (Options → Discord status → Application ID…) is empty; "" here would mean nothing is sent.
 inline const std::string DEFAULT_APPLICATION_ID = "1575039315958833152";
 

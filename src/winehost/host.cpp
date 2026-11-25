@@ -1,29 +1,29 @@
-// tinydaw-wine-host.exe: one Windows plugin, for Tiny DAW, under Wine (see plugins/bridge.h).
+// exbit-wine-host.exe: one Windows plugin, for Exbit, under Wine (see plugins/bridge.h).
 //
 // A Winelib program: Linux code built with g++ and linked by winegcc against Wine's DLLs, so it
-// loads Windows plugins as any Windows program does and talks to Tiny DAW through a Unix socket and
-// shared memory. The plugin is hosted by Tiny DAW's own VST3 and VST2 hosts, built for Windows.
+// loads Windows plugins as any Windows program does and talks to Exbit through a Unix socket and
+// shared memory. The plugin is hosted by Exbit's own VST3 and VST2 hosts, built for Windows.
 //
-//   tinydaw-wine-host.exe --serve <socket>     serve one plugin to Tiny DAW (it listens on the
+//   exbit-wine-host.exe --serve <socket>     serve one plugin to Exbit (it listens on the
 //                                              Unix socket <socket>, a path; the host connects)
-//   tinydaw-wine-host.exe --probe <list.json>  the kinds of these plugin files (plugins/probe.h)
-//   tinydaw-wine-host.exe --classes <list.json>  the plugins in these files, as JSON lines
+//   exbit-wine-host.exe --probe <list.json>  the kinds of these plugin files (plugins/probe.h)
+//   exbit-wine-host.exe --classes <list.json>  the plugins in these files, as JSON lines
 //
-// Threads: the plugin's thread (Win32 messages: its window, its timers; requests from Tiny DAW
+// Threads: the plugin's thread (Win32 messages: its window, its timers; requests from Exbit
 // arrive as messages, so they're served even while the plugin shows a dialog of its own; not the
 // process's first thread, which only waits for it to end: see serveOnPluginThread);
 // a reader thread passes the socket's requests to it; the audio thread waits on the shared memory's
 // futex. All three are Win32 threads (CreateThread), as the plugin may call Windows from any.
 //
 // Where Wine is built only for WoW64 (no 32-bit Unix part), the 32-bit host is a plain Windows
-// program instead, built with MinGW (TINYDAW_WINE_PE): the same code, its few Linux calls made by a
+// program instead, built with MinGW (EXBIT_WINE_PE): the same code, its few Linux calls made by a
 // Linux library of its own (winehost/unixside.h).
 //
-// On Windows itself the same code is tinydaw-plugin-host.exe (TINYDAW_PLUGIN_HOST, built with MinGW on
-// Windows' own headers; plugins/bridge.h's TINYDAW_BRIDGE_WIN): Tiny DAW starts it directly, the socket
-// and wake-ups are Windows' (plugins/bridge_win.h), the plugin's window is made inside Tiny DAW's (a
+// On Windows itself the same code is exbit-plugin-host.exe (EXBIT_PLUGIN_HOST, built with MinGW on
+// Windows' own headers; plugins/bridge.h's EXBIT_BRIDGE_WIN): Exbit starts it directly, the socket
+// and wake-ups are Windows' (plugins/bridge_win.h), the plugin's window is made inside Exbit's (a
 // child window of another process's), and Wine's fixes (d2dfix, dragdrop) aren't there (native_win.cpp).
-#ifdef TINYDAW_PLUGIN_HOST
+#ifdef EXBIT_PLUGIN_HOST
 #include <winsock2.h>  // (before windows.h)
 #endif
 #include <windows.h>
@@ -45,11 +45,11 @@
 #include <sched.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#ifdef TINYDAW_WINE_PE
+#ifdef EXBIT_WINE_PE
 #include <io.h>
 
 #include "winehost/unixside.h"
-#elif defined(TINYDAW_PLUGIN_HOST)
+#elif defined(EXBIT_PLUGIN_HOST)
 #include <io.h>
 #include <psapi.h>
 #else
@@ -73,7 +73,7 @@ namespace {
 constexpr UINT MSG_REQUEST = WM_APP + 1;  // lParam: an Incoming*
 constexpr UINT MSG_PARAMS = WM_APP + 2;   // lParam: a ParamBatch*
 constexpr UINT_PTR IDLE_TIMER = 1;
-constexpr UINT MSG_DRAG = WM_APP + 3;     // (tests: TINYDAW_WINE_TEST_DRAG)
+constexpr UINT MSG_DRAG = WM_APP + 3;     // (tests: EXBIT_WINE_TEST_DRAG)
 constexpr UINT IDLE_MS = 15;
 constexpr int VALUE_SWEEP_TICKS = 8;  // every so many idle ticks, every parameter's value is compared
 
@@ -87,23 +87,23 @@ HWND messageWindow = nullptr;
 std::unique_ptr<plug::Plugin> plugin;
 AudioBlock* block = nullptr;
 HANDLE audioThread = nullptr;
-std::atomic<bool> freezeAudio{false};  // (tests: TINYDAW_WINE_TEST_FREEZE=audio)
+std::atomic<bool> freezeAudio{false};  // (tests: EXBIT_WINE_TEST_FREEZE=audio)
 
 // --- the plugin's news, collected every idle tick, handed over at IDLE ---
 std::vector<std::pair<uint32_t, double>> editedNews;
-std::map<uint32_t, double> values;   // the values Tiny DAW was last told
+std::map<uint32_t, double> values;   // the values Exbit was last told
 std::map<uint32_t, double> changedNews;
 bool resizeNews = false;
 int newsW = 0, newsH = 0;
 int latencyNow = 0;
-int windowEdits = 0;  // (tests: TINYDAW_WINE_TEST_DRAG says how many)
+int windowEdits = 0;  // (tests: EXBIT_WINE_TEST_DRAG says how many)
 std::pair<uint32_t, double> lastWindowEdit{0, 0};
 int ticks = 0;
 
 // --- the window ---
 HWND editorWindow = nullptr;
-int repaintTicks = 0;  // (shown by Tiny DAW: drawn again after so many idle ticks, see SHOW_EDITOR)
-const char16_t EDITOR_CLASS[] = u"TinyDAWPluginWindow";
+int repaintTicks = 0;  // (shown by Exbit: drawn again after so many idle ticks, see SHOW_EDITOR)
+const char16_t EDITOR_CLASS[] = u"ExbitPluginWindow";
 
 [[noreturn]] void quit() {
     fflush(stdout);
@@ -117,9 +117,9 @@ void reply(const Incoming& in, const Writer& w) { sendMessage(sock, in.header.op
 
 void realtime() {
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
-#ifdef TINYDAW_WINE_PE
+#ifdef EXBIT_WINE_PE
     unixside::realtime();
-#elif defined(TINYDAW_PLUGIN_HOST)
+#elif defined(EXBIT_PLUGIN_HOST)
     // (MMCSS, as Windows' audio programs do: avrt.dll, loaded when there)
     using AvSet = HANDLE(WINAPI*)(LPCWSTR, LPDWORD);
     static HMODULE avrt = LoadLibraryW(L"avrt.dll");
@@ -130,7 +130,7 @@ void realtime() {
 #else
     sched_param sp{};
     int lo = sched_get_priority_min(SCHED_FIFO), hi = sched_get_priority_max(SCHED_FIFO);
-    sp.sched_priority = std::min(hi, lo + 69);  // (a little below Tiny DAW's own audio thread, which waits for this one)
+    sp.sched_priority = std::min(hi, lo + 69);  // (a little below Exbit's own audio thread, which waits for this one)
     if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp) != 0) {
         sp.sched_priority = lo + 9;
         pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);
@@ -138,18 +138,18 @@ void realtime() {
 #endif
 }
 
-// (Tiny DAW ends the host by it: Wine's own process id isn't it)
+// (Exbit ends the host by it: Wine's own process id isn't it)
 int linuxPid() {
-#ifdef TINYDAW_WINE_PE
+#ifdef EXBIT_WINE_PE
     return unixside::linuxPid();
-#elif defined(TINYDAW_PLUGIN_HOST)
-    return (int)GetCurrentProcessId();  // (Windows: no launcher, Tiny DAW's child itself)
+#elif defined(EXBIT_PLUGIN_HOST)
+    return (int)GetCurrentProcessId();  // (Windows: no launcher, Exbit's child itself)
 #else
     return getpid();
 #endif
 }
 
-bool tracing = getenv("TINYDAW_WINE_TRACE") != nullptr;
+bool tracing = getenv("EXBIT_WINE_TRACE") != nullptr;
 
 double traceNow() {
     timespec t{};
@@ -160,7 +160,7 @@ double traceNow() {
 DWORD WINAPI audioMain(LPVOID) {
     realtime();
     if (tracing)
-        fprintf(stderr, "tinydaw-wine-host: audio thread started\n");
+        fprintf(stderr, "exbit-wine-host: audio thread started\n");
     std::vector<plug::NoteMessage> notes;
     notes.reserve(MAX_NOTES);
     // (from the last buffer done, not the last asked for: a buffer may be asked for before this
@@ -169,7 +169,7 @@ DWORD WINAPI audioMain(LPVOID) {
     for (;;) {
         if (tracing) {
             while (!waitChange(&block->request, seen, 1.0))
-                fprintf(stderr, "tinydaw-wine-host: waiting: request %u, done %u, seen %u, block %p\n",
+                fprintf(stderr, "exbit-wine-host: waiting: request %u, done %u, seen %u, block %p\n",
                         block->request.load(), block->done.load(), seen, (void*)block);
         } else {
             waitChange(&block->request, seen, -1);
@@ -181,9 +181,9 @@ DWORD WINAPI audioMain(LPVOID) {
             Sleep(1000);
         double started = tracing ? traceNow() : 0;
         if (tracing && seen < 4)
-            fprintf(stderr, "tinydaw-wine-host: buffer %u begins\n", seen);
+            fprintf(stderr, "exbit-wine-host: buffer %u begins\n", seen);
         int frames = std::max(0, std::min(block->frames, MAX_FRAMES));
-        if (block->prepareSet && block->sampleRate > 0) {  // (a new rate, asked on Tiny DAW's audio thread)
+        if (block->prepareSet && block->sampleRate > 0) {  // (a new rate, asked on Exbit's audio thread)
             try {
                 plugin->prepare(block->sampleRate, std::max(1, std::min(block->maxBlock, MAX_FRAMES)));
             } catch (const std::exception&) {
@@ -219,7 +219,7 @@ DWORD WINAPI audioMain(LPVOID) {
         block->holding = plugin->holding() ? 1 : 0;
         block->latency = plugin->latency();
         if (tracing && (seen < 4 || traceNow() - started > 0.005))
-            fprintf(stderr, "tinydaw-wine-host: buffer %u took %.1f ms\n", seen, 1000 * (traceNow() - started));
+            fprintf(stderr, "exbit-wine-host: buffer %u took %.1f ms\n", seen, 1000 * (traceNow() - started));
         block->done.store(seen, std::memory_order_release);
         wake(&block->done);
     }
@@ -234,12 +234,12 @@ std::string className(HWND h) {
     return name;
 }
 
-// (TINYDAW_WINE_TRACE=1) which window the keys go to
+// (EXBIT_WINE_TRACE=1) which window the keys go to
 LRESULT WINAPI traceHook(int code, WPARAM wp, LPARAM lp) {
     const MSG* m = (const MSG*)lp;
     if (code >= 0 && m && (m->message == WM_KEYDOWN || m->message == WM_KEYUP || m->message == WM_CHAR ||
                            m->message == WM_LBUTTONDOWN || m->message == WM_LBUTTONUP))
-        fprintf(stderr, "tinydaw-wine-host: [%.3f] msg %04x to %p (%s), focus %p (%s), foreground %p\n", traceNow(), m->message,
+        fprintf(stderr, "exbit-wine-host: [%.3f] msg %04x to %p (%s), focus %p (%s), foreground %p\n", traceNow(), m->message,
                 (void*)m->hwnd, className(m->hwnd).c_str(), (void*)GetFocus(), className(GetFocus()).c_str(),
                 (void*)GetForegroundWindow());
     return CallNextHookEx(nullptr, code, wp, lp);
@@ -247,13 +247,13 @@ LRESULT WINAPI traceHook(int code, WPARAM wp, LPARAM lp) {
 
 LRESULT WINAPI editorProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     // (Wine sends an embedded window WM_CLOSE when it is taken out of its embedder: the window goes
-    // only when Tiny DAW closes the plugin's view, CLOSE_EDITOR, never under the plugin's feet)
+    // only when Exbit closes the plugin's view, CLOSE_EDITOR, never under the plugin's feet)
     if (msg == WM_CLOSE)
         return 0;
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
-#ifdef TINYDAW_PLUGIN_HOST
+#ifdef EXBIT_PLUGIN_HOST
 uint64_t x11Window(HWND hwnd) { return (uint64_t)(uintptr_t)hwnd; }  // (Windows: the window itself)
 #else
 uint64_t x11Window(HWND hwnd) { return (uint64_t)(uintptr_t)GetPropA(hwnd, "__wine_x11_whole_window"); }
@@ -294,7 +294,7 @@ void collectNews() {
     }
     int w = 0, h = 0;
     if (plugin->requestedSize(w, h) && w > 0 && h > 0) {
-        resizeEditorWindow(w, h);  // (the plugin's window grows at once; Tiny DAW's follows)
+        resizeEditorWindow(w, h);  // (the plugin's window grows at once; Exbit's follows)
         resizeNews = true, newsW = w, newsH = h;
     }
     if (++ticks % VALUE_SWEEP_TICKS == 0)
@@ -323,13 +323,13 @@ void writeParameters(Writer& w) {
 // --- the requests ---
 
 bool openSharedMemory(const std::string& name) {
-#ifdef TINYDAW_PLUGIN_HOST
+#ifdef EXBIT_PLUGIN_HOST
     void* m = mapShared(name, sizeof(AudioBlock), false);
     if (!m)
         return false;
     bindWake(&((AudioBlock*)m)->request, name + "-request", false);  // (else polled: bridge_win.h)
     bindWake(&((AudioBlock*)m)->done, name + "-done", false);
-#elif defined(TINYDAW_WINE_PE)  // (shm_open's file, mapped by its DOS name: Wine shares the pages)
+#elif defined(EXBIT_WINE_PE)  // (shm_open's file, mapped by its DOS name: Wine shares the pages)
     LPWSTR dos = wine_get_dos_file_name(("/dev/shm/" + name.substr(name[0] == '/')).c_str());
     HANDLE file = dos ? CreateFileW(dos, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
                                     OPEN_EXISTING, 0, nullptr)
@@ -366,7 +366,7 @@ void load(const Incoming& in) {
     std::string error;
     try {
         if (!openSharedMemory(shm))
-            error = "The Wine host cannot reach Tiny DAW's audio memory";
+            error = "The Wine host cannot reach Exbit's audio memory";
         else
             plugin = plug::Plugin::load(path, name, error);
     } catch (const std::exception& e) {
@@ -435,17 +435,17 @@ void serve(const Incoming& in) {
         double v = r.f64();
         // (tests) a plugin that hangs for good: its own thread ("1": nothing is answered any more, its
         // window frozen) or its audio thread ("audio")
-        if (const char* freeze = getenv("TINYDAW_WINE_TEST_FREEZE")) {
-            fprintf(stderr, "tinydaw-wine-host: test: %s hangs\n", std::strcmp(freeze, "audio") ? "the plugin's thread" : "the audio thread");
+        if (const char* freeze = getenv("EXBIT_WINE_TEST_FREEZE")) {
+            fprintf(stderr, "exbit-wine-host: test: %s hangs\n", std::strcmp(freeze, "audio") ? "the plugin's thread" : "the audio thread");
             if (!std::strcmp(freeze, "audio"))
                 freezeAudio = true;
             else
                 for (;;)
                     Sleep(1000);
         }
-        if (getenv("TINYDAW_WINE_TEST_MAIN_ENDS"))  // (tests) the main thread ends, as a plugin's crash
+        if (getenv("EXBIT_WINE_TEST_MAIN_ENDS"))  // (tests) the main thread ends, as a plugin's crash
             ExitThread(0);                           // on it ended it: the audio thread plays on
-        if (getenv("TINYDAW_WINE_TEST_CRASH")) {  // (tests) a plugin's crash: a fault in Windows code on it
+        if (getenv("EXBIT_WINE_TEST_CRASH")) {  // (tests) a plugin's crash: a fault in Windows code on it
             using StrlenFn = size_t(WINAPI*)(const char*);
             HMODULE crt = LoadLibraryW((LPCWSTR)u"ucrtbase.dll");
             const char* volatile nothing = nullptr;  // (not seen through by the compiler)
@@ -496,7 +496,7 @@ void serve(const Incoming& in) {
         std::string error;
         try {
             plugin->setState(component, controller);
-            // (news gathered before it are about the settings it replaced: they'd undo it in Tiny DAW's view)
+            // (news gathered before it are about the settings it replaced: they'd undo it in Exbit's view)
             if (!editedNews.empty() || !changedNews.empty())
                 fprintf(stderr, "[host] %zu parameter changes from before the state was set, left out\n",
                         editedNews.size() + changedNews.size());
@@ -518,11 +518,11 @@ void serve(const Incoming& in) {
     }
     case OPEN_EDITOR: {
         double scale = r.f64();
-        int sx = r.i32(), sy = r.i32();  // where Tiny DAW's window is on the screen
+        int sx = r.i32(), sy = r.i32();  // where Exbit's window is on the screen
         if (!r.ok())
             sx = sy = 0;
-#ifdef TINYDAW_PLUGIN_HOST
-        HWND parent = (HWND)(intptr_t)r.i64();  // (Windows: Tiny DAW's window, which the plugin's goes in)
+#ifdef EXBIT_PLUGIN_HOST
+        HWND parent = (HWND)(intptr_t)r.i64();  // (Windows: Exbit's window, which the plugin's goes in)
         if (!r.ok() || !IsWindow(parent))
             parent = nullptr;
 #endif
@@ -530,21 +530,21 @@ void serve(const Incoming& in) {
         fixWineDxgi();
         fixWineDirectWrite();
         closeEditor();
-        // a borderless popup, not shown, where Tiny DAW's window is (plugins look at where their
+        // a borderless popup, not shown, where Exbit's window is (plugins look at where their
         // window is when they make it: JUCE 8 picks the screen it repaints with then, once)
-#ifdef TINYDAW_PLUGIN_HOST
-        // (Windows: a child of Tiny DAW's window, at its corner; else, a failsafe, a window of its own there)
+#ifdef EXBIT_PLUGIN_HOST
+        // (Windows: a child of Exbit's window, at its corner; else, a failsafe, a window of its own there)
         if (parent)
-            editorWindow = CreateWindowExW(WS_EX_NOPARENTNOTIFY, (LPCWSTR)EDITOR_CLASS, (LPCWSTR)u"Tiny DAW plugin",
+            editorWindow = CreateWindowExW(WS_EX_NOPARENTNOTIFY, (LPCWSTR)EDITOR_CLASS, (LPCWSTR)u"Exbit plugin",
                                            WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 0, 0, 640, 400, parent, nullptr,
                                            GetModuleHandleW(nullptr), nullptr);
         if (!editorWindow)
 #endif
-        editorWindow = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, (LPCWSTR)EDITOR_CLASS, (LPCWSTR)u"Tiny DAW plugin",
+        editorWindow = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, (LPCWSTR)EDITOR_CLASS, (LPCWSTR)u"Exbit plugin",
                                        WS_POPUP | WS_CLIPCHILDREN, sx, sy, 640, 400, nullptr, nullptr,
                                        GetModuleHandleW(nullptr), nullptr);
         int pw = 0, ph = 0;
-        if (const char* slow = getenv("TINYDAW_HOST_TEST_SLOW_EDITOR")) {  // (tests) a plugin slow to make its window
+        if (const char* slow = getenv("EXBIT_HOST_TEST_SLOW_EDITOR")) {  // (tests) a plugin slow to make its window
             fprintf(stderr, "[host] test: the plugin takes %s ms to make its window\n", slow);
             Sleep((DWORD)atoi(slow));
         }
@@ -593,7 +593,7 @@ void serve(const Incoming& in) {
     case SHOW_EDITOR:
         if (editorWindow) {
             ShowWindow(editorWindow, SW_SHOWNA);
-            // what it drew off every screen, before Tiny DAW took its window in, isn't there, and Wine
+            // what it drew off every screen, before Exbit took its window in, isn't there, and Wine
             // settles the window it took in a little later: drawn again then (some 0.3 s), or a plugin
             // that draws only when asked (the test synth) stays blank.
             // shortcut: a fixed delay, not Wine's word that the window is settled; if a slow machine still
@@ -624,7 +624,7 @@ void serve(const Incoming& in) {
         if (editorWindow)
             SetWindowPos(editorWindow, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
         if (tracing && editorWindow)
-            fprintf(stderr, "tinydaw-wine-host: the window is at %d,%d, on monitor %p\n", x, y,
+            fprintf(stderr, "exbit-wine-host: the window is at %d,%d, on monitor %p\n", x, y,
                     (void*)MonitorFromWindow(editorWindow, MONITOR_DEFAULTTONULL));
         break;
     }
@@ -645,7 +645,7 @@ void serve(const Incoming& in) {
 
 // --- parameter changes, gathered ---
 
-// Tiny DAW sends a change for every knob that moves, every frame (all of them at once, from
+// Exbit sends a change for every knob that moves, every frame (all of them at once, from
 // automation or a preset); the reader thread gathers those that wait into one batch, the latest value
 // of each, and the main thread sets the batch at once: one wake-up instead of one Win32 message (and
 // one trip to the wineserver) each. Order is kept: any other request closes the batch, so it
@@ -704,7 +704,7 @@ void setBatch(ParamBatch* batch) {
 
 // --- (tests) a knob turned by hand, without the mouse ---
 
-// TINYDAW_WINE_TEST_DRAG=x,y: two seconds after the plugin's window opens, its left button is pressed
+// EXBIT_WINE_TEST_DRAG=x,y: two seconds after the plugin's window opens, its left button is pressed
 // at x,y of the window and moved up and down, let go and pressed again now and then (Serum 2's WT POS
 // knob turned so crashed Wine's Direct2D), as messages to the window under that point. The pointer
 // never moves: the plugin's SetCursorPos and ClipCursor do nothing (plugins hide the pointer while a
@@ -762,7 +762,7 @@ void quietPointer() {
             }
         }
     }
-    fprintf(stderr, "tinydaw-wine-host: test drag: %d imports of the pointer's calls quieted\n", patched);
+    fprintf(stderr, "exbit-wine-host: test drag: %d imports of the pointer's calls quieted\n", patched);
 }
 
 // (a thread's clock, as posted messages: a timer's come only when nothing else waits, and a plugin
@@ -778,7 +778,7 @@ DWORD WINAPI dragClock(LPVOID) {
 }
 
 void startTestDrag() {
-    if (!getenv("TINYDAW_WINE_TEST_DRAG"))
+    if (!getenv("EXBIT_WINE_TEST_DRAG"))
         return;
     dragTick = 0;
     dragTarget = nullptr;
@@ -803,7 +803,7 @@ void dragStep() {
     if (!dragTarget) {
         quietPointer();
         int x = 0, y = 0;
-        sscanf(getenv("TINYDAW_WINE_TEST_DRAG"), "%d,%d", &x, &y);
+        sscanf(getenv("EXBIT_WINE_TEST_DRAG"), "%d,%d", &x, &y);
         POINT p{x, y};
         HWND h = editorWindow;
         for (int depth = 0; depth < 16; depth++) {  // (the deepest window under the point)
@@ -814,20 +814,20 @@ void dragStep() {
             h = child;
         }
         dragTarget = h, dragAt = p;
-        fprintf(stderr, "tinydaw-wine-host: test drag at %d,%d of the window: %d,%d of %p (%s)\n", x, y, (int)p.x,
+        fprintf(stderr, "exbit-wine-host: test drag at %d,%d of the window: %d,%d of %p (%s)\n", x, y, (int)p.x,
                 (int)p.y, (void*)h, className(h).c_str());
     }
     int y0 = 0;
     {
         int x = 0, y = 0;
-        sscanf(getenv("TINYDAW_WINE_TEST_DRAG"), "%d,%d", &x, &y);
+        sscanf(getenv("EXBIT_WINE_TEST_DRAG"), "%d,%d", &x, &y);
         POINT p{x, y};
         MapWindowPoints(editorWindow, dragTarget, &p, 1);
         y0 = (int)p.y;
     }
     int cycle = HOVER + PRESSED + LET_GO, k = t % cycle;
     if (k == HOVER + PRESSED)
-        fprintf(stderr, "tinydaw-wine-host: test drag: %d edits from the window so far (the last: %u = %.3f)\n",
+        fprintf(stderr, "exbit-wine-host: test drag: %d edits from the window so far (the last: %u = %.3f)\n",
                 windowEdits, lastWindowEdit.first, lastWindowEdit.second);
     if (k < HOVER) {
         dragAt.y = y0;
@@ -854,7 +854,7 @@ LRESULT WINAPI messageProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         try {
             serve(*in);
         } catch (const std::exception& e) {
-            // (an answer of the right kind but empty: Tiny DAW reads defaults)
+            // (an answer of the right kind but empty: Exbit reads defaults)
             if (in->header.op != SET_PARAM && in->header.op != WINDOW_EDIT && in->header.op != SHOW_EDITOR &&
                 in->header.op != EDITOR_PLACE && in->header.op != NOTES_OFF)
                 reply(*in, Writer());
@@ -884,7 +884,7 @@ LRESULT WINAPI messageProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 DWORD WINAPI readerMain(LPVOID) {
     for (;;) {
         auto in = std::make_unique<Incoming>();
-        // Tiny DAW let go of the plugin (or is gone): the host ends at once, from here (the main
+        // Exbit let go of the plugin (or is gone): the host ends at once, from here (the main
         // thread may be busy in the plugin)
         if (!recvMessage(sock, in->header, in->payload) || in->header.op == QUIT)
             quit();
@@ -903,10 +903,10 @@ DWORD WINAPI readerMain(LPVOID) {
 }
 
 int serveMain(const std::string& socketName) {
-#ifdef TINYDAW_WINE_PE
+#ifdef EXBIT_WINE_PE
     sock = unixside::connectUnix(socketName.c_str());
     if (sock < 0) {
-#elif defined(TINYDAW_PLUGIN_HOST)
+#elif defined(EXBIT_PLUGIN_HOST)
     sock = connectTo(socketName);
     if (sock < 0) {
 #else
@@ -916,7 +916,7 @@ int serveMain(const std::string& socketName) {
     std::strncpy(addr.sun_path, socketName.c_str(), sizeof(addr.sun_path) - 1);
     if (sock < 0 || connect(sock, (sockaddr*)&addr, sizeof(addr)) != 0) {
 #endif
-        fprintf(stderr, "tinydaw-wine-host: cannot reach Tiny DAW (%s: %s)\n", socketName.c_str(), strerror(errno));
+        fprintf(stderr, "exbit-wine-host: cannot reach Exbit (%s: %s)\n", socketName.c_str(), strerror(errno));
         return 1;
     }
     sendMessage(sock, HELLO, 0, Writer().i32((int32_t)linuxPid()).u32(VERSION).data);
@@ -926,7 +926,7 @@ int serveMain(const std::string& socketName) {
     wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = messageProc;
     wc.hInstance = self;
-    wc.lpszClassName = (LPCWSTR)u"TinyDAWHost";
+    wc.lpszClassName = (LPCWSTR)u"ExbitHost";
     RegisterClassExW(&wc);
     WNDCLASSEXW ec{};
     ec.cbSize = sizeof(ec);
@@ -935,7 +935,7 @@ int serveMain(const std::string& socketName) {
     ec.hCursor = LoadCursorW(nullptr, (LPCWSTR)IDC_ARROW);
     ec.lpszClassName = (LPCWSTR)EDITOR_CLASS;
     RegisterClassExW(&ec);
-    messageWindow = CreateWindowExW(0, (LPCWSTR)u"TinyDAWHost", (LPCWSTR)u"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, self, nullptr);
+    messageWindow = CreateWindowExW(0, (LPCWSTR)u"ExbitHost", (LPCWSTR)u"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, self, nullptr);
     SetTimer(messageWindow, IDLE_TIMER, IDLE_MS, nullptr);
     if (tracing)
         SetWindowsHookExW(WH_GETMESSAGE, traceHook, nullptr, GetCurrentThreadId());
@@ -948,12 +948,12 @@ int serveMain(const std::string& socketName) {
     quit();
 }
 
-// (--classes) Tiny DAW holds the other end of our stdin, a pipe: when it lets go (done, or its
+// (--classes) Exbit holds the other end of our stdin, a pipe: when it lets go (done, or its
 // process killed: a scan's probe that took too long), the host ends, whatever the plugin is doing
 DWORD WINAPI lifelineMain(LPVOID) {
     char c[64];
     for (;;) {
-#ifdef TINYDAW_WINE_PE
+#ifdef EXBIT_WINE_PE
         ssize_t k = unixside::read(0, c, sizeof(c));
 #else
         ssize_t k = read(0, c, sizeof(c));
@@ -969,9 +969,9 @@ DWORD WINAPI lifelineMain(LPVOID) {
 // --classes: one JSON line per file: {"path": …, "classes": [{name, vendor, subcategories, version, instrument}]}
 // or {"path": …, "error": …}
 int classesMain(const std::string& listFile) {
-#ifdef TINYDAW_WINE_PE
+#ifdef EXBIT_WINE_PE
     if (unixside::isFifo(0))
-#elif defined(TINYDAW_PLUGIN_HOST)
+#elif defined(EXBIT_PLUGIN_HOST)
     if (GetFileType(GetStdHandle(STD_INPUT_HANDLE)) == FILE_TYPE_PIPE)
 #else
     struct stat in {};
@@ -981,7 +981,7 @@ int classesMain(const std::string& listFile) {
     std::string me = std::string(CLASSES_PID_MARK) + std::to_string((long)linuxPid()) + "\n";
     fwrite(me.data(), 1, me.size(), stdout);
     fflush(stdout);
-    if (getenv("TINYDAW_WINE_TEST_HANG"))  // (tests) a plugin that hangs while it is listed
+    if (getenv("EXBIT_WINE_TEST_HANG"))  // (tests) a plugin that hangs while it is listed
         for (;;)
             Sleep(1000);
     std::string text;
@@ -1021,7 +1021,7 @@ int classesMain(const std::string& listFile) {
 // the stack runs out and only that thread ends: the audio thread plays on, nothing answers, the
 // plugin's window stays frozen (Serum 2's WT POS knob did it, through Wine's Direct2D). Seen as it
 // begins (a fault in ntdll reading just past the stack's top, which nothing does on purpose), the host
-// ends at once, saying where the plugin crashed: Tiny DAW reports the plugin as crashed.
+// ends at once, saying where the plugin crashed: Exbit reports the plugin as crashed.
 struct Fault {
     DWORD code = 0;
     void* at = nullptr;
@@ -1087,7 +1087,7 @@ void sayOverflowAndEnd(const void* at) {
         d[k] = 0;
         put(d);
     };
-    put("tinydaw-wine-host: the plugin's thread ran out of stack at ");
+    put("exbit-wine-host: the plugin's thread ran out of stack at ");
     hex((uint64_t)(uintptr_t)at);
     put(" (returning to");
     for (int k = 0; k < n; k++) {
@@ -1114,7 +1114,7 @@ LONG WINAPI watchFaults(EXCEPTION_POINTERS* info) {
         GetCurrentThreadStackLimits(&low, &high);
         ULONG_PTR read = r->ExceptionInformation[1];
         if (high && read >= high && read < high + (1u << 24)) {
-            std::fprintf(stderr, "tinydaw-wine-host: the plugin crashed (exception %08x at %s); the host ends\n",
+            std::fprintf(stderr, "exbit-wine-host: the plugin crashed (exception %08x at %s); the host ends\n",
                          (unsigned)lastFault.code, lastFault.at ? whereIs(lastFault.at).c_str() : "?");
             std::fflush(stderr);
             TerminateProcess(GetCurrentProcess(), 3);
@@ -1129,7 +1129,7 @@ LONG WINAPI watchFaults(EXCEPTION_POINTERS* info) {
         bool fault = (r->ExceptionCode & 0xF0000000) == 0xC0000000;
         if (fault && saidCount < 32 && std::find(said, said + saidCount, r->ExceptionAddress) == said + saidCount) {
             said[saidCount++] = r->ExceptionAddress;
-            std::fprintf(stderr, "tinydaw-wine-host: exception %08x at %s (thread %lu, %s %p)\n", (unsigned)r->ExceptionCode,
+            std::fprintf(stderr, "exbit-wine-host: exception %08x at %s (thread %lu, %s %p)\n", (unsigned)r->ExceptionCode,
                          whereIs(r->ExceptionAddress).c_str(), (unsigned long)GetCurrentThreadId(),
                          r->NumberParameters >= 2 && r->ExceptionInformation[0] ? "writing" : "reading",
                          r->NumberParameters >= 2 ? (void*)r->ExceptionInformation[1] : nullptr);
@@ -1149,13 +1149,13 @@ void watchForCrashes() {
     AddVectoredExceptionHandler(1, watchFaults);
 }
 
-// The plugin's thread (its window, its timers, Tiny DAW's requests: serveMain) isn't the process's
+// The plugin's thread (its window, its timers, Exbit's requests: serveMain) isn't the process's
 // first one, whose stack Wine makes 1 MB: Wine's Direct2D fills a path by recursing once for every
 // triangle a side of it crosses, and the paths of a plugin's busy views (Serum 2's wavetables, as its
 // WT POS knob turned) went deeper than that; Windows' own Direct2D doesn't recurse so. Its stack may
 // grow to 256 MB (address space, used only as deep as it goes). And the first thread watches it: if it
 // ends otherwise than by quit() (a plugin's crash on it, which Wine can't unwind through the host's
-// own frames), the host ends at once, and Tiny DAW reports the plugin as crashed.
+// own frames), the host ends at once, and Exbit reports the plugin as crashed.
 constexpr SIZE_T PLUGIN_STACK = 256u << 20;
 std::string serveSocket;
 
@@ -1168,7 +1168,7 @@ int serveOnPluginThread(const std::string& socketName) {
     if (!thread)
         return serveMain(socketName);
     WaitForSingleObject(thread, INFINITE);
-    std::fprintf(stderr, "tinydaw-wine-host: the plugin's thread ended (the plugin crashed%s%s); the host ends\n",
+    std::fprintf(stderr, "exbit-wine-host: the plugin's thread ended (the plugin crashed%s%s); the host ends\n",
                  lastFault.at ? " at " : "", lastFault.at ? whereIs(lastFault.at).c_str() : "");
     std::fflush(stderr);
     TerminateProcess(GetCurrentProcess(), 3);
@@ -1177,11 +1177,11 @@ int serveOnPluginThread(const std::string& socketName) {
 
 }  // namespace
 
-#ifdef TINYDAW_PLUGIN_HOST
+#ifdef EXBIT_PLUGIN_HOST
 // (Windows) a plugin's crash ends the host at once: no error dialog for it, nothing waiting on it
 LONG WINAPI endOnCrash(EXCEPTION_POINTERS* info) {
     const EXCEPTION_RECORD* r = info ? info->ExceptionRecord : nullptr;
-    std::fprintf(stderr, "tinydaw-plugin-host: the plugin crashed (exception %08x at %s); the host ends\n",
+    std::fprintf(stderr, "exbit-plugin-host: the plugin crashed (exception %08x at %s); the host ends\n",
                  r ? (unsigned)r->ExceptionCode : 0u, r ? whereIs(r->ExceptionAddress).c_str() : "?");
     std::fflush(stderr);
     TerminateProcess(GetCurrentProcess(), 3);
@@ -1190,12 +1190,12 @@ LONG WINAPI endOnCrash(EXCEPTION_POINTERS* info) {
 #endif
 
 int main(int argc, char** argv) {
-#ifdef TINYDAW_PLUGIN_HOST
+#ifdef EXBIT_PLUGIN_HOST
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
     SetUnhandledExceptionFilter(endOnCrash);
 #endif
-#if defined(TINYDAW_WINE_PE) || defined(TINYDAW_PLUGIN_HOST)
-    _setmode(0, _O_BINARY);  // (as the Linux build's: "\n" stays "\n" for Tiny DAW, which reads the lines)
+#if defined(EXBIT_WINE_PE) || defined(EXBIT_PLUGIN_HOST)
+    _setmode(0, _O_BINARY);  // (as the Linux build's: "\n" stays "\n" for Exbit, which reads the lines)
     _setmode(1, _O_BINARY);
     _setmode(2, _O_BINARY);
 #endif
@@ -1215,7 +1215,7 @@ int main(int argc, char** argv) {
         TerminateProcess(GetCurrentProcess(),  // (as quit(): returning from main ends in Wine's abort)
                          pathTest(atoi(argv[2]), atoi(argv[3]), argc > 4 && std::string(argv[4]) == "as-is"));
     fprintf(stderr,
-            "tinydaw-wine-host.exe: Tiny DAW's host for Windows plugins (it starts it itself)\n"
+            "exbit-wine-host.exe: Exbit's host for Windows plugins (it starts it itself)\n"
             "  --serve <socket> | --probe <list.json> | --classes <list.json>\n");
     return 2;
 }

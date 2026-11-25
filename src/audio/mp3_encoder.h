@@ -1,4 +1,4 @@
-// MP3 encoder (Tiny DAW's own): MPEG-1 Layer III CBR at 32 / 44.1 / 48 kHz, and MPEG-2 / 2.5 Layer III
+// MP3 encoder (Exbit's own): MPEG-1 Layer III CBR at 32 / 44.1 / 48 kHz, and MPEG-2 / 2.5 Layer III
 // (the "LSF" rates 16 / 22.05 / 24 and 8 / 11.025 / 12 kHz) — what File → Render writes as "MP3, 320 kbps".
 //
 // The usual design (ISO 11172-3 annex C, as encoders like LAME do it): the analysis polyphase

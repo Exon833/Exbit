@@ -1,4 +1,4 @@
-/* Tiny DAW's default stylesheet: every skin is this, with the variables (and rules) it changes.
+/* Exbit's default stylesheet: every skin is this, with the variables (and rules) it changes.
    The colours are variables of :root (--lane …), used by the rules below and by the program's own
    drawing (theme::c("lane") reads --lane). docs/skins.md lists every selector, part and property. */
 
@@ -1180,7 +1180,7 @@ Dialog.recovery::buttons { margin-top: 6px; }
 /* (end of Panels, meters and editors) */
 
 /* ======================================== Window frames ========================================
-   Tiny DAW's own frame around its windows (Options → Window frames → Tiny DAW's own), drawn instead of the
+   Exbit's own frame around its windows (Options → Window frames → Exbit's own), drawn instead of the
    window manager's: a title bar (TitleBar) above the window's inside, and the window's border around both. Menus,
    drop-down lists and tooltips have none. Window:framed is a window with one: its border is the frame's edge,
    drawn around the title bar too; with :active (the keyboard focus is in it) or :inactive, and :maximized.

@@ -14,10 +14,10 @@ void MainWindow::addDiscordOptions(ui::Menu* menu) {
             prefs.discordPresence = on;
             prefs.save();
             configureDiscordPresence();
-        })->tooltip = "Discord (running on this computer) shows your friends that you use Tiny DAW: how many audio "
-                      "and MIDI lanes the project has, the audio CPU load and Tiny DAW's memory";
+        })->tooltip = "Discord (running on this computer) shows your friends that you use Exbit: how many audio "
+                      "and MIDI lanes the project has, the audio CPU load and Exbit's memory";
     discord->addAction("&Application ID…", [this] { chooseDiscordApplicationId(); })->tooltip =
-        "Tiny DAW's own Discord application unless you enter the ID of another (made in Discord's developer "
+        "Exbit's own Discord application unless you enter the ID of another (made in Discord's developer "
         "portal): Discord shows its name above the text";
     discord->addSeparator();
     discordStateAction = discord->addAction("");
@@ -46,7 +46,7 @@ void MainWindow::configureDiscordPresence() {
 void MainWindow::chooseDiscordApplicationId() {
     std::string id = prefs.discordApplicationId;
     if (!ui::getText(this, "Discord application ID",
-                     "Empty: Tiny DAW's own application. Another: make one at discord.com/developers/applications "
+                     "Empty: Exbit's own application. Another: make one at discord.com/developers/applications "
                      "(New Application), then copy its Application ID here.",
                      id))
         return;

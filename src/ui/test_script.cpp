@@ -520,13 +520,13 @@ Runner* runner = nullptr;
 
 void startFromEnvironment(MainWindow* window) {
     std::vector<std::string> lines;
-    if (const char* shotPath = getenv("TINYDAW_SCREENSHOT")) {
-        const char* n = getenv("TINYDAW_SCREENSHOT_FRAMES");
+    if (const char* shotPath = getenv("EXBIT_SCREENSHOT")) {
+        const char* n = getenv("EXBIT_SCREENSHOT_FRAMES");
         lines = {"frames " + std::string(n ? n : "60"), std::string("shot ") + shotPath, "quit"};
-    } else if (const char* script = getenv("TINYDAW_SCRIPT")) {
+    } else if (const char* script = getenv("EXBIT_SCRIPT")) {
         std::ifstream f(script);
         if (!f) {
-            fprintf(stderr, "Tiny DAW: can't read the script %s\n", script);
+            fprintf(stderr, "Exbit: can't read the script %s\n", script);
             return;
         }
         std::string line;

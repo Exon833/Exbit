@@ -93,7 +93,7 @@ int main(int argc, char** argv) {
     // --- menus ---
     Menu* file = bar->addMenu("&File");
     file->addAction("Open…", [&] {
-        std::string p = files::openFile(&win, "Open project", "", "Tiny DAW project (*.json);;All files (*)");
+        std::string p = files::openFile(&win, "Open project", "", "Exbit project (*.json);;All files (*)");
         say(p.empty() ? "Open: cancelled" : "Open: " + p);
     }, "Ctrl+O");
     file->addAction("Add audio or MIDI…", [&] {
@@ -103,7 +103,7 @@ int main(int argc, char** argv) {
     });
     file->addAction("Save as…", [&] {
         std::string f;
-        std::string p = files::saveFile(&win, "Save project", "Untitled.json", "Tiny DAW project (*.json)", &f);
+        std::string p = files::saveFile(&win, "Save project", "Untitled.json", "Exbit project (*.json)", &f);
         say(p.empty() ? "Save: cancelled" : "Save: " + p + "  [" + f + "]");
     }, "Ctrl+Shift+S");
     file->addAction("Choose a folder…", [&] {
@@ -147,7 +147,7 @@ int main(int argc, char** argv) {
     }
     Menu* help = bar->addMenu("&Help");
     help->addAction("About", [&] {
-        msg::information(&win, "About", "Tiny DAW's own toolkit.\nNo Qt was harmed.");
+        msg::information(&win, "About", "Exbit's own toolkit.\nNo Qt was harmed.");
     });
     bar->registerShortcuts(ShortcutScope::ApplicationWide);
     Shortcut play(&win, KeySequence::parse("Space"), [&] { say("Space: play / stop"); }, ShortcutScope::ApplicationWide);
@@ -289,7 +289,7 @@ int main(int argc, char** argv) {
     });
     sl->doubleClicked.connect([&] { sl->setValue(0); });
     r4->addWidget(sl, 1);
-    auto* link = body->add<Label>("tinydaw.example");
+    auto* link = body->add<Label>("exbit.example");
     link->setLink("https://example.org");
     link->onLink.connect([&](const std::string& u) { say("link: " + u); });
     r4->addWidget(link);

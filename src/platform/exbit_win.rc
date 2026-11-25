@@ -1,12 +1,12 @@
-// Tiny DAW's Windows resources (the Makefile: windres), in tinydaw.exe and the plugin hosts:
+// Exbit's Windows resources (the Makefile: windres), in exbit.exe and the plugin hosts:
 // the manifest (1: CREATEPROCESS_MANIFEST_RESOURCE_ID, 24: RT_MANIFEST)
-1 24 "tinydaw_win.manifest"
+1 24 "exbit_win.manifest"
 
 // the icon (Explorer, the taskbar, and the window class: platform_win.cpp loads it as 1): the logo,
-// data/icons/tinydaw.svg, drawn at 16, 20, 24, 32, 40, 48, 64 and 256 px, PNG images in an ICO. After changing the
-// SVG, remake it: for n in 16 20 24 32 40 48 64 256; do rsvg-convert -w $n -h $n data/icons/tinydaw.svg -o $n.png;
+// data/icons/exbit.svg, drawn at 16, 20, 24, 32, 40, 48, 64 and 256 px, PNG images in an ICO. After changing the
+// SVG, remake it: for n in 16 20 24 32 40 48 64 256; do rsvg-convert -w $n -h $n data/icons/exbit.svg -o $n.png;
 // done, then pack them (the ICO format: a 6-byte header, a 16-byte entry per image, then the PNGs).
-1 ICON "tinydaw_win.ico"
+1 ICON "exbit_win.ico"
 
 // what Explorer's Properties > Details shows (a rolling release: no version numbers, the main branch is the program)
 1 VERSIONINFO
@@ -19,9 +19,9 @@ BEGIN
     BEGIN
         BLOCK "040904B0"  // US English, Unicode
         BEGIN
-            VALUE "ProductName", "Tiny DAW"
-            VALUE "FileDescription", "Tiny DAW"
-            VALUE "ProductVersion", "rolling release (GitHub: Exon833/Tiny-DAW, main branch)"
+            VALUE "ProductName", "Exbit"
+            VALUE "FileDescription", "Exbit"
+            VALUE "ProductVersion", "rolling release (GitHub: Exon833/Exbit, main branch)"
             VALUE "FileVersion", "rolling release"
             VALUE "LegalCopyright", "GNU General Public License, version 3"
             VALUE "Comments", "A free, open-source digital audio workstation"

@@ -1,5 +1,5 @@
 // Loading a Windows DLL by a UTF-8 path, for the plugin hosts built for Windows: a real Windows
-// build, or Tiny DAW's Wine host (TINYDAW_WINE_HOST: Linux code inside Wine, given Unix paths,
+// build, or Exbit's Wine host (EXBIT_WINE_HOST: Linux code inside Wine, given Unix paths,
 // which Wine turns into its DOS names). The DLL's own folder is searched for the DLLs it needs.
 #pragma once
 #ifdef _WIN32
@@ -11,7 +11,7 @@ namespace plug {
 
 inline HMODULE loadWindowsLibrary(const std::string& path, std::string& error) {
     HMODULE h = nullptr;
-#ifdef TINYDAW_WINE_HOST
+#ifdef EXBIT_WINE_HOST
     if (LPWSTR dos = wine_get_dos_file_name(path.c_str())) {
         h = LoadLibraryExW(dos, nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
         HeapFree(GetProcessHeap(), 0, dos);

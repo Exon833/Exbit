@@ -59,7 +59,7 @@ WinePrefixesDialog::WinePrefixesDialog(ui::Window* parent, const std::vector<std
     auto* hint = Widget::add<ui::Label>(
         "In each prefix, VST3 plugins are found in C:\\Program Files\\Common Files\\VST3. For VST2 plugins (.dll), "
         "add their folders in Options → VST2 plugin folders, which offers the usual ones of these prefixes. Each "
-        "Windows plugin runs in a Wine process of its own (Tiny DAW's own host; yabridge isn't needed), with the "
+        "Windows plugin runs in a Wine process of its own (Exbit's own host; yabridge isn't needed), with the "
         "prefix's Wine: a Bottles bottle's runner, a Lutris game's Wine version, or the one chosen here. 32-bit plugins "
         "(also those in Program Files (x86)) run in a 32-bit host of their own.");
     hint->setProperty("hint", "true");
@@ -184,7 +184,7 @@ std::string WinePrefixesDialog::details(const std::string& prefix) const {
     out += ".";
     int major = wine::wineMajor(version);
     if (major > 0 && major < wine::TESTED_WINE_MAJOR)
-        out += " Tiny DAW's Wine host is tested with Wine " + std::to_string(wine::TESTED_WINE_MAJOR) +
+        out += " Exbit's Wine host is tested with Wine " + std::to_string(wine::TESTED_WINE_MAJOR) +
                "; older ones may not run every plugin.";
     return out;
 }

@@ -237,7 +237,7 @@ std::string sz(int w, int h) { return std::to_string(w) + "x" + std::to_string(h
 // --- 1. the main window from its minimum to 3840x2160, very wide, very tall ---
 void sweepSizes() {
     Rig r = makeMain();
-    // (the same project for the real program: TINYDAW_SCRIPT=… with `call open` of it, on a real display)
+    // (the same project for the real program: EXBIT_SCRIPT=… with `call open` of it, on a real display)
     util::makeDirs(OUT + "/tmp/project");
     r.w->saveProjectFile(util::absolutePath(OUT + "/tmp/project/audit.json"));
     Point mn = windowMinimum(*r.w);
@@ -692,7 +692,7 @@ void writeReport() {
 int main() {
     plat::initWithoutDisplay();
     // the program's own skins (from the source tree); your data (skins, templates, presets) from a scratch folder,
-    // never the real ~/.local/share/TinyDAW
+    // never the real ~/.local/share/Exbit
     skin::setBuiltinDir("data/skins");
     paths::setDataDir(util::absolutePath(OUT + "/tmp/data"));
     App::get().initHeadless();

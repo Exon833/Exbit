@@ -1,4 +1,4 @@
-// Tiny DAW's plugin host: VST3 (plugins/vst3host.cpp, on Tiny DAW's own declaration of the VST3
+// Exbit's plugin host: VST3 (plugins/vst3host.cpp, on Exbit's own declaration of the VST3
 // interfaces in plugins/vst3_api.h, no Steinberg SDK) and VST2 (plugins/vst2host.cpp, on vst2.h).
 // Both kinds have the same methods, so the rest of the program treats them alike. This is the C++
 // form of the Python module `vst3host` (native/vst3host.cpp, native/vst2plugin.cpp).
@@ -17,10 +17,10 @@
 #pragma once
 #include <cstdint>
 
-// built into a plugin host (src/winehost: the Wine hosts, or tinydaw-plugin-host.exe on Windows), not the
+// built into a plugin host (src/winehost: the Wine hosts, or exbit-plugin-host.exe on Windows), not the
 // program: the plugin is loaded here, never passed on to another host
-#if defined(TINYDAW_WINE_HOST) || defined(TINYDAW_WINE_PE) || defined(TINYDAW_PLUGIN_HOST)
-#define TINYDAW_IN_HOST 1
+#if defined(EXBIT_WINE_HOST) || defined(EXBIT_WINE_PE) || defined(EXBIT_PLUGIN_HOST)
+#define EXBIT_IN_HOST 1
 #endif
 #include <memory>
 #include <string>
@@ -138,7 +138,7 @@ public:
 std::string packState(const std::string& component, const std::string& controller);
 bool unpackState(const std::string& blob, std::string& component, std::string& controller);
 
-// Tiny DAW's built-in effects (src/effects/effects.h), whose path is "builtin:<id>": Plugin::load()
+// Exbit's built-in effects (src/effects/effects.h), whose path is "builtin:<id>": Plugin::load()
 // makes them through this hook, which src/effects/effects.cpp sets when it is linked in (null: such
 // a path can't be loaded).
 using BuiltinFactory = std::unique_ptr<Plugin> (*)(const std::string& path, std::string& error);

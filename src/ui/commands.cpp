@@ -422,7 +422,7 @@ void Registry::noteRecent(const std::string& id) {
 }
 
 std::string Registry::text(bool every) const {
-    std::string s = "# Tiny DAW keymap: one key per line, \"command = key\" (\"command =\": no keys at all).\n"
+    std::string s = "# Exbit keymap: one key per line, \"command = key\" (\"command =\": no keys at all).\n"
                     "# A command named here gets exactly the keys listed for it; the others keep theirs.\n";
     std::vector<std::string> all = every ? ids() : std::vector<std::string>();
     for (auto& [id, ks] : overrides_)

@@ -71,7 +71,7 @@ void testParams() {
         CHECK(!valueText(i, init[i]).empty());
     }
     // a broken file: values out of range clamped, unknown keys and NaN left out
-    Json j = Json::parse(R"({"format":"tinydaw-synth","params":{"cutoff":1e9,"unison":99,"noise":"x","nope":3},
+    Json j = Json::parse(R"({"format":"exbit-synth","params":{"cutoff":1e9,"unison":99,"noise":"x","nope":3},
                              "mods":[{"source":"lfo","target":"cutoff","depth":7},{"source":"x","target":"cutoff"}]})");
     Patch b = fromJson(j);
     CHECK(b[CUTOFF] == 20000 && b[UNISON] == MAX_UNISON && b[NOISE] == 0);
@@ -182,7 +182,7 @@ void testClassicAndProjects() {
     project_io::MasterSettings master;
     std::string error;
     util::makeDirs(kDir);
-    std::string path = kDir + "/classic.tinydaw";
+    std::string path = kDir + "/classic.exbit";
     CHECK(project_io::saveProject(path, project, SR, master, error));
     std::string text;
     util::readFile(path, text);

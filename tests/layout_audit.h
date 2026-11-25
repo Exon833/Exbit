@@ -1,4 +1,4 @@
-// A reusable layout checker for Tiny DAW's own toolkit (tests only): walks a window's widget tree and reports what
+// A reusable layout checker for Exbit's own toolkit (tests only): walks a window's widget tree and reports what
 // a user would see as broken layout. Include it from any test program:
 //
 //     audit::Report rep;

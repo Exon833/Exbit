@@ -14,7 +14,7 @@
 // docs/skins.md lists every variable, selector, part and property.
 //
 // The program's own skins are in plat::dataDir()/skins (Dark, Light, Midnight, OLED, High contrast, and
-// default.css); yours are in the skins folder of your Tiny DAW folder (paths::dataDir("skins")). Skins are
+// default.css); yours are in the skins folder of your Exbit folder (paths::dataDir("skins")). Skins are
 // edited in a text editor of your choice: Options → Skin → Edit this skin… opens it (a copy of it in your
 // folder, for one of the program's own), and the program shows what you save at once (MainWindow watches
 // the file). JSON skins of earlier versions found in your folder are turned into stylesheets once
@@ -74,7 +74,7 @@ int onApply(std::function<void()> fn);
 void removeOnApply(int id);
 
 // --- skins of earlier versions (JSON) ---
-// A JSON skin ({"format": "tinydaw-skin", "name", "colors": {name: "#rrggbb[aa]"}, "fonts": {ui, ui_size,
+// A JSON skin ({"format": "exbit-skin", "name", "colors": {name: "#rrggbb[aa]"}, "fonts": {ui, ui_size,
 // mono}}) as a stylesheet; false and `error` if it isn't one. What can't be kept is noted in comments.
 bool cssFromJson(const std::string& jsonText, const std::string& fallbackName, std::string& css, std::string& error);
 // Each JSON skin in `dir` becomes a stylesheet beside it (unless one of that file name is there already) and

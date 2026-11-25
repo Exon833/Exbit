@@ -30,8 +30,8 @@ int g_lastW = 0, g_lastH = 0;
 LPTOP_LEVEL_EXCEPTION_FILTER g_previousFilter = nullptr;
 void checkFont();  // (below, with write())
 
-const char kEnter[] = TINYDAW_TERM_ENTER;
-const char kLeave[] = TINYDAW_TERM_LEAVE;
+const char kEnter[] = EXBIT_TERM_ENTER;
+const char kLeave[] = EXBIT_TERM_LEAVE;
 
 void restore() {
     if (!g_raw.exchange(false)) return;

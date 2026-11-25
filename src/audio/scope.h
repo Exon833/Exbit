@@ -69,7 +69,7 @@ struct Pitch {
 };
 // the pitch of the newest samples (between minHz and maxHz)
 Pitch detectPitch(const float* samples, size_t n, int sr, double minHz = 30, double maxHz = 2000);
-// "A3", "C#4" (C4 is MIDI note 60, as Tiny DAW's keyboard)
+// "A3", "C#4" (C4 is MIDI note 60, as Exbit's keyboard)
 std::string noteName(double hz);
 
 // Pitch follow: where a picture of `length` samples should start in samples[0…n) so a periodic sound

@@ -1,5 +1,5 @@
 // Dialogs: Dialog (QDialog: modal exec() or modeless show), the standard buttons row
-// (QDialogButtonBox), message boxes, text input, a progress window, and Tiny DAW's own file
+// (QDialogButtonBox), message boxes, text input, a progress window, and Exbit's own file
 // chooser (open / save / folder), drawn in the skin like everything else.
 #pragma once
 #include <functional>
@@ -112,7 +112,7 @@ private:
     void paintBar(Painter& p);
 };
 
-// Tiny DAW's own file chooser. `filter` as Qt writes it: "Audio and MIDI (*.wav *.mid);;All files (*)".
+// Exbit's own file chooser. `filter` as Qt writes it: "Audio and MIDI (*.wav *.mid);;All files (*)".
 // Remembers the last folder per `key` (in the settings) when given.
 namespace files {
 std::string openFile(Window* parent, const std::string& title, const std::string& dir, const std::string& filter);

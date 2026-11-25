@@ -105,9 +105,9 @@ def main():
                 if rec.nameID == 0:
                     rec.string = '; '.join(dict.fromkeys(notices))
                 elif rec.nameID in (1, 4, 16):
-                    rec.string = 'Noto Sans Symbols Tiny DAW'
+                    rec.string = 'Noto Sans Symbols Exbit'
                 elif rec.nameID == 6:
-                    rec.string = 'NotoSansSymbolsTinyDAW-Regular'
+                    rec.string = 'NotoSansSymbolsExbit-Regular'
             merged.save('data/fonts/NotoSansSymbols-Symbols.ttf')
     print('%d code points: %d from DejaVu Sans, %d from Noto, missing: %s' % (
         len(used), len(used & set(dejavu)), len(used - set(dejavu) - left),

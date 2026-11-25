@@ -8,7 +8,7 @@
 // finer), the wheel steps it, double-click puts it back to its default. MODULATION BY DRAGGING: the ⊕ handle on
 // Env 1's, Env 2's and the LFO's title dragged onto a knob that can be modulated routes that source to it (at
 // MOD_START depth); a ring around the knob, one per source in its colour, shows how far it moves it; drag the
-// ring to change the depth (right-click the knob to remove a routing, or Modulate…). The keyboard (and tinydaw
+// ring to change the depth (right-click the knob to remove a routing, or Modulate…). The keyboard (and exbit
 // --tui, where the page is a list: section, control, value, its modulation): Up / Down a control, Left / Right
 // a step (Page Up / Down ten), Home / End its ends, Backspace its default, Enter a choice's next, M Modulate….
 //

@@ -1,6 +1,6 @@
 // plugins/wine.h on Windows itself: no Wine. Windows plugins are native there, and run out of
-// process as under Wine on Linux: each in a plugin host of its own, tinydaw-plugin-host.exe (64-bit;
-// tinydaw-plugin-host-32.exe for 32-bit plugins), started directly (child_win.h), speaking the same
+// process as under Wine on Linux: each in a plugin host of its own, exbit-plugin-host.exe (64-bit;
+// exbit-plugin-host-32.exe for 32-bit plugins), started directly (child_win.h), speaking the same
 // bridge (plugins/bridge.h, bridged.cpp). Wine's prefixes, programs and set-up have nothing to do
 // here: none are found, and starting them says so (the menus that offer them aren't shown on Windows).
 //
@@ -72,23 +72,23 @@ std::string wineVersion(const std::string&) { return ""; }
 int wineMajor(const std::string&) { return 0; }
 
 std::string hostPath(bool bits32) {
-    if (const char* env = getenv(bits32 ? "TINYDAW_PLUGIN_HOST32" : "TINYDAW_PLUGIN_HOST"))
+    if (const char* env = getenv(bits32 ? "EXBIT_PLUGIN_HOST32" : "EXBIT_PLUGIN_HOST"))
         if (*env) return util::fileExists(env) ? env : "";
-    std::string p = util::joinPath(plat::executableDir(), bits32 ? "tinydaw-plugin-host-32.exe" : "tinydaw-plugin-host.exe");
+    std::string p = util::joinPath(plat::executableDir(), bits32 ? "exbit-plugin-host-32.exe" : "exbit-plugin-host.exe");
     return util::fileExists(p) ? p : "";
 }
 
 bool available(std::string& why) {
     if (!hostPath(false).empty()) return true;
-    why = "tinydaw-plugin-host.exe isn't next to tinydaw.exe (make builds it)";
+    why = "exbit-plugin-host.exe isn't next to exbit.exe (make builds it)";
     return false;
 }
 
 bool availableIn(const std::string&, std::string& why, bool bits32) {
     if (!hostPath(bits32).empty()) return true;
-    why = bits32 ? "32-bit plugins need tinydaw-plugin-host-32.exe next to tinydaw.exe (built by make where a 32-bit "
+    why = bits32 ? "32-bit plugins need exbit-plugin-host-32.exe next to exbit.exe (built by make where a 32-bit "
                    "MinGW, i686-w64-mingw32-g++, is installed)"
-                 : "tinydaw-plugin-host.exe isn't next to tinydaw.exe (make builds it)";
+                 : "exbit-plugin-host.exe isn't next to exbit.exe (make builds it)";
     return false;
 }
 

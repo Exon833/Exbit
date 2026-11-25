@@ -7,7 +7,7 @@
 // tempo, how). Changes are heard at once: the track's clips are rendered again a moment after the last change.
 // Like the FX windows it doesn't block anything; one per track.
 //
-// IN THE TERMINAL (tinydaw --tui) the columns are a list, a row per control ("Cutoff   1200 Hz", as a plugin's
+// IN THE TERMINAL (exbit --tui) the columns are a list, a row per control ("Cutoff   1200 Hz", as a plugin's
 // parameter window shows its parameters): Tab and Shift+Tab go from row to row, Up/Down change the value (a
 // check box: Space), and the waveform is a one-line sketch with its handles ([ start, ] end, | the loop, ' a
 // slice).
@@ -105,7 +105,7 @@ public:
     bool mousePress(ui::MouseEvent& e) override;
     bool mouseMove(ui::MouseEvent& e) override;
     bool mouseRelease(ui::MouseEvent& e) override;
-    // (tinydaw --tui) a one-line sketch: a block per column as loud as its loudest sample, [ start, ] end, | loop
+    // (exbit --tui) a one-line sketch: a block per column as loud as its loudest sample, [ start, ] end, | loop
     bool textCells(int cols, int rows, std::vector<ui::TextCell>& cells) const override;
 
 private:

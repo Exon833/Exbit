@@ -1,6 +1,6 @@
 // The built-in synth's window, headless: "Synth…" in a MIDI track's instrument menu, drag-to-modulate (a ⊕ dropped
 // on a knob, its ring dragged to change the depth), knobs dragged, presets chosen (and the classic voice back),
-// the Modulation view, undo shown again; then in the terminal (tinydaw --tui): the page as a list, Left/Right on
+// the Modulation view, undo shown again; then in the terminal (exbit --tui): the page as a list, Left/Right on
 // a control, M and the Modulate… dialog, the hints and the F1 list. Pictures go to build/ui-samples/synth/.
 #include <cmath>
 #include <fstream>

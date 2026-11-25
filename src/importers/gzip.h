@@ -1,5 +1,5 @@
 // gzip files (RFC 1952) and raw deflate streams (RFC 1951): what an Ableton Live set (.als) is, gzip-
-// compressed XML. Tiny DAW's own inflate (gfx/image.h's zlibInflate reads zlib streams only, and keeps
+// compressed XML. Exbit's own inflate (gfx/image.h's zlibInflate reads zlib streams only, and keeps
 // to PNG's sizes; this one is quicker on the tens of MB a set can hold).
 #pragma once
 #include <cstddef>

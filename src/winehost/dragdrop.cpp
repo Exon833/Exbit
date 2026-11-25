@@ -1,4 +1,4 @@
-// Drag and drop between a plugin's window and Tiny DAW (see dragdrop.h).
+// Drag and drop between a plugin's window and Exbit (see dragdrop.h).
 #include "winehost/dragdrop.h"
 
 #include <cstdio>
@@ -15,7 +15,7 @@ typedef HRESULT(WINAPI* DoDragDropFn)(void* data, void* source, DWORD okEffects,
 DoDragDropFn realDoDragDrop = nullptr;
 std::mutex lock;
 std::vector<std::string> dragged;  // (under `lock`)
-bool tracing = getenv("TINYDAW_WINE_TRACE") != nullptr;
+bool tracing = getenv("EXBIT_WINE_TRACE") != nullptr;
 
 std::u16string wide(const char* s) {
     std::u16string out;
@@ -89,13 +89,13 @@ HRESULT WINAPI ourDoDragDrop(void* data, void* source, DWORD okEffects, DWORD* e
     if (files.empty())
         return realDoDragDrop ? realDoDragDrop(data, source, okEffects, effect) : E_NOTIMPL;
     if (tracing)
-        fprintf(stderr, "tinydaw-wine-host: the plugin dragged out %zu file(s), the first %s\n", files.size(),
+        fprintf(stderr, "exbit-wine-host: the plugin dragged out %zu file(s), the first %s\n", files.size(),
                 files[0].c_str());
     {
         std::lock_guard<std::mutex> hold(lock);
         dragged.insert(dragged.end(), files.begin(), files.end());
     }
-    if (effect)  // (copied, never moved: the plugin keeps its file, Tiny DAW reads it)
+    if (effect)  // (copied, never moved: the plugin keeps its file, Exbit reads it)
         *effect = okEffects & DROPEFFECT_COPY ? DROPEFFECT_COPY : okEffects & (0u - okEffects);
     return DRAGDROP_S_DROP;
 }
@@ -240,7 +240,7 @@ void catchDragsOut() {
             }
     }
     if (tracing && patched)
-        fprintf(stderr, "tinydaw-wine-host: %d imports of DoDragDrop caught\n", patched);
+        fprintf(stderr, "exbit-wine-host: %d imports of DoDragDrop caught\n", patched);
 }
 
 std::vector<std::string> takeDraggedFiles() {
@@ -292,7 +292,7 @@ std::string dropFiles(HWND window, int x, int y, const std::vector<std::string>&
         table->Release(target);
         fdRelease(data);
         if (tracing)
-            fprintf(stderr, "tinydaw-wine-host: %zu file(s) dropped on a drop target: %s\n", names.size(),
+            fprintf(stderr, "exbit-wine-host: %zu file(s) dropped on a drop target: %s\n", names.size(),
                     taken ? "taken" : "refused");
         return taken ? "ole" : "";
     }

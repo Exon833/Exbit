@@ -276,7 +276,7 @@ void testSaveLoad() {
     CHECK(text.find("\"link\"") == std::string::npos);
     // an older project (no links) opens unchanged: its clips independent, though their notes are the same
     std::string oldPath = dirFor("old") + "/Old.json";
-    std::string old = R"({"format": "tinydaw-project", "version": 1, "tracks": [{"name": "MIDI 1", "kind": "midi"}],
+    std::string old = R"({"format": "exbit-project", "version": 1, "tracks": [{"name": "MIDI 1", "kind": "midi"}],
         "clips": [{"kind": "midi", "name": "A", "track": 0, "start": 0, "offset": 0, "length": null,
                    "notes": [[0, 0.5, 60, 100]], "midi_length": 1.0},
                   {"kind": "midi", "name": "B", "track": 0, "start": 2, "offset": 0, "length": null,

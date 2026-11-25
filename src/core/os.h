@@ -73,7 +73,7 @@ void sleepMs(int ms);
 // the C library's character classes from the environment (Linux: LANG/LC_*; Windows: UTF-8); true if they are UTF-8
 bool setUtf8Locale();
 
-#ifdef TINYDAW_WINDOWS
+#ifdef EXBIT_WINDOWS
 // --- Windows' UTF-16 ---
 std::wstring widen(const std::string& utf8);
 std::string narrow(const wchar_t* utf16, int len = -1);

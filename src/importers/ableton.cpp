@@ -1,4 +1,4 @@
-// Converts an Ableton Live set (.als) into a Tiny DAW project (importers/ableton.py; see ableton.h).
+// Converts an Ableton Live set (.als) into a Exbit project (importers/ableton.py; see ableton.h).
 #include "importers/ableton.h"
 
 #include <algorithm>
@@ -1103,10 +1103,10 @@ InstrumentPtr instrumentOf(const Element* track, Context& ctx, std::vector<Trans
     return s;
 }
 
-// --- devices carried over as Tiny DAW's own ---
+// --- devices carried over as Exbit's own ---
 
 // The devices of a device chain in the order they play, racks opened up: a rack's first chain (the others
-// are reported: Tiny DAW's chains here are one after the other).
+// are reported: Exbit's chains here are one after the other).
 std::vector<const Element*> devicesOf(const Element* chain, std::vector<std::string>& report, const std::string& where) {
     std::vector<const Element*> out;
     if (!chain) return out;
@@ -1306,7 +1306,7 @@ bool audioEffect(const Element* d, std::vector<std::string>& report, const std::
     return true;
 }
 
-// PluginSlots of Tiny DAW's built-in effects standing in for a track's Ableton effects (in order)
+// PluginSlots of Exbit's built-in effects standing in for a track's Ableton effects (in order)
 std::vector<SlotPtr> audioEffects(const Element* track, std::vector<std::string>& report, const std::string& where) {
     std::vector<SlotPtr> slots;
     std::set<std::string> left;
@@ -1335,15 +1335,15 @@ std::vector<SlotPtr> audioEffects(const Element* track, std::vector<std::string>
         slots.push_back(slot);
     }
     if (!left.empty())
-        report.push_back(where + ": not carried over (no such effect in Tiny DAW): " +
+        report.push_back(where + ": not carried over (no such effect in Exbit): " +
                          join(std::vector<std::string>(left.begin(), left.end()), ", "));
     return slots;
 }
 
-const std::map<int, int> ARP_STYLES = {{0, 0}, {1, 1}, {2, 2}, {4, 2}};  // Ableton's Up, Down, UpDown, Up & Down -> Tiny DAW's
+const std::map<int, int> ARP_STYLES = {{0, 0}, {1, 1}, {2, 2}, {4, 2}};  // Ableton's Up, Down, UpDown, Up & Down -> Exbit's
 const std::map<int, int> SCALE_INDEX = {{0, 0}, {1, 1}, {2, 2}, {3, 3}};  // Ableton's Major, Minor, Dorian, Mixolydian
 
-// Tiny DAW MIDI effects standing in for a MIDI track's Ableton ones (Arpeggiator, Note Length, Scale)
+// Exbit MIDI effects standing in for a MIDI track's Ableton ones (Arpeggiator, Note Length, Scale)
 std::vector<MidiEffect> midiEffectsOf(const Element* track, const SetReader& reader, std::vector<std::string>& report,
                                       const std::string& where) {
     std::vector<MidiEffect> out;
@@ -1354,7 +1354,7 @@ std::vector<MidiEffect> midiEffectsOf(const Element* track, const SetReader& rea
         MidiEffect e;
         if (d->tag == "MidiArpeggiator") {
             int mode = (int)g("Mode");
-            if (!ARP_STYLES.count(mode)) report.push_back(where + ": the Arpeggiator's style isn't in Tiny DAW's: it plays Up");
+            if (!ARP_STYLES.count(mode)) report.push_back(where + ": the Arpeggiator's style isn't in Exbit's: it plays Up");
             double beats;
             if (manualB(d, "SyncState", false))
                 beats = ARP_RATES[std::max(0, std::min((int)g("SyncedRate", 8), ARP_RATE_COUNT - 1))];
@@ -1383,7 +1383,7 @@ std::vector<MidiEffect> midiEffectsOf(const Element* track, const SetReader& rea
                 if (manualI(d, "Mapping." + std::to_string(i), i) != i) identity = false;
             if (identity && !manualB(d, "UseCurrentScale", false)) continue;  // (it changes nothing)
             int scale = (int)g("InternalScale");
-            if (!SCALE_INDEX.count(scale)) report.push_back(where + ": the Scale device's scale isn't in Tiny DAW's: Major is used");
+            if (!SCALE_INDEX.count(scale)) report.push_back(where + ": the Scale device's scale isn't in Exbit's: Major is used");
             auto idx = SCALE_INDEX.find(scale);
             int base = (int)g("Base");
             MidiEffect::make("Scale", {{"root", ((base % 12) + 12) % 12}, {"scale", idx == SCALE_INDEX.end() ? 0 : idx->second}}, e);
@@ -1457,11 +1457,11 @@ void convertSet(const std::string& als, const std::string& output, Project& proj
     Context ctx;
     ctx.reader = &reader;
     ctx.bpm = reader.bpm;
-    // the Session view's clips: Tiny DAW has no clip launcher, so only the arrangement comes over; say so
+    // the Session view's clips: Exbit has no clip launcher, so only the arrangement comes over; say so
     size_t sessionClips = reader.live->findAll(".//ClipSlotList//MidiClip").size() +
                           reader.live->findAll(".//ClipSlotList//AudioClip").size();
     if (sessionClips)
-        report.push_back(util::format("%zu Session view clip%s left out: only the arrangement is imported (Tiny DAW "
+        report.push_back(util::format("%zu Session view clip%s left out: only the arrangement is imported (Exbit "
                                       "has no clip launcher; record or drag them into Live's arrangement first)",
                                       sessionClips, sessionClips == 1 ? "" : "s"));
     std::string folder = project_io::audioFolder(output);
@@ -1478,7 +1478,7 @@ void convertSet(const std::string& als, const std::string& output, Project& proj
         util::debugf("ableton: time signature automation: %zu events -> %zu time signatures\n", reader.sigChanges.size(),
                      project.timing.map()->meters().size());
     project.timing.publish();
-    // clips are prepared as Tiny DAW plays them: through their track's MIDI effects and built-in sampler
+    // clips are prepared as Exbit plays them: through their track's MIDI effects and built-in sampler
     // (the program sets these hooks at start-up; a command-line conversion or a test may not have)
     if (!clip_hooks::midiEffects) midi_effects::install(midi_effects::timing());
     if (!clip_hooks::renderSampler) sampler::install();
@@ -1536,7 +1536,7 @@ void convertSet(const std::string& als, const std::string& output, Project& proj
         returns.push_back(track);
     }
 
-    // group tracks: a Tiny DAW group each, a bus (model.h GROUP BUSES) with the group's own effects, fader, pan,
+    // group tracks: a Exbit group each, a bus (model.h GROUP BUSES) with the group's own effects, fader, pan,
     // mute and sends, nested as in Live
     auto groupTracks = reader.groups();
     std::map<std::string, GroupPtr> madeGroups;
@@ -1706,7 +1706,7 @@ void convertSet(const std::string& als, const std::string& output, Project& proj
         for (float x : r.audio.s) peak = std::max(peak, std::fabs(x));
         std::string file, error;
         bool ok;
-        if (peak <= 1) {  // 24-bit FLAC: a fraction of the size of Tiny DAW's 32-bit WAVs
+        if (peak <= 1) {  // 24-bit FLAC: a fraction of the size of Exbit's 32-bit WAVs
             file = frozenFile(folder, r.track->name, ".flac");
             ok = writeFlac(file, r.audio.s.data(), (size_t)r.audio.frames(), 2, SR, SampleFormat::Pcm24, error);
         } else {  // louder than full scale before its fader: kept as 32-bit float, so nothing is clipped
@@ -1747,7 +1747,7 @@ void convertSet(const std::string& als, const std::string& output, Project& proj
                                           made, made == 1 ? "" : "s"));
     }
 
-    // the mix as Tiny DAW plays it (its effects too, returns, faders, pan): its peak sets the master volume
+    // the mix as Exbit plays it (its effects too, returns, faders, pan): its peak sets the master volume
     progress("Measuring the mix", 0.86);
     int masterDb = 0;
     int64_t end = project.endFrame();
@@ -1765,13 +1765,13 @@ void convertSet(const std::string& als, const std::string& output, Project& proj
             slot->instance = std::shared_ptr<plug::Plugin>(effect.release());
         }
         auto mix = render::renderMix(project, 0, end, SR, 0.0, true);
-        for (auto& slot : slots) slot->instance = nullptr;  // (Tiny DAW loads them itself when the project opens)
+        for (auto& slot : slots) slot->instance = nullptr;  // (Exbit loads them itself when the project opens)
         render::clearPatchStates(project);
         float peak = 0;
         if (mix)
             for (float x : *mix) peak = std::max(peak, std::fabs(x));
         double peakDb = db(peak);
-        masterDb = (int)std::min(0.0, std::floor(PEAK_DB - peakDb));  // (Tiny DAW's master volume is in whole dB)
+        masterDb = (int)std::min(0.0, std::floor(PEAK_DB - peakDb));  // (Exbit's master volume is in whole dB)
     }
     progress("Saving", 0.95);
     project_io::MasterSettings master;

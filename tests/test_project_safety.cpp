@@ -252,7 +252,7 @@ static void testArchive() {
     p.clips[5]->source = p.clips[4]->source;  // (two clips of one sound: one file)
     MasterSettings master;
     master.volumeDb = -2;
-    std::string err, zipPath = dir + "/Song.tinydaw.zip";
+    std::string err, zipPath = dir + "/Song.exbit.zip";
     CHECK(collect::isArchive(zipPath) && collect::archiveStem(zipPath) == "Song");
     CHECK(collect::saveArchive(zipPath, p, SR, master, err));
     CHECK(util::fileExists(zipPath) && !util::isDir(zipPath + ".staging") && !util::fileExists(zipPath + ".part"));
@@ -275,7 +275,7 @@ static void testArchive() {
     std::string zipBytes;
     CHECK(util::readFile(zipPath, zipBytes));
     auto refused = [&](const std::string& name, const std::string& bytes, const std::string& expect) {
-        std::string bad = dir + "/" + name + ".tinydaw.zip", into = dir + "/" + name;
+        std::string bad = dir + "/" + name + ".exbit.zip", into = dir + "/" + name;
         CHECK(util::writeFile(bad, bytes));
         std::string e;
         CHECK(!collect::openArchive(bad, into, json, e));

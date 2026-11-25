@@ -1,4 +1,4 @@
-// Wine prefixes, Windows plugin files, and starting Tiny DAW's Wine host (see wine.h).
+// Wine prefixes, Windows plugin files, and starting Exbit's Wine host (see wine.h).
 #include "plugins/wine.h"
 
 #include <algorithm>
@@ -170,7 +170,7 @@ bool executable(const std::string& p) { return !p.empty() && access(p.c_str(), X
 }  // namespace
 
 std::string winePath() {
-    if (const char* env = getenv("TINYDAW_WINE"))
+    if (const char* env = getenv("EXBIT_WINE"))
         if (*env)
             return executable(env) ? env : "";
     if (const char* path = getenv("PATH"))
@@ -185,17 +185,17 @@ std::string winePath() {
 }
 
 std::string hostPath(bool bits32) {
-    if (const char* env = getenv(bits32 ? "TINYDAW_WINE_HOST32" : "TINYDAW_WINE_HOST"))
+    if (const char* env = getenv(bits32 ? "EXBIT_WINE_HOST32" : "EXBIT_WINE_HOST"))
         if (*env)
             return util::fileExists(env) ? env : "";
     std::string exe = plat::executableDir();
-    for (const char* rel : {"", "..", "../..", "../lib/tinydaw"}) {
+    for (const char* rel : {"", "..", "../..", "../lib/exbit"}) {
         std::string dir = *rel ? util::joinPath(exe, rel) : exe;
-        std::string p = util::joinPath(dir, bits32 ? "tinydaw-wine-host-32.exe" : "tinydaw-wine-host.exe");
+        std::string p = util::joinPath(dir, bits32 ? "exbit-wine-host-32.exe" : "exbit-wine-host.exe");
         // (a Winelib host is its .exe and .so; the 32-bit one built as a plain Windows program, where Wine
         // is built only for WoW64, has its Linux side in wine32/ next to it instead: winehost/unixside.h)
         if (util::fileExists(p) && (util::fileExists(p + ".so") ||
-                                    (bits32 && util::fileExists(util::joinPath(dir, "wine32/i386-windows/tinydaw-unix32.dll")))))
+                                    (bits32 && util::fileExists(util::joinPath(dir, "wine32/i386-windows/exbit-unix32.dll")))))
             return util::absolutePath(p);
     }
     return "";
@@ -430,11 +430,11 @@ int wineMajor(const std::string& version) {
 
 bool available(std::string& why) {
     if (winePath().empty()) {
-        why = "Windows plugins need Wine, which isn't installed (or set TINYDAW_WINE to the wine program)";
+        why = "Windows plugins need Wine, which isn't installed (or set EXBIT_WINE to the wine program)";
         return false;
     }
     if (hostPath().empty()) {
-        why = "Windows plugins need tinydaw-wine-host.exe next to Tiny DAW (it is built by make when winegcc is "
+        why = "Windows plugins need exbit-wine-host.exe next to Exbit (it is built by make when winegcc is "
               "installed)";
         return false;
     }
@@ -444,18 +444,18 @@ bool available(std::string& why) {
 bool availableIn(const std::string& prefix, std::string& why, bool bits32) {
     if (winePathFor(prefix).empty()) {
         std::string source = wineSource(prefix);
-        why = "Windows plugins need Wine, which isn't installed (or set TINYDAW_WINE to the wine program)";
+        why = "Windows plugins need Wine, which isn't installed (or set EXBIT_WINE to the wine program)";
         if (!source.empty())
             why = "The Wine for " + prefix + " can't be found (" + source + ")";
         return false;
     }
     if (!bits32 && hostPath().empty()) {
-        why = "Windows plugins need tinydaw-wine-host.exe next to Tiny DAW (it is built by make when winegcc is "
+        why = "Windows plugins need exbit-wine-host.exe next to Exbit (it is built by make when winegcc is "
               "installed)";
         return false;
     }
     if (bits32 && hostPath(true).empty()) {
-        why = "32-bit Windows plugins need tinydaw-wine-host-32.exe next to Tiny DAW (built by make when winegcc can "
+        why = "32-bit Windows plugins need exbit-wine-host-32.exe next to Exbit (built by make when winegcc can "
               "build 32-bit programs: gcc-multilib and g++-multilib, and Wine's 32-bit part; or, with a Wine built "
               "only for WoW64, when MinGW's i686-w64-mingw32-g++ is installed)";
         return false;
@@ -582,7 +582,7 @@ int spawnIn(const std::string& prefix, const std::string& program, const std::ve
 
 int startPrefix(const std::string& dir, const std::string& wine, std::string& why) {
     if (!executable(wine)) {
-        why = wine.empty() ? "Wine isn't installed (or set TINYDAW_WINE to the wine program)" : wine + " can't be run";
+        why = wine.empty() ? "Wine isn't installed (or set EXBIT_WINE to the wine program)" : wine + " can't be run";
         return -1;
     }
     if (dir.empty() || dir[0] != '/') {
@@ -653,24 +653,24 @@ void stop(int pid) {
 }
 
 // OpenGL through GLX, not EGL, for the host: its own settings in the prefix
-// (HKCU\Software\Wine\AppDefaults\tinydaw-wine-host.exe[.so]\X11 Driver: UseEGL = N; the rest of
+// (HKCU\Software\Wine\AppDefaults\exbit-wine-host.exe[.so]\X11 Driver: UseEGL = N; the rest of
 // the prefix keeps its own). Wine 11 starts OpenGL through EGL, which NVIDIA's drivers before 560
 // can't give X11 windows under XWayland: every plugin's drawing (OpenGL, and Direct3D and Direct2D
 // on top of it) then falls back to Mesa's software rasterizer, llvmpipe, at several CPU cores and a
 // fraction of the frame rate. Through GLX it is the graphics card's, with any driver. Set before
 // the first host starts in a prefix (Wine reads it as a program starts), once; a value already
-// there (the user's) is left alone; TINYDAW_WINE_EGL=1: not set.
+// there (the user's) is left alone; EXBIT_WINE_EGL=1: not set.
 void preferGlx(const std::string& prefix) {
     static std::mutex once;
     static std::vector<std::string> done;
     std::lock_guard<std::mutex> hold(once);
-    if (prefix.empty() || getenv("TINYDAW_WINE_EGL") || std::find(done.begin(), done.end(), prefix) != done.end())
+    if (prefix.empty() || getenv("EXBIT_WINE_EGL") || std::find(done.begin(), done.end(), prefix) != done.end())
         return;
     done.push_back(prefix);
     std::string reg;
     util::readFile(util::joinPath(prefix, "user.reg"), reg);
-    for (const char* app : {"tinydaw-wine-host.exe", "tinydaw-wine-host.exe.so", "tinydaw-wine-host-32.exe",
-                            "tinydaw-wine-host-32.exe.so"}) {
+    for (const char* app : {"exbit-wine-host.exe", "exbit-wine-host.exe.so", "exbit-wine-host-32.exe",
+                            "exbit-wine-host-32.exe.so"}) {
         std::string key = std::string("AppDefaults\\\\") + app + "\\\\X11 Driver]";
         if (reg.find(key) != std::string::npos)
             continue;

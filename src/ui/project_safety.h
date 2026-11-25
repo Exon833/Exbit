@@ -2,8 +2,8 @@
 //
 //   Collect and save        saves the project (asking where the first time), every sample it uses copied into its
 //                           audio folder if it isn't there yet, then says how many files and how much that is
-//   Save as archive…        the project and its samples as one .tinydaw.zip (the project stays as it is)
-//   Open project…           also opens a .tinydaw.zip: unpacked into a folder chosen (beside it, named after it, to
+//   Save as archive…        the project and its samples as one .exbit.zip (the project stays as it is)
+//   Open project…           also opens a .exbit.zip: unpacked into a folder chosen (beside it, named after it, to
 //                           start with), then opened from there
 //   Find missing samples…   the missing samples window (ui/relink_dialog.h), also shown when a project opens with
 //                           samples missing

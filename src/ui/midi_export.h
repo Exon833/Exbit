@@ -1,12 +1,12 @@
 // Export MIDI clips as a standard MIDI file (.mid), for other programs: right-click MIDI clips → Export as
 // MIDI file…, or File → Export selected MIDI clips… (midi_export.py).
 //
-// One clip: its notes. Several: one file, with a MIDI track per Tiny DAW track (the clips on one track
+// One clip: its notes. Several: one file, with a MIDI track per Exbit track (the clips on one track
 // together), in time with each other. The file starts at the bar the earliest clip begins in, so its bars
 // (and time-signature changes) are the song's. The notes are written as the clips play them (loops
 // repeated, cut to the clip's window, switched-off notes left out: Clip::heardNotes), with the song's
 // tempo and time signature (file_io::saveMidi), so they land on the same beats elsewhere. Not the
-// track's MIDI effects: those are Tiny DAW's, applied as it plays.
+// track's MIDI effects: those are Exbit's, applied as it plays.
 //
 // THE MAIN WINDOW: File → "Export selected MIDI clips…" and the timeline's clip menu "Export as MIDI
 // file…" call midi_export::exportMidi(this, clips, projectPath, project, engine.sr, statusFn).

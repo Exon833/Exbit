@@ -1,4 +1,4 @@
-// JACK MIDI ports and JACK's transport (midi_ports.h, midi_sync.h): a JACK client of its own, "Tiny DAW MIDI",
+// JACK MIDI ports and JACK's transport (midi_ports.h, midi_sync.h): a JACK client of its own, "Exbit MIDI",
 // made while a JACK server runs (jackd, or PipeWire's JACK) and only when something needs it (a JACK port chosen,
 // Sync: JACK, the MIDI ports window listing them). libjack is loaded at run time (jack_api.h).
 //
@@ -25,7 +25,7 @@ namespace {
 
 constexpr int MAX_PORTS = 64;
 constexpr int PENDING = 4096;
-constexpr const char* CLIENT = "Tiny DAW MIDI";
+constexpr const char* CLIENT = "Exbit MIDI";
 
 double monoNow() {
     timespec ts;
@@ -64,7 +64,7 @@ public:
             const char** names = a_->get_ports(c_, nullptr, jack::DEFAULT_MIDI_TYPE, input ? jack::PortIsOutput : jack::PortIsInput);
             if (!names) continue;
             for (const char** n = names; *n; n++) {
-                if (std::strstr(*n, "Tiny DAW")) continue;  // (our own, and their bridges)
+                if (std::strstr(*n, "Exbit")) continue;  // (our own, and their bridges)
                 Found f;
                 f.key = std::string(JACK_PREFIX) + *n;
                 f.input = input;
@@ -145,7 +145,7 @@ public:
         if (master_) return true;
         if (!a_->set_timebase_callback) return false;
         master_ = a_->set_timebase_callback(c_, 1, timebase, this) == 0;  // (conditional: not over another app)
-        util::debugf("sync: Tiny DAW %s JACK's timebase master\n", master_ ? "is" : "can't be (another app is)");
+        util::debugf("sync: Exbit %s JACK's timebase master\n", master_ ? "is" : "can't be (another app is)");
         return master_;
     }
     bool master() const override { return master_; }

@@ -22,15 +22,15 @@ void raiseThreadPriority();
 namespace {
 
 // the functions called, as pointers of the same names (they hide <pulse/*.h>'s declarations here)
-#define TINYDAW_PULSE(F)                                                                                        \
+#define EXBIT_PULSE(F)                                                                                        \
     F(pa_context_connect) F(pa_context_disconnect) F(pa_context_get_server_info) F(pa_context_get_sink_info_list) \
     F(pa_context_get_source_info_list) F(pa_context_get_state) F(pa_context_new) F(pa_context_unref)            \
     F(pa_mainloop_dispatch) F(pa_mainloop_free) F(pa_mainloop_get_api) F(pa_mainloop_new) F(pa_mainloop_poll)  \
     F(pa_mainloop_prepare) F(pa_operation_unref) F(pa_simple_flush) F(pa_simple_free) F(pa_simple_get_latency)  \
     F(pa_simple_new) F(pa_simple_read) F(pa_simple_write) F(pa_strerror)
-#define TINYDAW_PULSE_DEFINE(f) decltype(&::f) f = nullptr;
-TINYDAW_PULSE(TINYDAW_PULSE_DEFINE)
-#undef TINYDAW_PULSE_DEFINE
+#define EXBIT_PULSE_DEFINE(f) decltype(&::f) f = nullptr;
+EXBIT_PULSE(EXBIT_PULSE_DEFINE)
+#undef EXBIT_PULSE_DEFINE
 
 // both libraries and every function found (once)
 bool pulseLoaded() {
@@ -42,9 +42,9 @@ bool pulseLoaded() {
             return f ? f : dlsym(libs[1], name);
         };
         bool all = true;
-#define TINYDAW_PULSE_FIND(f) all = (f = reinterpret_cast<decltype(f)>(find(#f))) && all;
-        TINYDAW_PULSE(TINYDAW_PULSE_FIND)
-#undef TINYDAW_PULSE_FIND
+#define EXBIT_PULSE_FIND(f) all = (f = reinterpret_cast<decltype(f)>(find(#f))) && all;
+        EXBIT_PULSE(EXBIT_PULSE_FIND)
+#undef EXBIT_PULSE_FIND
         return all;
     }();
     return ok;
@@ -123,7 +123,7 @@ PaState query() {
     }
     Query q;
     pa_mainloop* ml = pa_mainloop_new();
-    pa_context* c = ml ? pa_context_new(pa_mainloop_get_api(ml), "Tiny DAW") : nullptr;
+    pa_context* c = ml ? pa_context_new(pa_mainloop_get_api(ml), "Exbit") : nullptr;
     auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1500);
     auto iterate = [&]() {
         if (pa_mainloop_prepare(ml, 50000) < 0) return false;
@@ -248,7 +248,7 @@ bool PulseStream::open(const StreamConfig& cfg, Callback cb, std::string& error)
         attr.minreq = (uint32_t)block_ * frameBytes;
         attr.fragsize = (uint32_t)-1;
         const char* dev = cfg.outputDevice == kDefaultId ? nullptr : cfg.outputDevice.c_str();
-        play_ = pa_simple_new(nullptr, "Tiny DAW", PA_STREAM_PLAYBACK, dev, "Playback", &ss, nullptr, &attr, &err);
+        play_ = pa_simple_new(nullptr, "Exbit", PA_STREAM_PLAYBACK, dev, "Playback", &ss, nullptr, &attr, &err);
         if (!play_) {
             error = std::string("Can't open the sound server's output: ") + pa_strerror(err);
             return false;
@@ -266,7 +266,7 @@ bool PulseStream::open(const StreamConfig& cfg, Callback cb, std::string& error)
         attr.minreq = (uint32_t)-1;
         attr.fragsize = (uint32_t)(block_ * inCh_ * 4);
         const char* dev = cfg.inputDevice == kDefaultId ? nullptr : cfg.inputDevice.c_str();
-        rec_ = pa_simple_new(nullptr, "Tiny DAW", PA_STREAM_RECORD, dev, "Recording", &ss, nullptr, &attr, &err);
+        rec_ = pa_simple_new(nullptr, "Exbit", PA_STREAM_RECORD, dev, "Recording", &ss, nullptr, &attr, &err);
         if (!rec_) {
             error = std::string("Can't open the sound server's input: ") + pa_strerror(err);
             return false;

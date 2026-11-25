@@ -1,4 +1,4 @@
-// Tiny Test Fx: a VST3 plugin file for Tiny DAW's tests (make plugins →
+// Tiny Test Fx: a VST3 plugin file for Exbit's tests (make plugins →
 // build/test-plugins/TinyTestFx.vst3, with Contents/Resources/moduleinfo.json), written on
 // plugins/vst3_api.h the way a plugin is written on the SDK: a module exporting GetPluginFactory,
 // ModuleEntry and ModuleExit, a factory (IPluginFactory3) with three classes:
@@ -974,8 +974,8 @@ public:
         if (!info)
             return kInvalidArgument;
         std::memset(info, 0, sizeof(*info));
-        copy8("Tiny DAW Tests", info->vendor, sizeof(info->vendor));
-        copy8("https://example.invalid/tinydaw", info->url, sizeof(info->url));
+        copy8("Exbit Tests", info->vendor, sizeof(info->vendor));
+        copy8("https://example.invalid/exbit", info->url, sizeof(info->url));
         info->flags = PFactoryInfo::kUnicode;
         return kResultOk;
     }

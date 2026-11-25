@@ -8,7 +8,7 @@
 // after tell what it did: how many files and bytes the folder holds for the project, how many were copied in
 // now, and how many samples are still missing (they can't be copied: relink.h finds them).
 //
-// ARCHIVES (".tinydaw.zip", zip.h): the project file and every sample in one file, to send or keep. Inside:
+// ARCHIVES (".exbit.zip", zip.h): the project file and every sample in one file, to send or keep. Inside:
 // "<name>.json" and "<name>_audio/…", as a saved project is laid out, so an archive unpacks into a folder
 // that opens as a project. saveArchive() saves the project into a folder of its own beside the archive
 // ("<archive>.staging", removed again; the project itself is left as it was), then packs it. openArchive()
@@ -38,9 +38,9 @@ Summary summary(const std::string& jsonPath, const Project& project, const std::
 // "Collected 12 files (34.5 MB) in …: 3 copied now." (+ the missing ones)
 std::string describe(const Summary& s);
 
-constexpr const char* ARCHIVE_EXTENSION = ".tinydaw.zip";
-bool isArchive(const std::string& path);  // its name ends in .tinydaw.zip (or .zip)
-std::string archiveStem(const std::string& path);  // "a/Song.tinydaw.zip" -> "Song"
+constexpr const char* ARCHIVE_EXTENSION = ".exbit.zip";
+bool isArchive(const std::string& path);  // its name ends in .exbit.zip (or .zip)
+std::string archiveStem(const std::string& path);  // "a/Song.exbit.zip" -> "Song"
 
 // the project and all its samples as one archive at `zipPath` (the project itself unchanged)
 bool saveArchive(const std::string& zipPath, Project& project, int sr, const project_io::MasterSettings& master,

@@ -1,4 +1,4 @@
-// Reading and writing sound files, and reading MIDI files: Tiny DAW's own decoders and encoders
+// Reading and writing sound files, and reading MIDI files: Exbit's own decoders and encoders
 // (the stand-in for soundfile and mido).
 //
 //   read:  WAV (PCM 8/16/24/32-bit, float 32/64, WAVE_FORMAT_EXTENSIBLE, RF64), AIFF / AIFF-C

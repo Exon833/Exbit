@@ -1,8 +1,8 @@
-// Every MIDI port Tiny DAW listens to or plays into, at once (Options → MIDI ports…: ui/midi_ports_dialog.h).
+// Every MIDI port Exbit listens to or plays into, at once (Options → MIDI ports…: ui/midi_ports_dialog.h).
 //
 // A Backend is one kind of port: the ALSA sequencer (alsaBackend(), audio/midi_in.cpp: one input port "MIDI in"
 // subscribed to every input chosen, and events sent straight to each output chosen) and JACK MIDI while a JACK
-// server runs (jackBackend(), audio/midi_jack.cpp: a client "Tiny DAW MIDI" with a port per port chosen). Both are
+// server runs (jackBackend(), audio/midi_jack.cpp: a client "Exbit MIDI" with a port per port chosen). Both are
 // loaded at run time (dlopen): without them there are simply no ports. Tests use a fake one (tests/test_midi_ports).
 // On Windows the one backend is WinMM's (winmmBackend(), audio/midi_win.cpp: midiIn*/midiOut*, every device by its
 // name; no announcements there, so ports that come or go are seen at the next RESCAN_S).

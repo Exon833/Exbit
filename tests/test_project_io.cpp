@@ -214,7 +214,7 @@ static void testRoundTrip() {
                                                "tracks", "clips", "master_effects", "master_cables", "audio_files"}));
     // (and, after the Python program's keys, each audio file's size and sound: to find it again if it goes missing)
     CHECK(j["audio_files"].size() == 3 && j["audio_files"]["Song_audio/drums.wav"].num("size", -1) == util::fileSize(b.c1->sourcePath));
-    CHECK(j.str("format") == "tinydaw-project" && j["version"].toInt() == 1);
+    CHECK(j.str("format") == "exbit-project" && j["version"].toInt() == 1);
     CHECK(text.find("\"master\": {\n    \"volume_db\": -6,\n    \"mute\": true\n  }") != std::string::npos);
     CHECK(text.find("\"bpm\": 133.5") != std::string::npos);
     CHECK(text.find("\"beats_per_bar\": 3,") != std::string::npos);
@@ -389,7 +389,7 @@ static void testOldAndBroken() {
         return p;
     };
     CHECK(!loadProject(write("x.json", "{\"format\": \"something else\"}"), q, SR, m, err));
-    CHECK(err == "This is not a Tiny DAW project file.");
+    CHECK(err == "This is not a Exbit project file.");
     // a plugin's path as projects saved on Windows had it, '\' and '/' mixed: read with '/' there
     SlotPtr mixed = readSlot(Json::parse(R"({"path": "C:/Program Files/Common Files/VST3/X.vst3/Contents\\x86_64-win/X.vst3"})"));
 #ifdef _WIN32
@@ -398,15 +398,15 @@ static void testOldAndBroken() {
     CHECK(mixed->path.find('\\') != std::string::npos);  // (a Linux file's name may hold one)
 #endif
     CHECK(!loadProject(write("y.json", "not json at all"), q, SR, m, err));
-    CHECK(err == "This is not a Tiny DAW project file.");
+    CHECK(err == "This is not a Exbit project file.");
     CHECK(!loadProject(kDir + "/nothing-here.json", q, SR, m, err));
-    CHECK(!loadProject(write("z.json", "{\"format\": \"tinydaw-project\"}"), q, SR, m, err));
+    CHECK(!loadProject(write("z.json", "{\"format\": \"exbit-project\"}"), q, SR, m, err));
     CHECK(err.find("damaged") != std::string::npos);
-    CHECK(!loadProject(write("w.json", "{\"format\": \"tinydaw-project\", \"tracks\": [], \"clips\": [{\"kind\": \"midi\", "
+    CHECK(!loadProject(write("w.json", "{\"format\": \"exbit-project\", \"tracks\": [], \"clips\": [{\"kind\": \"midi\", "
                                        "\"name\": \"x\", \"track\": 3, \"start\": 0, \"offset\": 0, \"length\": null}]}"),
                        q, SR, m, err));
     // an old project: effects but no cables (wired one after the other), no rack cables, no timing, no master
-    std::string old = R"({"format": "tinydaw-project", "version": 1,
+    std::string old = R"({"format": "exbit-project", "version": 1,
       "tracks": [{"name": "Old", "kind": "midi", "effects": [
           {"path": "/a.vst3", "name": "A", "kind": "effect"}, {"path": "/b.vst3", "name": "B", "kind": "effect", "state": "eHl6"}],
         "rack": [{"path": "/p.vst3", "name": "P", "kind": "instrument"}],
@@ -549,7 +549,7 @@ static void testFadeShapesAndPreFader() {
     const std::string rest = R"("sends": [[1, -3.0]]}, {"name": "R", "kind": "return"}],
       "clips": [{"kind": "audio", "name": "s", "track": 0, "start": 0, "offset": 0, "length": null,
                  "file": "Shapes_audio/shaped.wav", "fade_in": 0.1, "fade_out": 0.05}]})";
-    const std::string head = R"({"format": "tinydaw-project", "version": 1, )";
+    const std::string head = R"({"format": "exbit-project", "version": 1, )";
     util::writeFile(kDir + "/OldShapes.json", head + oldTracks + rest);
     Project o;
     CHECK(loadProject(kDir + "/OldShapes.json", o, SR, m2, err));

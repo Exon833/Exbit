@@ -33,9 +33,9 @@ namespace plat {
 
 namespace {
 
-const wchar_t* kClass = L"TinyDAW";
-const wchar_t* kEmbedClass = L"TinyDAWEmbed";
-const wchar_t* kHelperClass = L"TinyDAWHelper";
+const wchar_t* kClass = L"Exbit";
+const wchar_t* kEmbedClass = L"ExbitEmbed";
+const wchar_t* kHelperClass = L"ExbitHelper";
 constexpr UINT WM_APP_FOCUSIN = WM_APP + 1;  // a popup that takes the keys was shown (posted: as X's MapNotify)
 constexpr UINT_PTR MODAL_TIMER = 1;          // the main loop's work while Windows moves or sizes a window
 
@@ -1388,7 +1388,7 @@ void init(int argc, char** argv) {
     DWORD pids[2];
     if (GetConsoleWindow() && GetConsoleProcessList(pids, 2) == 1) {
         FreeConsole();
-        std::string log = configDir() + "/tinydaw-log.txt";
+        std::string log = configDir() + "/exbit-log.txt";
         if (freopen(log.c_str(), "w", stderr)) setvbuf(stderr, nullptr, _IONBF, 0);
         freopen("NUL", "w", stdout);
     }
@@ -1400,14 +1400,14 @@ void init(int argc, char** argv) {
     wc.hInstance = s.inst;
     wc.hCursor = nullptr;  // (WM_SETCURSOR sets the window's own)
     wc.lpszClassName = kClass;
-    // the program's own icon (tinydaw_win.rc: 1), Windows' plain one where it isn't built in
+    // the program's own icon (exbit_win.rc: 1), Windows' plain one where it isn't built in
     wc.hIcon = LoadIconW(s.inst, MAKEINTRESOURCEW(1));
     wc.hIconSm = (HICON)LoadImageW(s.inst, MAKEINTRESOURCEW(1), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
                                    GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR);
     util::debugf("platform: window class icon %s\n", wc.hIcon ? "built in" : "missing: Windows' plain one");
     if (!wc.hIcon) wc.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
     if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
-        fprintf(stderr, "Tiny DAW: can't show windows (RegisterClassEx failed: %lu)\n", (unsigned long)GetLastError());
+        fprintf(stderr, "Exbit: can't show windows (RegisterClassEx failed: %lu)\n", (unsigned long)GetLastError());
         return;
     }
     WNDCLASSEXW ec{sizeof ec};
@@ -1421,7 +1421,7 @@ void init(int argc, char** argv) {
     hc.hInstance = s.inst;
     hc.lpszClassName = kHelperClass;
     RegisterClassExW(&hc);
-    s.helper = CreateWindowExW(0, kHelperClass, L"Tiny DAW", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, s.inst, nullptr);
+    s.helper = CreateWindowExW(0, kHelperClass, L"Exbit", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, s.inst, nullptr);
     s.display = true;
     util::debugf("platform: Windows, %u dpi, %d monitor(s)\n", GetDpiForSystem(), GetSystemMetrics(SM_CMONITORS));
 }
@@ -1565,7 +1565,7 @@ int watchFd(int fd, std::function<void()> fn) {
     w.handle = (HANDLE)_get_osfhandle(fd);
     w.pipe = w.handle != INVALID_HANDLE_VALUE && GetFileType(w.handle) == FILE_TYPE_PIPE;
     w.invalid = w.handle == INVALID_HANDLE_VALUE;
-    if (w.invalid) fprintf(stderr, "Tiny DAW: can't watch file descriptor %d (not open)\n", fd);
+    if (w.invalid) fprintf(stderr, "Exbit: can't watch file descriptor %d (not open)\n", fd);
     w.fn = std::make_shared<std::function<void()>>(std::move(fn));
     s.watches[id] = std::move(w);
     return id;
@@ -1682,7 +1682,7 @@ std::string homeDir() {
 
 std::string configDir() {
     std::string base = knownFolder(FOLDERID_RoamingAppData, "APPDATA");
-    std::string dir = (base.empty() ? homeDir() : base) + "/TinyDAW";
+    std::string dir = (base.empty() ? homeDir() : base) + "/Exbit";
     if (!util::isDir(dir)) util::makeDirs(dir);
     return dir;
 }
@@ -1695,7 +1695,7 @@ std::string executableDir() {
 std::string dataDir() {
     std::string exe = executableDir();
     if (util::isDir(exe + "/data")) return exe + "/data";
-    std::string share = util::dirName(exe) + "/share/tinydaw";
+    std::string share = util::dirName(exe) + "/share/exbit";
     if (util::isDir(share)) return share;
     return exe + "/data";
 }

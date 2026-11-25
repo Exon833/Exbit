@@ -1,4 +1,4 @@
-// Tiny DAW's own CSS: the stylesheets that give the whole interface its look (skins: data/skins/*.css,
+// Exbit's own CSS: the stylesheets that give the whole interface its look (skins: data/skins/*.css,
 // and the user's own). A defined subset of CSS, parsed and matched here without any library.
 //
 // SELECTORS. A type (Button, Slider, Lane…: the widgets' and surfaces' names, docs/skins.md), `*`, a class
@@ -76,7 +76,7 @@
 // outset; a side whose style is none or hidden has a width of 0 (Style::length, edges). opacity: a number or a
 // percentage (the whole node: Widget::paintTree). backdrop-filter: none or blur(<length>), only that filter
 // (Style::backdropBlur; a window's, ui/toolkit). image-rendering: auto | smooth | high-quality | pixelated |
-// crisp-edges. Tiny DAW's own: -tiny-glyph (none | url(): an image in place of a part's drawn glyph),
+// crisp-edges. Exbit's own: -tiny-glyph (none | url(): an image in place of a part's drawn glyph),
 // -tiny-glyph-size and -tiny-glyph-offset (one or two lengths), -tiny-glyph-tint (none | color). font-smooth
 // (auto | never | always | a length) and -webkit-font-smoothing (auto | none | antialiased |
 // subpixel-antialiased): never / none draw the node's text without anti-aliasing. declaresOnNodes() tells

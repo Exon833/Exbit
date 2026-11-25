@@ -73,7 +73,7 @@ constexpr plat::Event::Type EvFocusOut = plat::Event::FocusOut;
 #include <X11/keysym.h>
 
 namespace plat {
-TINYDAW_X11(TINYDAW_X11_USE)
+EXBIT_X11(EXBIT_X11_USE)
 namespace {
 
 using XWin = ::Window;
@@ -87,7 +87,7 @@ struct Atoms {
         TYPE_TOOLTIP, TYPE_UTILITY, NET_WM_STATE, STATE_MAX_V, STATE_MAX_H, STATE_FULLSCREEN,
         STATE_SKIP_TASKBAR, STATE_SKIP_PAGER, NET_ACTIVE_WINDOW, NET_WM_ICON, NET_FRAME_EXTENTS,
         NET_WORKAREA, NET_CURRENT_DESKTOP, NET_WM_USER_TIME, CLIPBOARD, TARGETS, TEXT, TEXT_PLAIN_UTF8,
-        INCR, TINYDAW_SEL, XdndAware, XdndEnter, XdndPosition, XdndStatus, XdndLeave, XdndDrop,
+        INCR, EXBIT_SEL, XdndAware, XdndEnter, XdndPosition, XdndStatus, XdndLeave, XdndDrop,
         XdndFinished, XdndSelection, XdndTypeList, XdndActionCopy, URI_LIST, MOTIF_WM_HINTS, CLIPBOARD_MANAGER,
         SAVE_TARGETS, XEMBED, NET_WM_MOVERESIZE, STATE_HIDDEN, NET_SUPPORTED, NET_WM_WINDOW_OPACITY,
         KDE_BLUR_BEHIND, MANAGER;
@@ -191,7 +191,7 @@ int onXError(Display* d, XErrorEvent* e) {
     if (s.loggedErrors <= 30 || s.loggedErrors % 500 == 0) {
         char text[160] = "";
         XGetErrorText(d, e->error_code, text, sizeof text);
-        fprintf(stderr, "Tiny DAW: X error: %s (request %d.%d, resource 0x%lx)%s\n", text, e->request_code,
+        fprintf(stderr, "Exbit: X error: %s (request %d.%d, resource 0x%lx)%s\n", text, e->request_code,
                 e->minor_code, (unsigned long)e->resourceid,
                 s.loggedErrors == 30 ? " (further errors are counted quietly)" : "");
     }
@@ -199,7 +199,7 @@ int onXError(Display* d, XErrorEvent* e) {
 }
 
 int onXIOError(Display*) {
-    fprintf(stderr, "Tiny DAW: the connection to the display was lost\n");
+    fprintf(stderr, "Exbit: the connection to the display was lost\n");
     _exit(1);
     return 0;
 }
@@ -422,7 +422,7 @@ std::vector<long> readLongs(XWin w, Atom prop, Atom reqType = AnyPropertyType) {
     return out;
 }
 
-// asks the owner of `selection` for it as `target` (into requestor's TINYDAW_SEL property) and
+// asks the owner of `selection` for it as `target` (into requestor's EXBIT_SEL property) and
 // waits up to timeoutMs, handling the INCR protocol for big transfers. Other events stay queued.
 bool convertSelection(XWin requestor, Atom selection, Atom target, Time t, int timeoutMs, std::string& out,
                       Atom* gotType = nullptr);
@@ -781,8 +781,8 @@ XWindow::XWindow(const WindowOptions& o, WindowListener* l) : listener_(l), opts
 
     // WM_CLASS, WM_HINTS, WM_NORMAL_HINTS, WM_CLIENT_MACHINE, WM_LOCALE_NAME
     XClassHint ch;
-    ch.res_name = (char*)"tinydaw";
-    ch.res_class = (char*)"TinyDAW";
+    ch.res_name = (char*)"exbit";
+    ch.res_class = (char*)"Exbit";
     XWMHints wmh{};
     wmh.flags = InputHint | StateHint;
     wmh.input = (o.takesFocus && !o.offscreen) ? True : False;
@@ -2007,7 +2007,7 @@ bool convertSelection(XWin requestor, Atom selection, Atom target, Time t, int t
                       Atom* gotType) {
     State& s = S();
     Display* d = s.dpy;
-    Atom prop = s.a.TINYDAW_SEL;
+    Atom prop = s.a.EXBIT_SEL;
     out.clear();
     XDeleteProperty(d, requestor, prop);
     XConvertSelection(d, selection, target, prop, requestor, t ? t : CurrentTime);
@@ -2046,7 +2046,7 @@ bool convertSelection(XWin requestor, Atom selection, Atom target, Time t, int t
                           [](Display*, XEvent* e, XPointer arg) -> Bool {
                               XWin w = *(XWin*)arg;
                               return e->type == PropertyNotify && e->xproperty.window == w &&
-                                     e->xproperty.atom == S().a.TINYDAW_SEL && e->xproperty.state == PropertyNewValue;
+                                     e->xproperty.atom == S().a.EXBIT_SEL && e->xproperty.state == PropertyNewValue;
                           },
                           (XPointer)&requestor)) {
             if (!readProperty(requestor, prop, type, format, data, true)) return false;
@@ -2374,7 +2374,7 @@ void init(int argc, char** argv) {
     initWithoutDisplay();
     std::string why;
     if (!xlib::load(why)) {
-        fprintf(stderr, "Tiny DAW: can't show windows: %s (tinydaw --tui runs in the terminal)\n", why.c_str());
+        fprintf(stderr, "Exbit: can't show windows: %s (exbit --tui runs in the terminal)\n", why.c_str());
         return;
     }
     XInitThreads();
@@ -2383,7 +2383,7 @@ void init(int argc, char** argv) {
     XSetLocaleModifiers("");
     s.dpy = XOpenDisplay(nullptr);
     if (!s.dpy) {
-        fprintf(stderr, "Tiny DAW: can't open the display %s\n", getenv("DISPLAY") ? getenv("DISPLAY") : "(DISPLAY not set)");
+        fprintf(stderr, "Exbit: can't open the display %s\n", getenv("DISPLAY") ? getenv("DISPLAY") : "(DISPLAY not set)");
         return;
     }
     XSetErrorHandler(onXError);
@@ -2420,7 +2420,7 @@ void init(int argc, char** argv) {
         "_NET_WM_STATE_MAXIMIZED_HORZ", "_NET_WM_STATE_FULLSCREEN", "_NET_WM_STATE_SKIP_TASKBAR",
         "_NET_WM_STATE_SKIP_PAGER", "_NET_ACTIVE_WINDOW", "_NET_WM_ICON", "_NET_FRAME_EXTENTS", "_NET_WORKAREA",
         "_NET_CURRENT_DESKTOP", "_NET_WM_USER_TIME", "CLIPBOARD", "TARGETS", "TEXT", "text/plain;charset=utf-8",
-        "INCR", "TINYDAW_SELECTION", "XdndAware", "XdndEnter", "XdndPosition", "XdndStatus", "XdndLeave", "XdndDrop",
+        "INCR", "EXBIT_SELECTION", "XdndAware", "XdndEnter", "XdndPosition", "XdndStatus", "XdndLeave", "XdndDrop",
         "XdndFinished", "XdndSelection", "XdndTypeList", "XdndActionCopy", "text/uri-list", "_MOTIF_WM_HINTS",
         "CLIPBOARD_MANAGER", "SAVE_TARGETS", "_XEMBED", "_NET_WM_MOVERESIZE", "_NET_WM_STATE_HIDDEN",
         "_NET_SUPPORTED", "_NET_WM_WINDOW_OPACITY", "_KDE_NET_WM_BLUR_BEHIND_REGION", "MANAGER"};
@@ -2615,7 +2615,7 @@ void processEvents(int timeoutMs) {
             auto it = s.watches.find(watchIds[i]);
             if (it == s.watches.end()) continue;  // removed by an earlier callback
             if (re & POLLNVAL) {
-                fprintf(stderr, "Tiny DAW: a watched file descriptor (%d) was closed; no longer watched\n", it->second.fd);
+                fprintf(stderr, "Exbit: a watched file descriptor (%d) was closed; no longer watched\n", it->second.fd);
                 it->second.invalid = true;
                 continue;
             }
@@ -2810,7 +2810,7 @@ std::string homeDir() {
 std::string configDir() {
     const char* x = getenv("XDG_CONFIG_HOME");
     std::string base = (x && *x == '/') ? std::string(x) : homeDir() + "/.config";
-    std::string dir = base + "/TinyDAW";
+    std::string dir = base + "/Exbit";
     if (!isDir(dir)) makeDirs(dir);
     return dir;
 }
@@ -2826,7 +2826,7 @@ std::string executableDir() {
 std::string dataDir() {
     std::string exe = executableDir();
     if (isDir(exe + "/data")) return exe + "/data";
-    std::string share = dirOf(exe) + "/share/tinydaw";
+    std::string share = dirOf(exe) + "/share/exbit";
     if (isDir(share)) return share;
     return exe + "/data";
 }

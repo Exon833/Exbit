@@ -1,5 +1,5 @@
 // Images: premultiplied ARGB32 pixel buffers (what the windows show, cached tiles, icons,
-// plugin pictures), and reading/writing them as PNG (Tiny DAW's own inflate/deflate).
+// plugin pictures), and reading/writing them as PNG (Exbit's own inflate/deflate).
 #pragma once
 #include <cstdint>
 #include <string>

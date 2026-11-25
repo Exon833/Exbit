@@ -17,18 +17,18 @@ const char* const TITLE = "Import Ableton Live set";
 std::string proposedOutput(const std::string& als) {
     std::string stem = util::stem(als);
     std::string parent = util::dirName(util::dirName(util::absolutePath(als)));
-    std::string folder = util::joinPath(parent, stem + " (Tiny DAW)");
+    std::string folder = util::joinPath(parent, stem + " (Exbit)");
     // (the file chooser starts in a folder that is there: a new one can't be proposed inside the path)
     if (util::isDir(folder)) return util::joinPath(folder, stem + ".json");
-    return util::joinPath(parent, stem + " (Tiny DAW).json");
+    return util::joinPath(parent, stem + " (Exbit).json");
 }
 
 bool run(ui::Window* window, const Hooks& hooks) {
     if (hooks.confirmDiscard && !hooks.confirmDiscard()) return false;
     std::string als = ui::files::openFile(window, TITLE, "", "Ableton Live set (*.als)");
     if (als.empty()) return false;
-    std::string output = ui::files::saveFile(window, "Save the Tiny DAW project as", proposedOutput(als),
-                                             "Tiny DAW project (*.json)");
+    std::string output = ui::files::saveFile(window, "Save the Exbit project as", proposedOutput(als),
+                                             "Exbit project (*.json)");
     if (output.empty()) return false;
     if (!util::endsWith(util::lower(output), ".json")) output += ".json";
     std::string folder = project_io::audioFolder(output);
@@ -66,7 +66,7 @@ bool run(ui::Window* window, const Hooks& hooks) {
     if (details.empty()) details = "Everything carried over.";
     ui::msg::box(window, ui::msg::Icon::Information, "Ableton Live set imported",
                  "Saved as " + output + ".\n\n" + (result.report.empty() ? std::string() : result.report[0]) +
-                     "\n\nInstruments Tiny DAW can't play are frozen to a rendering made from the set; see the details for "
+                     "\n\nInstruments Exbit can't play are frozen to a rendering made from the set; see the details for "
                      "what was approximated or left out.",
                  ui::msg::Ok, ui::msg::Ok, details);
     return true;

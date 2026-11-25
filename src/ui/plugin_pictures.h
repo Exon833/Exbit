@@ -9,7 +9,7 @@
 //     VST3 standard; Serum has one);
 //   - none: the panel draws an empty faceplate.
 // Taken pictures are kept small, one per plugin (not per track: every Pro-Q 4 shows the latest one),
-// in the plugin_pictures folder of your Tiny DAW folder (paths::dataDir("plugin_pictures")).
+// in the plugin_pictures folder of your Exbit folder (paths::dataDir("plugin_pictures")).
 #pragma once
 #include <memory>
 #include <string>

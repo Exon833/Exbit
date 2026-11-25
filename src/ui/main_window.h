@@ -228,7 +228,7 @@ public:
     bool interfaceSizeFits(int size);
     void offerInterfaceSizes();
     void setInterfaceScale(int size);
-    void setWindowFrames(bool own);  // Options → Window frames: Tiny DAW's own, or the system's
+    void setWindowFrames(bool own);  // Options → Window frames: Exbit's own, or the system's
     void setTransparency(bool on);   // Options → Window frames → Transparency
     void offerTransparency();        // …enabled only while a compositing manager runs
     void addMidiOptions(ui::Menu* menu); // Options: Recording offset…, MIDI input…, Computer keyboard
@@ -238,7 +238,7 @@ public:
     void addDiscordOptions(ui::Menu* menu);    // Options → Discord status: Show in Discord, Application ID…
     void startDiscordPresence();               // (at the start) the presence thread, as the settings say
     void chooseDiscordApplicationId();         // Options → Discord status → Application ID…
-    void configureDiscordPresence();           // the presence on or off, with the ID chosen (else Tiny DAW's own)
+    void configureDiscordPresence();           // the presence on or off, with the ID chosen (else Exbit's own)
     void showDiscordState();                   // the state line's text, as the presence is now
     void feedDiscordPresence(double cpuLoad);  // (the CPU timer) the lanes and the load, for Discord's text
 

@@ -125,7 +125,7 @@ bool readDirectory(int fd, std::vector<Item>& items, std::string& error) {
             return false;
         }
         if (it.method != 0 && it.method != 8) {
-            error = "The archive packs " + it.name + " in a way Tiny DAW can't read (method " + std::to_string(it.method) + ").";
+            error = "The archive packs " + it.name + " in a way Exbit can't read (method " + std::to_string(it.method) + ").";
             return false;
         }
         if (it.packed == MOST || it.size == MOST || it.offset == MOST) {
@@ -238,7 +238,7 @@ bool write(const std::string& path, const std::vector<Entry>& entries, std::stri
         }
         const std::string& body = method ? packed : data;
         if (offset + 30 + e.name.size() + body.size() > MOST || data.size() > MOST)
-            return fail("The archive would be bigger than 4 GB, which Tiny DAW can't write yet: use File → Collect and save.");
+            return fail("The archive would be bigger than 4 GB, which Exbit can't write yet: use File → Collect and save.");
         std::string head;
         put32(head, LOCAL);
         put16(head, 20);

@@ -1,4 +1,4 @@
-// Playing a MIDI keyboard into Tiny DAW (the low half of daw/ui/midi_input.py): what a MIDI port sends
+// Playing a MIDI keyboard into Exbit (the low half of daw/ui/midi_input.py): what a MIDI port sends
 // (Event), the ALSA sequencer's ports, and the sustain pedal. The ports themselves are listened to and
 // written to by audio/midi_ports.h (Options → MIDI ports…: several at once).
 //
@@ -48,7 +48,7 @@ struct PortInfo {
 };
 
 // The MIDI input ports there are now: readable, subscribable MIDI ports of the other sequencer
-// clients ([] without an ALSA sequencer). Tiny DAW's own clients and "System" (timer, announce) are left out.
+// clients ([] without an ALSA sequencer). Exbit's own clients and "System" (timer, announce) are left out.
 std::vector<PortInfo> ports();
 std::vector<PortInfo> outputs();  // the same for the ports MIDI can be sent to (synths, interfaces' outs)
 // a port's name without the numbers ALSA puts at the end ("… 20:0"), which can change between sessions

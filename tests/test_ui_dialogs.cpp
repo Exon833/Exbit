@@ -262,7 +262,7 @@ static void testSkinFiles() {
         CHECK(differ == 0);
         std::string text;
         util::readFile(path, text);
-        CHECK(text.find("Midnight: a skin of Tiny DAW") == std::string::npos);  // (its header: a new one)
+        CHECK(text.find("Midnight: a skin of Exbit") == std::string::npos);  // (its header: a new one)
         CHECK(text.find("your own skin, made from Midnight") != std::string::npos);
         util::removeFile(path);
         // a copy of a skin without --skin-name gets one
@@ -276,7 +276,7 @@ static void testSkinFiles() {
     // JSON skins of earlier versions become stylesheets once (the JSON goes to "old JSON skins")
     {
         util::writeFile(TMP + "/skins/odd.json",
-                        R"({"format": "tinydaw-skin", "version": 1, "name": "  Odd one ", "colors": {"lane": "#ABCDEF", "nope": "#000000",)"
+                        R"({"format": "exbit-skin", "version": 1, "name": "  Odd one ", "colors": {"lane": "#ABCDEF", "nope": "#000000",)"
                         R"( "playhead": "red", "selection_fill": "#11223344"}, "fonts": {"ui": "Noto Sans", "ui_size": 10.5,)"
                         R"( "mono": "Consolas", "weird": 1}})");
         util::writeFile(TMP + "/skins/notskin.json", R"({"name": "x"})");
@@ -295,12 +295,12 @@ static void testSkinFiles() {
         CHECK(text.find("unknown colour nope") != std::string::npos && text.find("font setting weird") != std::string::npos);
         // again: nothing more to do; a second JSON of the same name keeps the stylesheet there and is moved aside
         CHECK(skin::convertOldSkins(TMP + "/skins").empty());
-        util::writeFile(TMP + "/skins/odd.json", R"({"format": "tinydaw-skin", "name": "Other"})");
+        util::writeFile(TMP + "/skins/odd.json", R"({"format": "exbit-skin", "name": "Other"})");
         CHECK(skin::convertOldSkins(TMP + "/skins").empty());
         CHECK(util::fileExists(TMP + "/skins/old JSON skins/odd (2).json") && skin::find("Odd one").path == odd.path);
         std::string css, err;
         CHECK(!skin::cssFromJson("not json", "x", css, err));
-        CHECK(skin::cssFromJson(R"({"format": "tinydaw-skin"})", "Fallback", css, err) &&
+        CHECK(skin::cssFromJson(R"({"format": "exbit-skin"})", "Fallback", css, err) &&
               css.find("--skin-name: \"Fallback\"") != std::string::npos);
         util::removeFile(odd.path);
         util::removeFile(TMP + "/skins/notskin.json");
@@ -1542,7 +1542,7 @@ static void testHistoryWindow() {
     CHECK(!w.isWindowShown());
 }
 
-// Tiny DAW's own window frames (forced on without a display): a program's dialog keeps its inside (its size, its
+// Exbit's own window frames (forced on without a display): a program's dialog keeps its inside (its size, its
 // widgets' places, every pixel of it) with the title bar above it and the border around; clicks still land where
 // they did; every built-in skin's bar is legible (its title and buttons against the bar)
 static void testFramedDialogs() {
@@ -1826,7 +1826,7 @@ void testLoopRecording() {
 
 // A message box's parts: its buttons in a band across the whole width (Dialog.message-box::buttons: a box, its
 // padding the room around them; unstyled, where they always were), and no maximize (it can't be resized); a message
-// box in every built-in skin, with Tiny DAW's own frames
+// box in every built-in skin, with Exbit's own frames
 static void testMessageBoxParts() {
     App& app = App::get();
     struct Seen {

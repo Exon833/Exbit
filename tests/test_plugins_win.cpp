@@ -1,16 +1,16 @@
 // Plugins on Windows itself (plugins/wine_win.cpp, child_win.cpp, bridge_win.h, bridged.cpp; the host,
-// src/winehost/host.cpp as tinydaw-plugin-host.exe): the repository's test plugins, built as Windows
-// DLLs (TINYDAW_WIN_TEST_PLUGINS=<folder>: TinyTestFx.vst3, its moduleinfo.json, TinyTestSynth.dll, and
+// src/winehost/host.cpp as exbit-plugin-host.exe): the repository's test plugins, built as Windows
+// DLLs (EXBIT_WIN_TEST_PLUGINS=<folder>: TinyTestFx.vst3, its moduleinfo.json, TinyTestSynth.dll, and
 // the 32-bit TinyTestFx32.vst3 / TinyTestSynth32.dll if built), laid out as installers do in a folder of
 // its own; found by the library (VST3 bundles and VST2 DLLs; the synth's kind by the kind finder, in a
 // process of its own: this program again, --probe), each loaded out of process in a host of its own,
 // asked, processed, its settings saved and given back, its window opened inside one of ours (a child
 // window of the host's process) and closed; a host killed, and a plugin that crashes in its host
-// (TINYDAW_WINE_TEST_CRASH): the program goes on, the plugin falls silent, nothing hangs; and a plugin that
-// hangs for good (TINYDAW_WINE_TEST_FREEZE): our window keeps answering, the watchdog ends its host.
-// The host: TINYDAW_PLUGIN_HOST (…_HOST32), else next to this program.
+// (EXBIT_WINE_TEST_CRASH): the program goes on, the plugin falls silent, nothing hangs; and a plugin that
+// hangs for good (EXBIT_WINE_TEST_FREEZE): our window keeps answering, the watchdog ends its host.
+// The host: EXBIT_PLUGIN_HOST (…_HOST32), else next to this program.
 //
-// (Windows only; Makefile: test_plugins_win, with the Windows build. TINYDAW_NO_WINDOWS=1: no windows.)
+// (Windows only; Makefile: test_plugins_win, with the Windows build. EXBIT_NO_WINDOWS=1: no windows.)
 #include <windows.h>
 
 #include <algorithm>
@@ -247,9 +247,9 @@ void testEditor(PluginLibrary& library, const PluginInfo& info) {
     WNDCLASSW wc{};
     wc.lpfnWndProc = DefWindowProcW;
     wc.hInstance = GetModuleHandleW(nullptr);
-    wc.lpszClassName = L"TinyDAWTestEditor";
+    wc.lpszClassName = L"ExbitTestEditor";
     RegisterClassW(&wc);
-    HWND ours = CreateWindowExW(0, L"TinyDAWTestEditor", L"Tiny DAW test: a plugin's window", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+    HWND ours = CreateWindowExW(0, L"ExbitTestEditor", L"Exbit test: a plugin's window", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
                                 1480, 560, 420, 320, nullptr, nullptr, wc.hInstance, nullptr);
     SetWindowPos(ours, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);  // (in sight, over other programs: tests by hand)
     ShowWindow(ours, SW_SHOW);
@@ -276,7 +276,7 @@ void testEditor(PluginLibrary& library, const PluginInfo& info) {
            plugin ? (int)IsWindowVisible(plugin) : 0, plugin && (GetWindowLongW(plugin, GWL_STYLE) & WS_VISIBLE) ? "shown" : "hidden",
            IsWindowVisible(ours) ? "shown" : "hidden");
     CHECK(r.right - r.left == w && r.bottom - r.top == h);
-    if (const char* shot = getenv("TINYDAW_SHOT_PAUSE")) pump(atof(shot));  // (a moment to look at it: tests by hand)
+    if (const char* shot = getenv("EXBIT_SHOT_PAUSE")) pump(atof(shot));  // (a moment to look at it: tests by hand)
     // ours moved: the plugin's goes with it (a child window), nothing to tell the host
     SetWindowPos(ours, nullptr, 200, 150, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
     p->idle();
@@ -301,7 +301,7 @@ void testEditor(PluginLibrary& library, const PluginInfo& info) {
 void testCrashes(PluginLibrary& library, const PluginInfo& info) {
     printf("== crashes: %s\n", info.name.c_str());
     for (int how = 0; how < 2; how++) {
-        if (how == 1) _putenv_s("TINYDAW_WINE_TEST_CRASH", "1");  // (the host faults in Windows code, PARAM_TEXT)
+        if (how == 1) _putenv_s("EXBIT_WINE_TEST_CRASH", "1");  // (the host faults in Windows code, PARAM_TEXT)
         auto p = library.load(info, 48000);
         int pid = bridgedHostPid(*p);
         CHECK(pid > 0);
@@ -332,11 +332,11 @@ void testCrashes(PluginLibrary& library, const PluginInfo& info) {
         CHECK(secondsNow() - t0 < 2.5);
         printf("   %s: the plugin fell silent in %.2f s; nothing hung\n", how ? "a crash in the host" : "its host killed",
                secondsNow() - t0);
-        if (how == 1) _putenv_s("TINYDAW_WINE_TEST_CRASH", "");
+        if (how == 1) _putenv_s("EXBIT_WINE_TEST_CRASH", "");
     }
 }
 
-// a plugin that hangs for good in its host (TINYDAW_WINE_TEST_FREEZE, from a parameter's text): its own
+// a plugin that hangs for good in its host (EXBIT_WINE_TEST_FREEZE, from a parameter's text): its own
 // thread ("1"), its window open inside ours (a child window of a hung thread: ours mustn't hang with it),
 // or its audio thread ("audio"). Our window keeps answering (a message sent to it from another thread;
 // moved; our frames), the buffers return within their deadline; the watchdog (bridged.cpp, HANG_SECONDS
@@ -345,19 +345,19 @@ void testCrashes(PluginLibrary& library, const PluginInfo& info) {
 void testHang(PluginLibrary& library, const PluginInfo& info) {
     for (const char* how : {"1", "audio"}) {
         printf("== a hang (%s): %s\n", std::string(how) == "1" ? "the plugin's thread" : "its audio thread", info.name.c_str());
-        _putenv_s("TINYDAW_WINE_TEST_FREEZE", how);
+        _putenv_s("EXBIT_WINE_TEST_FREEZE", how);
         auto p = library.load(info, 48000);
-        _putenv_s("TINYDAW_WINE_TEST_FREEZE", "");
+        _putenv_s("EXBIT_WINE_TEST_FREEZE", "");
         int pid = bridgedHostPid(*p);
         CHECK(pid > 0);
         HWND ours = nullptr;
-        if (!getenv("TINYDAW_NO_WINDOWS")) {
+        if (!getenv("EXBIT_NO_WINDOWS")) {
             WNDCLASSW wc{};
             wc.lpfnWndProc = DefWindowProcW;
             wc.hInstance = GetModuleHandleW(nullptr);
-            wc.lpszClassName = L"TinyDAWTestHang";
+            wc.lpszClassName = L"ExbitTestHang";
             RegisterClassW(&wc);
-            ours = CreateWindowExW(0, L"TinyDAWTestHang", L"Tiny DAW test: a plugin that hangs", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+            ours = CreateWindowExW(0, L"ExbitTestHang", L"Exbit test: a plugin that hangs", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
                                    1480, 560, 420, 320, nullptr, nullptr, wc.hInstance, nullptr);
             ShowWindow(ours, SW_SHOW);
             ShowWindow(ours, SW_SHOW);
@@ -473,14 +473,14 @@ int main(int argc, char** argv) {
     GetTempPathA(MAX_PATH, tmp);
     std::string temp = tmp;
     std::replace(temp.begin(), temp.end(), '\\', '/');  // (the program's paths: core/os.h)
-    tempRoot = util::joinPath(temp, "tinydaw-plugins-test-" + std::to_string((long)GetCurrentProcessId()));
+    tempRoot = util::joinPath(temp, "exbit-plugins-test-" + std::to_string((long)GetCurrentProcessId()));
     util::makeDirs(tempRoot);
     testCommandLine();
     testFolders();
-    const char* dirEnv = getenv("TINYDAW_WIN_TEST_PLUGINS");
+    const char* dirEnv = getenv("EXBIT_WIN_TEST_PLUGINS");
     std::string win = dirEnv && *dirEnv ? dirEnv : "build/win-test-plugins";
     if (!util::fileExists(util::joinPath(win, "TinyTestFx.vst3")) || wine::hostPath(false).empty()) {
-        printf("(no test plugins in %s, or no tinydaw-plugin-host.exe: the plugins weren't tested)\n", win.c_str());
+        printf("(no test plugins in %s, or no exbit-plugin-host.exe: the plugins weren't tested)\n", win.c_str());
         CHECK(false);
         TEST_MAIN_END();
     }
@@ -494,7 +494,7 @@ int main(int argc, char** argv) {
         testFx(library, f.fx32);
         testSynth(library, f.synth32);
     }
-    if (!getenv("TINYDAW_NO_WINDOWS")) {
+    if (!getenv("EXBIT_NO_WINDOWS")) {
         testEditor(library, f.fx);
         testEditor(library, f.synth);
         if (bits32) testEditor(library, f.fx32);

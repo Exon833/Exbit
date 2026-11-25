@@ -32,7 +32,7 @@ void finished(ui::ProgressDialog& dialog) {
 bool collectAndSave(MainWindow& w) {
     std::string path = w.projectPath;
     if (path.empty()) {
-        path = ui::files::saveFile(&w, "Collect and save", "Untitled.json", "Tiny DAW project (*.json)");
+        path = ui::files::saveFile(&w, "Collect and save", "Untitled.json", "Exbit project (*.json)");
         if (path.empty()) return false;
         if (util::extension(path) != ".json") path += ".json";
     }
@@ -54,7 +54,7 @@ bool saveArchive(MainWindow& w) {
     std::string start = w.projectPath.empty() ? std::string("Untitled")
                                               : util::joinPath(util::dirName(w.projectPath), util::stem(w.projectPath));
     std::string path = ui::files::saveFile(&w, "Save as archive", start + collect::ARCHIVE_EXTENSION,
-                                           "Tiny DAW archive (*.tinydaw.zip)");
+                                           "Exbit archive (*.exbit.zip)");
     if (path.empty()) return false;
     if (!collect::isArchive(path)) path += collect::ARCHIVE_EXTENSION;
     if (!w.engine.isOpen())  // (as saving: the plugins' settings as they are now)

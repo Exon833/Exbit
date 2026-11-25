@@ -1,13 +1,13 @@
 // Presets: the settings of one effect or instrument, or a whole track's chain, kept in files of their
 // own to bring back on any track of any project. No GUI code (the menus are ui/presets_ui.h).
 //
-// WHERE. In the program's data folder (paths.h: $XDG_DATA_HOME/TinyDAW, ~/.local/share/TinyDAW):
+// WHERE. In the program's data folder (paths.h: $XDG_DATA_HOME/Exbit, ~/.local/share/Exbit):
 //
 //     presets/effects/<plugin name>/<preset>.json   one effect's or instrument's settings
 //     presets/tracks/<preset>.json                  a track's chain
 //     presets/tracks/<preset>_audio/<sample>.wav    …its built-in sampler's sample, copied there
 //
-// AN EFFECT PRESET is {"format": "tinydaw-preset", "version": 1, "kind": "effect", "plugin": {"path",
+// AN EFFECT PRESET is {"format": "exbit-preset", "version": 1, "kind": "effect", "plugin": {"path",
 // "name", "plugin_name", "kind"}, "state": <base64 of the packed state>} (the state as projects save a
 // slot's: plug::packState; a built-in effect's is the JSON of its values). It is listed for every slot of
 // that plugin (by its name), and loading it gives the loaded plugin those settings on the GUI thread
@@ -36,7 +36,7 @@
 
 namespace presets {
 
-constexpr const char* FORMAT = "tinydaw-preset";
+constexpr const char* FORMAT = "exbit-preset";
 constexpr int VERSION = 1;
 constexpr const char* TRACK = "track";  // a track preset's "preset" key
 

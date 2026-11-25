@@ -924,7 +924,7 @@ void Encoder::headers(BitsOut& id, BitsOut& comment, BitsOut& setup) const {
 
     comment.put(3, 8);
     comment.text("vorbis");
-    const char* vendor = "Tiny DAW";
+    const char* vendor = "Exbit";
     comment.put((uint32_t)strlen(vendor), 32);
     comment.text(vendor);
     comment.put(0, 32);

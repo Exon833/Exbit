@@ -8,9 +8,9 @@
 // (also when the changes are discarded) empty the folder: what it held is saved or was given up.
 //
 // Each run holds a lock on a file in its folder (flock: the system lets go of it when the program ends
-// however it ends), so several Tiny DAWs at once each keep their own. A folder whose lock nobody holds
+// however it ends), so several copies of Exbit at once each keep their own. A folder whose lock nobody holds
 // belongs to a run that didn't end normally (a crash, a plugin that took the program down, a power
-// cut): on start, if one holds work, Tiny DAW offers to open it (Open it / Discard it / Not now).
+// cut): on start, if one holds work, Exbit offers to open it (Open it / Discard it / Not now).
 // Opened, it becomes this run's folder, and its project counts as unsaved (Save puts it back where it
 // came from).
 #pragma once
@@ -103,11 +103,11 @@ public:
 
     // on start: if a run that didn't end normally kept work, offer to open it (the newest; older ones
     // are kept for the next start). True if it was opened. The folder is held (locked) while asking, so
-    // that another Tiny DAW starting meanwhile doesn't offer it too.
+    // that another Exbit starting meanwhile doesn't offer it too.
     bool offerRecovery();
     // open the work kept in `folder` (as unsaved changes to `original`, if it had a file); `held`: the lock
     // on it, if this run holds it already. It becomes this run's autosave, written again at once (dated
-    // now: the question about the old one doesn't come back). False if another Tiny DAW holds it.
+    // now: the question about the old one doesn't come back). False if another Exbit holds it.
     bool recover(const std::string& folder, const std::string& original, int held = -1);
     // (tests and the test script: answers the question without asking: 0 open, 1 discard, 2 not now; -1 ask)
     int answer = -1;

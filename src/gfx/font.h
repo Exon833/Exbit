@@ -1,4 +1,4 @@
-// Fonts: Tiny DAW's own TrueType reader and glyph rasterizer (no FreeType).
+// Fonts: Exbit's own TrueType reader and glyph rasterizer (no FreeType).
 //
 // A Font is a family + pixel size + bold. Families are looked up among the system's .ttf/.otf
 // (TrueType outlines) files: on Linux /usr/share/fonts, /usr/local/share/fonts, ~/.local/share/fonts,

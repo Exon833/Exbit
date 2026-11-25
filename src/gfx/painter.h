@@ -1,4 +1,4 @@
-// Painter: Tiny DAW's own 2D renderer onto an Image (the stand-in for QPainter).
+// Painter: Exbit's own 2D renderer onto an Image (the stand-in for QPainter).
 //
 // Everything is anti-aliased (coverage-based scanline rasterizer, non-zero winding) except the
 // fast paths for pixel-aligned rectangles and lines. Coordinates are in pixels; a pixel's centre is

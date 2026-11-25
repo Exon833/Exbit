@@ -1,5 +1,5 @@
 // A plugin's parameters as a list: the window of a plugin that has none of its own here (none at all,
-// or none for this system: tinydaw --tui, without a window system, shows every VST plugin this way).
+// or none for this system: exbit --tui, without a window system, shows every VST plugin this way).
 // A row per parameter, its name and its value as the plugin shows it ("Cutoff   1.20 kHz"); Up/Down
 // (or typing its first letters) the parameter, Left/Right move it a step (a hundredth, or one of its
 // steps), Page Up/Down a tenth, Home/End its ends, Backspace its default. Changes count as the

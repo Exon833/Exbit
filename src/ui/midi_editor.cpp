@@ -1241,7 +1241,7 @@ bool MidiEditor::keyPress(ui::KeyEvent& e) {
             int pitch = std::find(rs.begin(), rs.end(), keyPitch) != rs.end() ? keyPitch : rs.front();
             steps->rowSwingMenu(pitch, steps->mapToGlobal(Point(0, 0)));
         }
-    } else if (e.key == plat::Key_F2 && !e.mods) {  // the tools' menu (tinydaw --tui's way to them)
+    } else if (e.key == plat::Key_F2 && !e.mods) {  // the tools' menu (exbit --tui's way to them)
         ui::Menu menu;
         toolsMenu(menu);
         ui::Widget* v = view();

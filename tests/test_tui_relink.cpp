@@ -1,4 +1,4 @@
-// tinydaw --tui: the missing samples window by the keyboard alone. A project opened with samples gone shows it,
+// exbit --tui: the missing samples window by the keyboard alone. A project opened with samples gone shows it,
 // drawn as text (each file, where it was expected, what uses it; Search a folder…, Locate…, Leave missing); Esc
 // leaves them missing (their clips silent, marked [missing] on the timeline); File → Find missing samples… (Alt+F,
 // D) opens it again, and a search puts every one back. Collect and save and Save as archive… are in the File

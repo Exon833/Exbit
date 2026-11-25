@@ -21,7 +21,7 @@
 //
 // Patches are replaced whole on every change (never changed in place), as SamplerSettings is: undo and
 // the audio thread see whole ones. Saved in projects (project_io: "synth", only when set) and as preset
-// files: JSON {"format": "tinydaw-synth", "name", "category", "params": {key: value}, "mods": [{"source",
+// files: JSON {"format": "exbit-synth", "name", "category", "params": {key: value}, "mods": [{"source",
 // "target", "depth"}], and a Drawn synth's "drawn": [WAVE_POINTS numbers]}; keys missing take their defaults. The presets shipped are in the program's data
 // (data/presets/synth/<category>/), the user's own in <data>/presets/synth/<category>/ (paths.h).
 #pragma once
@@ -57,7 +57,7 @@ constexpr int MAX_UNISON = 8;
 constexpr int CONTROL = 16;            // frames between modulation updates
 constexpr double MAX_TAIL_S = 30.0;    // a release never rings longer
 constexpr double OUT_GAIN = 0.2;       // a note's level at velocity 127, one oscillator at full level, 0 dB
-constexpr const char* FORMAT = "tinydaw-synth";
+constexpr const char* FORMAT = "exbit-synth";
 constexpr int WAVE_POINTS = 256;       // a drawn wave's points across its one cycle (Patch::drawn)
 
 struct ParamInfo {

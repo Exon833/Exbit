@@ -310,7 +310,7 @@ void testRealJackMidi() {
     b->list(found);
     for (auto& f : found) {
         printf("   JACK MIDI %s \"%s\"\n", f.input ? "in " : "out", f.key.c_str());
-        CHECK(midi_ports::isJack(f.key) && f.key.find("Tiny DAW") == std::string::npos);
+        CHECK(midi_ports::isJack(f.key) && f.key.find("Exbit") == std::string::npos);
     }
     auto* t = dynamic_cast<midi_sync::JackTransport*>(b.get());
     CHECK(t != nullptr);
@@ -403,10 +403,10 @@ void testFakeJack() {
         std::lock_guard<std::mutex> lock(m);
         CHECK(connections.size() == 4);
         if (connections.size() == 4) {
-            CHECK(connections[0].first == "Tiny DAW:out_1" && connections[0].second == "system:playback_1");
-            CHECK(connections[1].first == "Tiny DAW:out_2" && connections[1].second == "system:playback_2");
-            CHECK(connections[2].first == "system:capture_1" && connections[2].second == "Tiny DAW:in_1");
-            CHECK(connections[3].first == "system:capture_2" && connections[3].second == "Tiny DAW:in_2");
+            CHECK(connections[0].first == "Exbit:out_1" && connections[0].second == "system:playback_1");
+            CHECK(connections[1].first == "Exbit:out_2" && connections[1].second == "system:playback_2");
+            CHECK(connections[2].first == "system:capture_1" && connections[2].second == "Exbit:in_1");
+            CHECK(connections[3].first == "system:capture_2" && connections[3].second == "Exbit:in_2");
         }
     }
     // 2^32 frames reported: the delay asked for stands in
@@ -514,7 +514,7 @@ struct Keyboard {  // a virtual MIDI keyboard: an ALSA sequencer client with one
     int port = -1;
     bool open() {
         if (snd_seq_open(&seq, "default", SND_SEQ_OPEN_OUTPUT, 0) < 0) return false;
-        snd_seq_set_client_name(seq, "TinyDAW test keyboard");
+        snd_seq_set_client_name(seq, "Exbit test keyboard");
         port = snd_seq_create_simple_port(seq, "keys", SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ,
                                           SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
         return port >= 0;
@@ -636,7 +636,7 @@ struct Synth {  // a virtual MIDI synth: an ALSA sequencer client with one writa
     int port = -1;
     bool open() {
         if (snd_seq_open(&seq, "default", SND_SEQ_OPEN_INPUT, SND_SEQ_NONBLOCK) < 0) return false;
-        snd_seq_set_client_name(seq, "TinyDAW test synth");
+        snd_seq_set_client_name(seq, "Exbit test synth");
         port = snd_seq_create_simple_port(seq, "notes", SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE,
                                           SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
         return port >= 0;
@@ -677,7 +677,7 @@ void testMidiInput() {
     for (auto& p : list) {
         printf("   MIDI port \"%s\" (remembered as \"%s\")\n", p.name.c_str(), p.stable.c_str());
         CHECK(p.name.compare(0, 7, "System:") != 0);
-        if (p.stable == "TinyDAW test keyboard:keys") mine = true;
+        if (p.stable == "Exbit test keyboard:keys") mine = true;
     }
     CHECK(mine);
     Synth synth;
@@ -685,14 +685,14 @@ void testMidiInput() {
     midi_ports::Hub hub;
     hub.start();
     CHECK(hub.running());
-    const char* KEYS = "TinyDAW test keyboard:keys";
-    const char* SYNTH = "TinyDAW test synth:notes";
+    const char* KEYS = "Exbit test keyboard:keys";
+    const char* SYNTH = "Exbit test synth:notes";
     const midi_ports::Port* in = hub.find(KEYS, true);
     CHECK(in && in->present && in->on && in->open);  // (an input never seen before: listened to at once)
     const midi_ports::Port* out = hub.find(SYNTH, false);
     CHECK(out && out->present && !out->on && !out->open);  // (an output waits to be chosen)
-    for (auto& p : midi_in::ports()) CHECK(p.name.compare(0, 9, "Tiny DAW:") != 0);  // our own isn't offered
-    for (auto& p : midi_in::outputs()) CHECK(p.name.compare(0, 9, "Tiny DAW:") != 0);
+    for (auto& p : midi_in::ports()) CHECK(p.name.compare(0, 9, "Exbit:") != 0);  // our own isn't offered
+    for (auto& p : midi_in::outputs()) CHECK(p.name.compare(0, 9, "Exbit:") != 0);
     int slot = in ? in->slot : -1;
     double t0 = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
     kb.note(60, 100);

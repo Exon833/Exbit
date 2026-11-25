@@ -1,6 +1,6 @@
-# Skins: styling Tiny DAW with CSS
+# Skins: styling Exbit with CSS
 
-Everything Tiny DAW draws takes its look from stylesheets written in CSS: every colour, font, padding,
+Everything Exbit draws takes its look from stylesheets written in CSS: every colour, font, padding,
 border, corner radius, line width and size of the layout. This page lists everything that can be styled.
 
 - [How skins work](#how-skins-work)
@@ -24,14 +24,14 @@ is its `--skin-name` (else its file's name).
 - The program's own skins (Dark, Light, Midnight, OLED, High contrast, three looks of classic desktops: 90s, XP
   and 7, and Neon District: a neon-noir look with corners cut at 45° by small pictures, a font of its own and glowing
   edges) are in `data/skins`: each is a readable example of what a skin can do. Yours are in
-  `~/.local/share/TinyDAW/skins` (Options → Skin → Open the skins folder).
+  `~/.local/share/Exbit/skins` (Options → Skin → Open the skins folder).
 - **Options → Skin → Edit this skin…** opens the skin's stylesheet in your text editor (the one your desktop
   opens `.css` files with). One of the program's own skins is copied into your folder first, under a name you
   choose: you edit your copy. The copy takes the files the skin uses with it (see **Copies** below).
-- **Live:** Tiny DAW checks the skin's file and `default.css` twice a second (and every file they `@import`, and
+- **Live:** Exbit checks the skin's file and `default.css` twice a second (and every file they `@import`, and
   every image their `url()`s name), and puts the skin on again as soon as one is saved. The status bar says
   "Skin … reloaded" (and how many problems it has).
-- **Problems:** like a browser, Tiny DAW leaves out what it can't read (a rule, a declaration, a value) and keeps
+- **Problems:** like a browser, Exbit leaves out what it can't read (a rule, a declaration, a value) and keeps
   the default there; nothing in a stylesheet can stop it from starting. Options → Skin → **Skin problems** lists
   what was left out, with the file, line and column: `Mine.css:12:5: unknown colour 'blu' (left out)`.
   A colour variable that isn't a colour is reported where it is set:
@@ -56,7 +56,7 @@ is its `--skin-name` (else its file's name).
 
 ## The CSS understood
 
-A defined part of CSS, read by Tiny DAW's own parser (`src/core/css.h`):
+A defined part of CSS, read by Exbit's own parser (`src/core/css.h`):
 
 - **Selectors:** a type (`Button`), `*`, `.class`, `#id`, states (`:hover`), `:root`, a part (`::handle`, on
   the last compound only); the combinators `A B` (descendant), `A > B` (child), `A + B` (the sibling right
@@ -179,7 +179,7 @@ A defined part of CSS, read by Tiny DAW's own parser (`src/core/css.h`):
   Inherited: on `Window` (or `:root`) it is every text of the program that takes its font from the stylesheets
   (labels, buttons, menus, lists, title bars, the timeline's texts…); `font-smooth: auto` turns it back on below.
   Also `always` (the default) and a length (as `auto`).
-- **Properties of Tiny DAW's own** (besides the CSS ones): `stroke-width` (a line's thickness), `icon-size` (a
+- **Properties of Exbit's own** (besides the CSS ones): `stroke-width` (a line's thickness), `icon-size` (a
   drawn arrow or mark), `line-width` (separators), `baseline` (where a text's baseline is in its box; % of the
   box), `fill-opacity` and `stroke-opacity` (curves and waveforms), the glyph images below, and custom
   properties a type reads, listed with it below.
@@ -476,7 +476,7 @@ made from `default.css` by `tools/skins_reference.py`.
 
 | Name | Default | What it is |
 |---|---|---|
-| `--title-bar-height` | `30px` | the title bar of Tiny DAW's own window frames |
+| `--title-bar-height` | `30px` | the title bar of Exbit's own window frames |
 | `--title-buttons` | `right` | where its buttons are: `right` (the icon then on the left) or `left` (the icon on the right) |
 | `--window-resize-border` | `4px` | how far in from a window's edge dragging resizes it (at least its border); reaches over what is inside |
 
@@ -560,7 +560,7 @@ Each entry gives the type's own properties (what it reads besides its box), its 
 
 ### Window frames
 
-With Options → Window frames → Tiny DAW's own (the default), every window (the main window, dialogs, effect and
+With Options → Window frames → Exbit's own (the default), every window (the main window, dialogs, effect and
 plugin windows; not menus, drop-down lists or tooltips) has a frame drawn by the program, in the skin's look,
 instead of the window manager's. With The system's, the window manager draws them as for other programs; every
 window changes at once.

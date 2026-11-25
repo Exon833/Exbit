@@ -1,4 +1,4 @@
-// Playing MIDI keyboards into Tiny DAW (midi_input.py's GUI half).
+// Playing MIDI keyboards into Exbit (midi_input.py's GUI half).
 #include "ui/midi_input.h"
 
 #include <algorithm>

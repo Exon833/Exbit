@@ -1,5 +1,5 @@
-// Windows: the icon and the version details built into the programs (src/platform/tinydaw_win.rc). Tests are linked
-// with the same resources as tinydaw.exe: this one looks at its own, then at tinydaw.exe's and the plugin host's.
+// Windows: the icon and the version details built into the programs (src/platform/exbit_win.rc). Tests are linked
+// with the same resources as exbit.exe: this one looks at its own, then at exbit.exe's and the plugin host's.
 #include <windows.h>
 #include <shellapi.h>
 
@@ -86,10 +86,10 @@ int main() {
         const char* data = (const char*)LockResource(LoadResource(self, v));
         DWORD size = SizeofResource(self, v);
         std::wstring block((const wchar_t*)data, size / sizeof(wchar_t));
-        CHECK(block.find(L"ProductName") != std::wstring::npos && block.find(L"Tiny DAW") != std::wstring::npos);
+        CHECK(block.find(L"ProductName") != std::wstring::npos && block.find(L"Exbit") != std::wstring::npos);
     }
     // the programs Explorer shows (where they're built: make tests-win builds them first)
-    if (GetFileAttributesA("tinydaw.exe") != INVALID_FILE_ATTRIBUTES) CHECK(iconsIn("tinydaw.exe") >= 1);
-    if (GetFileAttributesA("tinydaw-plugin-host.exe") != INVALID_FILE_ATTRIBUTES) CHECK(iconsIn("tinydaw-plugin-host.exe") >= 1);
+    if (GetFileAttributesA("exbit.exe") != INVALID_FILE_ATTRIBUTES) CHECK(iconsIn("exbit.exe") >= 1);
+    if (GetFileAttributesA("exbit-plugin-host.exe") != INVALID_FILE_ATTRIBUTES) CHECK(iconsIn("exbit-plugin-host.exe") >= 1);
     TEST_MAIN_END();
 }

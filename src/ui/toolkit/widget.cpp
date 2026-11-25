@@ -2384,7 +2384,7 @@ struct FrameClock {
             untold++;
             return;
         }
-        fprintf(stderr, "Tiny DAW: slow frame: %.1f ms (%.1f ms a picture at %.0f Hz)", took * 1000, budget * 1000,
+        fprintf(stderr, "Exbit: slow frame: %.1f ms (%.1f ms a picture at %.0f Hz)", took * 1000, budget * 1000,
                 1 / budget);
         if (untold) fprintf(stderr, ", %d more in the last %.1f s", untold, end - told);
         fprintf(stderr, "\n");

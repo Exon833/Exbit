@@ -1,4 +1,4 @@
-/* Neon District: a skin of Tiny DAW in a neon-noir, near-future look (an original homage to the genre's games and
+/* Neon District: a skin of Exbit in a neon-noir, near-future look (an original homage to the genre's games and
    films, none of their artwork): near-black surfaces with a cold blue cast, red as the working colour of labels and
    lines, electric yellow for what is chosen, cyan for what is active and live; hard edges, corners cut at 45°, thin
    lines, a squared condensed type with a little extra spacing, and the faint red and cyan fringe of a glitch on
@@ -257,7 +257,7 @@ MessageIcon.critical { background-color: var(--nd-red); color: #ffffff; }
 
 /* ========================================= Window frames ========================================= */
 
-/* Tiny DAW's own frames: a red edge, the top-left and bottom-right corners cut at 45°; the title in yellow, spaced, with
+/* Exbit's own frames: a red edge, the top-left and bottom-right corners cut at 45°; the title in yellow, spaced, with
    the glitch's fringe; the caption buttons square, the close button red under the pointer */
 Window:framed, Window:framed:active {
     border: 1px solid var(--nd-red);

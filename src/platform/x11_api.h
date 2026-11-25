@@ -1,8 +1,8 @@
-// Xlib and the X extensions Tiny DAW calls (platform/x11.cpp, plugins/bridged.cpp): loaded with dlopen
+// Xlib and the X extensions Exbit calls (platform/x11.cpp, plugins/bridged.cpp): loaded with dlopen
 // when the window system starts (xlib::load), never linked, so the program starts where X11 isn't
-// installed at all (tinydaw --tui on a text console). The real headers give the functions' types; each
+// installed at all (exbit --tui on a text console). The real headers give the functions' types; each
 // pointer here has the name of the function it stands for, and the files that call them bring the names
-// into their own namespace (TINYDAW_X11(TINYDAW_X11_USE)), where they hide the headers' declarations:
+// into their own namespace (EXBIT_X11(EXBIT_X11_USE)), where they hide the headers' declarations:
 // the calls are written as ever. A function newly called must be added to the list (the link fails until
 // it is: it would be an undefined reference to libX11).
 #pragma once
@@ -20,7 +20,7 @@
 #undef max
 
 // F(library, function): the library is one of X11 (libX11.so.6), Xext, Xrandr, Xcursor
-#define TINYDAW_X11(F) \
+#define EXBIT_X11(F) \
     F(X11, _XGetRequest) F(X11, _XReply) F(X11, XAllocSizeHints) F(X11, XBell) F(X11, XChangeProperty) \
     F(X11, XCheckIfEvent) F(X11, XCheckTypedEvent) F(X11, XCheckTypedWindowEvent) F(X11, XCloseDisplay) \
     F(X11, XCloseIM) F(X11, XConvertSelection) F(X11, XCreateBitmapFromData) F(X11, XCreateColormap) \
@@ -52,11 +52,11 @@
     F(Xcursor, XcursorLibraryLoadCursor)
 
 namespace xlib {
-#define TINYDAW_X11_DECLARE(lib, f) extern decltype(&::f) f;
-TINYDAW_X11(TINYDAW_X11_DECLARE)
-#undef TINYDAW_X11_DECLARE
+#define EXBIT_X11_DECLARE(lib, f) extern decltype(&::f) f;
+EXBIT_X11(EXBIT_X11_DECLARE)
+#undef EXBIT_X11_DECLARE
 // every library and function found (once; later calls give the first answer); false, and why, if not
 bool load(std::string& why);
 }  // namespace xlib
 
-#define TINYDAW_X11_USE(lib, f) using xlib::f;
+#define EXBIT_X11_USE(lib, f) using xlib::f;

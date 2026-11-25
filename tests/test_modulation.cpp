@@ -413,12 +413,12 @@ void testWindow() {
     fx->close();
 }
 
-// a plugin (the VST3 test effect, or TINYDAW_MOD_PLUGIN / TINYDAW_MOD_PARAM: e.g. a Windows one through
+// a plugin (the VST3 test effect, or EXBIT_MOD_PLUGIN / EXBIT_MOD_PARAM: e.g. a Windows one through
 // Wine, by hand) has a knob moved by a Macro through the mixer: its parameter and its sound follow
 void testPluginKnob() {
     std::string path = util::absolutePath(check::testDir()) + "/TinyTestFx.vst3", name = "Gain";
-    if (const char* e = getenv("TINYDAW_MOD_PLUGIN")) path = e;
-    if (const char* e = getenv("TINYDAW_MOD_PARAM")) name = e;
+    if (const char* e = getenv("EXBIT_MOD_PLUGIN")) path = e;
+    if (const char* e = getenv("EXBIT_MOD_PARAM")) name = e;
     std::string error;
     auto loaded = plug::Plugin::load(path, "", error);
     if (!loaded) {

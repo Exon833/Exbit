@@ -69,7 +69,7 @@ int main() {
     CHECK(os::waitProcess(child) == 3);
     os::Process none;
     int e = 0;
-    CHECK(!os::spawn({"tinydaw-no-such-program"}, -1, none, &e) && e == ENOENT);
+    CHECK(!os::spawn({"exbit-no-such-program"}, -1, none, &e) && e == ENOENT);
 #ifdef _WIN32
     os::Process slow;
     CHECK(os::spawn({"cmd", "/c", "ping -n 30 127.0.0.1 >NUL"}, -1, slow));

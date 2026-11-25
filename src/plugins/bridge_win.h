@@ -1,14 +1,14 @@
-// Windows (a native build: Tiny DAW and its plugin host, tinydaw-plugin-host.exe, both Windows
+// Windows (a native build: Exbit and its plugin host, exbit-plugin-host.exe, both Windows
 // programs): bridge.h's socket, shared memory and wake-up calls.
 //
 //   - the socket is a Unix one still (AF_UNIX, Windows 10 1803 and later), a file in the user's
 //     temporary folder; where Windows hasn't them, TCP on the loopback instead (the name given to the
 //     host is then "tcp:<port>"). Sockets are held as ints, as on Linux: Windows' handles have 32
 //     significant bits in either build (and are sign-extended back);
-//   - the shared memory is a named file mapping ("Local\tinydaw-…": this session's), gone when both
+//   - the shared memory is a named file mapping ("Local\exbit-…": this session's), gone when both
 //     sides have let go of it;
 //   - a futex can't be shared between processes on Windows (WaitOnAddress is one process's), so each
-//     futex word is bound to a named event of its own (bindWake: Tiny DAW and the host each bind both
+//     futex word is bound to a named event of its own (bindWake: Exbit and the host each bind both
 //     words of the AudioBlock): wake() sets the event, waitChange() waits on it while the word holds
 //     its value. A word that couldn't be bound is polled (a failsafe: slower, never stuck).
 #pragma once
@@ -84,7 +84,7 @@ inline bool recvAll(int fd, void* p, size_t n) {
 }
 
 // as on Linux (bridge.h): giving up when the other side takes nothing for `seconds` (errno ETIMEDOUT).
-// Windows has no per-call MSG_DONTWAIT: the socket is non-blocking for the while (only Tiny DAW's main
+// Windows has no per-call MSG_DONTWAIT: the socket is non-blocking for the while (only Exbit's main
 // thread uses its end)
 inline bool sendAllWithin(int fd, const void* p, size_t n, double seconds, size_t& sent) {
     const char* c = (const char*)p;
@@ -119,8 +119,8 @@ inline bool sendAllWithin(int fd, const void* p, size_t n, double seconds, size_
 }
 
 // is a message waiting (or the other side gone)? waits up to ms. Meanwhile Windows' messages sent to
-// this thread's windows are answered (in slices): the plugin's window, a child of Tiny DAW's in the host's
-// process, sends Tiny DAW's some and waits for them; a main thread waiting here for the host would hold both
+// this thread's windows are answered (in slices): the plugin's window, a child of Exbit's in the host's
+// process, sends Exbit's some and waits for them; a main thread waiting here for the host would hold both
 inline bool readable(int fd, int ms) {
     auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
     for (;;) {
@@ -136,7 +136,7 @@ inline bool readable(int fd, int ms) {
 
 // --- the socket's two ends ---
 
-// (Tiny DAW) a socket for one host to connect to: a Unix socket at `path`, else TCP on the loopback;
+// (Exbit) a socket for one host to connect to: a Unix socket at `path`, else TCP on the loopback;
 // `name` gets what to tell the host. -1 and why if neither
 inline int listenFor(const std::string& path, std::string& name, std::string& why) {
     if (!socketsReady()) {

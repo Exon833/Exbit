@@ -1,4 +1,4 @@
-/* XP: a skin of Tiny DAW in the default blue look of the early-2000s desktop, control by control: the beige
+/* XP: a skin of Exbit in the default blue look of the early-2000s desktop, control by control: the beige
    window face, glossy white buttons with a dark blue edge and an orange ring under the mouse, white fields
    with a blue-grey edge, light blue scroll bars and drop-down buttons, white tabs with an orange top line,
    white menus with a blue highlight and a soft shadow, and the glossy royal-blue title bar.
@@ -976,7 +976,7 @@ EditorWindow::stopped { background-color: var(--window); }
 
 
 /* =============================================================================================
-   Window frames (Options → Window frames → Tiny DAW's own): the 29 px glossy royal-blue title bar with
+   Window frames (Options → Window frames → Exbit's own): the 29 px glossy royal-blue title bar with
    its top corners rounded (8 px), the title in white bold with a dark shadow; 21 px rounded caption
    buttons with a white edge, blue (close: red-orange) with a light spot at their top left; a three-line
    blue edge around the window. Inactive: the same, paler. Hover brightens the buttons, pressed darkens.

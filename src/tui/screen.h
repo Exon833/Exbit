@@ -1,4 +1,4 @@
-// The terminal's picture (tinydaw --tui): a grid of character cells, each a character in one of the 8
+// The terminal's picture (exbit --tui): a grid of character cells, each a character in one of the 8
 // colours every terminal has (the Linux console's: black, red, green, yellow, blue, magenta, cyan,
 // white, bright with Bold) on one of them, or reversed. What is drawn never relies on colour alone:
 // what is selected or focused is also reversed, bold or marked. output() gives the escape sequences

@@ -1,4 +1,4 @@
-// Zip archives (PKWARE's APPNOTE): Tiny DAW's own writer and reader, for project archives (model/collect.h).
+// Zip archives (PKWARE's APPNOTE): Exbit's own writer and reader, for project archives (model/collect.h).
 //
 // Writing: each file stored, or deflated (gfx/image.h's zlibDeflate) when that makes it smaller; names in
 // UTF-8. The archive is written beside its place as "<path>.part" and renamed over it only once complete, so

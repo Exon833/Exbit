@@ -1,4 +1,4 @@
-// A Windows plugin, run by Tiny DAW's Wine host in a process of its own (plugins/bridge.h,
+// A Windows plugin, run by Exbit's Wine host in a process of its own (plugins/bridge.h,
 // plugins/wine.h): a plug::Plugin whose every method is answered by the host.
 //
 // Main thread: requests over the socket, each waiting for its answer (with a time limit: a host
@@ -24,12 +24,12 @@
 // ended (or doesn't answer), componentState() / controllerState() give those, so a project saved
 // after a crash keeps the plugin's settings, and a reload (ui/plugin_host.h) starts it with them.
 //
-// The plugin's window: the host makes a Win32 window and gives the plugin its view in it; Tiny DAW
+// The plugin's window: the host makes a Win32 window and gives the plugin its view in it; Exbit
 // puts that window's X11 window (Wine's) inside its own plugin window, embedded by XEmbed, and tells
 // the host where on the screen it really is (for the plugin's sums with the mouse); embedded, Wine
 // takes that without moving its X11 window. (Should it move or leave anyway, it is put back.)
 //
-// On Windows itself (plugins/wine_win.cpp) the host is tinydaw-plugin-host.exe, a Windows program,
+// On Windows itself (plugins/wine_win.cpp) the host is exbit-plugin-host.exe, a Windows program,
 // our child (no launcher between): the socket, shared memory and wake-ups are Windows' (bridge_win.h),
 // and the plugin's window is a child window of ours, made by the host in it (a window of another
 // process's); it moves with ours. Where the host couldn't make it there, its own window is kept over
@@ -83,7 +83,7 @@ namespace plug {
 using Window = uintptr_t;  // (Windows: a window's HWND)
 struct Display;
 #else
-TINYDAW_X11(TINYDAW_X11_USE)  // (loaded with the display: these windows are the GUI's)
+EXBIT_X11(EXBIT_X11_USE)  // (loaded with the display: these windows are the GUI's)
 #endif
 
 namespace {
@@ -287,7 +287,7 @@ public:
         int n = ++made;
         std::string tag = std::to_string((long)ownPid()) + "-" + std::to_string(n);
 #ifdef _WIN32
-        shmName = "Local\\tinydaw-plugin-" + tag;  // (this session's)
+        shmName = "Local\\exbit-plugin-" + tag;  // (this session's)
         void* m = mapShared(shmName, sizeof(AudioBlock), true);
         if (!m)
             throw std::runtime_error("Cannot make the shared memory for a plugin host");
@@ -296,7 +296,7 @@ public:
         if (!bindWake(&block->request, shmName + "-request", true) || !bindWake(&block->done, shmName + "-done", true))
             util::debugf("plugin host: no events for %s: its buffers are polled\n", shmName.c_str());
 #else
-        shmName = "/tinydaw-wine-" + tag;
+        shmName = "/exbit-wine-" + tag;
         int fd = shm_open(shmName.c_str(), O_CREAT | O_EXCL | O_RDWR, 0600);
         if (fd < 0 || ftruncate(fd, sizeof(AudioBlock)) != 0) {
             if (fd >= 0)
@@ -835,7 +835,7 @@ private:
     void start(const std::string& path, const std::string& wanted, const std::string& tag) {
 #ifdef _WIN32
         // the socket: a file in this user's temporary folder (only theirs), else TCP on the loopback (bridge_win.h)
-        std::string dir = util::joinPath(tempFolder(), "tinydaw-plugins");
+        std::string dir = util::joinPath(tempFolder(), "exbit-plugins");
         util::makeDirs(dir);
         socketPath = util::joinPath(dir, tag + ".sock");
         std::string socketName, why;
@@ -849,11 +849,11 @@ private:
         const char* runtime = getenv("XDG_RUNTIME_DIR");
         const char* tmp = getenv("TMPDIR");
         std::string dir = util::joinPath(runtime && *runtime ? runtime : (tmp && *tmp ? tmp : "/tmp"),
-                                         "tinydaw-wine-" + std::to_string((long)getuid()));
+                                         "exbit-wine-" + std::to_string((long)getuid()));
         mkdir(dir.c_str(), 0700);
         struct stat own {};
         if (lstat(dir.c_str(), &own) != 0 || !S_ISDIR(own.st_mode) || own.st_uid != getuid() || (own.st_mode & 077))
-            throw std::runtime_error("The folder for Windows plugins' sockets isn't only Tiny DAW's (" + dir + ")");
+            throw std::runtime_error("The folder for Windows plugins' sockets isn't only Exbit's (" + dir + ")");
         socketPath = util::joinPath(dir, tag + ".sock");
         removeName(socketPath);
         int listener = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
@@ -933,7 +933,7 @@ private:
         hostHandle = processHandle(pid);
         if (hr.u32() != VERSION)
             throw std::runtime_error(util::baseName(wine::hostPath(wine::is32BitPlugin(path))) +
-                                     " is of another version than Tiny DAW (make builds both)");
+                                     " is of another version than Exbit (make builds both)");
         std::string answer;
         if (!call(LOAD, Writer().str(path).str(wanted).str(shmName).f64(sampleRate_.load()), answer, LOAD_SECONDS))
             throw std::runtime_error(dead ? util::baseName(path) + " crashed its " + wine::HOST_NAME + " while loading"
@@ -1608,7 +1608,7 @@ int bridgedLateBuffers(Plugin& plugin) {
 std::vector<ClassInfo> bridgedClasses(const std::string& path, std::string& error) {
     std::vector<ClassInfo> result;
     static std::atomic<int> lists{0};
-    std::string list = util::joinPath(tempFolder(), "tinydaw-classes-" + std::to_string((long)ownPid()) + "-" +
+    std::string list = util::joinPath(tempFolder(), "exbit-classes-" + std::to_string((long)ownPid()) + "-" +
                                                         std::to_string(++lists) + ".json");
     if (!util::writeFile(list, Json::array({Json(path)}).dump())) {
         error = "Cannot write " + list;

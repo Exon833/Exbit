@@ -1,26 +1,26 @@
-// Windows plugins through Wine: what Tiny DAW (plugins/bridged.cpp) and its Wine host
-// (src/winehost/host.cpp, the program tinydaw-wine-host.exe) say to each other.
+// Windows plugins through Wine: what Exbit (plugins/bridged.cpp) and its Wine host
+// (src/winehost/host.cpp, the program exbit-wine-host.exe) say to each other.
 //
 // Each Windows plugin runs in a host process of its own, started under Wine in the plugin's Wine
 // prefix (plugins/wine.h). The host is a Winelib program: Linux code that runs inside Wine, so it
 // calls the plugin as any Windows program would (LoadLibrary, the Windows calling convention,
-// Win32 windows) and talks to Tiny DAW through Linux means. It hosts the plugin with Tiny DAW's own
+// Win32 windows) and talks to Exbit through Linux means. It hosts the plugin with Exbit's own
 // VST3 and VST2 hosts (vst3host.cpp, vst2host.cpp, built for Windows), so the two sides speak in
 // terms of plug::Plugin's methods:
 //
 //   - a Unix socket for everything on the main thread: requests (each with a number, answered with
 //     the same number, in order), some without an answer (a parameter set, the window's position);
 //     the plugin's news (parameters changed in its window, a new size or latency) is collected by
-//     the host and handed over when Tiny DAW asks (IDLE, every frame, one at a time);
-//   - shared memory for the audio thread (AudioBlock): Tiny DAW puts in the buffer's input, notes,
+//     the host and handed over when Exbit asks (IDLE, every frame, one at a time);
+//   - shared memory for the audio thread (AudioBlock): Exbit puts in the buffer's input, notes,
 //     transport and parameter changes, wakes the host's audio thread (a futex), and waits for it to
 //     be done. A host that's late leaves the buffer silent rather than holding the audio thread.
 //
 // Both sides are Linux code, so this header uses Linux calls only (no Win32; the 32-bit host built
 // as a Windows program makes them through its Linux side, winehost/unixside.h).
 //
-// On Windows itself (TINYDAW_BRIDGE_WIN: Tiny DAW built for Windows, and its host built as a Windows
-// program, tinydaw-plugin-host.exe, spawned directly: no Wine) the same protocol, with Windows' means:
+// On Windows itself (EXBIT_BRIDGE_WIN: Exbit built for Windows, and its host built as a Windows
+// program, exbit-plugin-host.exe, spawned directly: no Wine) the same protocol, with Windows' means:
 // plugins/bridge_win.h.
 #pragma once
 #include <atomic>
@@ -33,10 +33,10 @@
 #include <climits>
 #include <cstddef>
 #include <ctime>
-#if defined(_WIN32) && !defined(TINYDAW_WINE_HOST) && !defined(TINYDAW_WINE_PE)
-#define TINYDAW_BRIDGE_WIN 1
+#if defined(_WIN32) && !defined(EXBIT_WINE_HOST) && !defined(EXBIT_WINE_PE)
+#define EXBIT_BRIDGE_WIN 1
 #include "plugins/bridge_win.h"  // (Windows itself: sockets, shared memory and wake-ups of its own)
-#elif defined(TINYDAW_WINE_PE)
+#elif defined(EXBIT_WINE_PE)
 #include "winehost/unixside.h"  // (the 32-bit host as a Windows program: the same calls, made by its Linux side)
 #else
 #include <linux/futex.h>
@@ -54,8 +54,8 @@ constexpr int MAX_NOTES = 1024;        // notes per buffer
 constexpr int MAX_PARAM_CHANGES = 1024;  // parameter changes per buffer (more wait for the next)
 
 enum Op : uint32_t {
-    HELLO = 0,         // host -> Tiny DAW, first: the host's process id (Wine's launcher, Tiny DAW's child, isn't it)
-    // Tiny DAW -> host (answered with the same op and number, unless said otherwise)
+    HELLO = 0,         // host -> Exbit, first: the host's process id (Wine's launcher, Exbit's child, isn't it)
+    // Exbit -> host (answered with the same op and number, unless said otherwise)
     LOAD = 1,          // path, plugin name, shared memory name -> ok, error, the plugin's facts
     PREPARE,           // sample rate, max block -> latency (on the main thread; else AudioBlock::prepareSet)
     RESET,             // -> latency
@@ -68,11 +68,11 @@ enum Op : uint32_t {
     SET_STATE,         // component, controller -> latency
     HAS_EDITOR,        // -> bool, resizable
     OPEN_EDITOR,       // scale, screen x, y -> ok, X11 window, w, h, resizable
-    SHOW_EDITOR,       // (no answer) shows the window (after Tiny DAW put it in its own)
+    SHOW_EDITOR,       // (no answer) shows the window (after Exbit put it in its own)
     CLOSE_EDITOR,      // -> (nothing)
     EDITOR_RESIZED,    // w, h -> w, h
     EDITOR_PLACE,      // screen x, y (no answer): where the window really is, for the plugin's sums
-                       // (its X11 window, XEmbed-embedded in Tiny DAW's, stays where it is)
+                       // (its X11 window, XEmbed-embedded in Exbit's, stays where it is)
     NOTES_OFF,         // (no answer)
     QUIT,              // (no answer) the host ends
     WINDOW_RECT,       // -> where Wine believes the window is on the screen: left, top, right, bottom (tests)
@@ -163,7 +163,7 @@ private:
     }
 };
 
-#ifndef TINYDAW_BRIDGE_WIN  // (else bridge_win.h's)
+#ifndef EXBIT_BRIDGE_WIN  // (else bridge_win.h's)
 // all of n bytes (false: the other side is gone)
 inline bool sendAll(int fd, const void* p, size_t n) {
     const char* c = (const char*)p;
@@ -239,7 +239,7 @@ inline bool sendMessage(int fd, uint32_t op, uint32_t seq, const std::string& pa
 }
 
 // (--classes) the host's first line: this, then its process id (so that it can be ended, hung or not)
-constexpr const char* CLASSES_PID_MARK = "\x1eTINYDAW-PID ";
+constexpr const char* CLASSES_PID_MARK = "\x1e" "EXBIT-PID ";
 
 constexpr uint32_t MAX_MESSAGE = 512u << 20;  // (a plugin state can be large; anything past this is nonsense)
 
@@ -250,7 +250,7 @@ inline bool recvMessage(int fd, Header& h, std::string& payload) {
     return h.size == 0 || recvAll(fd, &payload[0], h.size);
 }
 
-#ifndef TINYDAW_BRIDGE_WIN
+#ifndef EXBIT_BRIDGE_WIN
 // is a message waiting (or the other side gone)? waits up to ms
 inline bool readable(int fd, int ms) {
     pollfd p{fd, POLLIN, 0};
@@ -280,7 +280,7 @@ struct ParamChange {
 enum AudioOp : uint32_t { PROCESS = 1, RENDER = 2 };
 
 struct AudioBlock {
-    // the futex words: Tiny DAW counts `request` up and wakes the host; the host sets `done` to it
+    // the futex words: Exbit counts `request` up and wakes the host; the host sets `done` to it
     std::atomic<uint32_t> request;
     std::atomic<uint32_t> done;
     std::atomic<uint32_t> quit;  // the host's audio thread ends
@@ -312,7 +312,7 @@ struct AudioBlock {
     float out[2][MAX_FRAMES];
 };
 
-// (the same layout in Tiny DAW, the 64-bit host and the 32-bit one, which share it)
+// (the same layout in Exbit, the 64-bit host and the 32-bit one, which share it)
 static_assert(sizeof(ParamChange) == 16 && offsetof(ParamChange, value) == 8, "ParamChange");
 static_assert(offsetof(AudioBlock, tempo) == 48 && offsetof(AudioBlock, position) == 56, "AudioBlock");
 static_assert(offsetof(AudioBlock, beats) == 64, "AudioBlock");
@@ -321,10 +321,10 @@ static_assert(sizeof(Note) == 28, "Note");
 static_assert(offsetof(AudioBlock, params) == 28768 && offsetof(AudioBlock, in) == 45160, "AudioBlock");
 static_assert(sizeof(AudioBlock) == 241768, "AudioBlock");
 
-#ifndef TINYDAW_BRIDGE_WIN
+#ifndef EXBIT_BRIDGE_WIN
 inline long futex(std::atomic<uint32_t>* word, int op, uint32_t value, const timespec* timeout = nullptr) {
     static_assert(sizeof(std::atomic<uint32_t>) == 4, "a futex is 32 bits");
-#ifdef TINYDAW_WINE_PE
+#ifdef EXBIT_WINE_PE
     return unixside::futex(word, op, value, timeout);
 #else
     return ::syscall(SYS_futex, reinterpret_cast<uint32_t*>(word), op, value, timeout, nullptr, 0);

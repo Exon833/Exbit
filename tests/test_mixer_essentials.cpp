@@ -399,7 +399,7 @@ static void testSoloSafeSaved() {
     Project q;
     CHECK(project_io::loadProject(path, q, SR, back, err));
     CHECK(q.tracks.size() == 2 && q.tracks[0]->soloSafe && !q.tracks[1]->soloSafe);
-    std::ofstream(TMP + "/old.json") << R"({"format": "tinydaw-project", "tracks": [{"name": "Old", "kind": "audio",
+    std::ofstream(TMP + "/old.json") << R"({"format": "exbit-project", "tracks": [{"name": "Old", "kind": "audio",
         "soloed": true}], "clips": []})";
     Project o;
     CHECK(project_io::loadProject(TMP + "/old.json", o, SR, back, err));

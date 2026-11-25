@@ -81,12 +81,12 @@ std::string noticeTip(const update_check::Result* result, double now, const upda
         bool one = result->count == 1;
         tip = (one ? std::string("A new commit is") : std::to_string(result->count) + " new commits are") +
               " on GitHub's main branch" + (newest.empty() ? "" : " (the newest: " + newest + ")") +
-              ". Tiny DAW doesn't update itself: pull " + (one ? "it" : "them") +
+              ". Exbit doesn't update itself: pull " + (one ? "it" : "them") +
               " (git pull) and build again (make) when you choose; the link lists what changed";
     } else if (state == "current") {
         tip = "Up to date: this program is GitHub's main branch" + (newest.empty() ? "" : " (its newest commit: " + newest + ")");
     } else if (state == "off") {
-        tip = "This build can't tell whether there are updates: it wasn't built from a git checkout of Tiny-DAW, or its "
+        tip = "This build can't tell whether there are updates: it wasn't built from a git checkout of Exbit, or its "
               "commit isn't on GitHub (commits of its own)" +
               (newest.empty() ? std::string() : ". GitHub's newest commit: " + newest);
     } else if (state == "failed") {

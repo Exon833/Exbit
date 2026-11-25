@@ -4,9 +4,9 @@
 #include <dlfcn.h>
 
 namespace xlib {
-#define TINYDAW_X11_DEFINE(lib, f) decltype(&::f) f = nullptr;
-TINYDAW_X11(TINYDAW_X11_DEFINE)
-#undef TINYDAW_X11_DEFINE
+#define EXBIT_X11_DEFINE(lib, f) decltype(&::f) f = nullptr;
+EXBIT_X11(EXBIT_X11_DEFINE)
+#undef EXBIT_X11_DEFINE
 
 bool load(std::string& why) {
     static std::string error = [] {
@@ -24,10 +24,10 @@ bool load(std::string& why) {
             return (void*)nullptr;
         };
         std::string missing;
-#define TINYDAW_X11_FIND(lib, f) \
+#define EXBIT_X11_FIND(lib, f) \
     if (!(f = reinterpret_cast<decltype(f)>(dlsym(handle(#lib), #f)))) missing += std::string(missing.empty() ? "" : ", ") + #f;
-        TINYDAW_X11(TINYDAW_X11_FIND)
-#undef TINYDAW_X11_FIND
+        EXBIT_X11(EXBIT_X11_FIND)
+#undef EXBIT_X11_FIND
         return missing.empty() ? std::string() : "X11's libraries lack " + missing;
     }();
     why = error;

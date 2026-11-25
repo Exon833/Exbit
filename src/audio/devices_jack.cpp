@@ -5,7 +5,7 @@
 // them: with jackd that is "system" (the server's sound card); with PipeWire each sound card's
 // sink/source ("Built-in Audio Analog Stereo"…). Its outputs are the device's playback ports, its
 // inputs its capture ports (a sink's monitor ports aren't counted). A stream is a JACK client of
-// our own ("Tiny DAW") with one port per channel ("out_1"…, "in_1"…), connected to the device's
+// our own ("Exbit") with one port per channel ("out_1"…, "in_1"…), connected to the device's
 // ports when it starts. The sample rate and buffer size are the server's: what StreamConfig asks
 // for there is ignored (the blocksize asked for only stands in for an impossible reported delay).
 //
@@ -105,7 +105,7 @@ namespace audio {
 namespace detail {
 namespace {
 
-constexpr const char* CLIENT_NAME = "Tiny DAW";
+constexpr const char* CLIENT_NAME = "Exbit";
 constexpr double MAX_PLAUSIBLE_LATENCY_S = 10.0;
 constexpr double SNAPSHOT_S = 1.0;  // the device list is looked at again after this long
 
@@ -178,7 +178,7 @@ Snapshot snapshot() {
     s.api = a;
     s.at = t;
     if (a) {
-        if (jack::Client* c = openClient(a, "Tiny DAW (devices)")) {
+        if (jack::Client* c = openClient(a, "Exbit (devices)")) {
             s.server = true;
             s.rate = (int)a->get_sample_rate(c);
             s.buffer = (int)a->get_buffer_size(c);

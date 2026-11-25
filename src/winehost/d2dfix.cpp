@@ -31,7 +31,7 @@
 // 1.1's) are pointed at wrappers that premultiply the stops and call Wine's own. Wine's hwnd and
 // DC render targets pass their calls to such a device context, so every way a plugin draws is
 // covered. Only Wine's built-in d2d1 is corrected (a Windows d2d1.dll is left alone), only once,
-// only when a plugin has d2d1 loaded; TINYDAW_WINE_D2D_AS_IS=1 leaves it as it is.
+// only when a plugin has d2d1 loaded; EXBIT_WINE_D2D_AS_IS=1 leaves it as it is.
 #include <windows.h>
 
 #include <algorithm>
@@ -52,7 +52,7 @@
 #include "winehost/d2dfix.h"
 
 // (64-bit only: the fixes read x64 thread contexts and are for 64-bit plugins, Serum 2 and Quanta 2;
-// the 32-bit host, tinydaw-wine-host-32.exe, leaves Wine's Direct2D as it is: the stubs at the end)
+// the 32-bit host, exbit-wine-host-32.exe, leaves Wine's Direct2D as it is: the stubs at the end)
 #if defined(__x86_64__)
 
 namespace {
@@ -227,8 +227,8 @@ void addRef(void* object) {
 const Matrix IDENTITY = {1, 0, 0, 1, 0, 0};
 
 void firstCall(const char* what, bool& said) {
-    if (!said && getenv("TINYDAW_WINE_TRACE"))
-        fprintf(stderr, "tinydaw-wine-host: first %s\n", what);
+    if (!said && getenv("EXBIT_WINE_TRACE"))
+        fprintf(stderr, "exbit-wine-host: first %s\n", what);
     said = true;
 }
 
@@ -667,11 +667,11 @@ LONG WINAPI findFamily(void* collection, const char16_t* name, UINT* index, BOOL
     if (known)
         return 0;
     LONG hr = wineFindFamily(collection, name, index, exists);
-    if (hr >= 0 && getenv("TINYDAW_WINE_TRACE")) {  // (each name once per collection: what fonts a plugin asks for)
+    if (hr >= 0 && getenv("EXBIT_WINE_TRACE")) {  // (each name once per collection: what fonts a plugin asks for)
         std::string n;
         for (const char16_t* c = name; *c; c++)
             n += *c < 128 ? (char)*c : '?';
-        fprintf(stderr, "tinydaw-wine-host: font family \"%s\" %s (in a collection of %u)\n", n.c_str(),
+        fprintf(stderr, "exbit-wine-host: font family \"%s\" %s (in a collection of %u)\n", n.c_str(),
                 *exists ? "found" : "NOT found", count);
     }
     if (hr >= 0) {
@@ -701,9 +701,9 @@ LONG WINAPI findFamily(void* collection, const char16_t* name, UINT* index, BOOL
 // point a path is given is nudged first, by a few thousandths of a pixel (±1…4/1024 in each
 // direction, never 0): exactly in line no more, and nothing anyone can see. The nudge is the point's
 // own (a hash of it): the same point in two shapes moves the same way, so shapes that meet still meet.
-// TINYDAW_WINE_FILL_AS_IS=1 leaves the points as they are.
-// TINYDAW_WINE_DUMP_PATHS=<folder>: a path Wine recursed on is written there (its points as given),
-// for tinydaw-wine-host.exe --path-test-file <file> to replay.
+// EXBIT_WINE_FILL_AS_IS=1 leaves the points as they are.
+// EXBIT_WINE_DUMP_PATHS=<folder>: a path Wine recursed on is written there (its points as given),
+// for exbit-wine-host.exe --path-test-file <file> to replay.
 constexpr int SINK_SET_FILL_MODE = 3, SINK_ADD_BEZIERS = 7, SINK_ADD_LINE = 10, SINK_ADD_BEZIER = 11,
               SINK_ADD_QUAD = 12, SINK_ADD_QUADS = 13, SINK_ADD_ARC = 14;
 struct BezierSeg {
@@ -738,8 +738,8 @@ AddBezierFn wineAddBezier = nullptr;
 AddQuadFn wineAddQuad = nullptr;
 AddQuadsFn wineAddQuads = nullptr;
 AddArcFn wineAddArc = nullptr;
-bool nudging = true;           // (TINYDAW_WINE_FILL_AS_IS: false)
-const char* dumpDir = nullptr;  // (TINYDAW_WINE_DUMP_PATHS)
+bool nudging = true;           // (EXBIT_WINE_FILL_AS_IS: false)
+const char* dumpDir = nullptr;  // (EXBIT_WINE_DUMP_PATHS)
 
 Point2F nudged(Point2F p) {
     if (!nudging)
@@ -755,7 +755,7 @@ Point2F nudged(Point2F p) {
     return {p.x + ((h & 4u) ? dx : -dx), p.y + ((h & 32u) ? dy : -dy)};
 }
 
-// (TINYDAW_WINE_DUMP_PATHS) what each open path was given, by its sink: lines of text, as
+// (EXBIT_WINE_DUMP_PATHS) what each open path was given, by its sink: lines of text, as
 // --path-test-file reads them
 std::mutex recordLock;
 std::map<void*, std::string>* recorded = nullptr;
@@ -1013,8 +1013,8 @@ LONG WINAPI closeBounded(void* sink) {
     bool gaveUp = endlessPaths.load() != endless;
     hold.unlock();
     takeRecord(sink, gaveUp);
-    if (gaveUp && getenv("TINYDAW_WINE_TRACE"))
-        fprintf(stderr, "tinydaw-wine-host: a path Wine's Direct2D recursed on without end: not filled\n");
+    if (gaveUp && getenv("EXBIT_WINE_TRACE"))
+        fprintf(stderr, "exbit-wine-host: a path Wine's Direct2D recursed on without end: not filled\n");
     return result;
 }
 
@@ -1028,8 +1028,8 @@ void fixWineDirect2D() {
     if (!d2d)
         return;  // (no plugin here draws with Direct2D; asked again when one is loaded)
     tried = true;
-    bool trace = getenv("TINYDAW_WINE_TRACE") != nullptr;
-    if (getenv("TINYDAW_WINE_D2D_AS_IS") || !wineBuiltin(d2d))
+    bool trace = getenv("EXBIT_WINE_TRACE") != nullptr;
+    if (getenv("EXBIT_WINE_D2D_AS_IS") || !wineBuiltin(d2d))
         return;
     using CreateFactory = HRESULT_(WINAPI*)(int type, const Guid* iid, const void* options, void** factory);
     using CreateD3D = HRESULT_(WINAPI*)(void* adapter, int driver, HMODULE software, UINT flags, const int* levels,
@@ -1056,12 +1056,12 @@ void fixWineDirect2D() {
             patch(table, RT_CREATE_GRADIENT_STOPS, (void*)createStops10, (void**)&wine10);
             patch(table, DC_CREATE_GRADIENT_STOPS, (void*)createStops11, (void**)&wine11);
             if (trace)
-                fprintf(stderr, "tinydaw-wine-host: Wine's Direct2D gradients corrected\n");
+                fprintf(stderr, "exbit-wine-host: Wine's Direct2D gradients corrected\n");
             // outlines, through straightened paths
             if (inside(d2d, table[RT_DRAW_GEOMETRY])) {
                 patch(table, RT_DRAW_GEOMETRY, (void*)drawGeometry, (void**)&wineDrawGeometry);
                 if (trace)
-                    fprintf(stderr, "tinydaw-wine-host: Direct2D outlines straightened\n");
+                    fprintf(stderr, "exbit-wine-host: Direct2D outlines straightened\n");
             }
             // layers, if Wine's are still stubs (left alone once Wine does them: then they'd be
             // nothing like this little code)
@@ -1076,13 +1076,13 @@ void fixWineDirect2D() {
                 patch(table, DC_PUSH_LAYER, (void*)pushLayerDC, &was);
                 patch(table, RT_POP_LAYER, (void*)popLayerRT, &was);
                 if (trace)
-                    fprintf(stderr, "tinydaw-wine-host: Direct2D layers done by the host\n");
+                    fprintf(stderr, "exbit-wine-host: Direct2D layers done by the host\n");
             }
         } else if (trace) {
-            fprintf(stderr, "tinydaw-wine-host: Wine's Direct2D isn't as expected; gradients left as they are\n");
+            fprintf(stderr, "exbit-wine-host: Wine's Direct2D isn't as expected; gradients left as they are\n");
         }
     } else if (trace) {
-        fprintf(stderr, "tinydaw-wine-host: no Direct2D device context to correct gradients with\n");
+        fprintf(stderr, "exbit-wine-host: no Direct2D device context to correct gradients with\n");
     }
     // paths Wine couldn't fill: answered, not read through a null pointer (Wine's paths share one table)
     void* path = nullptr;
@@ -1094,7 +1094,7 @@ void fixWineDirect2D() {
             patch(table, GEOMETRY_STROKE_CONTAINS, (void*)strokeContains, (void**)&wineStrokeContains);
             patch(table, GEOMETRY_FILL_CONTAINS, (void*)fillContains, (void**)&wineFillContains);
             if (trace)
-                fprintf(stderr, "tinydaw-wine-host: Direct2D paths Wine couldn't fill guarded\n");
+                fprintf(stderr, "exbit-wine-host: Direct2D paths Wine couldn't fill guarded\n");
         }
         // (and filling them: Close(), on its sink's table, shared by all paths too)
         void* sink = nullptr;
@@ -1105,8 +1105,8 @@ void fixWineDirect2D() {
             for (int i : {SINK_SET_FILL_MODE, SINK_BEGIN, SINK_ADD_LINES, SINK_ADD_BEZIERS, SINK_END, SINK_ADD_LINE,
                           SINK_ADD_BEZIER, SINK_ADD_QUAD, SINK_ADD_QUADS, SINK_ADD_ARC})
                 pointsHere = pointsHere && inside(d2d, sinks[i]);
-            nudging = !getenv("TINYDAW_WINE_FILL_AS_IS");
-            dumpDir = getenv("TINYDAW_WINE_DUMP_PATHS");
+            nudging = !getenv("EXBIT_WINE_FILL_AS_IS");
+            dumpDir = getenv("EXBIT_WINE_DUMP_PATHS");
             if (pointsHere && (nudging || dumpDir)) {
                 patch(sinks, SINK_SET_FILL_MODE, (void*)setFillMode, (void**)&wineSetFillMode);
                 patch(sinks, SINK_BEGIN, (void*)beginFigure, (void**)&wineBeginFigure);
@@ -1119,15 +1119,15 @@ void fixWineDirect2D() {
                 patch(sinks, SINK_ADD_QUADS, (void*)addQuads, (void**)&wineAddQuads);
                 patch(sinks, SINK_ADD_ARC, (void*)addArc, (void**)&wineAddArc);
                 if (trace)
-                    fprintf(stderr, "tinydaw-wine-host: Direct2D paths' points %s\n",
+                    fprintf(stderr, "exbit-wine-host: Direct2D paths' points %s\n",
                             nudging ? "nudged off exact lines" : "recorded");
             }
-            if (inside(d2d, sinks[SINK_CLOSE]) && !getenv("TINYDAW_WINE_PATHS_AS_IS")) {
+            if (inside(d2d, sinks[SINK_CLOSE]) && !getenv("EXBIT_WINE_PATHS_AS_IS")) {
                 d2dModule = d2d;
                 AddVectoredExceptionHandler(1, closerRanOut);
                 patch(sinks, SINK_CLOSE, (void*)closeBounded, (void**)&wineClose);
                 if (trace)
-                    fprintf(stderr, "tinydaw-wine-host: Direct2D paths filled with a bounded stack\n");
+                    fprintf(stderr, "exbit-wine-host: Direct2D paths filled with a bounded stack\n");
             }
             release(sink);
         }
@@ -1153,8 +1153,8 @@ void forgetLayerBitmaps() {
     LeaveCriticalSection_(layersLock);
     for (auto& b : going)
         releaseBitmap(b);
-    if (getenv("TINYDAW_WINE_TRACE"))
-        fprintf(stderr, "tinydaw-wine-host: %zu layer bitmaps let go; %zu contexts with %zu layers still pushed\n",
+    if (getenv("EXBIT_WINE_TRACE"))
+        fprintf(stderr, "exbit-wine-host: %zu layer bitmaps let go; %zu contexts with %zu layers still pushed\n",
                 going.size(), contexts, pushed);
 }
 
@@ -1171,8 +1171,8 @@ void fixWineDxgi() {
     if (!dxgi)
         return;
     tried = true;
-    bool trace = getenv("TINYDAW_WINE_TRACE") != nullptr;
-    if (getenv("TINYDAW_WINE_D2D_AS_IS") || !wineBuiltin(dxgi))
+    bool trace = getenv("EXBIT_WINE_TRACE") != nullptr;
+    if (getenv("EXBIT_WINE_D2D_AS_IS") || !wineBuiltin(dxgi))
         return;  // (DXVK's dxgi has its own)
     using CreateFactory1 = LONG(WINAPI*)(const Guid* iid, void** factory);
     auto create = (CreateFactory1)GetProcAddress(dxgi, "CreateDXGIFactory1");
@@ -1187,7 +1187,7 @@ void fixWineDxgi() {
                 break;
             unsigned char desc[96] = {0};
             method<LONG(WINAPI*)(void*, void*)>(o, 7)(o, desc);
-            fprintf(stderr, "tinydaw-wine-host: DXGI output %u: attached %d, monitor %p\n", i, *(int*)(desc + 80),
+            fprintf(stderr, "exbit-wine-host: DXGI output %u: attached %d, monitor %p\n", i, *(int*)(desc + 80),
                     *(void**)(desc + 88));
             release(o);
         }
@@ -1199,7 +1199,7 @@ void fixWineDxgi() {
             void* was = nullptr;
             patch(table, OUTPUT_WAIT_FOR_VBLANK, (void*)waitForVBlank, &was);
             if (trace)
-                fprintf(stderr, "tinydaw-wine-host: DXGI's WaitForVBlank done by the host\n");
+                fprintf(stderr, "exbit-wine-host: DXGI's WaitForVBlank done by the host\n");
         }
     }
     release(output);
@@ -1215,8 +1215,8 @@ void fixWineDirectWrite() {
     if (!dwrite)
         return;
     tried = true;
-    bool trace = getenv("TINYDAW_WINE_TRACE") != nullptr;
-    if (getenv("TINYDAW_WINE_D2D_AS_IS") || !wineBuiltin(dwrite))
+    bool trace = getenv("EXBIT_WINE_TRACE") != nullptr;
+    if (getenv("EXBIT_WINE_D2D_AS_IS") || !wineBuiltin(dwrite))
         return;
     using CreateFactory = LONG(WINAPI*)(int type, const Guid* iid, void** factory);
     auto create = (CreateFactory)GetProcAddress(dwrite, "DWriteCreateFactory");
@@ -1234,7 +1234,7 @@ void fixWineDirectWrite() {
             familyCollections = new std::vector<void*>();
             patch(table, COLLECTION_FIND_FAMILY, (void*)findFamily, (void**)&wineFindFamily);
             if (trace)
-                fprintf(stderr, "tinydaw-wine-host: DirectWrite family lookups remembered\n");
+                fprintf(stderr, "exbit-wine-host: DirectWrite family lookups remembered\n");
         }
     }
     release(collection);
@@ -1243,7 +1243,7 @@ void fixWineDirectWrite() {
 
 // --- (tests) a filled path Wine must triangulate ---
 
-// tinydaw-wine-host.exe --path-test <points> <shape> [as-is]: one filled figure of so many points,
+// exbit-wine-host.exe --path-test <points> <shape> [as-is]: one filled figure of so many points,
 // closed, as plugins draw a wave filled down to its line (shape 0: a zigzag between that line and
 // above it; 1: a flat run along it; 2: a wave, in whole pixels; 3: a zigzag across it, which its
 // closing side crosses at every turn); says what Close() answered. With
@@ -1284,9 +1284,9 @@ int pathTest(int points, int shape, bool asIs) {
     return 0;
 }
 
-// tinydaw-wine-host.exe --path-test-file <file>: a path written by TINYDAW_WINE_DUMP_PATHS, given
+// exbit-wine-host.exe --path-test-file <file>: a path written by EXBIT_WINE_DUMP_PATHS, given
 // to a new path as it was given then (through the corrections, as a plugin's would be: with
-// TINYDAW_WINE_FILL_AS_IS=1, not nudged); says what Close() answered (80004005: Wine recursed on it)
+// EXBIT_WINE_FILL_AS_IS=1, not nudged); says what Close() answered (80004005: Wine recursed on it)
 int pathTestFile(const std::string& file) {
     HMODULE d2d = LoadLibraryW(u"d2d1.dll");
     fixWineDirect2D();
@@ -1348,7 +1348,7 @@ int pathTestFile(const std::string& file) {
     return 0;
 }
 
-// tinydaw-wine-host.exe --outline-test: what the outlines' straightening (above) makes of a few
+// exbit-wine-host.exe --outline-test: what the outlines' straightening (above) makes of a few
 // figures, as one line: a zigzag with sharp peaks (split at each), a gentle wave (left whole), a
 // line whose middle point was nudged a thousandth of a pixel (merged)
 int outlineTest() {

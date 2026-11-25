@@ -1,20 +1,20 @@
-// Converts an Ableton Live set (.als) into a Tiny DAW project, as closely as Tiny DAW allows
+// Converts an Ableton Live set (.als) into a Exbit project, as closely as Exbit allows
 // (importers/ableton.py): File → Import Ableton Live set… (ui/ableton_import.h).
 //
 // What carries over: the tempo and time signature, markers (locators), every track (name, colour, fader,
 // pan, mute, solo) and return track with the sends to it, every arrangement clip where it is (MIDI notes,
 // switched-off notes too; audio clips with their place in the file, their gain, and warped ones stretched to
-// the set's tempo), clip colours. Ableton's Arpeggiator, Note Length and Scale become Tiny DAW's MIDI effects;
+// the set's tempo), clip colours. Ableton's Arpeggiator, Note Length and Scale become Exbit's MIDI effects;
 // its EQ Eight, Compressor, Glue Compressor, Reverb, Delay, Echo, Saturator, Chorus, Limiter, Multiband
-// Dynamics, Gate and Redux become Tiny DAW's built-in effects (on audio and return tracks), set as near as
+// Dynamics, Gate and Redux become Exbit's built-in effects (on audio and return tracks), set as near as
 // their controls allow. What can't be carried over, or only approximately, is listed in the report.
 //
-// Group tracks become Tiny DAW groups with a bus each (model.h GROUP BUSES): the group's own effects, fader, pan,
+// Group tracks become Exbit groups with a bus each (model.h GROUP BUSES): the group's own effects, fader, pan,
 // mute and sends, nested as in Live (a track goes in its innermost group). Clips
 // deactivated in Live come in disabled. A clip's transpose: warped, the pitch alone; unwarped, like a tape.
 // Its fades and loop come along.
 //
-// Ableton's own instruments can't run in Tiny DAW (it hosts VST plugins, a built-in synth and sampler), so
+// Ableton's own instruments can't run in Exbit (it hosts VST plugins, a built-in synth and sampler), so
 // each MIDI track keeps its notes and is *frozen* with a rendering of its instrument made here:
 //   - Simpler, Sampler and Drum Rack are played from the set's own samples: their key and velocity
 //     zones, root keys, transpose, sample start/end, sustain loops, volume envelopes, velocity
@@ -26,7 +26,7 @@
 //   - The audio effects after an instrument are left out of its rendering.
 // Because those effects change levels in ways that can't be known here, each rendered instrument is brought
 // to INSTRUMENT_DB below the loudest audio clip before its fader; the master volume is then set so the mix as
-// Tiny DAW plays it (effects included) peaks no higher than PEAK_DB. Unfreeze a track in Tiny DAW to edit
+// Exbit plays it (effects included) peaks no higher than PEAK_DB. Unfreeze a track in Exbit to edit
 // its notes or give it a VST instrument instead.
 //
 // The set's samples must be in its folder (or below it): Ableton keeps the paths they had on its computer,
@@ -56,7 +56,7 @@ struct Result {
     double masterDb = 0;              // the master volume it was saved with
 };
 
-// Converts the set `als` into the Tiny DAW project `output` (a .json in a new place), saved there (project_io)
+// Converts the set `als` into the Exbit project `output` (a .json in a new place), saved there (project_io)
 // at SR. `project` is filled with it as saved (the UI opens the saved file instead). False and `error` (why:
 // "sample not found in the set's folder: Kick.wav", "<folder> isn't empty: …", a damaged file…) if it couldn't;
 // files written before the failure stay. GUI thread (it prepares clips and renders the mix); MIDI effects

@@ -1,13 +1,13 @@
 # Licences
 
-## Tiny DAW
+## Exbit
 
-Tiny DAW is free software under the **GNU General Public License, version 3** (the full text is in
+Exbit is free software under the **GNU General Public License, version 3** (the full text is in
 [LICENSE](LICENSE)). You may use, study, change and share it, and forks are welcome: anything you hand on that is
 built from it stays under the same licence, with its source.
 
 Its code is its own: the GUI toolkit, the 2D renderer and font rasterizer, SVG and PNG, the audio codecs, the
-effects, the plugin hosts. VST2 and VST3 plugins are hosted through Tiny DAW's own declarations of their
+effects, the plugin hosts. VST2 and VST3 plugins are hosted through Exbit's own declarations of their
 interfaces (`src/plugins/vst2.h`, `src/plugins/vst3_api.h`), written for interoperability; it contains no
 Steinberg SDK code. VST is a registered trademark of Steinberg Media Technologies GmbH.
 
@@ -31,6 +31,6 @@ Anything else added to the project from elsewhere is listed here when it is adde
 
 ## Used when installed, never shipped
 
-Tiny DAW loads these from the system when they are there, and works without each (see the README):
+Exbit loads these from the system when they are there, and works without each (see the README):
 X11 and its extensions (windows), ALSA (sound devices, MIDI inputs), PulseAudio and JACK (sound servers),
 Wine (Windows plugins), `curl` (the update check), and the system's fonts.

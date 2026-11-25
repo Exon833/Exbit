@@ -1,4 +1,4 @@
-// The terminal UI (tinydaw --tui) at its extremes, the worst cases: every terminal size from 1x1 to
+// The terminal UI (exbit --tui) at its extremes, the worst cases: every terminal size from 1x1 to
 // 500x200 with the main window and each of the program's windows open (the MIDI editor and its Steps view, the
 // effects, an effect's knobs, the synth, the Drawn synth's canvas, the sampler, the Pad Kit, the command palette,
 // the menus, F1's list, a question, a message, the file chooser, a rename dialog), resized between them over and

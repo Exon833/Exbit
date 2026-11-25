@@ -1,4 +1,4 @@
-// tinydaw --tui (see app.h)
+// exbit --tui (see app.h)
 #include "tui/app.h"
 #include "ui/song_scale.h"
 
@@ -1334,7 +1334,7 @@ void Front::draw(Screen& s) {
     // still drawn (over the whole terminal), and a menu, so they can be answered and closed
     bool tiny = W < 60 || H < 14;
     if (tiny) {
-        std::string say = "Tiny DAW needs a terminal of at least 60 x 14 (this one: " + std::to_string(W) + " x " + std::to_string(H) + ")";
+        std::string say = "Exbit needs a terminal of at least 60 x 14 (this one: " + std::to_string(W) + " x " + std::to_string(H) + ")";
         std::string line;
         int y = 0;
         for (size_t i = 0; i <= say.size() && y < H; i++) {
@@ -2124,10 +2124,10 @@ int run(const std::vector<std::string>& files) {
     Terminal term;
     std::string why;
     if (!term.open(why)) {
-        fprintf(stderr, "Tiny DAW: %s\n", why.c_str());
+        fprintf(stderr, "Exbit: %s\n", why.c_str());
         return 1;
     }
-    // diagnostics (always on, unless TINYDAW_DEBUG=0): stderr is the screen here, so they go to a file,
+    // diagnostics (always on, unless EXBIT_DEBUG=0): stderr is the screen here, so they go to a file,
     // named when the program ends; stderr sent elsewhere already (2>file) is left as it is
     std::string log;
     int screenErr = -1;
@@ -2144,7 +2144,7 @@ int run(const std::vector<std::string>& files) {
             diagnostics = false;  // (they'd be drawn over the screen)
         }
     }
-    if (diagnostics) setenv("TINYDAW_WINE_TRACE", "1", 0);  // (the Wine host's diagnostics too)
+    if (diagnostics) setenv("EXBIT_WINE_TRACE", "1", 0);  // (the Wine host's diagnostics too)
     plat::initWithoutDisplay();
     ui::App& app = ui::App::get();
     app.initHeadless();  // (the toolkit without a display: windows aren't shown; its clock is moved on by Loop)
@@ -2187,7 +2187,7 @@ int run(const std::vector<std::string>& files) {
     if (screenErr >= 0) {
         dup2(screenErr, 2);
         ::close(screenErr);
-        fprintf(stderr, "Tiny DAW: this run's diagnostics are in %s\n", log.c_str());
+        fprintf(stderr, "Exbit: this run's diagnostics are in %s\n", log.c_str());
     }
     return rc;
 }

@@ -1,4 +1,4 @@
-// A hunt for what the terminal UI (tinydaw --tui) shows wrong or slowly: it drives tui::Front over the headless
+// A hunt for what the terminal UI (exbit --tui) shows wrong or slowly: it drives tui::Front over the headless
 // main window, as tests/test_tui.cpp does, and feeds Screen::output's bytes into a small terminal emulator of its
 // own (cells as wide as wcwidth() says, autowrap off as Terminal::open sets it), so what a terminal would show is
 // compared with what the program meant. It measures the bytes per frame (idle, playing, scrolling, resized) and the

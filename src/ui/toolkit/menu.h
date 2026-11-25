@@ -62,7 +62,7 @@ public:
     // triggers an action of this menu (or a submenu) as if chosen: checks it (exclusive groups), then
     // toggled / triggered
     static void activate(Action* a);
-    // (tinydaw --tui: menus shown as text) a choice as a click on it: an exec()'d menu (or its submenu's) returns it,
+    // (exbit --tui: menus shown as text) a choice as a click on it: an exec()'d menu (or its submenu's) returns it,
     // else it is activated; and the menu a popup window shows (null: not a menu's)
     static void choose(Action* a);
     static Menu* ofWindow(const Window* w);

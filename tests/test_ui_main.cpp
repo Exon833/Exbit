@@ -285,7 +285,7 @@ static void testAutosave() {
     CHECK(autosave::leftBehind(root).empty());
     d.close();
 
-    // several Tiny DAWs at once: what one is offering (asking, then opening) is no other's to offer meanwhile
+    // several copies of Exbit at once: what one is offering (asking, then opening) is no other's to offer meanwhile
     {
         autosave::Autosave e(host(), root, false);
         e.saveNow();
@@ -295,7 +295,7 @@ static void testAutosave() {
     int offeredMeanwhile = -1;
     auto opening = host();
     opening.openProjectFile = [&](const std::string&) {
-        autosave::Autosave other(host(), root, false);  // (another Tiny DAW starting now)
+        autosave::Autosave other(host(), root, false);  // (another Exbit starting now)
         other.answer = 0;
         offeredMeanwhile = other.offerRecovery() ? 1 : 0;
         return true;
@@ -314,7 +314,7 @@ static void testAutosave() {
         autosave::Header h;
         CHECK(autosave::readHeader(kept + "/" + autosave::PROJECT_FILE, h));
         CHECK(h.savedAt >= before);
-        // (while it runs, no other Tiny DAW can take the folder: not recovered by hand either)
+        // (while it runs, no other Exbit can take the folder: not recovered by hand either)
         autosave::Autosave g(host(), root, false);
         opened.clear();
         CHECK(!g.recover(kept, ""));
@@ -334,18 +334,18 @@ static void testTitle() {
     w->askBeforeClosing = false;
     std::string file = util::absolutePath(dir + "/Title Song.json");
     CHECK(w->saveProjectFile(file));
-    CHECK(w->title() == "Title Song.json — Tiny DAW");
+    CHECK(w->title() == "Title Song.json — Exbit");
 #ifdef _WIN32
     std::string given = os::nativePath(file);
 #else
     std::string given = dir + "/./Title Song.json";  // (relative, as a command line may give it)
 #endif
     CHECK(w->openProjectFile(given));
-    CHECK(w->title() == "Title Song.json — Tiny DAW");
+    CHECK(w->title() == "Title Song.json — Exbit");
     CHECK(w->projectPath == file);
     if (w->projectPath != file) printf("opened as %s, titled %s\n", w->projectPath.c_str(), w->title().c_str());
     CHECK(w->saveProjectFile(w->projectPath));
-    CHECK(w->title() == "Title Song.json — Tiny DAW");
+    CHECK(w->title() == "Title Song.json — Exbit");
     w->requestClose();
     delete w;
 }

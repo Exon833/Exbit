@@ -1,8 +1,8 @@
 // Are there updates waiting on GitHub? (update_check.py) No GUI; the GUI runs check() in a
 // background thread (ui/update_notice.h UpdateChecker).
 //
-// Tiny DAW is a rolling release: there are no versions, the repository's main branch
-// (Exon833/Tiny-DAW) is the program. A build knows the commit it was built from
+// Exbit is a rolling release: there are no versions, the repository's main branch
+// (Exon833/Exbit) is the program. A build knows the commit it was built from
 // (version::COMMIT); the notice under the master row compares it with the main branch now and then
 // (CHECK_EVERY_S) and shows the main branch's newest commit and how long ago it was made: the one
 // this program is when it is up to date, else "Update available" and that commit. A build that

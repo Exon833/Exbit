@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<!-- Tiny DAW's application manifest (Windows; built in by tinydaw_win.rc): UTF-8 as the process's code page (the C
+<!-- Exbit's application manifest (Windows; built in by exbit_win.rc): UTF-8 as the process's code page (the C
      library's narrow file functions take UTF-8 paths: Windows 10 1903 and later), per-monitor DPI awareness (sharp
      at any scale: the program draws itself at its own interface size), long paths, Windows 10/11 behaviour. -->
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <assemblyIdentity type="win32" name="TinyDAW" version="1.0.0.0"/>
+  <assemblyIdentity type="win32" name="Exbit" version="1.0.0.0"/>
   <application xmlns="urn:schemas-microsoft-com:asm.v3">
     <windowsSettings>
       <activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>

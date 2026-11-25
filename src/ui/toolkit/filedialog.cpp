@@ -1,4 +1,4 @@
-// Tiny DAW's own file chooser (the stand-in for QFileDialog's static functions): a path field with
+// Exbit's own file chooser (the stand-in for QFileDialog's static functions): a path field with
 // Up / Home, "places" on the left (Home, Desktop, Music, Documents, Downloads, /, mounted volumes),
 // the folder's folders and files (folders first, natural order, size and date columns), the file
 // name, the type filter ("Audio and MIDI (*.wav *.mid);;All files (*)"), Open / Save / Choose and

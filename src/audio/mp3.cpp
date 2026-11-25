@@ -1,4 +1,4 @@
-// MP3 decoder (Tiny DAW's own): MPEG-1, MPEG-2 LSF and MPEG-2.5 audio, Layers I, II and III.
+// MP3 decoder (Exbit's own): MPEG-1, MPEG-2 LSF and MPEG-2.5 audio, Layers I, II and III.
 //
 // Written from the descriptions in ISO/IEC 11172-3 and 13818-3. The overall structure (flat
 // scalefactor-band tables in decoding order, bit reservoir assembled into one buffer, stereo

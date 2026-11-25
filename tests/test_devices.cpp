@@ -1,7 +1,7 @@
 // Sound devices: the driver types and device lists, and short streams that write only silence
 // (the callback leaves `out` as it arrives: zeroed). Never makes a sound.
 //
-// ALSA: tries "default", "pipewire", "pulse" (or $TINYDAW_TEST_ALSA_DEVICE); when none opens it
+// ALSA: tries "default", "pipewire", "pulse" (or $EXBIT_TEST_ALSA_DEVICE); when none opens it
 // uses "null" (no clock there, so only the frame counts are checked).
 #include <atomic>
 #include <chrono>
@@ -102,7 +102,7 @@ int main() {
     // --- ALSA: 48 kHz, 256 frames, 0.5 s of silence ---
     {
         std::vector<std::string> candidates = {"default", "pipewire", "pulse"};
-        if (const char* e = getenv("TINYDAW_TEST_ALSA_DEVICE")) candidates = {e};
+        if (const char* e = getenv("EXBIT_TEST_ALSA_DEVICE")) candidates = {e};
         StreamConfig cfg;
         cfg.driverType = "ALSA";
         cfg.sampleRate = 48000;

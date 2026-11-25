@@ -75,7 +75,7 @@ namespace {
 
 plat::WindowOptions mainOptions() {
     plat::WindowOptions o;
-    o.title = "Untitled — Tiny DAW";
+    o.title = "Untitled — Exbit";
     o.w = 1280;
     o.h = 800;
     o.acceptsFiles = true;  // files dragged from the desktop onto the lanes
@@ -142,7 +142,7 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     plugins = std::make_unique<PluginHost>(this, project, engine, [this] { return prefs.vst2List(); });
     plugins->autoReload = prefs.reloadCrashedPlugins;
     // (hidden, for testing: more VST3 folders, separated by ':')
-    if (const char* extra = getenv("TINYDAW_VST3_PATH")) {
+    if (const char* extra = getenv("EXBIT_VST3_PATH")) {
         plugins->folders = plug::defaultFolders();
         for (auto& f : wine::vst3Folders(wine::prefixes())) plugins->folders.push_back(f);
         for (auto& f : util::split(extra, ':'))
@@ -243,7 +243,7 @@ MainWindow::MainWindow() : ui::Window(mainOptions()) {
     startDiscordPresence();  // (off unless chosen in Options → Discord status)
     updates = std::make_unique<UpdateChecker>();  // the notice under the master row: is there a newer version?
     updates->done.connect([this](const update_check::Result& r) { master->showUpdate(r); });
-    if (!getenv("TINYDAW_NO_UPDATE_CHECK")) {  // (hidden: tests leave GitHub alone)
+    if (!getenv("EXBIT_NO_UPDATE_CHECK")) {  // (hidden: tests leave GitHub alone)
         updates->start();  // now, and every half hour (never installing anything: update_check.h)
         updateTimer_ = App::get().every(update_check::CHECK_EVERY_S * 1000, [this] { updates->start(); });
     }
@@ -802,14 +802,14 @@ void MainWindow::buildOptionsMenu() {
         sizeActions[size] = a;
     }
     sizes->aboutToShow = [this](ui::Menu*) { offerInterfaceSizes(); };
-    // whose frames the windows have: Tiny DAW's own (a title bar and border in the skin's look) or the window
+    // whose frames the windows have: Exbit's own (a title bar and border in the skin's look) or the window
     // manager's; every window changes at once (remembered)
     ui::Menu* frames = menu->addMenu("&Window frames");
     bool own = prefs.windowFrames != "system";
-    ui::Action* ownFrames = frames->addCheckable("&Tiny DAW's own", own);
+    ui::Action* ownFrames = frames->addCheckable("&Exbit's own", own);
     ownFrames->group = 4;
     ownFrames->triggered = [this] { setWindowFrames(true); };
-    ownFrames->tooltip = "Every window's title bar and border are drawn by Tiny DAW, in the skin's look (the skin "
+    ownFrames->tooltip = "Every window's title bar and border are drawn by Exbit, in the skin's look (the skin "
                          "can change them: TitleBar in docs/skins.md)";
     ui::Action* systemFrames = frames->addCheckable("The &system's", !own);
     systemFrames->group = 4;
@@ -874,7 +874,7 @@ void MainWindow::setInterfaceScale(int size) {
     prefs.interfaceScale = size;
     prefs.save();
     ui::msg::information(this, "Interface size",
-                         "Tiny DAW will be drawn at " + std::to_string(size) +
+                         "Exbit will be drawn at " + std::to_string(size) +
                              " % from the next time it starts: close it and start it again. (For more contrast, "
                              "try Options → Skin → High contrast.)");
 }
@@ -901,7 +901,7 @@ void MainWindow::fillSkinMenu() {
         skinProblems.empty() ? std::string("Skin &problems") : "Skin &problems (" + std::to_string(skinProblems.size()) + ")…",
         [this] { showSkinProblems(); });
     problems->enabled = !skinProblems.empty();
-    problems->tooltip = "What the skin's stylesheets have that Tiny DAW left out (it keeps the default there)";
+    problems->tooltip = "What the skin's stylesheets have that Exbit left out (it keeps the default there)";
     menu->addAction("&Import skin…", [this] { importSkin(); });
     menu->addAction("&Export this skin…", [this] { exportSkin(); });
     menu->addAction("&Open the skins folder", [this] { openSkinsFolder(); });
@@ -1022,7 +1022,7 @@ void MainWindow::editSkin() {
     if (s.builtin || s.path.empty()) {
         std::string name = s.name + " (mine)";
         if (!ui::getText(this, "Edit this skin",
-                         s.name + " is one of Tiny DAW's own skins: you edit a copy of it, kept in your skins "
+                         s.name + " is one of Exbit's own skins: you edit a copy of it, kept in your skins "
                                   "folder. The copy's name:",
                          name))
             return;
@@ -1050,7 +1050,7 @@ void MainWindow::editSkin() {
     else
         ui::msg::information(this, "Edit this skin",
                              "No editor could be started for it. Open it in a text editor yourself:\n\n" + s.path +
-                                 "\n\nWhat you save there shows in Tiny DAW at once.");
+                                 "\n\nWhat you save there shows in Exbit at once.");
 }
 
 void MainWindow::collectSkinProblems() {
@@ -1067,7 +1067,7 @@ void MainWindow::showSkinProblems() {
     for (size_t i = 0; i < skinProblems.size() && i < 40; i++) list += (i ? "\n" : "") + skinProblems[i];
     if (skinProblems.size() > 40) list += "\n… and " + std::to_string(skinProblems.size() - 40) + " more";
     ui::msg::information(this, "Skin problems",
-                         "Tiny DAW left these out of the skin " + skin.name + " (the default stays there):\n\n" + list);
+                         "Exbit left these out of the skin " + skin.name + " (the default stays there):\n\n" + list);
 }
 
 void MainWindow::importSkin() { skin::importSkin(this, [this](const skin::Skin& s) { chooseSkin(s); }); }
@@ -1146,7 +1146,7 @@ void MainWindow::installWindowsPlugin() {
     // VST2 plugins land wherever the installer chose: those in a usual folder not searched yet are offered
     auto folders = wine_setup::newVst2Folders(before, wine_setup::vst2Dlls({used}), prefs.vst2List());
     if (!folders.empty()) {
-        std::string text = "The installer put VST2 plugins (.dll) in folders Tiny DAW doesn't look in yet:\n";
+        std::string text = "The installer put VST2 plugins (.dll) in folders Exbit doesn't look in yet:\n";
         for (auto& f : folders) text += "\n" + f;
         if (ui::msg::question(this, title, text + "\n\nAdd them to Options → VST2 plugin folders?") == ui::msg::Yes) {
             auto v = prefs.vst2List();
@@ -1715,7 +1715,7 @@ void MainWindow::markSaved() {
     savedSnapshot = snapshot();
     plugins->saved();
     std::string name = projectPath.empty() ? "Untitled" : util::baseName(projectPath);
-    setTitle(name + " — Tiny DAW");
+    setTitle(name + " — Exbit");
 }
 
 bool MainWindow::hasUnsavedChanges() { return plugins->changed() || !(snapshot() == savedSnapshot); }
@@ -1779,7 +1779,7 @@ bool MainWindow::startFromTemplate(const std::string& path) {
     if (!openProjectFile(path)) return false;
     projectPath.clear();
     markSaved();  // (unchanged until you change it: nothing to ask about)
-    setTitle("Untitled — Tiny DAW");
+    setTitle("Untitled — Exbit");
     showStatus("New project from the template " + util::stem(path), 5000);
     return true;
 }
@@ -1787,7 +1787,7 @@ bool MainWindow::startFromTemplate(const std::string& path) {
 void MainWindow::openProject() {
     if (!confirmDiscard()) return;
     std::string path = ui::files::openFile(this, "Open project", "",
-                                           "Tiny DAW project (*.json *.tinydaw.zip);;Tiny DAW archive (*.tinydaw.zip)");
+                                           "Exbit project (*.json *.exbit.zip);;Exbit archive (*.exbit.zip)");
     if (path.empty()) return;
     if (collect::isArchive(path)) project_safety::openArchive(*this, path);  // (unpacked first)
     else openProjectFile(path);
@@ -1839,11 +1839,11 @@ void MainWindow::openBackup() {
     }
     if (!confirmDiscard()) return;
     std::string chosen = ui::files::openFile(this, "Open a backup", project_io::backupsFolder(path),
-                                             "Tiny DAW project (*.json)");
+                                             "Exbit project (*.json)");
     if (chosen.empty() || !openProjectFile(chosen)) return;
     projectPath = path;
     savedSnapshot = Json();  // (unsaved: it differs from the project's file)
-    setTitle(util::baseName(path) + " (from a backup) — Tiny DAW");
+    setTitle(util::baseName(path) + " (from a backup) — Exbit");
     showStatus("Opened the backup " + util::baseName(chosen) + ": save to make it the project again", 10000);
 }
 
@@ -1851,7 +1851,7 @@ void MainWindow::recovered(const std::string& original) {
     projectPath = original;
     savedSnapshot = Json();  // (unsaved: it differs from the file, if there is one)
     std::string name = projectPath.empty() ? "Untitled" : util::baseName(projectPath);
-    setTitle(name + " (recovered) — Tiny DAW");
+    setTitle(name + " (recovered) — Exbit");
     showStatus("Recovered: save it to keep it (File → Save)", 10000);
 }
 
@@ -1863,7 +1863,7 @@ bool MainWindow::saveProject() {
 
 bool MainWindow::saveProjectAs() {
     std::string path = ui::files::saveFile(this, "Save project", projectPath.empty() ? "Untitled.json" : projectPath,
-                                           "Tiny DAW project (*.json)");
+                                           "Exbit project (*.json)");
     if (path.empty()) return false;
     if (util::extension(path) != ".json") path += ".json";
     return saveProjectFile(path);

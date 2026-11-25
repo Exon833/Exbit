@@ -1,4 +1,4 @@
-// Tiny DAW's built-in audio effects: the framework (daw/audio/effect.py, and the shared part of
+// Exbit's built-in audio effects: the framework (daw/audio/effect.py, and the shared part of
 // native/effects.cpp, its C++ twin, which is what plays).
 //
 // An effect is a class deriving from Effect, with a NAME and its PARAMS (Param: a key, a name, a
@@ -44,7 +44,7 @@ namespace effects {
 constexpr double PI = 3.14159265358979323846;
 constexpr double SILENT = 1e-6;  // -120 dB: what counts as silence for an effect going to sleep
 constexpr double SLEEP_AFTER_S = 1.0;
-constexpr const char* VENDOR = "Tiny DAW";
+constexpr const char* VENDOR = "Exbit";
 
 // Python's round() and np.round: halves to even
 inline double roundEven(double x) { return std::nearbyint(x); }

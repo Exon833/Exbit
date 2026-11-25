@@ -34,7 +34,7 @@ int main() {
         CHECK(e.status == 0);
     }
     // every test (check.h) leaves GitHub alone
-    CHECK(check::noUpdateCheck && getenv("TINYDAW_NO_UPDATE_CHECK"));
+    CHECK(check::noUpdateCheck && getenv("EXBIT_NO_UPDATE_CHECK"));
     // the system's curl starts from the program (Windows 10 and later: System32\curl.exe)
     os::Process p;
     int err = 0;

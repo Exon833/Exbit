@@ -72,7 +72,7 @@ public:
 };
 
 struct WindowOptions {
-    std::string title = "Tiny DAW";
+    std::string title = "Exbit";
     int w = 800, h = 600;
     int x = -1, y = -1;           // client area's screen position; -1: centred on the screen (or on transientFor)
     bool resizable = true;
@@ -172,7 +172,7 @@ public:
 
 // --- the main loop ---
 void init(int argc, char** argv);      // connects to the display; call first
-// the loop's timers, watched fds and posted work without a display (tinydaw --tui); instead of init()
+// the loop's timers, watched fds and posted work without a display (exbit --tui); instead of init()
 void initWithoutDisplay();
 void shutdown();
 // handles events, timers, watched fds and posted work; waits at most timeoutMs (-1: until something happens)
@@ -214,10 +214,10 @@ void setClipboardText(const std::string& text);
 std::string clipboardText();
 
 // --- desktop ---
-std::string configDir();             // where settings are kept: ~/.config/TinyDAW (Windows: %APPDATA%\TinyDAW), made if missing
+std::string configDir();             // where settings are kept: ~/.config/Exbit (Windows: %APPDATA%\Exbit), made if missing
 std::string homeDir();
 std::string executableDir();         // the folder of the running program
-std::string dataDir();               // the program's data (skins/, icons/): next to it (or ../share/tinydaw)
+std::string dataDir();               // the program's data (skins/, icons/): next to it (or ../share/exbit)
 bool openUrl(const std::string& url);
 bool openFolder(const std::string& path);
 void beep();

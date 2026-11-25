@@ -1,4 +1,4 @@
-// File → Import Ableton Live set…: an .als turned into a Tiny DAW project (importers/ableton.h), saved where
+// File → Import Ableton Live set…: an .als turned into a Exbit project (importers/ableton.h), saved where
 // the user picks, then opened, with a list of what was approximated or left out (ui/ableton_import.py).
 //
 // The main window's menu entry ("&Import Ableton Live set…", after "Open a &backup…") calls
@@ -8,8 +8,8 @@
 //                                [this](const std::string& path) { return openProjectFile(path); }});
 //
 // The flow: ask to save the current project (confirmDiscard), choose the .als, then where to save the new
-// project (proposed: "<set's parent folder>/<stem> (Tiny DAW)/<stem>.json" when that folder is there, else
-// "<set's parent folder>/<stem> (Tiny DAW).json"); its audio folder must be empty or new (else a warning and
+// project (proposed: "<set's parent folder>/<stem> (Exbit)/<stem>.json" when that folder is there, else
+// "<set's parent folder>/<stem> (Exbit).json"); its audio folder must be empty or new (else a warning and
 // nothing happens). Playback stops, a progress window follows the conversion (no Cancel: it can't stop
 // half-way), then the saved project is opened and a message tells what came over ("Show details": what was
 // approximated or left out). Errors (a sample missing from the set's folder, a damaged file…) are shown in a

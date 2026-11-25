@@ -1,35 +1,35 @@
-# Tiny DAW (C++): one `make` builds the whole program, with nothing to fetch.
+# Exbit (C++): one `make` builds the whole program, with nothing to fetch.
 #
-#   make            build ./tinydaw (release, -O2)
-#   make DEBUG=1    build ./tinydaw-debug with -O0 -g and sanitizers (objects in build-debug/)
+#   make            build ./exbit (release, -O2)
+#   make DEBUG=1    build ./exbit-debug with -O0 -g and sanitizers (objects in build-debug/)
 #   make test       build and run the unit tests (tests/*.cpp), the worst-case runs too (tests/test_stress.cpp)
 #   make hooks      run `make test` before every git push (tools/pre-push; --no-verify skips it once)
-#   make appimage   build build/appimage/Tiny-DAW-<YEAR.MONTH.DAY.HOUR.MINUTE.SECOND>-x86_64.AppImage
+#   make appimage   build build/appimage/Exbit-<YEAR.MONTH.DAY.HOUR.MINUTE.SECOND>-x86_64.AppImage
 #   make publish    the same, published as a GitHub release (before every push; tools/appimage.sh)
 #   make clean
 #
 # Needs only a C++17 compiler and the system's own libraries: libdl and pthreads (plugins, threads), and to
 # build, X11's, ALSA's and PulseAudio's headers: their libraries (the windows, sound devices, the sound server)
 # are loaded when used (platform/x11_api.h, audio/alsa_api.h, audio/devices_pulse.cpp), so the program runs without them
-# (tinydaw --tui on a text console). Everything else (the GUI toolkit,
+# (exbit --tui on a text console). Everything else (the GUI toolkit,
 # font rendering, SVG and PNG, WAV/AIFF/FLAC/MP3/Ogg Vorbis, MIDI files, JSON, VST2 and VST3
-# hosting) is Tiny DAW's own code in src/.
+# hosting) is Exbit's own code in src/.
 #
-# With Wine's winegcc installed, it also builds tinydaw-wine-host.exe (src/winehost: the host
-# that runs Windows plugins under Wine, plugins/bridge.h), on Tiny DAW's own Win32 declarations
+# With Wine's winegcc installed, it also builds exbit-wine-host.exe (src/winehost: the host
+# that runs Windows plugins under Wine, plugins/bridge.h), on Exbit's own Win32 declarations
 # (src/winehost/include); without it, Windows plugins say they need it. WINEGCC=... picks another.
-# With 32-bit build support (gcc-multilib, g++-multilib), also tinydaw-wine-host-32.exe, for 32-bit plugins;
+# With 32-bit build support (gcc-multilib, g++-multilib), also exbit-wine-host-32.exe, for 32-bit plugins;
 # where Wine is built only for WoW64 (no 32-bit Unix part), that host is built with MinGW's
 # i686-w64-mingw32-g++ instead, as a plain Windows program (src/winehost/unixside.h).
 #
-# On Windows (MSYS2's UCRT64 shell: pacman -S make mingw-w64-ucrt-x86_64-gcc), the same `make` builds tinydaw.exe,
+# On Windows (MSYS2's UCRT64 shell: pacman -S make mingw-w64-ucrt-x86_64-gcc), the same `make` builds exbit.exe,
 # linked statically (it needs none of MSYS2's DLLs, only Windows' own), and `make tests-win` the tests that run
 # there. One source tree: Windows-only code is in files named *_win.cpp / *_win.h (tiny differences:
-# #ifdef _WIN32 in place; in the files the Wine host shares, TINYDAW_WINDOWS, as _WIN32 means the Wine host there),
+# #ifdef _WIN32 in place; in the files the Wine host shares, EXBIT_WINDOWS, as _WIN32 means the Wine host there),
 # left out of the Linux build; Linux-only code (LINUX_ONLY below, *_posix.cpp) is left out of the Windows one.
 
 CXX      ?= g++
-TARGET   := tinydaw
+TARGET   := exbit
 BUILD    := build
 
 ifeq ($(OS),Windows_NT)
@@ -41,7 +41,7 @@ ifeq ($(DEBUG),1)
   OPT := -O0 -g $(if $(WINDOWS),,-fsanitize=address,undefined)
   LDOPT := $(if $(WINDOWS),,-fsanitize=address,undefined)
   BUILD := build-debug
-  TARGET := tinydaw-debug
+  TARGET := exbit-debug
 else
   OPT := -O2 -g1 -DNDEBUG
   LDOPT :=
@@ -50,7 +50,7 @@ TARGET := $(TARGET)$(EXE)
 
 CXXFLAGS ?=
 CXXFLAGS += -std=c++17 $(OPT) -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers \
-            -MMD -MP -Isrc -pthread -DTINYDAW_COMMIT='"$(shell git rev-parse HEAD 2>/dev/null)"'
+            -MMD -MP -Isrc -pthread -DEXBIT_COMMIT='"$(shell git rev-parse HEAD 2>/dev/null)"'
 LDLIBS   := -ldl -pthread -lm
 
 SRCS  := $(shell find src -name '*.cpp' -not -path 'src/winehost/*' | sort)
@@ -61,12 +61,12 @@ LINUX_ONLY := src/platform/x11.cpp src/platform/x11_api.cpp src/audio/alsa_api.c
 ifeq ($(WINDOWS),1)
   SRCS := $(filter-out $(LINUX_ONLY),$(SRCS))
   # (M_PI…; UTF-8 paths and POSIX's small calls: core/posix_win.h; off_t 64-bit: files over 2 GB)
-  CXXFLAGS += -DTINYDAW_WINDOWS -D_USE_MATH_DEFINES -D_FILE_OFFSET_BITS=64 -include core/posix_win.h
+  CXXFLAGS += -DEXBIT_WINDOWS -D_USE_MATH_DEFINES -D_FILE_OFFSET_BITS=64 -include core/posix_win.h
   # static: none of MSYS2's DLLs needed; binmode.o: files the C library opens are binary
   LDLIBS := -static -pthread $(shell $(CXX) -print-file-name=binmode.o) -luser32 -lgdi32 -lshell32 -lole32 \
             -loleaut32 -luuid -limm32 -lwinmm -lavrt -ldwmapi -lshcore -lsynchronization -lws2_32 -lm
   # the manifest (UTF-8 code page, per-monitor DPI awareness), the icon and the version details, as resources
-  WIN_RES := $(BUILD)/src/platform/tinydaw_win.res.o
+  WIN_RES := $(BUILD)/src/platform/exbit_win.res.o
 else
   SRCS := $(filter-out %_win.cpp,$(SRCS))
 endif
@@ -79,24 +79,24 @@ ifneq ($(WINDOWS),1)
 endif
 TEST_BINS := $(TEST_SRCS:tests/%.cpp=$(BUILD)/tests/%$(EXE))
 
-# test plugins (built from tests/plugins/: a VST2 synth and a VST3 effect, on Tiny DAW's own headers)
+# test plugins (built from tests/plugins/: a VST2 synth and a VST3 effect, on Exbit's own headers)
 TEST_PLUGINS := $(BUILD)/test-plugins/TinyTestSynth.so \
                 $(BUILD)/test-plugins/TinyTestFx.vst3/Contents/x86_64-linux/TinyTestFx.so
 
 # --- the Wine host (Linux code inside Wine: built with $(CXX) for Windows' calling convention,
 # linked by winegcc against Wine's DLLs) ---
 WINEGCC  ?= $(shell command -v winegcc 2>/dev/null)
-WINE_HOST := tinydaw-wine-host.exe
+WINE_HOST := exbit-wine-host.exe
 WINE_SRCS := src/winehost/host.cpp src/winehost/platform.cpp src/winehost/d2dfix.cpp src/winehost/dragdrop.cpp src/plugins/vst3host.cpp src/plugins/vst2host.cpp \
              src/plugins/plugin.cpp src/plugins/probe.cpp src/core/util.cpp src/core/json.cpp
 WINE_OBJS := $(WINE_SRCS:%.cpp=build/winehost/%.o)  # (one host for both builds, always optimized)
 WINE_BASE := -std=c++17 -O2 -g1 -DNDEBUG -fPIC -Wall -Wextra \
              -Wno-unused-parameter -Wno-missing-field-initializers -MMD -MP -Isrc/winehost/include -Isrc \
-             -D_WIN32 -DTINYDAW_WINE_HOST
+             -D_WIN32 -DEXBIT_WINE_HOST
 WINE_FLAGS := $(WINE_BASE) -D_WIN64 '-D__stdcall=__attribute__((ms_abi))' '-D__cdecl=__attribute__((ms_abi))'
 # the 32-bit host, for 32-bit plugins (winegcc -m32: needs gcc-multilib/g++-multilib and Wine's i386 part;
 # the same sources, Windows' 32-bit calling conventions)
-WINE_HOST32 := tinydaw-wine-host-32.exe
+WINE_HOST32 := exbit-wine-host-32.exe
 WINE32_OBJS := $(WINE_SRCS:%.cpp=build/winehost32/%.o)
 WINE32_FLAGS := $(WINE_BASE) -m32 '-D__stdcall=__attribute__((stdcall))' '-D__cdecl=__attribute__((cdecl))'
 # built only when winegcc can build 32-bit programs (a tiny one links): a Wine built only for WoW64 has no
@@ -120,9 +120,9 @@ WIN_TEST_PLUGINS := $(WIN_DIR)/TinyTestFx.vst3 $(WIN_DIR)/TinyTestFx.moduleinfo.
 WIN32_TEST_PLUGINS := $(WIN_DIR)/TinyTestFx32.vst3 $(WIN_DIR)/TinyTestSynth32.dll
 # the 32-bit host as a plain Windows program, where winegcc can't build 32-bit ones and MinGW is there: its
 # Linux calls go to a Linux library of its own (winehost/unixside.h), reached through a builtin DLL
-WINE_UNIX32 := wine32/i386-windows/tinydaw-unix32.dll wine32/x86_64-unix/tinydaw-unix32.so
+WINE_UNIX32 := wine32/i386-windows/exbit-unix32.dll wine32/x86_64-unix/exbit-unix32.so
 PE32_OBJS := $(WINE_SRCS:%.cpp=build/winehostpe32/%.o)
-PE32_FLAGS := $(filter-out -fPIC -D_WIN32,$(WINE_BASE)) -DTINYDAW_WINE_PE
+PE32_FLAGS := $(filter-out -fPIC -D_WIN32,$(WINE_BASE)) -DEXBIT_WINE_PE
 ifneq ($(WINEGCC),)
   ifeq ($(WINE32_OK),)
     ifneq ($(MINGW32),)
@@ -138,9 +138,9 @@ ifneq ($(MINGW64),)
   endif
 endif
 
-# --- Windows: the plugin hosts. The Wine host's code built as Windows programs (TINYDAW_PLUGIN_HOST): each plugin
-# runs out of process in one, started directly (plugins/wine_win.cpp, bridge_win.h). tinydaw-plugin-host.exe, and
-# tinydaw-plugin-host-32.exe for 32-bit plugins where a 32-bit MinGW is installed (MSYS2: pacman -S
+# --- Windows: the plugin hosts. The Wine host's code built as Windows programs (EXBIT_PLUGIN_HOST): each plugin
+# runs out of process in one, started directly (plugins/wine_win.cpp, bridge_win.h). exbit-plugin-host.exe, and
+# exbit-plugin-host-32.exe for 32-bit plugins where a 32-bit MinGW is installed (MSYS2: pacman -S
 # mingw-w64-i686-gcc; MINGW32=... picks another); without it 32-bit plugins say they need it ---
 ifeq ($(WINDOWS),1)
   MINGW64 := $(CXX)
@@ -150,12 +150,12 @@ ifeq ($(WINDOWS),1)
   endif
   # its compiler's programs need its own DLLs (libgmp and the rest, 32-bit) first on the PATH, or they fail silently
   MINGW32_ENV := PATH="$(dir $(MINGW32)):$$$$PATH"
-  PLUGIN_HOST := tinydaw-plugin-host.exe
-  PLUGIN_HOST32 := tinydaw-plugin-host-32.exe
+  PLUGIN_HOST := exbit-plugin-host.exe
+  PLUGIN_HOST32 := exbit-plugin-host-32.exe
   HOST_SRCS := $(filter-out src/winehost/d2dfix.cpp src/winehost/dragdrop.cpp,$(WINE_SRCS)) src/winehost/native_win.cpp \
                src/core/os_win.cpp src/core/posix_win.cpp
   HOST_FLAGS := -std=c++17 -O2 -g1 -DNDEBUG -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -MMD -MP \
-                -Isrc -DTINYDAW_PLUGIN_HOST -DTINYDAW_WINDOWS -D_USE_MATH_DEFINES -D_FILE_OFFSET_BITS=64 -D_WIN32_WINNT=0x0A00 \
+                -Isrc -DEXBIT_PLUGIN_HOST -DEXBIT_WINDOWS -D_USE_MATH_DEFINES -D_FILE_OFFSET_BITS=64 -D_WIN32_WINNT=0x0A00 \
                 -include core/posix_win.h
   HOST_LIBS := -static -mconsole -lole32 -luser32 -lgdi32 -ladvapi32 -lws2_32 -luuid -lshell32 -lsynchronization
   ALL_HOSTS := $(PLUGIN_HOST) $(if $(MINGW32),$(PLUGIN_HOST32))
@@ -182,7 +182,7 @@ build/pluginhost32/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(MINGW32_ENV) $(MINGW32) $(HOST_FLAGS) -c $< -o $@
 
-build/pluginhost32/manifest.res.o: src/platform/tinydaw_win.rc src/platform/tinydaw_win.manifest src/platform/tinydaw_win.ico
+build/pluginhost32/manifest.res.o: src/platform/exbit_win.rc src/platform/exbit_win.manifest src/platform/exbit_win.ico
 	@mkdir -p $(dir $@)
 	$(MINGW32_ENV) $(dir $(MINGW32))windres -I src/platform -O coff -o $@ $<
 endif
@@ -213,13 +213,13 @@ build/winehostpe32/%.o: %.cpp
 	$(MINGW32) $(PE32_FLAGS) -c $< -o $@
 
 # (built by winegcc on Wine's own headers, and marked builtin: only a builtin DLL may call into its Unix part)
-wine32/i386-windows/tinydaw-unix32.dll: src/winehost/unix32.c src/winehost/tinydaw-unix32.spec
+wine32/i386-windows/exbit-unix32.dll: src/winehost/unix32.c src/winehost/exbit-unix32.spec
 	@mkdir -p $(dir $@)
 	$(WINEGCC) -b i686-windows -shared -include windows.h -include $(dir $(WINEGCC))../include/wine/unixlib.h \
-	    -o $@ src/winehost/tinydaw-unix32.spec $<
+	    -o $@ src/winehost/exbit-unix32.spec $<
 	$(dir $(WINEGCC))winebuild --builtin $@
 
-wine32/x86_64-unix/tinydaw-unix32.so: src/winehost/unixside.c src/winehost/unixside.h
+wine32/x86_64-unix/exbit-unix32.so: src/winehost/unixside.c src/winehost/unixside.h
 	@mkdir -p $(dir $@)
 	$(CC) -std=c11 -O2 -Wall -Wextra -fPIC -shared -Isrc -o $@ $<
 
@@ -237,7 +237,7 @@ build/winehost/%.o: %.cpp
 $(TARGET): $(OBJS) $(WIN_RES)
 	$(CXX) $(LDOPT) -o $@ $^ $(LDLIBS)
 
-$(BUILD)/src/platform/tinydaw_win.res.o: src/platform/tinydaw_win.rc src/platform/tinydaw_win.manifest src/platform/tinydaw_win.ico
+$(BUILD)/src/platform/exbit_win.res.o: src/platform/exbit_win.rc src/platform/exbit_win.manifest src/platform/exbit_win.ico
 	@mkdir -p $(dir $@)
 	windres -I src/platform -O coff -o $@ $<
 
@@ -248,7 +248,7 @@ $(BUILD)/%.o: %.cpp
 # the program's own stylesheet, built in (ui/theme.cpp: used where data/skins/default.css can't be read)
 $(BUILD)/gen/default_css.inc: data/skins/default.css
 	@mkdir -p $(dir $@)
-	{ printf 'R"tinydawcss('; cat $<; printf ')tinydawcss"\n'; } > $@
+	{ printf 'R"exbitcss('; cat $<; printf ')exbitcss"\n'; } > $@
 $(BUILD)/src/ui/theme.o: $(BUILD)/gen/default_css.inc
 $(BUILD)/src/ui/theme.o: CXXFLAGS += -I$(BUILD)/gen
 
@@ -266,8 +266,8 @@ WIN_TESTS := test_os test_gfx test_update_check test_icon_win test_model test_pr
              test_tui test_tui_console_win test_plugins_win test_window_win test_plugin_restore test_discord_presence
 tests-win: $(WIN_TESTS:%=$(BUILD)/tests/%$(EXE)) $(ALL_HOSTS) $(ALL_WIN_TEST)
 	@failed=""; for t in $(WIN_TESTS:%=$(BUILD)/tests/%$(EXE)); do echo "== $$t"; \
-	    TINYDAW_PLUGIN_HOST=$(PLUGIN_HOST) TINYDAW_PLUGIN_HOST32=$(if $(MINGW32),$(PLUGIN_HOST32)) \
-	    TINYDAW_WIN_TEST_PLUGINS=$(WIN_DIR) $$t || failed="$$failed $${t##*/}"; done; \
+	    EXBIT_PLUGIN_HOST=$(PLUGIN_HOST) EXBIT_PLUGIN_HOST32=$(if $(MINGW32),$(PLUGIN_HOST32)) \
+	    EXBIT_WIN_TEST_PLUGINS=$(WIN_DIR) $$t || failed="$$failed $${t##*/}"; done; \
 	if [ -n "$$failed" ]; then echo "== FAILED:$$failed"; exit 1; fi; echo "== all tests passed"
 
 plugins: $(TEST_PLUGINS)
@@ -312,7 +312,7 @@ $(WIN_DIR)/TinyTestInstaller.exe: tests/plugins/test_installer.cpp
 TESTS ?= $(TEST_BINS)
 test: $(TEST_BINS) $(TEST_PLUGINS) $(ALL_WINE) $(ALL_WIN_TEST)
 	@failed=""; for t in $(TESTS); do echo "== $$t"; \
-	    TINYDAW_TEST_PLUGINS=$(BUILD)/test-plugins TINYDAW_WIN_TEST_PLUGINS=$(WIN_DIR) $$t || failed="$$failed $${t##*/}"; done; \
+	    EXBIT_TEST_PLUGINS=$(BUILD)/test-plugins EXBIT_WIN_TEST_PLUGINS=$(WIN_DIR) $$t || failed="$$failed $${t##*/}"; done; \
 	if [ -n "$$failed" ]; then echo "== FAILED:$$failed"; exit 1; fi; echo "== all tests passed"
 
 # only the tests the change from commit BASE reaches (tools/affected_tests.sh); every test if it can't tell
@@ -323,6 +323,6 @@ test-affected: $(TEST_BINS) $(TEST_PLUGINS) $(ALL_WINE) $(ALL_WIN_TEST)
 	    $(MAKE) --no-print-directory test TESTS="$$t"; fi
 
 clean:
-	rm -rf build build-debug tinydaw tinydaw-debug tinydaw.exe tinydaw-debug.exe $(WINE_HOST) $(WINE_HOST).so $(WINE_HOST32) $(WINE_HOST32).so wine32
+	rm -rf build build-debug exbit exbit-debug exbit.exe exbit-debug.exe $(WINE_HOST) $(WINE_HOST).so $(WINE_HOST32) $(WINE_HOST32).so wine32
 
 -include $(OBJS:.o=.d) $(TEST_BINS:%=%.d) $(WINE_OBJS:.o=.d) $(WINE32_OBJS:.o=.d) $(PE32_OBJS:.o=.d)

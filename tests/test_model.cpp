@@ -1,4 +1,4 @@
-// The model of Tiny DAW for Linux's features: the tempo map (conversions, grid lines, the fixed grid,
+// The model of Exbit for Linux's features: the tempo map (conversions, grid lines, the fixed grid,
 // snapping), clips (fades, loops, muted notes), undo / redo (history), inserting and deleting time
 // (song_time), the new edits (cut pieces, reverse, stretch, join, crossfade), projects with every new
 // field (round trips, 0.4 projects, backups, recovery), the data folder and MIDI file writing.
@@ -853,13 +853,13 @@ static void testRoundTrip() {
 }
 
 static void testOldProject() {
-    // a project written by Tiny DAW 0.4: none of the new keys
+    // a project written by Exbit 0.4: none of the new keys
     clearDir(kDir);
     util::makeDirs(kDir + "/old_audio");
     auto audio = tone(SR, 0.02, 0.5);
     std::string error;
     CHECK(writeWav(kDir + "/old_audio/a.wav", audio->samples.data(), SR, 2, SR, SampleFormat::Float32, error));
-    std::string json = R"({"format": "tinydaw-project", "version": 1, "master": {"volume_db": -3, "mute": false},
+    std::string json = R"({"format": "exbit-project", "version": 1, "master": {"volume_db": -3, "mute": false},
       "tracks_made": {"audio": 1, "midi": 1, "group": 0},
       "timing": {"bpm": 100.0, "beats_per_bar": 3, "beats": true, "thirds": false, "loop_start": 0.0, "loop_end": 0.0, "looping": false},
       "groups": [],
@@ -1017,16 +1017,16 @@ static void testPaths() {
 #ifdef _WIN32
     std::string appdata = getenv("APPDATA") ? getenv("APPDATA") : "";
     setenv("APPDATA", "C:\\tmp\\appdata-test", 1);
-    CHECK(paths::dataDir() == "C:/tmp/appdata-test/TinyDAW");
-    CHECK(paths::dataDir("templates") == "C:/tmp/appdata-test/TinyDAW/templates");
+    CHECK(paths::dataDir() == "C:/tmp/appdata-test/Exbit");
+    CHECK(paths::dataDir("templates") == "C:/tmp/appdata-test/Exbit/templates");
     setenv("APPDATA", appdata.c_str(), 1);
-    CHECK(util::endsWith(paths::dataDir(), "/TinyDAW"));
+    CHECK(util::endsWith(paths::dataDir(), "/Exbit"));
 #else
     setenv("XDG_DATA_HOME", "/tmp/xdg-test", 1);
-    CHECK(paths::dataDir() == "/tmp/xdg-test/TinyDAW");
-    CHECK(paths::dataDir("templates") == "/tmp/xdg-test/TinyDAW/templates");
+    CHECK(paths::dataDir() == "/tmp/xdg-test/Exbit");
+    CHECK(paths::dataDir("templates") == "/tmp/xdg-test/Exbit/templates");
     unsetenv("XDG_DATA_HOME");
-    CHECK(util::endsWith(paths::dataDir(), "/.local/share/TinyDAW"));
+    CHECK(util::endsWith(paths::dataDir(), "/.local/share/Exbit"));
 #endif
     paths::setDataDir(util::absolutePath(kDir + "/data"));
     CHECK(paths::makeDataDir("skins") == util::absolutePath(kDir + "/data/skins") &&

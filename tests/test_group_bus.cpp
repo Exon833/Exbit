@@ -623,7 +623,7 @@ static void testSaveLoadUndo() {
     CHECK(h.undo(SR) && outer->bus->volumeDb == -4.5);
     CHECK(h.redo(SR) && outer->bus->volumeDb == 2);
     // an old file: groups load as plain buses, as they sounded
-    std::ofstream(TMP + "/old.json") << R"({"format": "tinydaw-project", "groups": [{"name": "Drums", "muted": false}],
+    std::ofstream(TMP + "/old.json") << R"({"format": "exbit-project", "groups": [{"name": "Drums", "muted": false}],
         "tracks": [{"name": "Kick", "kind": "audio", "group": 0}, {"name": "Snare", "kind": "audio", "group": 0},
         {"name": "Bass", "kind": "audio"}], "clips": []})";
     Project o;
@@ -639,7 +639,7 @@ static void testSaveLoadUndo() {
     const Json& g0 = again["groups"][size_t(0)];
     CHECK(!g0.has("bus") && !g0.has("parent") && !g0.has("fold_only"));
     // a damaged file: a group inside itself, a track routed into itself and a loop of two: cut on loading
-    std::ofstream(TMP + "/loop.json") << R"({"format": "tinydaw-project",
+    std::ofstream(TMP + "/loop.json") << R"({"format": "exbit-project",
         "groups": [{"name": "A", "parent": 1}, {"name": "B", "parent": 0}],
         "tracks": [{"name": "x", "kind": "audio", "group": 0, "output_to": 1}, {"name": "y", "kind": "audio",
         "output_to": 0}, {"name": "z", "kind": "audio", "output_to": 2}], "clips": []})";

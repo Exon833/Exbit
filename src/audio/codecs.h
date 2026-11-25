@@ -1,4 +1,4 @@
-// Compressed audio decoders (Tiny DAW's own): MP3 (MPEG-1/2/2.5 Layer III) and Ogg Vorbis.
+// Compressed audio decoders (Exbit's own): MP3 (MPEG-1/2/2.5 Layer III) and Ogg Vorbis.
 // sound_file.cpp picks the decoder by the file's contents.
 #pragma once
 #include <cstddef>

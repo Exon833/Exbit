@@ -1,4 +1,4 @@
-// Tiny DAW's VST3 plugin host, on its own declaration of the VST3 interfaces (plugins/vst3_api.h):
+// Exbit's VST3 plugin host, on its own declaration of the VST3 interfaces (plugins/vst3_api.h):
 // the port of native/vst3host.cpp, with the helper objects Steinberg's SDK used to provide written
 // here (loading modules, the host application, memory streams, messages, parameter changes, event
 // lists, the window's frame and run loop).
@@ -44,7 +44,7 @@
 #include "plugins/plugin.h"
 #include "plugins/vst3_api.h"
 #include "plugins/winlib.h"
-#ifndef TINYDAW_IN_HOST
+#ifndef EXBIT_IN_HOST
 #include "plugins/library.h"
 #include "plugins/wine.h"
 #endif
@@ -274,7 +274,7 @@ public:
     uint32 PLUGIN_API addRef() override { return 1; }
     uint32 PLUGIN_API release() override { return 1; }
     tresult PLUGIN_API getName(String128 name) override {
-        utf16("Tiny DAW", name, 128);
+        utf16("Exbit", name, 128);
         return kResultOk;
     }
     tresult PLUGIN_API createInstance(TUID cid, TUID iid, void** obj) override {
@@ -1615,7 +1615,7 @@ std::string vst3Binary(const std::string& bundle) {
 }
 
 std::vector<ClassInfo> vst3Classes(const std::string& path, std::string& error) {
-#ifndef TINYDAW_IN_HOST
+#ifndef EXBIT_IN_HOST
     if (wine::isWindowsPlugin(loadableFile(path)))  // (a Windows plugin: asked through Wine; on Windows, of its own host)
         return bridgedClasses(loadableFile(path), error);
 #endif

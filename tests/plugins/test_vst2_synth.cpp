@@ -1,4 +1,4 @@
-// Tiny Test Synth: a VST2 instrument for Tiny DAW's tests (make plugins → build/test-plugins/TinyTestSynth.so),
+// Tiny Test Synth: a VST2 instrument for Exbit's tests (make plugins → build/test-plugins/TinyTestSynth.so),
 // written on plugins/vst2.h the way a VST2 plugin is written.
 //
 // A sine for every note held (no envelope: a note-off silences it at once), 16 voices. The bend wheel
@@ -395,7 +395,7 @@ vst2::intptr dispatcher(vst2::Effect* e, int32_t opcode, int32_t index, vst2::in
         case vst2::effect::GET_PRODUCT_STRING:
             return copy("Tiny Test Synth");
         case vst2::effect::GET_VENDOR_STRING:
-            return copy("Tiny DAW Tests");
+            return copy("Exbit Tests");
         case vst2::effect::CAN_DO:
             return ptr && (std::strcmp((const char*)ptr, "receiveVstMidiEvent") == 0 ||
                            std::strcmp((const char*)ptr, "receiveVstEvents") == 0)

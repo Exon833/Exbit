@@ -722,7 +722,7 @@ void testJack() {
     };
     tick(0);
     CHECK(!playing && jack.starts == 0);
-    // another app starts JACK at 2 s: Tiny DAW plays from there
+    // another app starts JACK at 2 s: Exbit plays from there
     jack.s.rolling = true;
     jack.s.frame = 2 * 44100;
     tick(0.016);
@@ -737,7 +737,7 @@ void testJack() {
     jack.s.rolling = false;
     tick(0.016);
     CHECK(!playing);
-    // Tiny DAW's user moves the playhead and plays: JACK located and started
+    // Exbit's user moves the playhead and plays: JACK located and started
     pos = 30 * 48000;
     tick(0.016);
     CHECK(jack.locates == 1 && std::llabs(jack.s.frame - 30 * 44100) <= 1);
@@ -750,21 +750,21 @@ void testJack() {
     playing = false;
     tick(0.016);
     CHECK(jack.stops == 1 && !jack.s.rolling);
-    // drift while both roll: Tiny DAW's playhead follows JACK's
+    // drift while both roll: Exbit's playhead follows JACK's
     playing = true;
     tick(0.016);
     for (int i = 0; i < 5; i++) tick(0.016);
     jack.s.frame += 44100 / 4;  // (JACK 0.25 s ahead, as by another clock)
     tick(0.016);
     CHECK(std::llabs(pos - jack.s.frame * 48000 / 44100) < 48000 * 0.02);
-    // another app is the timebase master: its tempo followed; Tiny DAW isn't master
+    // another app is the timebase master: its tempo followed; Exbit isn't master
     jack.otherMaster = true;
     jack.s.bpm = 133.5;
     CHECK(!jack.setMaster(nullptr) || true);
     tick(0.016);
     CHECK(tempo == 133.5);
-    CHECK(!jack.setMaster((const Timing*)&jack));  // (another app is: Tiny DAW can't be)
-    // BBT as Tiny DAW tells it (timebase master): 300 BPM, 3/4 from bar 2
+    CHECK(!jack.setMaster((const Timing*)&jack));  // (another app is: Exbit can't be)
+    // BBT as Exbit tells it (timebase master): 300 BPM, 3/4 from bar 2
     TempoMap map(300, 4, {[] {
                      TempoChange c;
                      c.bar = 2, c.bpm = 300, c.beatsPerBar = 3;

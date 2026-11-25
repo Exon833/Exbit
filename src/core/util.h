@@ -11,16 +11,16 @@ namespace util {
 
 // --- debugging ---
 // diagnostics on stderr (fonts, slow frames, the audio device, dropouts, MIDI, plugins, status and message
-// texts): always on, unless TINYDAW_DEBUG=0. The terminal UI sends them to a file (tui/app.cpp)
+// texts): always on, unless EXBIT_DEBUG=0. The terminal UI sends them to a file (tui/app.cpp)
 bool debug();
 void setDebug(bool on);  // (tests, headless: off)
 // printf to stderr when debug() is on (never from the audio thread: it may block)
 #ifdef _WIN32
-#define TINYDAW_PRINTF gnu_printf  // (the C runtime's own printf takes %zu too; MinGW checks against Microsoft's)
+#define EXBIT_PRINTF gnu_printf  // (the C runtime's own printf takes %zu too; MinGW checks against Microsoft's)
 #else
-#define TINYDAW_PRINTF printf
+#define EXBIT_PRINTF printf
 #endif
-void debugf(const char* fmt, ...) __attribute__((format(TINYDAW_PRINTF, 1, 2)));
+void debugf(const char* fmt, ...) __attribute__((format(EXBIT_PRINTF, 1, 2)));
 
 // --- files ---
 bool readFile(const std::string& path, std::string& out);
@@ -60,7 +60,7 @@ bool startsWith(const std::string& s, const std::string& prefix);
 bool endsWith(const std::string& s, const std::string& suffix);
 bool containsNoCase(const std::string& hay, const std::string& needle);
 std::string replaceAll(std::string s, const std::string& from, const std::string& to);
-std::string format(const char* fmt, ...) __attribute__((format(TINYDAW_PRINTF, 1, 2)));
+std::string format(const char* fmt, ...) __attribute__((format(EXBIT_PRINTF, 1, 2)));
 // Python-like "{:.2f}" style: fixed decimals
 std::string fixed(double v, int decimals);
 int compareNatural(const std::string& a, const std::string& b);  // case-insensitive

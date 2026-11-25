@@ -1,4 +1,4 @@
-// The terminal (tinydaw --tui): raw keyboard input decoded into keys, and output. Nothing but the
+// The terminal (exbit --tui): raw keyboard input decoded into keys, and output. Nothing but the
 // terminal's own escape sequences (ECMA-48 / VT100, as the Linux console and xterm-likes understand
 // them): no terminfo, no curses, so it runs on a bare text console.
 //
@@ -68,8 +68,8 @@ private:
 };
 
 // entering the terminal's screen of its own (cursor hidden, no line wrap), and leaving it
-#define TINYDAW_TERM_ENTER "\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[0m\x1b[H\x1b[2J"
-#define TINYDAW_TERM_LEAVE "\x1b[0m\x1b[H\x1b[2J\x1b[?7h\x1b[?25h\x1b[?1049l"
+#define EXBIT_TERM_ENTER "\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[0m\x1b[H\x1b[2J"
+#define EXBIT_TERM_LEAVE "\x1b[0m\x1b[H\x1b[2J\x1b[?7h\x1b[?25h\x1b[?1049l"
 
 // (tests) a background's lightness from the terminal's answer to OSC 11 ("ESC ] 11 ; rgb:ffff/ffff/ffff BEL") or
 // from COLORFGBG ("0;15": the text's colour, then the background's): 1 light, 0 dark, -1 not told

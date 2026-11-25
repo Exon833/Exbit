@@ -1,5 +1,5 @@
 // Any of the toolkit's windows (a dialog: a message, a question, the file chooser, Audio properties…)
-// drawn as text in the terminal, and given the keys typed (tinydaw --tui). The program's dialogs are
+// drawn as text in the terminal, and given the keys typed (exbit --tui). The program's dialogs are
 // built of the toolkit's controls; each is drawn as what it is (a label's text, [ OK ], [x] a check
 // box, [text_] a line edit, a list's rows…), the one with the keyboard focus reversed. Controls are
 // placed by their geometry: those side by side in the window share a row of the text (rows: the

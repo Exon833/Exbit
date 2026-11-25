@@ -292,8 +292,8 @@ std::atomic<bool> g_raw{false};
 std::atomic<bool> g_resized{false};
 
 // (also from signal handlers: write() and tcsetattr() only)
-const char kEnter[] = TINYDAW_TERM_ENTER;
-const char kLeave[] = TINYDAW_TERM_LEAVE;
+const char kEnter[] = EXBIT_TERM_ENTER;
+const char kLeave[] = EXBIT_TERM_LEAVE;
 
 void restore() {
     if (!g_raw.exchange(false)) return;

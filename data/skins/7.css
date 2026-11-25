@@ -1,4 +1,4 @@
-/* 7: a skin of Tiny DAW in the look of the 2009-era glass desktop, control by control: frames of tinted glass
+/* 7: a skin of Exbit in the look of the 2009-era glass desktop, control by control: frames of tinted glass
    (see-through and blurred while the desktop composites windows), grey dialogs, glossy two-tone buttons that
    light blue under the mouse, white fields with a soft edge, menus with a gutter and rounded highlights, the
    green progress bar, its own signs (7/…: drawn for this skin) and the Selawik face at 9 pt. It is put on top
@@ -951,7 +951,7 @@ FileView::icon:selected { color: #b8871a; }
 FileView::header { background-color: #f6f6f6; color: #4c607a; border-color: #d5d5d5; }
 
 /* =========================================== Window frames ===========================================
-   Options → Window frames → Tiny DAW's own: the frame of tinted glass. Measured from the original: an 8 px
+   Options → Window frames → Exbit's own: the frame of tinted glass. Measured from the original: an 8 px
    frame (a dark outer edge, a white line, the glass, a light line, then the dark edge of the inside), the
    corners round 6 px; a 29 px caption under a 1 px edge, the title black with a white glow; the caption
    buttons one joined group hanging from the top right (29, 27 and 49 px wide, 19 high), white glossy faces

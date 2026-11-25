@@ -4,7 +4,7 @@
 // into the clip as one edit (one undo step), Cancel (Esc, ✕) drops it. Nothing reaches the clip before Apply, so
 // a preview can never be left applied: closing the editor, or going to another clip's notes, closes the panel.
 // The tool works on the selected notes, or on all of them when none are selected (what the panel says at its
-// top). The transforms themselves: model/note_tools.h. In the terminal (tinydaw --tui) it is a dialog, drawn as
+// top). The transforms themselves: model/note_tools.h. In the terminal (exbit --tui) it is a dialog, drawn as
 // text like any other.
 //
 // The same file holds the MidiEditor's tool commands (midi_editor.h, "the note tools"): the knife (K), join

@@ -3,7 +3,7 @@
 // core/posix_win.h); never included on Linux. Bigger differences (libraries, mapped files, processes, wake-ups)
 // are core/os.h's.
 //
-// Paths are UTF-8 with '/' everywhere: the program's manifest (tools/windows/tinydaw.manifest) makes UTF-8 the
+// Paths are UTF-8 with '/' everywhere: the program's manifest (tools/windows/exbit.manifest) makes UTF-8 the
 // process's code page, so the C library's narrow file functions (fopen, open, stat, opendir…) take UTF-8 names.
 #pragma once
 #ifndef NOMINMAX
