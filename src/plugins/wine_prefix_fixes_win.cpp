@@ -4,7 +4,10 @@
 namespace wine {
 
 std::string fixesFolder() { return ""; }
-std::vector<std::string> fixedDllNames() { return {}; }
+const std::vector<std::string>& fixedDllNames() {
+    static const std::vector<std::string> none;
+    return none;
+}
 bool prefixHasFixes(const std::string&) { return false; }
 bool applyFixes(const std::string&, std::string& report) {
     report = "Wine isn't used on Windows";

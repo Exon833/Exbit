@@ -161,7 +161,10 @@ std::string fixesFolder() {
     return "";
 }
 
-std::vector<std::string> fixedDllNames() { return {"msi.dll", "dxgi.dll"}; }
+const std::vector<std::string>& fixedDllNames() {
+    static const std::vector<std::string> names = {"msi.dll", "dxgi.dll"};
+    return names;
+}
 
 std::string dllKind(const std::string& file) {
     std::string data;

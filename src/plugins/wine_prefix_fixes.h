@@ -22,7 +22,7 @@ namespace wine {
 std::string fixesFolder();
 
 // the stand-ins Exbit has (names: "msi.dll", "dxgi.dll")
-std::vector<std::string> fixedDllNames();
+const std::vector<std::string>& fixedDllNames();
 
 // are all of Exbit's fixes in this prefix, as they are now (the same files, preferred by Wine)? A DLL
 // left alone (not Wine's there) counts as in. False when there are none to put in (fixesFolder "")
