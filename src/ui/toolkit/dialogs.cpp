@@ -69,13 +69,17 @@ void Dialog::close() {
 }
 
 void Dialog::adjustSize() {
-    App::get().doLayouts();
-    Point h = layout() ? layout()->sizeHint() : sizeHint();
-    Point mn = layout() ? layout()->minimumSize() : Point(0, 0);
-    Point m = minimumSize();
-    int w = std::max({h.x, mn.x, m.x, 120});
-    int hh = std::max({h.y, mn.y, m.y, 40});
-    resizeWindow(w, hh);
+    // twice: a wrapped label wider than its usual wrap width (a long path in it) knows its lines only once laid
+    // out at its width; counted at the usual width, it left an empty band under the text
+    for (int pass = 0; pass < 2; ++pass) {
+        App::get().doLayouts();
+        Point h = layout() ? layout()->sizeHint() : sizeHint();
+        Point mn = layout() ? layout()->minimumSize() : Point(0, 0);
+        Point m = minimumSize();
+        int w = std::max({h.x, mn.x, m.x, 120});
+        int hh = std::max({h.y, mn.y, m.y, 40});
+        resizeWindow(w, hh);
+    }
 }
 
 bool Dialog::keyPress(KeyEvent& e) {

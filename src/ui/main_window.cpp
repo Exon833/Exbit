@@ -1168,7 +1168,7 @@ void MainWindow::installWindowsPlugin() {
                      "No new Windows plugins were found in " + used + ".\n\nIf the installer is still open, "
                      "finish it, then look again (Options → Wine prefixes → OK). VST2 plugins installed "
                      "elsewhere are found once their folder is in Options → VST2 plugin folders." +
-                         (endNote.empty() ? std::string() : "\n\n" + endNote + "\n\nIts last lines are under Details."),
+                         (endNote.empty() ? std::string() : "\n\n" + endNote + "\n\nIts last lines are below."),
                      ui::msg::Ok, ui::msg::Ok, endNote.empty() ? "" : wine_setup::shownLastLines(logFile));
         return;
     }

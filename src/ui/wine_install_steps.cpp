@@ -160,7 +160,7 @@ InstallEnd waitForInstaller(ui::Window* parent, int pid, const std::string& pref
 
 void reportHungInstall(ui::Window* parent, const std::string& installer, const std::string& logFile) {
     std::string text = util::baseName(installer) + " was stuck, and was ended.\n\nWhat Wine and the installer printed "
-                       "is in its log:\n" + logFile + "\n\nIts last lines are under Details.";
+                       "is in its log:\n" + logFile + "\n\nIts last lines are below.";
     ui::msg::box(parent, ui::msg::Icon::Warning, INSTALL_TITLE, text, ui::msg::Ok, ui::msg::Ok, shownLastLines(logFile));
 }
 
