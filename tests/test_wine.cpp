@@ -262,8 +262,8 @@ std::string testSetupWithWine() {
     double t0 = secondsNow();
     wine::stop(sleeper);
     CHECK(secondsNow() - t0 < 5);
-    // a new prefix (no Mono or Gecko asked for: a test)
-    setenv("WINEDLLOVERRIDES", "mscoree,mshtml=", 1);
+    // a new prefix (no Mono or Gecko asked for: a test; and no menu entries or file types in the desktop's menus)
+    setenv("WINEDLLOVERRIDES", "mscoree,mshtml=;winemenubuilder.exe=d", 1);
     t0 = secondsNow();
     int pid = wine::startPrefix(dir, wine, why);
     CHECK(pid > 0);

@@ -36,7 +36,8 @@ int waitFor(int pid, double seconds) {
 // a prefix made as Options → Wine prefixes → New prefix… makes one ("" if Wine couldn't)
 std::string makePrefix() {
     std::string dir = util::joinPath(tempRoot, "prefixes/Plugins"), why, wine = wine::winePath();
-    setenv("WINEDLLOVERRIDES", "mscoree,mshtml=", 1);  // (no Mono or Gecko asked for: a test)
+    // (no Mono or Gecko asked for: a test; and no menu entries or file types in the desktop's menus)
+    setenv("WINEDLLOVERRIDES", "mscoree,mshtml=;winemenubuilder.exe=d", 1);
     int code = waitFor(wine::startPrefix(dir, wine, why), 240);
     waitFor(wine::startServerWait(dir, wine, why), 120);
     unsetenv("WINEDLLOVERRIDES");
