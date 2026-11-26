@@ -22,15 +22,21 @@ std::string prefixesHome();
 // is this a usable name for a new prefix there (no '/', not ".", "..", nor hidden)?
 bool validName(const std::string& name);
 
-// New prefix…: asks its name, makes it with the usual Wine (64-bit), a progress window meanwhile;
-// the new prefix, or "" (cancelled, or it failed: said in a message)
+// New prefix…: asks its name, makes it with the usual Wine (64-bit), a progress window meanwhile, and
+// puts Exbit's Wine fixes in it (wine_install_steps.h); the new prefix, or "" (cancelled, or it failed:
+// said in a message)
 std::string newPrefix(ui::Window* parent);
 
 // Install Windows plugin…: asks for the installer (.exe or .msi) and, among `prefixes` (more than one),
-// where; with none, offers to make one (`madePrefix`: that one, for the caller to add). Runs it there
-// and waits for it (its own windows are where it is answered). True if it ran to its end.
+// where; with none, offers to make one (`madePrefix`: that one, for the caller to add). Offers Exbit's
+// Wine fixes where the prefix lacks them, runs it there with its log (plugins/install_log.h) and waits
+// for it (its own windows are where it is answered), the hung-installer watchdog looking on; an install
+// that failed or hung is told with the log's path and last lines (wine_install_steps.h). True if it ran
+// to its end (or was ended as hung).
+// `endNote`: how it ended when not well (wine_install_steps.h's installEndNote: its exit status, its log),
+// for the message when it added no plugin; `logFile`: its log
 bool installPlugin(ui::Window* parent, const std::vector<std::string>& prefixes, std::string& prefixUsed,
-                   std::string& madePrefix);
+                   std::string& madePrefix, std::string* endNote = nullptr, std::string* logFile = nullptr);
 
 // waits for `pid` (a child) with a busy progress window: true when it ended (`code`: its exit status),
 // false if Cancel was pressed (it is then stopped)

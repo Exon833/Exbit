@@ -50,6 +50,7 @@
 #include "ui/plugin_dialog.h"
 #include "ui/plugin_folders_dialog.h"
 #include "ui/wine_prefixes_dialog.h"
+#include "ui/wine_install_steps.h"
 #include "ui/wine_setup.h"
 #include "ui/lanes.h"
 #include "ui/scope_view.h"
@@ -1136,8 +1137,8 @@ void MainWindow::installWindowsPlugin() {
     std::vector<std::string> prefixes = wine::prefixes();
     std::set<std::string> known, before = wine_setup::vst2Dlls(prefixes);
     for (auto& p : plugins->library().plugins) known.insert(p.path);
-    std::string used, made;
-    if (!wine_setup::installPlugin(this, prefixes, used, made)) return;
+    std::string used, made, endNote, logFile;
+    if (!wine_setup::installPlugin(this, prefixes, used, made, &endNote, &logFile)) return;
     if (!made.empty()) {  // (a prefix made for it: from now on searched)
         auto list = prefs.wineList();
         list.push_back(made);
@@ -1162,10 +1163,13 @@ void MainWindow::installWindowsPlugin() {
         if (p.looksWindows() && !known.count(p.path) && std::find(added.begin(), added.end(), p.name) == added.end())
             added.push_back(p.name);
     if (added.empty()) {
-        ui::msg::information(this, title,
-                             "No new Windows plugins were found in " + used + ".\n\nIf the installer is still open, "
-                             "finish it, then look again (Options → Wine prefixes → OK). VST2 plugins installed "
-                             "elsewhere are found once their folder is in Options → VST2 plugin folders.");
+        // (how the installer ended, and its log's last lines, where it didn't end well)
+        ui::msg::box(this, endNote.empty() ? ui::msg::Icon::Information : ui::msg::Icon::Warning, title,
+                     "No new Windows plugins were found in " + used + ".\n\nIf the installer is still open, "
+                     "finish it, then look again (Options → Wine prefixes → OK). VST2 plugins installed "
+                     "elsewhere are found once their folder is in Options → VST2 plugin folders." +
+                         (endNote.empty() ? std::string() : "\n\n" + endNote + "\n\nIts last lines are under Details."),
+                     ui::msg::Ok, ui::msg::Ok, endNote.empty() ? "" : wine_setup::shownLastLines(logFile));
         return;
     }
     std::string names;

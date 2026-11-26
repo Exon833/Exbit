@@ -504,6 +504,27 @@ through `msiexec`) in a prefix (asked when there are several; with none, it offe
 waits for it, then lists the new plugins it finds. An installer that put VST2 plugins in a usual
 folder that isn't searched yet gets that folder offered for Options → VST2 plugin folders.
 
+What an installer and Wine print goes to its **install log**, in Exbit's data folder
+(`~/.local/share/Exbit/install-logs/`, the newest ten kept, each cut to its last 32 MB); when an install adds
+no plugin and didn't end well, Exbit says how it ended, where the log is, and shows its last lines. While
+it waits, a **watchdog** looks at the prefix every 15 seconds: an installer that has shown no window and
+whose prefix has done next to nothing for 3 minutes is taken as stuck, and Exbit offers to end it
+(`wineserver -k`, that prefix only).
+
+**Exbit's Wine fixes**: some installers need what Wine lacks, so a prefix made by New prefix… gets two
+stand-ins for Wine's own DLLs (`src/winefix`, built with MinGW into `wine-fixes/`), and Install Windows
+plugin… offers them to a prefix without them (Options → Wine prefixes → **Wine fixes…** puts them in or
+takes them out). Each loads Wine's own DLL and passes every call on to it, but corrects one thing:
+`msi.dll` reads every table of an installer database before Wine commits it (Wine could write a database
+of more than 43,690 strings unreadably: Kontakt 8's setup then stood still at "Computing space
+requirements"), and `dxgi.dll` gives Wine's displays a `WaitForVBlank` (JUCE 8 programs wait on it, and
+Quanta 2's installer hung before showing its window). They go in the prefix's `system32` and `syswow64`,
+with Wine told to prefer them (`DllOverrides`: native,builtin); Wine's own files are kept in the prefix's
+`.exbit-wine-fixes` folder. A DLL that isn't Wine's there (DXVK's `dxgi.dll`) is left alone, and a check
+run in the prefix (`exbit-wine-fix-check.exe`) takes a stand-in out again if it doesn't work there.
+`EXBIT_WINE_MSI_AS_IS=1` / `EXBIT_WINE_DXGI_AS_IS=1` turn a correction off; `EXBIT_WINE_FIXES=<folder>`
+chooses the fixes' folder.
+
 **Drag and drop** works with Windows plugins' windows both ways. Files a plugin drags out of its window
 (the MIDI or audio a drum machine or chord tool makes, through Windows' DoDragDrop) come to Exbit:
 the drag goes on under the pointer and drops where the button is let go, e.g. on a track as a clip.
@@ -638,7 +659,9 @@ Testing aids of the running program (hidden; see `src/ui/test_script.h`):
     src/importers/   Ableton Live sets (gzip + XML)
     src/ui/toolkit/  the GUI toolkit (widgets, layouts, controls, menus, dialogs, file chooser)
     src/ui/          every window and panel (main_window, timeline, lane_panel, midi_editor, …)
-    tests/           unit tests (tests/check.h) and tests/plugins/ (the test plugins' sources)
+    src/winefix/     Exbit's Wine fixes: stand-ins for Wine's msi.dll and dxgi.dll (built with MinGW)
+    tests/           unit tests (tests/check.h), tests/plugins/ (the test plugins' sources) and
+                     tests/winefix/ (programs that try the Wine fixes in a prefix)
     tools/           manual checks (toolkit demo, platform check, plugin editor check, the mouse
                      in Windows plugins' windows and how quickly they redraw); skins_reference.py (writes
                      docs/skins.md's variables from default.css)

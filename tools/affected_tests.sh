@@ -25,6 +25,8 @@ while read -r f; do
     "" | docs/* | *.md | *.txt | LICENSE* | .gitignore) ;;
     # shortcut: the Wine host's code reaches the tests through its client side only; name the tests if that grows
     src/winehost/*) printf '%s\n' src/plugins/bridged.h src/plugins/wine.h ;;
+    # (Exbit's Wine fixes, Windows code built with MinGW: their test runs them in a prefix)
+    src/winefix/* | tests/winefix/*) printf '%s\n' tests/test_wine_fixes.cpp ;;
     src/*.cpp | src/*.h | tests/*.cpp | tests/*.h) printf '%s\n' "$f" "${f%.*}.h" "${f%.*}.cpp" ;;
     *) all=1 ;;
     esac

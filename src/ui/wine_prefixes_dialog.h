@@ -32,6 +32,8 @@ public:
     // the selected prefix's wine program: chosen (a file), or automatic again ("")
     void setWine(const std::string& program);
     void chooseWine();
+    // Wine fixes…: Exbit's fixes for the selected prefix (plugins/wine_prefix_fixes.h): put in, or taken out
+    void manageFixes();
     void updateButtons();
     // the selected prefix's facts, shown under the list: 64- or 32-bit, its Wine and its version
     std::string details(const std::string& prefix) const;
@@ -41,6 +43,7 @@ public:
     ui::Button* defaultButton;
     ui::Button* wineButton;
     ui::Button* automaticButton;
+    ui::Button* fixesButton;
     ui::Label* about;  // details() of the selected prefix
     ui::Label* status;
     std::map<std::string, std::string> chosen;

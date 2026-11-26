@@ -5,8 +5,10 @@
 
 #include "core/util.h"
 #include "plugins/wine.h"
+#include "plugins/wine_prefix_fixes.h"
 #include "ui/plugin_folders_dialog.h"
 #include "ui/toolkit/layout.h"
+#include "ui/wine_install_steps.h"
 #include "ui/wine_setup.h"
 
 WinePrefixesDialog::WinePrefixesDialog(ui::Window* parent, const std::vector<std::string>& prefixes_,
@@ -52,8 +54,13 @@ WinePrefixesDialog::WinePrefixesDialog(ui::Window* parent, const std::vector<std
     automaticButton = Widget::add<ui::Button>("Automatic");
     automaticButton->setToolTip("The prefix's own Wine if it belongs to Bottles or Lutris, else the usual one");
     automaticButton->clicked.connect([this] { setWine(""); });
+    fixesButton = Widget::add<ui::Button>("Wine fixes…");
+    fixesButton->setToolTip("Exbit's fixes for what some installers need of Wine (msi.dll, dxgi.dll): put them in "
+                            "this prefix, or take them out");
+    fixesButton->clicked.connect([this] { manageFixes(); });
     wineRow->addWidget(wineButton);
     wineRow->addWidget(automaticButton);
+    wineRow->addWidget(fixesButton);
     wineRow->addStretch(1);
     lay->addLayout(std::move(wineRow));
     auto* hint = Widget::add<ui::Label>(
@@ -189,12 +196,37 @@ std::string WinePrefixesDialog::details(const std::string& prefix) const {
     return out;
 }
 
+void WinePrefixesDialog::manageFixes() {
+    int row = list->currentRow();
+    if (row < 0 || row >= list->count()) return;
+    std::string prefix = list->item(row).text, title = "Wine fixes";
+    bool has = false;
+    wine_setup::runWithProgress(window(), title, "Looking at " + prefix + "…", [&] { has = wine::prefixHasFixes(prefix); });
+    std::string about = "Exbit's Wine fixes are stand-ins for two of Wine's DLLs, each Wine's own with a correction "
+                        "some installers need: msi.dll (a setup's own database could be left unreadable: Kontakt 8's "
+                        "setup stood still) and dxgi.dll (JUCE 8 programs, such as Quanta 2's installer, hung).";
+    if (!has) {
+        if (ui::msg::question(window(), title, about + "\n\n" + prefix + " doesn't have them (or has older ones). "
+                                                     "Put them in?") == ui::msg::Yes)
+            wine_setup::applyFixesTo(window(), prefix, false);
+        return;
+    }
+    if (ui::msg::question(window(), title, about + "\n\n" + prefix + " has them. Take them out (Wine's own DLLs "
+                                                 "back)?", ui::msg::Yes | ui::msg::No, ui::msg::No) != ui::msg::Yes)
+        return;
+    std::string report;
+    wine_setup::runWithProgress(window(), title, "Taking Exbit's Wine fixes out of " + prefix + "…",
+                                [&] { wine::removeFixes(prefix, report); });
+    ui::msg::information(window(), title, report);
+}
+
 void WinePrefixesDialog::updateButtons() {
     int row = list->currentRow();
     bool selected = row >= 0 && row < list->count();
     removeButton->setEnabled(selected);
     wineButton->setEnabled(selected);
     automaticButton->setEnabled(selected && chosen.count(list->item(row).text));
+    fixesButton->setEnabled(selected && !wine::fixesFolder().empty());
     about->setText(selected ? details(list->item(row).text) : "");
     std::string d = wine::defaultPrefix();
     auto now = prefixes();

@@ -57,6 +57,7 @@ SRCS  := $(shell find src -name '*.cpp' -not -path 'src/winehost/*' | sort)
 # the sources of one system only
 LINUX_ONLY := src/platform/x11.cpp src/platform/x11_api.cpp src/audio/alsa_api.cpp src/audio/devices.cpp src/audio/devices_alsa.cpp \
               src/audio/devices_jack.cpp src/audio/devices_pulse.cpp src/audio/midi_jack.cpp src/plugins/wine.cpp \
+              src/plugins/wine_prefix_fixes.cpp src/plugins/installer_activity.cpp \
               $(filter %_posix.cpp,$(SRCS))
 ifeq ($(WINDOWS),1)
   SRCS := $(filter-out $(LINUX_ONLY),$(SRCS))
@@ -138,6 +139,28 @@ ifneq ($(MINGW64),)
   endif
 endif
 
+# --- Exbit's Wine fixes (src/winefix: stand-ins for Wine's msi.dll and dxgi.dll that Exbit puts in its
+# prefixes, plugins/wine_prefix_fixes.h), built with MinGW (C, linked statically), 64-bit and, with
+# i686-w64-mingw32-g++, 32-bit; without MinGW, prefixes are left as Wine makes them ---
+WINEFIX_DIR := wine-fixes
+WINEFIX_COMMON := src/winefix/wine_own_dll.c
+WINEFIX_FLAGS := -std=c11 -O2 -Wall -Wextra -Wno-unused-parameter -Isrc
+WINEFIX_CC64 := $(subst g++,gcc,$(MINGW64))
+WINEFIX_CC32 := $(subst g++,gcc,$(MINGW32))
+WINEFIX_LINK := -static -static-libgcc -shared
+WINEFIX64 := $(WINEFIX_DIR)/x86_64-windows/msi.dll $(WINEFIX_DIR)/x86_64-windows/dxgi.dll $(WINEFIX_DIR)/exbit-wine-fix-check.exe
+WINEFIX32 := $(WINEFIX_DIR)/i386-windows/msi.dll $(WINEFIX_DIR)/i386-windows/dxgi.dll $(WINEFIX_DIR)/exbit-wine-fix-check-32.exe
+ifneq ($(WINDOWS),1)
+  ifneq ($(MINGW64),)
+    ALL_WINEFIX := $(WINEFIX64) $(if $(MINGW32),$(WINEFIX32))
+  endif
+endif
+# the test programs of the fixes (tests/winefix), run in a prefix by tests/test_wine_fixes.cpp
+WINEFIX_TESTS := $(WIN_DIR)/winefix_msi_commit.exe $(WIN_DIR)/winefix_vblank.exe
+ifneq ($(ALL_WINEFIX),)
+  ALL_WIN_TEST += $(WINEFIX_TESTS)
+endif
+
 # --- Windows: the plugin hosts. The Wine host's code built as Windows programs (EXBIT_PLUGIN_HOST): each plugin
 # runs out of process in one, started directly (plugins/wine_win.cpp, bridge_win.h). exbit-plugin-host.exe, and
 # exbit-plugin-host-32.exe for 32-bit plugins where a 32-bit MinGW is installed (MSYS2: pacman -S
@@ -162,9 +185,9 @@ ifeq ($(WINDOWS),1)
   ALL_WIN_TEST := $(WIN_TEST_PLUGINS) $(if $(MINGW32),$(WIN32_TEST_PLUGINS))
 endif
 
-.PHONY: all clean test test-affected tests-win hooks appimage publish plugins winehost win-plugins
+.PHONY: all clean test test-affected tests-win hooks appimage publish plugins winehost winefixes win-plugins
 
-all: $(TARGET) $(ALL_WINE) $(ALL_HOSTS)
+all: $(TARGET) $(ALL_WINE) $(ALL_HOSTS) $(ALL_WINEFIX)
 
 ifeq ($(WINDOWS),1)
 # (the manifest too: UTF-8 the code page, as the program's, for the paths the host is given)
@@ -198,7 +221,45 @@ appimage:
 publish:
 	tools/appimage.sh --publish
 
-winehost: $(ALL_WINE)
+winehost: $(ALL_WINE) $(ALL_WINEFIX)
+
+winefixes: $(ALL_WINEFIX)
+
+.SECONDARY: build/winefix/msi.def build/winefix/dxgi.def
+# a stand-in's .def: each export of Wine's DLL (src/winefix/*_exports.h) is the jump thunk<index>, with
+# Wine's ordinal; and ExbitWineFixReady, for the check
+build/winefix/%.def: src/winefix/%_exports.h
+	@mkdir -p $(dir $@)
+	{ echo 'LIBRARY $*.dll'; echo EXPORTS; \
+	  sed -n 's/^EXPORT(\([0-9]*\), *\([0-9]*\), *\([A-Za-z0-9_]*\))$$/    \3=thunk\1 @\2/p' $<; \
+	  echo '    ExbitWineFixReady=exbitWineFixReady'; } > $@
+
+$(WINEFIX_DIR)/x86_64-windows/%.dll: src/winefix/%_fix.c build/winefix/%.def $(WINEFIX_COMMON) src/winefix/vblank_wait.c src/winefix/*.h
+	@mkdir -p $(dir $@)
+	$(WINEFIX_CC64) $(WINEFIX_FLAGS) $(WINEFIX_LINK) -o $@ $< $(WINEFIX_COMMON) $(if $(filter dxgi,$*),src/winefix/vblank_wait.c) \
+	    build/winefix/$*.def
+
+$(WINEFIX_DIR)/i386-windows/%.dll: src/winefix/%_fix.c build/winefix/%.def $(WINEFIX_COMMON) src/winefix/vblank_wait.c src/winefix/*.h
+	@mkdir -p $(dir $@)
+	$(MINGW32_ENV) $(WINEFIX_CC32) $(WINEFIX_FLAGS) $(WINEFIX_LINK) -o $@ $< $(WINEFIX_COMMON) \
+	    $(if $(filter dxgi,$*),src/winefix/vblank_wait.c) build/winefix/$*.def
+
+$(WINEFIX_DIR)/exbit-wine-fix-check.exe: src/winefix/fix_check.c
+	@mkdir -p $(dir $@)
+	$(WINEFIX_CC64) $(WINEFIX_FLAGS) -static -mconsole -o $@ $<
+
+$(WINEFIX_DIR)/exbit-wine-fix-check-32.exe: src/winefix/fix_check.c
+	@mkdir -p $(dir $@)
+	$(MINGW32_ENV) $(WINEFIX_CC32) $(WINEFIX_FLAGS) -static -mconsole -o $@ $<
+
+# (32-bit, as most installers that change their .msi; the VBlank one 64-bit, as JUCE 8 programs)
+$(WIN_DIR)/winefix_msi_commit.exe: tests/winefix/msi_commit.c
+	@mkdir -p $(dir $@)
+	$(MINGW32_ENV) $(or $(WINEFIX_CC32),$(WINEFIX_CC64)) $(WINEFIX_FLAGS) -static -mconsole -o $@ $< -lmsi
+
+$(WIN_DIR)/winefix_vblank.exe: tests/winefix/vblank.c
+	@mkdir -p $(dir $@)
+	$(WINEFIX_CC64) $(WINEFIX_FLAGS) -static -mconsole -o $@ $< -ldxgi -luuid
 
 ifeq ($(WINE_PE32),yes)
 $(WINE_HOST32): $(PE32_OBJS)
@@ -310,19 +371,19 @@ $(WIN_DIR)/TinyTestInstaller.exe: tests/plugins/test_installer.cpp
 
 # TESTS= runs only these (test-affected picks them); every test by default
 TESTS ?= $(TEST_BINS)
-test: $(TEST_BINS) $(TEST_PLUGINS) $(ALL_WINE) $(ALL_WIN_TEST)
+test: $(TEST_BINS) $(TEST_PLUGINS) $(ALL_WINE) $(ALL_WINEFIX) $(ALL_WIN_TEST)
 	@failed=""; for t in $(TESTS); do echo "== $$t"; \
 	    EXBIT_TEST_PLUGINS=$(BUILD)/test-plugins EXBIT_WIN_TEST_PLUGINS=$(WIN_DIR) $$t || failed="$$failed $${t##*/}"; done; \
 	if [ -n "$$failed" ]; then echo "== FAILED:$$failed"; exit 1; fi; echo "== all tests passed"
 
 # only the tests the change from commit BASE reaches (tools/affected_tests.sh); every test if it can't tell
-test-affected: $(TEST_BINS) $(TEST_PLUGINS) $(ALL_WINE) $(ALL_WIN_TEST)
+test-affected: $(TEST_BINS) $(TEST_PLUGINS) $(ALL_WINE) $(ALL_WINEFIX) $(ALL_WIN_TEST)
 	@t=$$(tools/affected_tests.sh $(BASE)) || t="$(TEST_BINS)"; t=$$(echo $$t); \
 	if [ -z "$$t" ]; then echo "== no test reaches this change"; \
 	else echo "== $$(echo $$t | wc -w) of $(words $(TEST_BINS)) tests reach this change"; \
 	    $(MAKE) --no-print-directory test TESTS="$$t"; fi
 
 clean:
-	rm -rf build build-debug exbit exbit-debug exbit.exe exbit-debug.exe $(WINE_HOST) $(WINE_HOST).so $(WINE_HOST32) $(WINE_HOST32).so wine32
+	rm -rf build build-debug exbit exbit-debug exbit.exe exbit-debug.exe $(WINE_HOST) $(WINE_HOST).so $(WINE_HOST32) $(WINE_HOST32).so wine32 $(WINEFIX_DIR)
 
 -include $(OBJS:.o=.d) $(TEST_BINS:%=%.d) $(WINE_OBJS:.o=.d) $(WINE32_OBJS:.o=.d) $(PE32_OBJS:.o=.d)

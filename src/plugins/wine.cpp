@@ -472,11 +472,12 @@ bool availableIn(const std::string& prefix, std::string& why, bool bits32) {
 
 namespace {
 
-// runs `wine <args>` in a prefix and waits for it (up to `seconds`); true if it ended well
-bool runWine(const std::string& prefix, const std::vector<std::string>& args, double seconds) {
+// runs `wine <args>` in a prefix and waits for it (up to `seconds`); its exit code, -1 if it couldn't be
+// started or was stopped at the time limit; what it printed (stdout) in `output`, if given
+int runWineFor(const std::string& prefix, const std::vector<std::string>& args, double seconds, std::string* output) {
     std::string wine = winePathFor(prefix);
     if (wine.empty())
-        return false;
+        return -1;
     std::vector<std::string> env;
     for (char** e = environ; *e; e++)
         if (!util::startsWith(*e, "WINEPREFIX=") && !util::startsWith(*e, "WINEDEBUG="))
@@ -492,26 +493,59 @@ bool runWine(const std::string& prefix, const std::vector<std::string>& args, do
     for (auto& s : env)
         e.push_back(&s[0]);
     e.push_back(nullptr);
+    int pipeEnds[2] = {-1, -1};
+    if (output && pipe2(pipeEnds, O_CLOEXEC) != 0)
+        return -1;
     posix_spawn_file_actions_t actions;
     posix_spawn_file_actions_init(&actions);
     posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0);
-    posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_WRONLY, 0);
+    if (output)
+        posix_spawn_file_actions_adddup2(&actions, pipeEnds[1], 1);
+    else
+        posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_WRONLY, 0);
     posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_WRONLY, 0);
     pid_t pid = -1;
     int r = posix_spawn(&pid, wine.c_str(), &actions, nullptr, a.data(), e.data());
     posix_spawn_file_actions_destroy(&actions);
-    if (r != 0)
-        return false;
-    for (int waited = 0; waited < (int)(seconds * 100); waited++) {
-        int status;
-        if (waitpid(pid, &status, WNOHANG) == pid)
-            return WIFEXITED(status) && WEXITSTATUS(status) == 0;
-        usleep(10000);
+    if (output) {
+        close(pipeEnds[1]);
+        output->clear();
+        fcntl(pipeEnds[0], F_SETFL, O_NONBLOCK);
     }
-    kill(pid, SIGKILL);
-    int status;
-    waitpid(pid, &status, 0);
-    return false;
+    // (what it prints, read as it comes: a full pipe would stop it)
+    auto readOutput = [&] {
+        char buffer[4096];
+        ssize_t got;
+        while (output && (got = read(pipeEnds[0], buffer, sizeof buffer)) > 0)
+            output->append(buffer, (size_t)got);
+    };
+    int code = -1;
+    if (r == 0) {
+        bool ended = false;
+        for (int waited = 0; waited < (int)(seconds * 100) && !ended; waited++) {
+            int status;
+            readOutput();
+            if (waitpid(pid, &status, WNOHANG) == pid) {
+                ended = true;
+                code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+            } else {
+                usleep(10000);
+            }
+        }
+        if (!ended) {
+            kill(pid, SIGKILL);
+            waitpid(pid, nullptr, 0);
+        }
+        readOutput();
+    }
+    if (output)
+        close(pipeEnds[0]);
+    return code;
+}
+
+// runWineFor, for its success alone
+bool runWine(const std::string& prefix, const std::vector<std::string>& args, double seconds) {
+    return runWineFor(prefix, args, seconds, nullptr) == 0;
 }
 
 }  // namespace
@@ -533,9 +567,11 @@ std::string wineserverFor(const std::string& wine) {
 }
 
 // starts `program args` with WINEPREFIX=prefix and `extra` in its environment, in `dir` ("" here);
-// its stdin and stdout /dev/null, its stderr this process's (Wine's own messages)
+// its stdin /dev/null; its stdout /dev/null and its stderr this process's (Wine's own messages), or both
+// added to the end of `logFile` when one is given
 int spawnIn(const std::string& prefix, const std::string& program, const std::vector<std::string>& args,
-            const std::vector<std::string>& extra, const std::string& dir, std::string& why) {
+            const std::vector<std::string>& extra, const std::string& dir, std::string& why,
+            const std::string& logFile = "") {
     std::vector<std::string> env;
     for (char** e = environ; *e; e++) {
         std::string s = *e;
@@ -559,7 +595,12 @@ int spawnIn(const std::string& prefix, const std::string& program, const std::ve
     posix_spawn_file_actions_t actions;
     posix_spawn_file_actions_init(&actions);
     posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0);
-    posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_WRONLY, 0);
+    if (logFile.empty()) {
+        posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_WRONLY, 0);
+    } else {
+        posix_spawn_file_actions_addopen(&actions, 1, logFile.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
+        posix_spawn_file_actions_adddup2(&actions, 1, 2);
+    }
     if (!dir.empty())
         posix_spawn_file_actions_addchdir_np(&actions, dir.c_str());
     posix_spawnattr_t attr;
@@ -610,7 +651,31 @@ int startServerWait(const std::string& prefix, const std::string& wine, std::str
     return spawnIn(prefix, server, {"-w"}, {}, "", why);
 }
 
-int startInstaller(const std::string& prefix, const std::string& installer, std::string& why) {
+std::vector<std::string> installerArguments(const std::string& installer) {
+    if (util::extension(installer) == ".msi")
+        return {"msiexec", "/i", installer};
+    return {installer};
+}
+
+int runInPrefix(const std::string& prefix, const std::vector<std::string>& args, double seconds, std::string* output) {
+    return runWineFor(prefix, args, seconds, output);
+}
+
+bool endPrefixPrograms(const std::string& prefix, std::string& why) {
+    std::string wine = winePathFor(prefix), server = wine.empty() ? "" : wineserverFor(wine);
+    if (server.empty()) {
+        why = "Wine's wineserver can't be found" + (wine.empty() ? std::string() : " beside " + wine);
+        return false;
+    }
+    int pid = spawnIn(prefix, server, {"-k"}, {}, "", why);
+    int code = -1;
+    for (int waited = 0; pid > 0 && waited < 1500 && !finished(pid, code); waited++)
+        usleep(10000);
+    // (it answers 1 when no wineserver ran there: nothing was left to end)
+    return pid > 0;
+}
+
+int startInstaller(const std::string& prefix, const std::string& installer, std::string& why, const std::string& logFile) {
     std::string wine = winePathFor(prefix);
     if (wine.empty()) {
         availableIn(prefix, why);
@@ -625,16 +690,12 @@ int startInstaller(const std::string& prefix, const std::string& installer, std:
         why = installer + " doesn't exist";
         return -1;
     }
-    std::vector<std::string> args;
-    if (ext == ".msi")
-        args = {"msiexec", "/i", installer};
-    else if (ext == ".exe" && isWindowsBinary(installer))
-        args = {installer};
-    else {
+    if (ext != ".msi" && !(ext == ".exe" && isWindowsBinary(installer))) {
         why = util::baseName(installer) + " isn't a Windows installer (an .exe or .msi file)";
         return -1;
     }
-    return spawnIn(prefix, wine, args, {}, util::dirName(util::absolutePath(installer)), why);
+    return spawnIn(prefix, wine, installerArguments(installer), {}, util::dirName(util::absolutePath(installer)), why,
+                   logFile);
 }
 
 bool finished(int pid, int& code) {

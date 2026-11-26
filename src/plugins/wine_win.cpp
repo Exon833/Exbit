@@ -102,7 +102,10 @@ int notHere(std::string& why) {
 
 int startPrefix(const std::string&, const std::string&, std::string& why) { return notHere(why); }
 int startServerWait(const std::string&, const std::string&, std::string& why) { return notHere(why); }
-int startInstaller(const std::string&, const std::string&, std::string& why) { return notHere(why); }
+int startInstaller(const std::string&, const std::string&, std::string& why, const std::string&) { return notHere(why); }
+std::vector<std::string> installerArguments(const std::string& installer) { return {installer}; }
+int runInPrefix(const std::string&, const std::vector<std::string>&, double, std::string*) { return -1; }
+bool endPrefixPrograms(const std::string&, std::string& why) { return notHere(why) == 0; }
 
 bool finished(int pid, int& code) { return child::finished(pid, code); }
 void stop(int pid) { child::kill(pid); }

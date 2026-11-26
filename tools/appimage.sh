@@ -83,6 +83,14 @@ if [ -f exbit-wine-host-32.exe ] && [ -f wine32/i386-windows/exbit-unix32.dll ];
     cp exbit-wine-host-32.exe "$app/usr/bin/"
     cp -r wine32 "$app/usr/bin/"
 fi
+# Exbit's Wine fixes (src/winefix, built with MinGW), put in the prefixes it makes or is asked to fix
+# (plugins/wine_prefix_fixes.h); without them prefixes are left as Wine makes them
+if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
+    make -j"$(nproc)" winefixes >/dev/null
+fi
+if [ -f wine-fixes/x86_64-windows/msi.dll ]; then
+    cp -r wine-fixes "$app/usr/bin/"
+fi
 cp -r data/icons data/skins data/templates data/presets data/fonts "$app/usr/share/exbit/"
 cp LICENSE LICENSE.md "$app/usr/share/exbit/"
 cp data/icons/exbit.svg "$app/exbit.svg"

@@ -96,8 +96,18 @@ int startPrefix(const std::string& dir, const std::string& wine, std::string& wh
 // waits for the prefix's wineserver to end (`wineserver -w`, the one beside `wine`): not where Tiny
 // DAW's own plugin hosts run, which keep it going
 int startServerWait(const std::string& prefix, const std::string& wine, std::string& why);
-// an installer (.exe; .msi through msiexec /i) in a prefix with its Wine, started in its own folder
-int startInstaller(const std::string& prefix, const std::string& installer, std::string& why);
+// an installer (.exe; .msi through msiexec /i) in a prefix with its Wine, started in its own folder;
+// what Wine and the installer print goes to `logFile` (added to its end; "": nowhere)
+int startInstaller(const std::string& prefix, const std::string& installer, std::string& why,
+                   const std::string& logFile = "");
+// the arguments given to wine for an installer: {installer}, or {"msiexec", "/i", installer} for an .msi
+std::vector<std::string> installerArguments(const std::string& installer);
+// runs `wine <args>` in a prefix and waits (up to `seconds`); its exit code (-1: it couldn't be started,
+// or was stopped at the time limit), what it printed in `output` (if given)
+int runInPrefix(const std::string& prefix, const std::vector<std::string>& args, double seconds,
+                std::string* output = nullptr);
+// ends every Windows program of the prefix (its wineserver -k: that prefix only); false and why if it can't
+bool endPrefixPrograms(const std::string& prefix, std::string& why);
 // has this child ended? `code`: its exit status (-1: killed by a signal)
 bool finished(int pid, int& code);
 void stop(int pid);  // kills it and waits for it

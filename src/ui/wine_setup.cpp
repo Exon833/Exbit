@@ -8,8 +8,11 @@
 
 #include "core/util.h"
 #include "platform/platform.h"
+#include "plugins/install_log.h"
 #include "plugins/wine.h"
+#include "plugins/wine_prefix_fixes.h"
 #include "ui/toolkit/dialogs.h"
+#include "ui/wine_install_steps.h"
 #include "ui/toolkit/widget.h"
 
 namespace wine_setup {
@@ -81,11 +84,13 @@ std::string newPrefix(ui::Window* parent) {
                                             (why.empty() ? "" : "\n\n" + why));
         return "";
     }
+    // Exbit's fixes for what some installers need of Wine (wine_prefix_fixes.h); a prefix without them still works
+    if (!wine::fixesFolder().empty()) applyFixesTo(parent, dir, true);
     return dir;
 }
 
 bool installPlugin(ui::Window* parent, const std::vector<std::string>& prefixes, std::string& prefixUsed,
-                   std::string& madePrefix) {
+                   std::string& madePrefix, std::string* endNote, std::string* logUsed) {
     const std::string title = "Install Windows plugin";
     prefixUsed.clear();
     madePrefix.clear();
@@ -115,19 +120,25 @@ bool installPlugin(ui::Window* parent, const std::vector<std::string>& prefixes,
             return false;
         prefix = usable[std::clamp(index, 0, (int)usable.size() - 1)];
     }
+    if (madePrefix.empty()) offerFixes(parent, prefix);
+    // its log: what Wine and the installer print (the newest few kept)
+    std::string logs = install_log::folder(), logFile;
+    if (!logs.empty()) {
+        install_log::rotate(logs, install_log::KEPT_LOGS - 1);
+        logFile = install_log::newLogPath(logs, installer, (long long)util::wallClock());
+    }
     std::string why;
-    int pid = wine::startInstaller(prefix, installer, why);
+    int pid = wine::startInstaller(prefix, installer, why, logFile);
     if (pid < 0) {
         ui::msg::warning(parent, title, "Cannot run the installer.\n\n" + why);
         return false;
     }
     prefixUsed = prefix;
-    int code = 0;
-    return waitFor(parent, pid, title,
-                   "Installing " + util::baseName(installer) + " in " + prefix +
-                       "…\n\nAnswer the installer in its own windows (for VST3, keep its usual folder, C:\\Program "
-                       "Files\\Common Files\\VST3). Exbit looks for the new plugins when it ends.",
-                   code);
+    InstallEnd end = waitForInstaller(parent, pid, prefix, installer, logFile);
+    if (end.endedAsHung) reportHungInstall(parent, installer, logFile);
+    if (endNote) *endNote = installEndNote(end, logFile);
+    if (logUsed) *logUsed = logFile;
+    return end.ended || end.endedAsHung;
 }
 
 std::set<std::string> vst2Dlls(const std::vector<std::string>& prefixes) {

@@ -7,6 +7,7 @@ exbit-wine-host.exe.so
 exbit-wine-host-32.exe
 exbit-wine-host-32.exe.so
 wine32/
+wine-fixes/
 build-appimage/
 build-appimage-native/
 CLAUDE.md
