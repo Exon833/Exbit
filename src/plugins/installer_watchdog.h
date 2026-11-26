@@ -5,6 +5,7 @@
 // Exbit then says so and offers to end the prefix's programs (wineserver -k, that prefix only).
 // The judging is here, on samples (tests give it made-up ones); the looking is installer_activity.h.
 #pragma once
+#include <cstddef>
 #include <vector>
 
 namespace watchdog {
