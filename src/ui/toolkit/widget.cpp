@@ -1201,6 +1201,13 @@ bool Window::followMinimum() {
     util::debugf("window \"%s\": its content needs %d px high at %d wide (was %d): grown\n", title().c_str(), h,
                  width(), height());
     resizeWindow(width(), h);
+    // grown downwards: kept on the screen (a dialog centred for its first height, then narrowed and rewrapped)
+    Rect sg = screenGeometry();
+    Rect scr = App::get().screenAt(Point(sg.x + sg.w / 2, sg.y + sg.h / 2));
+    if (!scr.empty() && (!native_ || moved_)) {
+        int y = std::max(scr.y + frame_.top, std::min(sg.y, scr.bottom() - frame_.bottom - h));
+        if (y != sg.y) moveWindow(sg.x, y);
+    }
     return true;
 }
 
