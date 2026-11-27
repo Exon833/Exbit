@@ -16,9 +16,6 @@ namespace ui {
 class Menu;
 class ComboPopup;
 
-// greedy word wrapping at spaces, as the painter's text blocks do (each '\n' starts a line)
-std::vector<std::string> wrapLines(const std::string& text, const Font& f, float width);
-
 // --- text ---
 // Styled as `Label` (default.css, Basic controls): its colour and font (color, font-*; .hint, .dimmed, #time, #lufs),
 // padding (inside `margin`), :link (a link: underlined while text-decoration is underline), ::image (an image's

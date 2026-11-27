@@ -10,6 +10,7 @@
 #include <unordered_set>
 
 #include "core/util.h"
+#include "gfx/wrap_text_to_width.h"
 #include "ui/theme.h"
 #include "ui/toolkit/controls.h"
 #include "ui/toolkit/frame.h"
@@ -823,12 +824,12 @@ public:
         paintsOwnBox_ = true;
     }
     std::vector<std::string> lines;  // the text as shown: wrapped to the screen's width
-    // its size for that text, at most `maxW` wide (the lines wrapped at spaces to fit)
+    // its size for that text, at most `maxW` wide (the lines wrapped to fit: at spaces, a long word broken)
     Point measure(const std::string& text, int maxW) {
         const css::Style& st = computedStyle();
         Font f = style::font(st, theme::uiFont());
         style::Insets b = style::insets(st, "border-width"), pad = style::insets(st, "padding");
-        lines = wrapLines(text, f, (float)std::max(40, maxW - b.w() - pad.w()));
+        lines = wrapTextToWidth(text, f, (float)std::max(40, maxW - b.w() - pad.w()));
         float w = 0;
         for (auto& l : lines) w = std::max(w, f.width(l));
         int n = (int)lines.size();
@@ -843,7 +844,7 @@ public:
         Color tc = style::foreground(st);
         float y = (float)content.y;
         p.save();
-        p.setClip(content);  // (a word wider than the screen: cut at its edge)
+        p.setClip(content);
         for (auto& line : lines) {
             p.drawText(PointF((float)content.x, y + f.ascent()), line, f, tc);
             y += f.lineSpacing();

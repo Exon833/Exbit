@@ -5,6 +5,7 @@
 #include <cstdio>
 
 #include "gfx/svg.h"
+#include "gfx/wrap_text_to_width.h"
 #include "ui/toolkit/controls.h"
 #include "ui/toolkit/menu.h"
 #include "ui/toolkit/style.h"
@@ -28,33 +29,6 @@ std::vector<std::string> splitLines(const std::string& s) {
 }
 
 }  // namespace
-
-std::vector<std::string> wrapLines(const std::string& text, const Font& f, float width) {
-    std::vector<std::string> out;
-    for (const std::string& para : splitLines(text)) {
-        if (f.width(para) <= width) {
-            out.push_back(para);
-            continue;
-        }
-        std::string line;
-        size_t i = 0;
-        while (i <= para.size()) {
-            size_t sp = para.find(' ', i);
-            std::string word = para.substr(i, sp == std::string::npos ? std::string::npos : sp - i);
-            std::string cand = line.empty() ? word : line + " " + word;
-            if (!line.empty() && f.width(cand) > width) {
-                out.push_back(line);
-                line = word;
-            } else {
-                line = cand;
-            }
-            if (sp == std::string::npos) break;
-            i = sp + 1;
-        }
-        out.push_back(line);
-    }
-    return out;
-}
 
 namespace {
 int linesHeight(const Font& f, int n) {
@@ -104,7 +78,7 @@ Point Label::sizeHint() const {
         float wrapW = (float)theme::metric("label-wrap-width", 360);  // (a wrapped text's widest line)
         int n = (int)lines.size();
         if (wrap_ && w > wrapW) {
-            lines = wrapLines(text_, f, wrapW);
+            lines = wrapTextToWidth(text_, f, wrapW);
             w = 0;
             for (auto& l : lines) w = std::max(w, f.width(l));
             // (laid out wider than that: its lines at its width, fewer, so no empty line under it; narrower, more:
@@ -134,7 +108,7 @@ Point Label::minimumSizeHint() const {
 
 int Label::wrappedLines(int width) const {
     float room = (float)(width - style::insets(computedStyle(), "padding").w() - 2 * margin);
-    return room > 0 ? (int)wrapLines(text_, font(), room).size() : 1;
+    return room > 0 ? (int)wrapTextToWidth(text_, font(), room).size() : 1;
 }
 
 void Label::resized() {

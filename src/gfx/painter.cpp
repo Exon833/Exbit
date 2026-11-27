@@ -6,6 +6,7 @@
 #include <cstring>
 
 #include "gfx/ttf_raster.h"
+#include "gfx/wrap_text_to_width.h"
 
 namespace {
 
@@ -1005,42 +1006,8 @@ void Painter::drawText(const RectF& box, int align, const std::string& text, con
     drawText(PointF(x, y), shown, font, c);
 }
 
-// the lines of a text block: split at '\n', wrapped at spaces to `maxWidth` when wrap is on
-static std::vector<std::string> blockLines(const std::string& text, const Font& font, float maxWidth, bool wrap) {
-    std::vector<std::string> lines;
-    size_t start = 0;
-    for (;;) {
-        size_t nl = text.find('\n', start);
-        std::string para = text.substr(start, nl == std::string::npos ? std::string::npos : nl - start);
-        if (!para.empty() && para.back() == '\r') para.pop_back();
-        if (!wrap || font.width(para) <= maxWidth) {
-            lines.push_back(para);
-        } else {
-            std::string line;
-            size_t i = 0;
-            while (i <= para.size()) {
-                size_t sp = para.find(' ', i);
-                if (sp == std::string::npos) sp = para.size();
-                std::string word = para.substr(i, sp - i);
-                std::string cand = line.empty() ? word : line + " " + word;
-                if (!line.empty() && font.width(cand) > maxWidth) {
-                    lines.push_back(line);
-                    line = word;
-                } else {
-                    line = cand;
-                }
-                i = sp + 1;
-            }
-            lines.push_back(line);
-        }
-        if (nl == std::string::npos) break;
-        start = nl + 1;
-    }
-    return lines;
-}
-
 void Painter::drawTextBlock(const RectF& box, int align, const std::string& text, const Font& font, Color c, bool wrap) {
-    std::vector<std::string> lines = blockLines(text, font, box.w, wrap);
+    std::vector<std::string> lines = wrapTextToWidth(text, font, wrap ? box.w : INFINITY);
     float ls = font.lineSpacing(), asc = font.ascent(), desc = font.descent();
     float total = (lines.size() - 1) * ls + asc + desc;
     float y;
