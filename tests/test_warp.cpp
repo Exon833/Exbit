@@ -2,6 +2,7 @@
 //   - Beats: a click track at 100 BPM warped to 120 (and to a tempo map with a change) lands its clicks on the
 //     song's beats within a few ms;
 //   - Tones keeps a sine's pitch (and pitch still works); Complex keeps transients sharper than Tones (measured);
+//   - no mode clicks: a mix warped faster, slower and pitched never steps or peaks far above the source;
 //   - tempo detection from an acid chunk, from file names and by analysis (a 128 BPM loop, trimmed too);
 //   - 128 warped clips under a tempo map of 1,000 changes render, follow a change of it, and play;
 //   - markers changed 100 times while the engine plays them;
@@ -196,6 +197,48 @@ static void testComplexTransients() {
     CHECK(sc > st * 1.5);
     CHECK(sc > 0.5 * so);
     CHECK_NEAR(peakHz(*complex, SR), 220, 2.0);
+}
+
+// a full mix in short: drum hits (decaying noise) every eighth at 120 BPM over a bass and a chord
+static std::shared_ptr<AudioBuffer> mix(double seconds, int sr) {
+    auto b = clicks(240, seconds, sr);
+    for (int64_t i = 0; i < b->frames(); i++) {
+        double t = (double)i / sr, v = 0;
+        for (double hz : {55.0, 220.0, 277.18, 329.63, 1318.5}) v += 0.08 * std::sin(2 * PI * hz * t + hz);
+        b->samples[(size_t)(2 * i)] += (float)v;
+        b->samples[(size_t)(2 * i + 1)] += (float)(0.9 * v);
+    }
+    return b;
+}
+
+// the largest step from one sample to the next, and the largest sample (either channel)
+static void jumpAndPeak(const AudioBuffer& a, float& jump, float& peak) {
+    jump = peak = 0;
+    for (size_t i = 0; i < a.samples.size(); i++) {
+        peak = std::max(peak, std::fabs(a.samples[i]));
+        if (i >= 2) jump = std::max(jump, std::fabs(a.samples[i] - a.samples[i - 2]));
+    }
+}
+
+// every mode at several stretches, tempos and pitches: no click (no sample step or peak far above the source's)
+static void testNoClicks() {
+    auto src = mix(4.0, SR);
+    float srcJump, srcPeak;
+    jumpAndPeak(*src, srcJump, srcPeak);
+    struct Case { double songBpm, semitones; };
+    for (Case k : {Case{120, 0}, Case{120, -3}, Case{90, 0}, Case{160, 0}, Case{120, 5}, Case{140, -7}, Case{60, 0}}) {
+        for (warp::Mode mode : {warp::Mode::Beats, warp::Mode::Tones, warp::Mode::Complex}) {
+            warp::Job j = job(src, SR, 120, mode, std::make_shared<const TempoMap>(k.songBpm));
+            j.semitones = k.semitones;
+            AudioPtr out = warp::render(j);
+            float jump, peak;
+            jumpAndPeak(*out, jump, peak);
+            printf("no clicks: %-7s at %3.0f BPM, %+.0f semitones: largest step %.3f (source %.3f), peak %.3f (source %.3f)\n",
+                   warp::modeName(mode), k.songBpm, k.semitones, jump, srcJump, peak, srcPeak);
+            CHECK(jump < 1.5f * srcJump);
+            CHECK(peak < 1.5f * srcPeak);
+        }
+    }
 }
 
 static void writeWav(const std::string& path, const AudioBuffer& a, int sr, double acidBpm) {
@@ -568,6 +611,7 @@ int main() {
     testBeatsClicks();
     testTonesPitch();
     testComplexTransients();
+    testNoClicks();
     testDetection();
     testFromHere();
     testUndoSaveLoad();

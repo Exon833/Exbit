@@ -107,6 +107,13 @@ struct Ctx {
     double srcAt(double y) const { return bm.frameAt(map.beatAt(origin + y / rate) - b0); }
     double workAt(double f) const { return (map.secondsAt(b0 + bm.beatAt(f)) - origin) * rate; }
     float at(int64_t p, int c) const { return p >= 0 && p < n ? src.samples[(size_t)(p * 2 + c)] : 0.0f; }
+    // the same, the audio mirrored beyond its start and end (the vocoder's reading: a frame reading past either
+    // sees no step from silence, which turned phases make a click when the audio starts or ends mid-wave)
+    float mirrored(int64_t p, int c) const {
+        if (p < 0) p = -p;
+        if (p >= n) p = 2 * (n - 1) - p;
+        return at(std::max<int64_t>(0, std::min<int64_t>(n - 1, p)), c);  // (a source shorter than half a frame)
+    }
 };
 
 // fn(0 … jobs-1), on the pool's threads and this one (or here alone)
@@ -210,6 +217,10 @@ struct Band {
 
 constexpr double LOW_HZ = 150, HIGH_HZ = 300;  // where COMPLEX's bass band hands over
 constexpr int RAMP = 32;                       // frames over which a frame's reading fades at an onset
+// the least window weight an output frame is divided by (a whole one is 1.5: Hann squared, a quarter apart). Only
+// at an onset, where the frames before it have faded out and the ones after it not yet in, is there less: there
+// the sum is quieter for a few frames instead of what little the frames put there blown up into a click.
+constexpr float MIN_WEIGHT = 0.1f;
 
 // `srcCentre`: the source frame each work frame is read around; `onsets`: frames no frame reads across (each
 // reads only between the onsets around its centre); `resetUntil[i]`: frames centred from onset i up to here
@@ -265,7 +276,7 @@ void vocode(const Ctx& c, const std::function<double(double)>& srcCentre, const 
         for (int64_t i = 0; i < count; i++) {
             int64_t p = base + i;
             if (p < 0 || p >= c.lw) continue;
-            float w = std::max(wsum[(size_t)i], 1e-2f);
+            float w = std::max(wsum[(size_t)i], MIN_WEIGHT);
             out[2 * p] += acc[(size_t)(2 * i)] / w;
             out[2 * p + 1] += acc[(size_t)(2 * i + 1)] / w;
         }
@@ -300,9 +311,9 @@ void vocode(const Ctx& c, const std::function<double(double)>& srcCentre, const 
                 float m = maskAt(p, zl, zr), mq = maskAt(q, zl, zr);
                 f.mask[(size_t)j] = m;
                 double w = win[(size_t)j];
-                a[(size_t)j] = c.at(p, 0) * w * m;
-                b[(size_t)j] = c.at(p, 1) * w * m;
-                ref[(size_t)j] = ((double)c.at(q, 0) + c.at(q, 1)) * w * mq;
+                a[(size_t)j] = c.mirrored(p, 0) * w * m;
+                b[(size_t)j] = c.mirrored(p, 1) * w * m;
+                ref[(size_t)j] = ((double)c.mirrored(q, 0) + c.mirrored(q, 1)) * w * mq;
             }
             fft::realPair(plan, a.data(), b.data(), f.L.data(), f.R.data(), work);
             fft::realPair(plan, ref.data(), nullptr, refSpec.data(), nullptr, work);
@@ -363,10 +374,13 @@ void vocode(const Ctx& c, const std::function<double(double)>& srcCentre, const 
             const Frame& f = fr[(size_t)i];
             int64_t at = (k0 + i) * hop - half - base;
             for (int j = 0; j < N; j++) {
-                double w = win[(size_t)j];
+                // put back through the window and the mask it was read with, and weighed as it was: a frame's
+                // phases turned spread its audio over the whole frame, beyond the mask too, and that must not
+                // count where its weight says it has none (divided by next to nothing, it clicked)
+                double w = win[(size_t)j] * f.mask[(size_t)j];
                 acc[(size_t)(2 * (at + j))] += (float)(f.oa[(size_t)j] * w);
                 acc[(size_t)(2 * (at + j) + 1)] += (float)(f.ob[(size_t)j] * w);
-                wsum[(size_t)(at + j)] += (float)(w * w) * f.mask[(size_t)j];
+                wsum[(size_t)(at + j)] += (float)(w * w);
             }
         }
         flush((k0 + cnt) * hop - half);
