@@ -605,8 +605,9 @@ void testPlugin(PluginLibrary& library, const PluginInfo& info, bool windows) {
     auto params = p->parameters();
     CHECK(!params.empty());
     const ParamInfo* probe = nullptr;
-    for (const auto& q : params)
-        if (q.automatable && !q.readOnly && !q.hidden && !q.isBypass && !q.isProgramChange && q.stepCount == 0) {
+    for (const auto& q : params)  // (one with no text is an unassigned slot, as Kontakt's "#000": it isn't saved)
+        if (q.automatable && !q.readOnly && !q.hidden && !q.isBypass && !q.isProgramChange && q.stepCount == 0 &&
+            !p->paramText(q.id, p->getParam(q.id)).empty()) {
             probe = &q;
             break;
         }
