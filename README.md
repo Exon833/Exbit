@@ -392,7 +392,10 @@ Xrandr, Xcursor, Xi), ALSA and PulseAudio (`libpulse-simple`). Nothing is downlo
 linked: X11's, ALSA's and PulseAudio's libraries are loaded when the window, a sound device or the sound
 server is used, so the same program starts without them (in the terminal; without any sound system it says
 so, and projects can still be edited). JACK is used when its library
-(`libjack.so.0`, e.g. PipeWire's) is installed; it isn't needed to build. When
+(`libjack.so.0`, e.g. PipeWire's) is installed; it isn't needed to build. The audio threads (and the Wine
+hosts' audio threads) run at real-time priority when the system allows it: directly (`ulimit -r`, the realtime
+group), else through rtkit, over the system D-Bus with `libdbus-1.so.3` loaded when used (not needed to build);
+Options → Audio properties says what each got. When
 Wine's `winegcc` is installed (e.g. the `wine-staging` or `wine` packages), `make` also builds
 `exbit-wine-host.exe`, the host for Windows plugins (Wine's own headers aren't needed).
 

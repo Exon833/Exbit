@@ -7,6 +7,10 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <thread>
+#include <vector>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -17,7 +21,9 @@
 #include <set>
 
 #include "audio/engine.h"
+#include "audio/realtime_priority.h"
 #include "audio/sound_file.h"
+#include "audio/workers.h"
 #include "check.h"
 #include "core/util.h"
 #include "gfx/image.h"
@@ -43,6 +49,10 @@
 #include "ui/toolkit/style.h"
 #include "ui/wine_prefixes_dialog.h"
 #include "ui/wine_setup.h"
+
+namespace audio::detail {
+void raiseThreadPriority();  // (audio/devices.cpp: the calling thread made an audio thread)
+}
 
 using namespace ui;
 
@@ -880,7 +890,28 @@ static void testAudioDialog() {
     CHECK(d.title() == "Audio properties");
     CHECK(d.buffers->count() == 6 && d.buffers->currentDataInt() == 256);
     CHECK(!d.exclusiveBox->isVisible());
+    CHECK(d.realtimePriority->text() == "Not asked for yet (no audio thread is running)");  // (no device open)
     picture(d, "audio-properties");
+    {  // what an audio thread got, as this machine gives it (audio/realtime_priority.h)
+        std::atomic<bool> release{false}, raised{false};
+        std::thread audioThread([&] {
+            audio::detail::raiseThreadPriority();
+            raised = true;
+            while (!release) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        });
+        while (!raised) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        workers::Pool pool(2);  // (its workers say what they got on a line of their own)
+        while (realtime::statusText().find("Workers: ") == std::string::npos)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        AudioPropertiesDialog shown(nullptr, "PulseAudio", "", 256, false, engine);
+        printf("   Real-time priority: %s\n", shown.realtimePriority->text().c_str());
+        CHECK(shown.realtimePriority->text().rfind("Audio thread: ", 0) == 0);
+        CHECK(shown.realtimePriority->text() == realtime::statusText());
+        picture(shown, "audio-properties-realtime");
+        release = true;
+        audioThread.join();
+        realtime::forgetOutcomes();
+    }
     d.buffers->setCurrentIndex(4);
     d.accept();
     CHECK(d.bufferSize == 1024 && !d.exclusive);

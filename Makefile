@@ -353,7 +353,7 @@ build/speedreference/%.o: %.cpp
 # the tests that run on Windows (tools/wintests.sh builds and runs them there)
 WIN_TESTS := test_os test_gfx test_update_check test_icon_win test_model test_project_io test_ui_main test_workers test_midi_win test_wasapi_win \
              test_tui test_tui_console_win test_plugins_win test_window_win test_plugin_restore test_discord_presence test_old_name \
-             test_plugin_speed
+             test_plugin_speed test_realtime_priority
 tests-win: $(WIN_TESTS:%=$(BUILD)/tests/%$(EXE)) $(ALL_HOSTS) $(ALL_WIN_TEST) $(ALL_SPEED_REFERENCE)
 	@failed=""; for t in $(WIN_TESTS:%=$(BUILD)/tests/%$(EXE)); do echo "== $$t"; \
 	    EXBIT_PLUGIN_HOST=$(PLUGIN_HOST) EXBIT_PLUGIN_HOST32=$(if $(MINGW32),$(PLUGIN_HOST32)) \

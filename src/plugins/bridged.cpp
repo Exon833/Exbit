@@ -62,6 +62,8 @@
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#include "audio/realtime_promotion.h"
 #endif
 
 #include "core/json.h"
@@ -952,6 +954,11 @@ private:
         instrument_ = r.b();
         sidechain_ = r.b();
         latency_ = r.i32();
+#ifndef _WIN32
+        // (loaded: the host's audio thread made real time through rtkit if it couldn't do it itself; never before,
+        // as a plugin's loading may run past RLIMIT_RTTIME. Windows: the host asks for MMCSS itself)
+        if (block->hostAudioThread > 0) realtime::raisePluginHostThread(pid, block->hostAudioThread);
+#endif
         watchdog = std::thread([this] { watch(); });
     }
 

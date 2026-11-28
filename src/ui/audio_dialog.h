@@ -41,6 +41,7 @@ public:
     ui::ComboBox* buffers;
     ui::ComboBox* coreChoice;
     ui::CheckBox* lowLatencyBox;  // Low-latency monitoring (ui/recording.h)
+    ui::Label* realtimePriority;  // what the audio threads got (audio/realtime_priority.h: statusText)
     void showType();               // list the chosen driver type's devices (keeping the current one)
     void done(int result) override;
 };

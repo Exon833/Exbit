@@ -3,8 +3,9 @@
 // themselves are in devices_jack.cpp, devices_alsa.cpp and devices_pulse.cpp.
 #include "audio/devices.h"
 
-#include <pthread.h>
-#include <sched.h>
+#include "audio/denormals.h"
+#include "audio/realtime_promotion.h"
+#include "audio/workers.h"
 
 #include <cstring>
 #include <map>
@@ -31,15 +32,12 @@ bool pulseDeviceInfo(const std::string& id, DeviceInfo& out, bool input);
 std::string pulseDefault(bool input);
 std::unique_ptr<Stream> pulseOpen(const StreamConfig& cfg, Callback cb, std::string& error);
 
-// the calling thread as a real-time (SCHED_FIFO) one if the system lets us; quietly not otherwise
+// the calling thread made an audio thread: denormals off, and real-time priority by the first way the system allows
+// (audio/realtime_promotion.h: SCHED_FIFO, else rtkit, else a higher nice level, else none), recorded for the dialog
 void raiseThreadPriority() {
-    sched_param sp{};
-    int lo = sched_get_priority_min(SCHED_FIFO), hi = sched_get_priority_max(SCHED_FIFO);
-    sp.sched_priority = std::max(lo, std::min(hi, 70));
-    if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp) != 0) {
-        sp.sched_priority = std::max(lo, std::min(hi, 10));  // RLIMIT_RTPRIO may allow less
-        pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);
-    }
+    flushDenormalsOnThisThread();
+    realtime::raiseCallingThread(workers::isWorkerThread() ? realtime::ThreadRole::Worker
+                                                           : realtime::ThreadRole::DeviceThread);
 }
 }  // namespace detail
 

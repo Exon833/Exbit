@@ -27,22 +27,42 @@
 #include <mutex>
 #include <thread>
 
+#include "audio/denormals.h"
 #include "audio/devices.h"
+#include "audio/power_throttling_win.h"
+#include "audio/realtime_priority.h"
+#include "audio/workers.h"
 #include "core/util.h"
 
 namespace audio {
 namespace detail {
 
-// the calling thread as an MMCSS "Pro Audio" one; time-critical priority where MMCSS isn't running
+// the calling thread made an audio thread (the sound device's, and each worker's): denormals off, MMCSS "Pro Audio"
+// (all in one MMCSS task), else time-critical priority where MMCSS isn't running; never power-throttled; recorded
 void raiseThreadPriority() {
-    DWORD task = 0;
+    flushDenormalsOnThisThread();
+    static std::atomic<DWORD> sharedTask{0};  // (the first thread's MMCSS task, joined by the rest)
+    DWORD task = sharedTask.load();
     HANDLE h = AvSetMmThreadCharacteristicsW(L"Pro Audio", &task);
+    if (!h && task != 0) {  // (that task may have ended with its threads: a new one)
+        task = 0;
+        h = AvSetMmThreadCharacteristicsW(L"Pro Audio", &task);
+    }
+    realtime::Outcome outcome;
     if (h) {
+        sharedTask.store(task);
         AvSetMmThreadPriority(h, AVRT_PRIORITY_HIGH);
+        outcome.realtime = true;
+        outcome.how = "MMCSS Pro Audio";
     } else {
         SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
-        util::debugf("audio: MMCSS not available (%lu): time-critical priority instead\n", GetLastError());
+        outcome.whyNot = "MMCSS isn't running (error " + std::to_string(GetLastError()) + "): time-critical instead";
     }
+    keepThreadAtFullSpeed();
+    static bool timerResolutionKept = keepProcessTimerResolution();  // (once: the whole program's)
+    (void)timerResolutionKept;
+    realtime::recordOutcome(workers::isWorkerThread() ? realtime::ThreadRole::Worker : realtime::ThreadRole::DeviceThread,
+                            0, (long)GetCurrentThreadId(), outcome);
 }
 
 }  // namespace detail

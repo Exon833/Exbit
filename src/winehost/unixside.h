@@ -3,7 +3,7 @@
 //
 // Windows code can't make a Linux syscall under Wine (Wine's syscall dispatch takes one for an NT
 // call), so the host's few Linux calls (the socket to Exbit, the audio thread's futex, its
-// realtime priority, its Linux process id) go to a Linux library of its own, unixside.c
+// realtime priority, its Linux process and thread ids) go to a Linux library of its own, unixside.c
 // (wine32/x86_64-unix/exbit-unix32.so), through Wine's way for a builtin DLL into its Unix part:
 // unix32.c (wine32/i386-windows/exbit-unix32.dll). Wine finds both through WINEDLLPATH=<the host's
 // folder>/wine32 (plugins/wine.cpp sets it), and the host loads the DLL by its path. The fds are
@@ -22,7 +22,8 @@ enum LinuxFn {
     LINUX_IS_FIFO,      // a: fd -> ret: 1 if a pipe
     LINUX_FUTEX,        // ptr: the word, a: op, b: value, ns: timeout (< 0: none)
     LINUX_PID,          // -> ret: the Linux process id
-    LINUX_REALTIME,     // the calling thread to SCHED_FIFO (as host.cpp's realtime())
+    LINUX_REALTIME,     // the calling thread to SCHED_FIFO (as host.cpp's realtime()), guarded against SIGXCPU
+    LINUX_THREAD_ID,    // -> ret: the calling thread's Linux thread id
 };
 
 // (32-bit fields for pointers: the same layout on both sides, so Wine's WoW64 needs no conversion)
@@ -94,6 +95,7 @@ inline ssize_t read(int fd, void* p, size_t n) { return (ssize_t)call({LINUX_REA
 inline bool isFifo(int fd) { return call({LINUX_IS_FIFO, 0, fd, 0, 0, 0, 0, 0}) == 1; }
 inline int linuxPid() { return (int)call({LINUX_PID, 0, 0, 0, 0, 0, 0, 0}); }
 inline void realtime() { call({LINUX_REALTIME, 0, 0, 0, 0, 0, 0, 0}); }
+inline long linuxThreadId() { return (long)call({LINUX_THREAD_ID, 0, 0, 0, 0, 0, 0, 0}); }
 
 }  // namespace unixside
 

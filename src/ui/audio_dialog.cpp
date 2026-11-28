@@ -2,6 +2,7 @@
 
 #include "audio/devices.h"
 #include "audio/engine.h"
+#include "audio/realtime_priority.h"
 #include "audio/workers.h"
 #include "core/util.h"
 #include "ui/preferences.h"
@@ -100,6 +101,13 @@ AudioPropertiesDialog::AudioPropertiesDialog(Window* parent, const std::string& 
                               "are left out on the tracks being recorded, so you hear yourself without their delay.\n"
                               "They come back when recording stops (the status bar says how many were left out).");
     form->addRow(lowLatencyBox);
+
+    realtimePriority = add<Label>(realtime::statusText());
+    realtimePriority->setWordWrap(true);
+    realtimePriority->setToolTip("At real-time priority the audio threads keep playing smoothly while the computer is busy.\n"
+                         "Linux: asked for directly (the realtime group, ulimit -r), else through rtkit.\n"
+                         "Windows: MMCSS Pro Audio.");
+    form->addRow("Real-time priority", realtimePriority);
 
     if (engine.isOpen()) {
         Label* now = add<Label>(audio_dialog::nowPlaying(engine));

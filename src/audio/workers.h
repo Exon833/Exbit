@@ -68,6 +68,8 @@ private:
 int workersFor(int wanted);
 // is this thread running a pool's job now? (work that could make a pool of its own doesn't, inside another's)
 bool inJob();
+// is this one of a pool's worker threads? (its real-time priority is reported as a worker's: audio/realtime_priority.h)
+bool isWorkerThread();
 // the processor cores this program may run on (its CPU affinity: taskset, cgroups), at least 1
 int availableCores();
 // the user's choice (Options → Audio properties → Processing cores), for renders, which make a Pool of

@@ -291,6 +291,8 @@ struct AudioBlock {
     // transport (setTransport)
     int32_t transportSet;
     int32_t numerator, denominator, playing;
+    // the host's audio thread's Linux thread id, set as it starts (Exbit asks rtkit to make it real time; 0: unknown)
+    int32_t hostAudioThread;
     alignas(8) double tempo;  // (alignas: the same layout for the 32-bit host, whose ABI aligns these to 4)
     alignas(8) int64_t position;
     alignas(8) double beats;  // the song's beats at `position` (< 0: none given)
@@ -314,6 +316,7 @@ struct AudioBlock {
 
 // (the same layout in Exbit, the 64-bit host and the 32-bit one, which share it)
 static_assert(sizeof(ParamChange) == 16 && offsetof(ParamChange, value) == 8, "ParamChange");
+static_assert(offsetof(AudioBlock, hostAudioThread) == 44, "AudioBlock");  // (in what was padding: the same layout)
 static_assert(offsetof(AudioBlock, tempo) == 48 && offsetof(AudioBlock, position) == 56, "AudioBlock");
 static_assert(offsetof(AudioBlock, beats) == 64, "AudioBlock");
 static_assert(offsetof(AudioBlock, sampleRate) == 80 && offsetof(AudioBlock, notes) == 96, "AudioBlock");

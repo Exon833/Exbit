@@ -78,8 +78,10 @@ Pool::~Pool() {
 
 namespace {
 thread_local int tlJobs = 0;  // (inJob: the pool jobs this thread is running, nested)
+thread_local bool tlWorker = false;  // (isWorkerThread)
 }
 bool inJob() { return tlJobs > 0; }
+bool isWorkerThread() { return tlWorker; }
 
 bool Pool::claimAndRun() {
     uint64_t s = state_.load(std::memory_order_acquire);
@@ -126,6 +128,7 @@ void Pool::run(int jobs, Job fn, void* ctx) {
 }
 
 void Pool::loop() {
+    tlWorker = true;
     if (realtime_) audio::detail::raiseThreadPriority();
     using clock = std::chrono::steady_clock;
     while (!quit_.load(std::memory_order_acquire)) {

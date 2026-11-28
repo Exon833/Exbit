@@ -21,8 +21,10 @@
 #include <mutex>
 #include <vector>
 
+#include "audio/denormals.h"
 #include "audio/devices.h"
 #include "audio/jack_api.h"
+#include "audio/realtime_promotion.h"
 
 namespace jack {
 namespace {
@@ -331,6 +333,12 @@ double JackStream::latency(const std::vector<jack::Port*>& ports, int mode) cons
 
 int JackStream::process(jack::nframes_t frames, void* arg) {
     auto* s = static_cast<JackStream*>(arg);
+    flushDenormalsOnThisThread();  // (each time: JACK's thread is the server's, and so is its control register)
+    static thread_local bool recorded = false;
+    if (!recorded) {  // (JACK makes its thread real time itself; the dialog shows what it got)
+        recorded = true;
+        realtime::recordCallingThreadAsItIs(realtime::ThreadRole::DeviceThread, "JACK");
+    }
     const jack::Api* a = s->api_;
     for (size_t c = 0; c < s->outPorts_.size(); c++) s->outBufs_[c] = (float*)a->port_get_buffer(s->outPorts_[c], frames);
     for (size_t c = 0; c < s->inPorts_.size(); c++)

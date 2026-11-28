@@ -55,9 +55,13 @@
 #else
 #include <sys/mman.h>
 #include <sys/socket.h>
+#include <sys/syscall.h>
 #include <sys/un.h>
+
+#include "winehost/overrun_guard.h"
 #endif
 
+#include "audio/denormals.h"
 #include "core/json.h"
 #include "core/util.h"
 #include "plugins/bridge.h"
@@ -88,6 +92,7 @@ HWND messageWindow = nullptr;
 std::unique_ptr<plug::Plugin> plugin;
 AudioBlock* block = nullptr;
 HANDLE audioThread = nullptr;
+std::atomic<uint32_t> audioThreadStarted{0};  // (1 once it has put its thread id in the AudioBlock)
 std::atomic<bool> freezeAudio{false};  // (tests: EXBIT_WINE_TEST_FREEZE=audio)
 
 // --- the plugin's news, collected every idle tick, handed over at IDLE ---
@@ -116,7 +121,10 @@ void reply(const Incoming& in, const Writer& w) { sendMessage(sock, in.header.op
 
 // --- the audio thread ---
 
+// the calling thread made the audio thread: denormals off (here, in the Windows code: Wine keeps its Unix side's
+// control register apart), and the highest priority it can ask for itself
 void realtime() {
+    audio::flushDenormalsOnThisThread();
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
 #ifdef EXBIT_WINE_PE
     unixside::realtime();
@@ -136,6 +144,18 @@ void realtime() {
         sp.sched_priority = lo + 9;
         pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);
     }
+    exbitGuardAudioThreadAgainstOverrun(syscall(SYS_gettid));  // (for when Exbit has rtkit make it real time instead)
+#endif
+}
+
+// the calling thread's Linux thread id (Exbit asks rtkit for this thread by it); Windows: its own thread id
+long linuxThreadId() {
+#ifdef EXBIT_WINE_PE
+    return unixside::linuxThreadId();
+#elif defined(EXBIT_PLUGIN_HOST)
+    return (long)GetCurrentThreadId();
+#else
+    return (long)syscall(SYS_gettid);
 #endif
 }
 
@@ -160,6 +180,9 @@ double traceNow() {
 
 DWORD WINAPI audioMain(LPVOID) {
     realtime();
+    block->hostAudioThread = (int32_t)linuxThreadId();
+    audioThreadStarted.store(1);
+    wake(&audioThreadStarted);
     if (tracing)
         fprintf(stderr, "exbit-wine-host: audio thread started\n");
     std::vector<plug::NoteMessage> notes;
@@ -182,7 +205,7 @@ DWORD WINAPI audioMain(LPVOID) {
             Sleep(1000);
         double started = tracing ? traceNow() : 0;
         if (tracing && seen < 4)
-            fprintf(stderr, "exbit-wine-host: buffer %u begins\n", seen);
+            fprintf(stderr, "exbit-wine-host: buffer %u begins (MXCSR %#x)\n", seen, (unsigned)audio::readFloatingPointControl());
         int frames = std::max(0, std::min(block->frames, MAX_FRAMES));
         if (block->prepareSet && block->sampleRate > 0) {  // (a new rate, asked on Exbit's audio thread)
             try {
@@ -383,7 +406,10 @@ void load(const Incoming& in) {
         } catch (const std::exception&) {
         }
         latencyNow = plugin->latency();
+        audioThreadStarted.store(0);
         audioThread = CreateThread(nullptr, 0, audioMain, nullptr, 0, nullptr);
+        // (its thread id in the AudioBlock before the answer: Exbit promotes the thread when the plugin has loaded)
+        if (audioThread) waitChange(&audioThreadStarted, 0, 2.0);
         w.b(true).str("");
         w.b(plugin->isVst2()).str(plugin->name()).str(plugin->vendor()).str(plugin->subcategories());
         w.b(plugin->isInstrument()).b(plugin->hasSidechain()).i32(plugin->latency());

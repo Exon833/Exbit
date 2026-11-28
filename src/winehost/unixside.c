@@ -14,6 +14,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "winehost/overrun_guard.h"
 #include "winehost/unixside.h"
 
 #define P(x) ((void*)(uintptr_t)(x))
@@ -36,8 +37,10 @@ static int64_t connectUnix(const char* path) {
     return fd;
 }
 
-// as host.cpp's realtime(): a little below Exbit's own audio thread, which waits for this one
+// as host.cpp's realtime(): a little below Exbit's own audio thread, which waits for this one; and SIGXCPU caught,
+// for when Exbit has rtkit make it real time instead (winehost/overrun_guard.h)
 static int64_t realtime(void) {
+    exbitGuardAudioThreadAgainstOverrun(syscall(SYS_gettid));
     int lo = sched_get_priority_min(SCHED_FIFO), hi = sched_get_priority_max(SCHED_FIFO);
     struct sched_param sp = {.sched_priority = lo + 69 < hi ? lo + 69 : hi};
     if (sched_setscheduler(0, SCHED_FIFO, &sp) == 0)
@@ -62,6 +65,7 @@ static int call(void* args) {
         break;
     case LINUX_PID: c->ret = getpid(); break;
     case LINUX_REALTIME: c->ret = realtime(); break;
+    case LINUX_THREAD_ID: c->ret = syscall(SYS_gettid); break;
     default: c->ret = -ENOSYS;
     }
     return 0;
