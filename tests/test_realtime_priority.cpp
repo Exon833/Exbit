@@ -37,7 +37,9 @@ void raiseThreadPriority();  // (audio/devices.cpp, audio/devices_win.cpp)
 
 namespace {
 
+#ifndef _WIN32
 bool contains(const std::string& text, const std::string& part) { return text.find(part) != std::string::npos; }
+#endif
 
 // a new audio thread has FTZ and DAZ, and flushes a denormal to zero; the thread that made it doesn't
 void testDenormalsOnANewAudioThread() {
@@ -277,24 +279,26 @@ void testOnThisMachine() {
 // MMCSS on each audio thread (or the fallback), power throttling off for it, the process's timer resolution kept
 void testWindowsCalls() {
     realtime::forgetOutcomes();
-    ULONG controlMask = 0, stateMask = 1;
+    bool fullSpeed = false;
+    std::string status;
     std::thread audioThread([&] {
         audio::detail::raiseThreadPriority();
-        struct {
-            ULONG Version, ControlMask, StateMask;
-        } state{1, 0, 0};
-        using GetInformation = BOOL(WINAPI*)(HANDLE, int, LPVOID, DWORD);
-        auto getThreadInformation = reinterpret_cast<GetInformation>(
-            reinterpret_cast<void*>(GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "GetThreadInformation")));
-        if (getThreadInformation && getThreadInformation(GetCurrentThread(), 3, &state, sizeof state)) {
-            controlMask = state.ControlMask;
-            stateMask = state.StateMask;
-        }
-        printf("   %s\n", realtime::statusText().c_str());
+        status = realtime::statusText();
+        fullSpeed = audio::keepThreadAtFullSpeed();  // (asked again, to see the answer: Windows can't be asked back
+                                                     // on Windows 10, GetThreadInformation refuses this class)
     });
     audioThread.join();
-    printf("   the audio thread's power throttling: control %#lx, state %#lx\n", controlMask, stateMask);
-    CHECK(controlMask == 0x1 && stateMask == 0);  // (Windows 10 1709 and later: execution speed, not throttled)
+    printf("   %s\n", status.c_str());
+    CHECK(status == "Audio thread: granted (MMCSS Pro Audio)" ||
+          status.rfind("Audio thread: not granted: MMCSS isn't running", 0) == 0);  // (MMCSS, or its fallback)
+    OSVERSIONINFOW version{sizeof version};
+    using GetVersion = LONG(WINAPI*)(OSVERSIONINFOW*);  // (ntdll's: GetVersionEx says 6.2 to programs without a manifest)
+    auto getVersion = reinterpret_cast<GetVersion>(
+        reinterpret_cast<void*>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlGetVersion")));
+    const bool hasPowerThrottling = getVersion && getVersion(&version) == 0 && version.dwBuildNumber >= 16299;
+    printf("   Windows build %lu: the audio thread's power throttling off: %s\n", version.dwBuildNumber,
+           fullSpeed ? "yes" : "no (the fallback: Windows chooses)");
+    CHECK(fullSpeed == hasPowerThrottling);  // (Windows 10 1709, build 16299, and later have it)
     printf("   the process's timer resolution kept: %s\n",
            audio::keepProcessTimerResolution() ? "yes" : "no (this Windows hasn't the setting: the fallback)");
 }
