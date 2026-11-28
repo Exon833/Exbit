@@ -177,12 +177,29 @@ ifeq ($(WINDOWS),1)
   PLUGIN_HOST32 := exbit-plugin-host-32.exe
   HOST_SRCS := $(filter-out src/winehost/d2dfix.cpp src/winehost/dragdrop.cpp,$(WINE_SRCS)) src/winehost/native_win.cpp \
                src/core/os_win.cpp src/core/posix_win.cpp
-  HOST_FLAGS := -std=c++17 -O2 -g1 -DNDEBUG -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -MMD -MP \
-                -Isrc -DEXBIT_PLUGIN_HOST -DEXBIT_WINDOWS -D_USE_MATH_DEFINES -D_FILE_OFFSET_BITS=64 -D_WIN32_WINNT=0x0A00 \
-                -include core/posix_win.h
-  HOST_LIBS := -static -mconsole -lole32 -luser32 -lgdi32 -ladvapi32 -lws2_32 -luuid -lshell32 -lsynchronization
   ALL_HOSTS := $(PLUGIN_HOST) $(if $(MINGW32),$(PLUGIN_HOST32))
   ALL_WIN_TEST := $(WIN_TEST_PLUGINS) $(if $(MINGW32),$(WIN32_TEST_PLUGINS))
+endif
+# (the hosts' flags: also the plugin speed benchmark's reference's, below, built with MinGW on Linux too)
+HOST_FLAGS := -std=c++17 -O2 -g1 -DNDEBUG -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -MMD -MP \
+              -Isrc -DEXBIT_PLUGIN_HOST -DEXBIT_WINDOWS -D_USE_MATH_DEFINES -D_FILE_OFFSET_BITS=64 -D_WIN32_WINNT=0x0A00 \
+              -include core/posix_win.h
+HOST_LIBS := -static -mconsole -lole32 -luser32 -lgdi32 -ladvapi32 -lws2_32 -luuid -lshell32 -lsynchronization
+
+# --- the plugin speed benchmark (tests/test_plugin_speed.cpp): its own code (tests/plugin_speed), and its bare
+# reference for Windows plugins, plugin-speed-reference.exe (the plugins called directly, on Exbit's VST3 host built
+# for Windows, as exbit-plugin-host.exe), built with MinGW and run under Wine or on Windows; without MinGW, the
+# benchmark of Windows plugins is skipped ---
+SPEED_OBJS := $(patsubst %.cpp,$(BUILD)/%.o,tests/plugin_speed/direct_calls.cpp tests/plugin_speed/paced_buffers.cpp \
+              tests/plugin_speed/buffer_stats.cpp tests/plugin_speed/mixer_calls.cpp tests/plugin_speed/reference_program.cpp)
+SPEED_REFERENCE := $(BUILD)/plugin-speed-reference.exe
+SPEED_REFERENCE_SRCS := tests/plugin_speed/reference_main.cpp tests/plugin_speed/reference_thread_priority.cpp \
+                        tests/plugin_speed/direct_calls.cpp tests/plugin_speed/paced_buffers.cpp src/audio/workers.cpp \
+                        src/plugins/vst3host.cpp src/plugins/vst2host.cpp src/plugins/plugin.cpp src/plugins/probe.cpp \
+                        src/core/util.cpp src/core/json.cpp src/core/os_win.cpp src/core/posix_win.cpp src/winehost/platform.cpp
+SPEED_REFERENCE_OBJS := $(SPEED_REFERENCE_SRCS:%.cpp=build/speedreference/%.o)
+ifneq ($(MINGW64),)
+  ALL_SPEED_REFERENCE := $(SPEED_REFERENCE)
 endif
 
 .PHONY: all clean test test-affected tests-win hooks appimage publish plugins winehost winefixes win-plugins
@@ -322,10 +339,22 @@ $(BUILD)/tests/%$(EXE): tests/%.cpp $(LIB_OBJS) $(WIN_RES)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(LDOPT) -o $@ $< $(LIB_OBJS) $(WIN_RES) $(LDLIBS)
 
+# (test_plugin_speed: with its own code, tests/plugin_speed)
+$(BUILD)/tests/test_plugin_speed$(EXE): $(SPEED_OBJS)
+$(BUILD)/tests/test_plugin_speed$(EXE): LIB_OBJS += $(SPEED_OBJS)
+
+$(SPEED_REFERENCE): $(SPEED_REFERENCE_OBJS)
+	$(MINGW64) -o $@ $^ $(HOST_LIBS) -lavrt -lwinmm
+
+build/speedreference/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(MINGW64) $(HOST_FLAGS) -c $< -o $@
+
 # the tests that run on Windows (tools/wintests.sh builds and runs them there)
 WIN_TESTS := test_os test_gfx test_update_check test_icon_win test_model test_project_io test_ui_main test_workers test_midi_win test_wasapi_win \
-             test_tui test_tui_console_win test_plugins_win test_window_win test_plugin_restore test_discord_presence test_old_name
-tests-win: $(WIN_TESTS:%=$(BUILD)/tests/%$(EXE)) $(ALL_HOSTS) $(ALL_WIN_TEST)
+             test_tui test_tui_console_win test_plugins_win test_window_win test_plugin_restore test_discord_presence test_old_name \
+             test_plugin_speed
+tests-win: $(WIN_TESTS:%=$(BUILD)/tests/%$(EXE)) $(ALL_HOSTS) $(ALL_WIN_TEST) $(ALL_SPEED_REFERENCE)
 	@failed=""; for t in $(WIN_TESTS:%=$(BUILD)/tests/%$(EXE)); do echo "== $$t"; \
 	    EXBIT_PLUGIN_HOST=$(PLUGIN_HOST) EXBIT_PLUGIN_HOST32=$(if $(MINGW32),$(PLUGIN_HOST32)) \
 	    EXBIT_WIN_TEST_PLUGINS=$(WIN_DIR) $$t || failed="$$failed $${t##*/}"; done; \
@@ -371,13 +400,13 @@ $(WIN_DIR)/TinyTestInstaller.exe: tests/plugins/test_installer.cpp
 
 # TESTS= runs only these (test-affected picks them); every test by default
 TESTS ?= $(TEST_BINS)
-test: $(TEST_BINS) $(TEST_PLUGINS) $(ALL_WINE) $(ALL_WINEFIX) $(ALL_WIN_TEST)
+test: $(TEST_BINS) $(TEST_PLUGINS) $(ALL_WINE) $(ALL_WINEFIX) $(ALL_WIN_TEST) $(ALL_SPEED_REFERENCE)
 	@failed=""; for t in $(TESTS); do echo "== $$t"; \
 	    EXBIT_TEST_PLUGINS=$(BUILD)/test-plugins EXBIT_WIN_TEST_PLUGINS=$(WIN_DIR) $$t || failed="$$failed $${t##*/}"; done; \
 	if [ -n "$$failed" ]; then echo "== FAILED:$$failed"; exit 1; fi; echo "== all tests passed"
 
 # only the tests the change from commit BASE reaches (tools/affected_tests.sh); every test if it can't tell
-test-affected: $(TEST_BINS) $(TEST_PLUGINS) $(ALL_WINE) $(ALL_WINEFIX) $(ALL_WIN_TEST)
+test-affected: $(TEST_BINS) $(TEST_PLUGINS) $(ALL_WINE) $(ALL_WINEFIX) $(ALL_WIN_TEST) $(ALL_SPEED_REFERENCE)
 	@t=$$(tools/affected_tests.sh $(BASE)) || t="$(TEST_BINS)"; t=$$(echo $$t); \
 	if [ -z "$$t" ]; then echo "== no test reaches this change"; \
 	else echo "== $$(echo $$t | wc -w) of $(words $(TEST_BINS)) tests reach this change"; \
@@ -386,4 +415,5 @@ test-affected: $(TEST_BINS) $(TEST_PLUGINS) $(ALL_WINE) $(ALL_WINEFIX) $(ALL_WIN
 clean:
 	rm -rf build build-debug exbit exbit-debug exbit.exe exbit-debug.exe $(WINE_HOST) $(WINE_HOST).so $(WINE_HOST32) $(WINE_HOST32).so wine32 $(WINEFIX_DIR)
 
--include $(OBJS:.o=.d) $(TEST_BINS:%=%.d) $(WINE_OBJS:.o=.d) $(WINE32_OBJS:.o=.d) $(PE32_OBJS:.o=.d)
+-include $(OBJS:.o=.d) $(TEST_BINS:%=%.d) $(WINE_OBJS:.o=.d) $(WINE32_OBJS:.o=.d) $(PE32_OBJS:.o=.d) $(SPEED_OBJS:.o=.d) \
+         $(SPEED_REFERENCE_OBJS:.o=.d)

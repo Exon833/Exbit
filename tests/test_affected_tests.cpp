@@ -50,6 +50,14 @@ int main() {
     CHECK(affected(root, "Makefile") == P + Q);             // the build itself: every test (failsafe)
     CHECK(affected(root, "data/skins/dark.css") == P + Q);  // shipped data: every test (failsafe)
     CHECK(affected(root, "src/new_file.cpp") == "");        // in no .d yet: nothing includes it
+    // the plugin speed benchmark: named for the bridge, the Wine host, the worker pool and the sound devices,
+    // which it times at run time without including them
+    put(root / "build/tests/test_plugin_speed.d", "build/tests/test_plugin_speed: tests/test_plugin_speed.cpp tests/check.h\n");
+    const std::string SPEED = "build/tests/test_plugin_speed\n";
+    for (const char* reached : {"src/plugins/bridge.h", "src/plugins/bridged.cpp", "src/winehost/host.cpp",
+                                "src/audio/workers.cpp", "src/audio/devices_alsa.cpp"})
+        CHECK(affected(root, reached) == SPEED);
+    CHECK(affected(root, "src/c/z.cpp") == Q);  // (and nothing else)
     // no .d files (nothing built yet): the tests can't be named, so the script says so
     fs::remove_all(root / "build/tests");
     CHECK(affected(root, "src/a/x.cpp").find("no .d files") != std::string::npos);
