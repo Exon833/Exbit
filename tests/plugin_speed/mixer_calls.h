@@ -13,8 +13,8 @@ namespace plugin_speed {
 bool buildSpeedProject(Project& project, const std::string& speedCase, const std::string& instrumentPath,
                        const std::string& effectPath, std::string& error);
 
-// per-buffer times (seconds) of the project mixed by mixer::mixClips on the engine's worker pool, on an audio thread
-// of its own, one list per FRAME_SIZES entry
+// per-buffer times (seconds) of the project mixed by mixer::mixClips on the benchmark's audio thread and worker pool
+// (benchmark_audio_thread.h), one list per FRAME_SIZES entry
 std::vector<std::vector<double>> timeMixerCalls(Project& project);
 
 }  // namespace plugin_speed

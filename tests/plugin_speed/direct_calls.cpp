@@ -7,10 +7,6 @@
 #include "plugins/plugin.h"
 #include "speed_settings.h"
 
-namespace audio::detail {
-void raiseThreadPriority();  // (the audio thread's priority: audio/devices.cpp, or reference_thread_priority.cpp)
-}
-
 namespace plugin_speed {
 
 namespace {
@@ -47,8 +43,7 @@ void renderDirectTrack(void* bufferPointer, int trackIndex) {
 }  // namespace
 
 std::vector<std::vector<double>> timeDirectCalls(const std::string& speedCase, const std::string& instrumentPath,
-                                                 const std::string& effectPath, std::string& error) {
-    audio::detail::raiseThreadPriority();  // (as the engine's audio thread)
+                                                 const std::string& effectPath, workers::Pool& pool, std::string& error) {
     std::vector<DirectTrack> tracks(speedCase == "eight" ? EIGHT_TRACKS : 1);
     for (auto& track : tracks) {
         track.instrument = plug::Plugin::load(instrumentPath, "", error);
@@ -63,7 +58,6 @@ std::vector<std::vector<double>> timeDirectCalls(const std::string& speedCase, c
     }
     std::vector<plug::NoteMessage> chord, none;
     for (int pitch : CHORD_PITCHES) chord.push_back({0, true, pitch, CHORD_VELOCITY, 0});
-    workers::Pool pool(workers::workersFor(0));  // (the engine's, as many workers as it would have)
     std::vector<std::vector<double>> timesPerSize;
     for (int frames : FRAME_SIZES) {
         for (auto& track : tracks) track.instrument->notesOff();

@@ -191,7 +191,8 @@ HOST_LIBS := -static -mconsole -lole32 -luser32 -lgdi32 -ladvapi32 -lws2_32 -luu
 # for Windows, as exbit-plugin-host.exe), built with MinGW and run under Wine or on Windows; without MinGW, the
 # benchmark of Windows plugins is skipped ---
 SPEED_OBJS := $(patsubst %.cpp,$(BUILD)/%.o,tests/plugin_speed/direct_calls.cpp tests/plugin_speed/paced_buffers.cpp \
-              tests/plugin_speed/buffer_stats.cpp tests/plugin_speed/mixer_calls.cpp tests/plugin_speed/reference_program.cpp)
+              tests/plugin_speed/buffer_stats.cpp tests/plugin_speed/mixer_calls.cpp tests/plugin_speed/reference_program.cpp \
+              tests/plugin_speed/benchmark_audio_thread.cpp)
 SPEED_REFERENCE := $(BUILD)/plugin-speed-reference.exe
 SPEED_REFERENCE_SRCS := tests/plugin_speed/reference_main.cpp tests/plugin_speed/reference_thread_priority.cpp \
                         tests/plugin_speed/direct_calls.cpp tests/plugin_speed/paced_buffers.cpp src/audio/workers.cpp \
@@ -342,6 +343,9 @@ $(BUILD)/tests/%$(EXE): tests/%.cpp $(LIB_OBJS) $(WIN_RES)
 # (test_plugin_speed: with its own code, tests/plugin_speed)
 $(BUILD)/tests/test_plugin_speed$(EXE): $(SPEED_OBJS)
 $(BUILD)/tests/test_plugin_speed$(EXE): LIB_OBJS += $(SPEED_OBJS)
+# (test_bridge_round_trip: the benchmark's pacing)
+$(BUILD)/tests/test_bridge_round_trip$(EXE): $(BUILD)/tests/plugin_speed/paced_buffers.o
+$(BUILD)/tests/test_bridge_round_trip$(EXE): LIB_OBJS += $(BUILD)/tests/plugin_speed/paced_buffers.o
 
 $(SPEED_REFERENCE): $(SPEED_REFERENCE_OBJS)
 	$(MINGW64) -o $@ $^ $(HOST_LIBS) -lavrt -lwinmm
@@ -353,7 +357,7 @@ build/speedreference/%.o: %.cpp
 # the tests that run on Windows (tools/wintests.sh builds and runs them there)
 WIN_TESTS := test_os test_gfx test_update_check test_icon_win test_model test_project_io test_ui_main test_workers test_midi_win test_wasapi_win \
              test_tui test_tui_console_win test_plugins_win test_window_win test_plugin_restore test_discord_presence test_old_name \
-             test_plugin_speed test_realtime_priority
+             test_plugin_speed test_realtime_priority test_bridge_round_trip
 tests-win: $(WIN_TESTS:%=$(BUILD)/tests/%$(EXE)) $(ALL_HOSTS) $(ALL_WIN_TEST) $(ALL_SPEED_REFERENCE)
 	@failed=""; for t in $(WIN_TESTS:%=$(BUILD)/tests/%$(EXE)); do echo "== $$t"; \
 	    EXBIT_PLUGIN_HOST=$(PLUGIN_HOST) EXBIT_PLUGIN_HOST32=$(if $(MINGW32),$(PLUGIN_HOST32)) \

@@ -95,6 +95,7 @@ long thisThreadId() { return (long)syscall(SYS_gettid); }
 // a stand-in system and rtkit: each step answers as told, and says it was taken
 struct FakeSystem {
     bool direct = false, rtkitThere = true, timeLimited = true, realtimeGranted = true, niceGranted = true;
+    int realtimeRefusalsFirst = 0;  // (rtkit's thread limit: this many real-time requests refused before the rest)
     realtime::RtkitLimits limits{20, -15, 200000};
     std::vector<std::string> steps;
 
@@ -119,8 +120,9 @@ struct FakeSystem {
         table.rtkitRealtime = [this](int processId, long threadId, int priority, std::string& error) {
             steps.push_back("realtime " + std::to_string(processId) + " " + std::to_string(threadId) + " " +
                             std::to_string(priority));
-            if (!realtimeGranted) error = "rtkit refused";
-            return realtimeGranted;
+            const bool granted = realtimeGranted && realtimeRefusalsFirst-- <= 0;
+            if (!granted) error = "rtkit refused";
+            return granted;
         };
         table.rtkitHighPriority = [this](int processId, long threadId, int niceLevel, std::string& error) {
             steps.push_back("nice " + std::to_string(processId) + " " + std::to_string(threadId) + " " +
@@ -193,6 +195,52 @@ void testPromotionOrder() {
         CHECK(system.taken() == "direct, limits");
         CHECK(realtime::describeOutcome(outcome) ==
               "not granted: the system allows none (ulimit -r is 0), and rtkit can't be reached");
+    }
+}
+
+// a plugin host refused real time (rtkit's limit of threads per user reached) takes a worker's place: the worker goes
+// back to normal priority and the host is asked again; refused still (rtkit's burst limit), the worker asks again
+void testHostOverWorker() {
+    {  // the worker's slot frees the host's
+        FakeSystem system;
+        system.realtimeRefusalsFirst = 1;
+        system.niceGranted = false;
+        std::vector<long> dropped;
+        realtime::Outcome worker;
+        realtime::Outcome host = realtime::promoteHostOverWorker(
+            200, 201, 100, 101, system.table(), system.table(), [&](long threadId) { return dropped.push_back(threadId), true; }, worker);
+        CHECK(host.realtime && dropped == std::vector<long>{101});
+        CHECK(!worker.realtime && contains(worker.whyNot, "plugin host"));
+        CHECK(system.taken() == "direct, limits, rttime 200 200000, realtime 200 201 20, nice 200 201 -15, "
+                                "direct, limits, rttime 200 200000, realtime 200 201 20");
+    }
+    {  // refused still: the worker asks for its place back
+        FakeSystem system;
+        system.realtimeRefusalsFirst = 2;
+        system.niceGranted = false;
+        realtime::Outcome worker;
+        realtime::Outcome host =
+            realtime::promoteHostOverWorker(200, 201, 100, 101, system.table(), system.table(), [](long) { return true; }, worker);
+        CHECK(!host.realtime && worker.realtime);
+        CHECK(contains(system.taken(), "realtime 200 201 20, nice 200 201 -15, direct, limits, rttime 100 200000, "
+                                       "realtime 100 101 20"));
+    }
+    {  // the host got real time at once: no worker touched
+        FakeSystem system;
+        bool touched = false;
+        realtime::Outcome worker;
+        realtime::Outcome host = realtime::promoteHostOverWorker(
+            200, 201, 100, 101, system.table(), system.table(), [&](long) { return touched = true; }, worker);
+        CHECK(host.realtime && !touched);
+    }
+    {  // the worker can't be dropped: the host stays refused, asked for once
+        FakeSystem system;
+        system.realtimeRefusalsFirst = 1;
+        system.niceGranted = false;
+        realtime::Outcome worker;
+        realtime::Outcome host =
+            realtime::promoteHostOverWorker(200, 201, 100, 101, system.table(), system.table(), [](long) { return false; }, worker);
+        CHECK(!host.realtime && system.taken() == "direct, limits, rttime 200 200000, realtime 200 201 20, nice 200 201 -15");
     }
 }
 
@@ -315,6 +363,8 @@ int main() {
 #ifndef _WIN32
     printf("== the order of the ways to real-time priority\n");
     testPromotionOrder();
+    printf("== a plugin host takes a worker's place\n");
+    testHostOverWorker();
     printf("== RLIMIT_RTTIME lowered\n");
     testRealtimeTimeLimit();
     printf("== on this machine\n");

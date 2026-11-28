@@ -29,6 +29,9 @@ void recordOutcome(ThreadRole role, int processId, long threadId, const Outcome&
 // "Workers: 15 of 15 granted (rtkit, 20)", "Plugin hosts: 2 of 2 granted (rtkit, 20)"
 std::string statusText();
 
+// a worker of process `processId` that is real time now (its thread id), 0 if there is none
+long realtimeWorkerOf(int processId);
+
 // (tests) forgets every outcome
 void forgetOutcomes();
 

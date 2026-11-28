@@ -1,18 +1,13 @@
 #include "mixer_calls.h"
 
-#include <thread>
-
 #include "audio/mixer.h"
 #include "audio/patch.h"
 #include "audio/workers.h"
 #include "model/model.h"
+#include "benchmark_audio_thread.h"
 #include "paced_buffers.h"
 #include "plugins/plugin.h"
 #include "speed_settings.h"
-
-namespace audio::detail {
-void raiseThreadPriority();  // (the audio thread's priority: audio/devices.cpp)
-}
 
 namespace plugin_speed {
 
@@ -62,9 +57,7 @@ bool buildSpeedProject(Project& project, const std::string& speedCase, const std
 
 std::vector<std::vector<double>> timeMixerCalls(Project& project) {
     std::vector<std::vector<double>> timesPerSize;
-    std::thread audioThread([&] {
-        audio::detail::raiseThreadPriority();
-        workers::Pool pool(workers::workersFor(0));  // (the engine's: audio/engine.cpp, automatic cores)
+    runOnAudioThread([&](workers::Pool& pool) {
         mixer::MixState state;
         state.pool = &pool;
         std::vector<float> output(4096 * 2);
@@ -76,7 +69,6 @@ std::vector<std::vector<double>> timeMixerCalls(Project& project) {
                                 SAMPLE_RATE, index == 0);
             }));
     });
-    audioThread.join();
     return timesPerSize;
 }
 

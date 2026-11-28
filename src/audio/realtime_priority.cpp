@@ -95,6 +95,16 @@ void recordOutcome(ThreadRole role, int processId, long threadId, const Outcome&
     recordedThreads[{processId, threadId}] = {role, outcome};
 }
 
+// a recorded worker of the process that is real time now (realtime_priority.h)
+long realtimeWorkerOf(int processId) {
+    std::lock_guard<std::mutex> hold(recordsLock);
+    for (const auto& [ids, thread] : recordedThreads)
+        if (thread.role == ThreadRole::Worker && ids.first == processId && threadStillRunning(ids.first, ids.second) &&
+            outcomeNow(ids.second, thread.outcome).realtime)
+            return ids.second;
+    return 0;
+}
+
 std::string statusText() {
     std::vector<Outcome> deviceThreads, workerThreads, hostThreads;
     {

@@ -29,6 +29,15 @@ struct PromotionSteps {
 // runs the order for thread `threadId` (a Linux thread id) of process `processId`
 Outcome promoteThread(int processId, long threadId, const PromotionSteps& steps);
 
+// a plugin host's audio thread refused real time takes the place of a worker that has it: rtkit allows only so many
+// real-time threads per user (25 by default), and a host left at normal priority loses its core to the real-time
+// workers while the buffer waits for it. dropWorker(workerThreadId) puts the worker back to normal priority (false: it
+// can't, and nothing more is asked), the host is asked again, and if it is refused still (rtkit's burst limit, not its
+// thread limit) the worker asks for its place back. Returns the host's outcome; workerOutcome is the worker's if dropped
+Outcome promoteHostOverWorker(int hostProcessId, long hostThreadId, int workerProcessId, long workerThreadId,
+                              const PromotionSteps& hostSteps, const PromotionSteps& workerSteps,
+                              const std::function<bool(long workerThreadId)>& dropWorker, Outcome& workerOutcome);
+
 // the system's own steps (rtkit, RLIMIT_RTTIME), with this as step 1
 PromotionSteps systemSteps(std::function<bool(int& priority)> askDirectly);
 

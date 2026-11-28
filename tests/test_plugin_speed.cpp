@@ -14,16 +14,19 @@
 // Checked, for Windows plugins: the overhead at most 5% of the reference's median at 256 and 1024 frames, and no
 // buffer of one instance over its deadline at 64 frames. A side whose plugins, Wine or MinGW are missing is skipped.
 // EXBIT_SPEED_TARGET=<text> and EXBIT_SPEED_CASE=<text> measure only the targets or cases whose name holds it.
+#include <chrono>
 #include <cstdlib>
 #include <iterator>
 #include <thread>
 
 #include "audio/engine.h"
+#include "audio/realtime_priority.h"
 #include "audio/workers.h"
 #include "check.h"
 #include "core/util.h"
 #include "model/model.h"
 #include "platform/platform.h"
+#include "plugin_speed/benchmark_audio_thread.h"
 #include "plugin_speed/buffer_stats.h"
 #include "plugin_speed/direct_calls.h"
 #include "plugin_speed/mixer_calls.h"
@@ -94,6 +97,27 @@ void reportAndCheck(const SpeedTarget& target, const std::string& speedCase, int
     }
 }
 
+// waits (up to a minute) until every plugin host's audio thread is real time, as the engine's own threads are: rtkit
+// refuses what goes past its 25 requests per 20 s and Exbit asks again a window later (audio/realtime_promotion.h),
+// and a host left at normal priority loses its core to the real-time workers, which would be measured instead
+void waitForRealtimeHosts() {
+    const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+    for (bool said = false;; said = true) {
+        const std::string status = realtime::statusText();
+        const size_t line = status.find("Plugin hosts: ");
+        int granted = 0, hosts = 0;
+        if (line == std::string::npos ||
+            (sscanf(status.c_str() + line, "Plugin hosts: %d of %d", &granted, &hosts) == 2 && granted == hosts))
+            return;
+        if (std::chrono::steady_clock::now() > until) {
+            printf("   (not every plugin host got real time: %d of %d)\n", granted, hosts);
+            return;
+        }
+        if (!said) printf("   (waiting for rtkit to grant every plugin host real time: %d of %d so far)\n", granted, hosts);
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+}
+
 // every case of the target: Exbit's side and the reference's, REPEATS runs each in turn, reported and checked
 void measureTarget(const SpeedTarget& target) {
     printf("== %s\n", target.name.c_str());
@@ -114,11 +138,13 @@ void measureTarget(const SpeedTarget& target) {
                     error = "a plugin didn't load in Exbit: " + error;
                     break;
                 }
+                waitForRealtimeHosts();
                 exbit = timeMixerCalls(project);
             }
             if (target.referenceCommand.empty()) {
-                std::thread audioThread([&] { reference = timeDirectCalls(speedCase, target.instrument, target.effect, error); });
-                audioThread.join();
+                runOnAudioThread([&](workers::Pool& pool) {
+                    reference = timeDirectCalls(speedCase, target.instrument, target.effect, pool, error);
+                });
             } else {
                 auto command = target.referenceCommand;
                 command.insert(command.end(), {speedCase, target.referenceInstrument, target.referenceEffect});

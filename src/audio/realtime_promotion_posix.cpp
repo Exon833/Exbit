@@ -2,6 +2,7 @@
 
 #include <pthread.h>
 #include <sched.h>
+#include <sys/resource.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
@@ -47,6 +48,13 @@ bool currentRealtimePriority(long threadId, int& priority) {
 
 // the calling thread's Linux thread id
 long callingThreadId() { return (long)syscall(SYS_gettid); }
+
+// thread `threadId` of this process back to normal priority (SCHED_OTHER, nice 0: rtkit then no longer counts it)
+bool dropToNormalPriority(long threadId) {
+    sched_param parameters{};  // (SCHED_RESET_ON_FORK kept: rtkit set it, and only a privileged thread may clear it)
+    return sched_setscheduler((pid_t)threadId, SCHED_OTHER | SCHED_RESET_ON_FORK, &parameters) == 0 &&
+           setpriority(PRIO_PROCESS, (id_t)threadId, 0) == 0;
+}
 
 // rtkit answers at most 25 requests per user in 20 s (more audio threads than that, or a burst of plugin hosts, are
 // refused as "busy"): the threads refused are asked for again, a window later, a few times
@@ -158,9 +166,25 @@ Outcome raiseCallingThread(ThreadRole role) {
 
 Outcome raisePluginHostThread(int processId, long threadId) {
     // (step 1: the host asked for SCHED_FIFO itself; it may have got it)
-    Outcome outcome = promoteThread(processId, threadId, systemSteps([threadId](int& priority) {
-                                        return currentRealtimePriority(threadId, priority);
-                                    }));
+    const PromotionSteps hostSteps =
+        systemSteps([threadId](int& priority) { return currentRealtimePriority(threadId, priority); });
+    const long worker = realtimeWorkerOf(getpid());
+    Outcome outcome;
+    if (worker == 0) {
+        outcome = promoteThread(processId, threadId, hostSteps);
+    } else {  // (refused, it takes that worker's place: realtime_promotion.h)
+        bool dropped = false;
+        Outcome workerOutcome;
+        outcome = promoteHostOverWorker(
+            processId, threadId, getpid(), worker, hostSteps,
+            systemSteps([worker](int& priority) { return currentRealtimePriority(worker, priority); }),
+            [&dropped](long workerThreadId) { return dropped = dropToNormalPriority(workerThreadId); }, workerOutcome);
+        if (dropped) {
+            recordOutcome(ThreadRole::Worker, getpid(), worker, workerOutcome);
+            if (workerOutcome.realtime) demoteOnOverrun(worker);
+            else if (!outcome.realtime) askAgainLater(getpid(), worker, ThreadRole::Worker);  // (both refused: a burst)
+        }
+    }
     recordOutcome(ThreadRole::PluginHost, processId, threadId, outcome);
     if (!outcome.realtime) askAgainLater(processId, threadId, ThreadRole::PluginHost);
     return outcome;

@@ -6,8 +6,13 @@
 #include <cstdio>
 #include <string>
 
+#include "audio/workers.h"
 #include "direct_calls.h"
 #include "speed_settings.h"
+
+namespace audio::detail {
+void raiseThreadPriority();  // (reference_thread_priority.cpp)
+}
 
 int main(int argc, char** argv) {
     if (argc != 4) {
@@ -15,7 +20,9 @@ int main(int argc, char** argv) {
         return 2;
     }
     std::string error;
-    auto timesPerSize = plugin_speed::timeDirectCalls(argv[1], argv[2], argv[3], error);
+    audio::detail::raiseThreadPriority();  // (as the engine's audio thread)
+    workers::Pool pool(workers::workersFor(0));  // (the engine's, as many workers as it would have)
+    auto timesPerSize = plugin_speed::timeDirectCalls(argv[1], argv[2], argv[3], pool, error);
     if (timesPerSize.empty()) {
         fprintf(stderr, "plugin-speed-reference: %s\n", error.c_str());
         return 1;
