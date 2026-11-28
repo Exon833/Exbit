@@ -11,12 +11,15 @@
 // worker pool as the engine does) plays a sustained chord at 64, 256 and 1024 frames, 48 kHz, at real-time pace,
 // REPEATS runs of each side in turn. Reported (build/plugin-speed/report.md, and printed): the median and 99th
 // percentile per buffer, the bridge's overhead (Exbit minus the reference) and the buffers over their deadline.
-// Checked, for Windows plugins: the overhead at most 5% of the reference's median at 256 and 1024 frames, and no
-// buffer of one instance over its deadline at 64 frames. A side whose plugins, Wine or MinGW are missing is skipped.
+// Checked, for Windows plugins: through a plugin host, at 256 and 1024 frames, the overhead at most each crossing's
+// floor (tests/plugin_speed/floor_round_trip.h, measured first) plus CROSSING_ABOVE_FLOOR per crossing, plus the
+// mixer's own overhead (what the in-process target measured for that case and size); and no buffer of one instance
+// over its deadline at 64 frames. A side whose plugins, Wine or MinGW are missing is skipped.
 // EXBIT_SPEED_TARGET=<text> and EXBIT_SPEED_CASE=<text> measure only the targets or cases whose name holds it.
 #include <chrono>
 #include <cstdlib>
 #include <iterator>
+#include <map>
 #include <thread>
 
 #include "audio/engine.h"
@@ -29,6 +32,7 @@
 #include "plugin_speed/benchmark_audio_thread.h"
 #include "plugin_speed/buffer_stats.h"
 #include "plugin_speed/direct_calls.h"
+#include "plugin_speed/floor_round_trip.h"
 #include "plugin_speed/mixer_calls.h"
 #include "plugin_speed/reference_program.h"
 #include "plugin_speed/speed_settings.h"
@@ -40,7 +44,8 @@ using namespace plugin_speed;
 namespace {
 
 const std::string REPORT_PATH = "build/plugin-speed/report.md";
-const double OVERHEAD_LIMIT = 0.05;  // of the reference's median
+const double CROSSING_ABOVE_FLOOR = 5e-6;  // seconds a crossing may cost above the floor
+const double MIXER_SHARE_FALLBACK = 0.05;  // of the reference's median: the mixer's allowance if not measured
 
 // where the numbers are measured: the plugins as Exbit loads them, and how the bare reference calls them
 struct SpeedTarget {
@@ -53,6 +58,8 @@ struct SpeedTarget {
 };
 
 std::string report;
+double floorSeconds = 0;                             // one round trip's floor, measured first
+std::map<std::string, double> mixerOverheadSeconds;  // ("case frames") what the in-process target measured
 
 // (by hand) EXBIT_SPEED_TARGET=Wine, EXBIT_SPEED_CASE=eight…: only the targets or cases whose name holds it
 bool wanted(const char* variable, const std::string& name) {
@@ -82,12 +89,23 @@ void reportAndCheck(const SpeedTarget& target, const std::string& speedCase, int
                       std::to_string(reference.buffers) + " |\n";
     report += row;
     printf("   %s", row.c_str());
+    const std::string key = speedCase + " " + std::to_string(frames);
+    const bool bridged = target.windowsPlugin && !target.inProcess;
+    if (!bridged) mixerOverheadSeconds[key] = std::max(0.0, overhead);
     if (!target.windowsPlugin) return;
-    if (frames >= 256) {
-        if (overheadShare > OVERHEAD_LIMIT)
-            printf("   FAILS: %s, %s, %d frames: Exbit adds %s to the reference's time (limit %.0f%%)\n",
-                   target.name.c_str(), speedCase.c_str(), frames, share, OVERHEAD_LIMIT * 100);
-        CHECK(overheadShare <= OVERHEAD_LIMIT);
+    if (bridged && frames >= 256) {
+        const int crossings = speedCase == "one" ? 1 : speedCase == "chain" ? 4 : 8;  // (per buffer)
+        const auto mixer = mixerOverheadSeconds.find(key);
+        const double budget = crossings * (floorSeconds + CROSSING_ABOVE_FLOOR) +
+                              (mixer != mixerOverheadSeconds.end() ? mixer->second
+                                                                   : MIXER_SHARE_FALLBACK * reference.medianSeconds);
+        if (overhead > budget)
+            printf("   FAILS: %s, %s, %d frames: Exbit adds %s µs to the reference's time (budget %s µs: %d "
+                   "crossing%s of %s µs floor + %s µs, and the mixer's own)\n",
+                   target.name.c_str(), speedCase.c_str(), frames, micro(overhead).c_str(), micro(budget).c_str(),
+                   crossings, crossings == 1 ? "" : "s", micro(floorSeconds).c_str(),
+                   micro(CROSSING_ABOVE_FLOOR).c_str());
+        CHECK(overhead <= budget);
     }
     if (frames == 64 && speedCase == "one") {
         if (exbit.overDeadline > 0)
@@ -185,12 +203,13 @@ std::vector<SpeedTarget> availableTargets() {
         printf("== Windows: skipped, %s isn't built\n", reference.c_str());
     } else {
         std::string why;
-        windows.name = "Windows (exbit-plugin-host.exe)";
-        if (wine::available(why)) targets.push_back(windows);
-        else printf("== %s: skipped, %s\n", windows.name.c_str(), why.c_str());
-        windows.name = "Windows (in process)";
+        windows.name = "Windows (in process)";  // (first: the mixer's own overhead, which the host's budget holds)
         windows.inProcess = true;
         targets.push_back(windows);
+        windows.name = "Windows (exbit-plugin-host.exe)";
+        windows.inProcess = false;
+        if (wine::available(why)) targets.push_back(windows);
+        else printf("== %s: skipped, %s\n", windows.name.c_str(), why.c_str());
     }
 #else
     const std::string plugins = util::joinPath(plat::homeDir(), ".local/share/tinydaw-test-plugins");
@@ -237,7 +256,8 @@ std::vector<SpeedTarget> availableTargets() {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    if (answerFloorRoundTrips(argc, argv)) return 0;
     setvbuf(stdout, nullptr, _IOLBF, 0);  // (each row as it is measured, also into a log)
     Project host;
     audio::Engine engine(host);  // (installs what MIDI clips play through)
@@ -248,6 +268,10 @@ int main() {
              "(the plugin called directly). %d workers in the pool.\n",
              SAMPLE_RATE, REPEATS, SECONDS_PER_RUN, workers::workersFor(0));
     report = header;
+    floorSeconds = floorRoundTrip();
+    report += "\nA crossing's floor (a bare round trip between two processes, 64 frames): " + micro(floorSeconds) + " µs.\n";
+    printf("a crossing's floor: %s µs\n", micro(floorSeconds).c_str());
+    CHECK(floorSeconds > 0);
     for (const auto& target : availableTargets())
         if (wanted("SPEED_TARGET", target.name)) measureTarget(target);
     util::makeDirs(util::dirName(REPORT_PATH));

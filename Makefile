@@ -192,7 +192,7 @@ HOST_LIBS := -static -mconsole -lole32 -luser32 -lgdi32 -ladvapi32 -lws2_32 -luu
 # benchmark of Windows plugins is skipped ---
 SPEED_OBJS := $(patsubst %.cpp,$(BUILD)/%.o,tests/plugin_speed/direct_calls.cpp tests/plugin_speed/paced_buffers.cpp \
               tests/plugin_speed/buffer_stats.cpp tests/plugin_speed/mixer_calls.cpp tests/plugin_speed/reference_program.cpp \
-              tests/plugin_speed/benchmark_audio_thread.cpp)
+              tests/plugin_speed/benchmark_audio_thread.cpp tests/plugin_speed/floor_round_trip.cpp)
 SPEED_REFERENCE := $(BUILD)/plugin-speed-reference.exe
 SPEED_REFERENCE_SRCS := tests/plugin_speed/reference_main.cpp tests/plugin_speed/reference_thread_priority.cpp \
                         tests/plugin_speed/direct_calls.cpp tests/plugin_speed/paced_buffers.cpp src/audio/workers.cpp \
@@ -343,9 +343,10 @@ $(BUILD)/tests/%$(EXE): tests/%.cpp $(LIB_OBJS) $(WIN_RES)
 # (test_plugin_speed: with its own code, tests/plugin_speed)
 $(BUILD)/tests/test_plugin_speed$(EXE): $(SPEED_OBJS)
 $(BUILD)/tests/test_plugin_speed$(EXE): LIB_OBJS += $(SPEED_OBJS)
-# (test_bridge_round_trip: the benchmark's pacing)
-$(BUILD)/tests/test_bridge_round_trip$(EXE): $(BUILD)/tests/plugin_speed/paced_buffers.o
-$(BUILD)/tests/test_bridge_round_trip$(EXE): LIB_OBJS += $(BUILD)/tests/plugin_speed/paced_buffers.o
+# (test_bridge_round_trip: the benchmark's pacing and its floor)
+ROUND_TRIP_OBJS := $(BUILD)/tests/plugin_speed/paced_buffers.o $(BUILD)/tests/plugin_speed/floor_round_trip.o
+$(BUILD)/tests/test_bridge_round_trip$(EXE): $(ROUND_TRIP_OBJS)
+$(BUILD)/tests/test_bridge_round_trip$(EXE): LIB_OBJS += $(ROUND_TRIP_OBJS)
 
 $(SPEED_REFERENCE): $(SPEED_REFERENCE_OBJS)
 	$(MINGW64) -o $@ $^ $(HOST_LIBS) -lavrt -lwinmm
